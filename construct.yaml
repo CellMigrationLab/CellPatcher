@@ -15,6 +15,7 @@ extra_files:
 - app/python_scripts/hide_code_cells.py: CellPatcher/hide_code_cells.py
 - app/python_scripts/include_path.py: CellPatcher/include_path.py
 - construct.yaml: CellPatcher/construct.yaml
+- notebooks/CellPatcher/CellPatcher.ipynb: CellPatcher/notebooks/CellPatcher/CellPatcher.ipynb
 - notebooks/notebook_latest_versions.yaml: CellPatcher/notebook_latest_versions.yaml
 - requirements.txt: CellPatcher/requirements.txt
 post_install: app/bash_bat_scripts/post_install.bat # [win]
