@@ -45,19 +45,19 @@ Once uploaded, your external code will be available to your notebooks as a packa
 
 **Import the whole package:**
 ```python  
-import PYTHON_PROJ_NAME
+import cellpatcher
 ```
 
 If your folder under `src/` is called `celltools`, then `import celltools` will work because `src/celltools/__init__.py` exists.
 
 **Import function:**
 ```python  
-from PYTHON_PROJ_NAME import my_script
+from cellpatcher import my_script
 ```
 
 **Import submodule:**
 ```python  
-from PYTHON_PROJ_NAME import subpackage
+from cellpatcher import subpackage
 ```
 
 ---
