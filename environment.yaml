@@ -1,4 +1,4 @@
-name: LOWER_PROJ_NAME
+name: cellpatcher
 channels:
   - conda-forge
   - bioconda
