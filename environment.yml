@@ -14,3 +14,4 @@ dependencies:
   - joblib==1.5.3
   - tifffile==2026.3.3
   - jl-hidecode==0.0.1
+  - jupyterlab-filesystem-access==0.7.0
