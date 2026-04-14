@@ -1,5 +1,5 @@
 {
-  "id": "12066472023914",
+  "id": "7568430129894034",
   "lockVersion": "1.0.3",
   "platform": "emscripten-wasm32",
   "specs": [
@@ -651,6 +651,17 @@
       "hash": {
         "md5": "3c4033bde4df2d0c252c47e803c98ba7",
         "sha256": "a1035376545292497b0751496032a9d65adf40202f96d1298c752d3869ccb20b"
+      }
+    },
+    "jupyterlab_filesystem_access-0.7.0-py3-none-any.whl": {
+      "name": "jupyterlab-filesystem-access",
+      "version": "0.7.0",
+      "url": "https://files.pythonhosted.org/packages/a2/a3/3a8a2aac04d2b23888a1922df3db82aac7124b41f2fdfa65371513f106ca/jupyterlab_filesystem_access-0.7.0-py3-none-any.whl",
+      "size": 21906,
+      "registry": "PyPi",
+      "hash": {
+        "md5": "f3bb84c07103c38fc341ae06da33f639",
+        "sha256": "276a24c7771fb5ec65de2bfebc6ba6413595a787f6c8b03ac801705e845a2ab4"
       }
     }
   }
