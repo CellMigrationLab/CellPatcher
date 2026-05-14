@@ -10,6 +10,7 @@ class PatchRegion:
     y1: int = 0
     x0: int = 0
     x1: int = 0
+    # Reserved for future multidimensional workflows (Z-stack, time-series, channel selection).
     z0: int | None = None
     z1: int | None = None
     t: int | None = None
@@ -20,6 +21,7 @@ class PatchRegion:
     center_z: float | None = None
     touches_border: bool = False
     area_px: int | None = None
+    # Reserved for future rejected-patch reporting (e.g. background suppression reason).
     valid: bool = True
     reason: str | None = None
 

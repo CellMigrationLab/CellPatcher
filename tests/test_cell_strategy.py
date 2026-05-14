@@ -113,7 +113,7 @@ def test_labels_shape_mismatch_raises():
 
 
 def test_3d_labels_without_mask_channel_raises():
-    s = CellSegmentationStrategy(CellConfig(mask_channel=None))
+    s = CellSegmentationStrategy(CellConfig(mask_channel=None), mask_axes="CYX")
     with pytest.raises(ValueError):
         s.generate_regions(image_shape=(5, 5), labels=np.zeros((2, 5, 5)))
 
@@ -121,13 +121,63 @@ def test_3d_labels_without_mask_channel_raises():
 def test_3d_labels_with_valid_mask_channel_works():
     labels = np.zeros((2, 5, 5), dtype=int)
     labels[1, 2:4, 2:4] = 1
-    s = CellSegmentationStrategy(CellConfig(mask_channel=1, exclude_border=False))
+    s = CellSegmentationStrategy(CellConfig(mask_channel=1, exclude_border=False), mask_axes="CYX")
     patches = s.generate_regions(image_shape=(5, 5), labels=labels)
     assert len(patches) == 1
 
 
 def test_invalid_mask_channel_raises():
     labels = np.zeros((2, 5, 5), dtype=int)
-    s = CellSegmentationStrategy(CellConfig(mask_channel=3))
+    s = CellSegmentationStrategy(CellConfig(mask_channel=3), mask_axes="CYX")
     with pytest.raises(ValueError):
         s.generate_regions(image_shape=(5, 5), labels=labels)
+
+
+# ---------------------------------------------------------------------------
+# mask_axes-aware channel selection tests
+# ---------------------------------------------------------------------------
+
+def test_cyx_mask_selects_correct_channel():
+    """CYX layout: channel axis is 0. mask_channel=1 picks labels[1]."""
+    labels = np.zeros((3, 6, 6), dtype=int)
+    labels[1, 2:4, 2:4] = 7  # only channel 1 has an object
+    s = CellSegmentationStrategy(CellConfig(mask_channel=1, exclude_border=False), mask_axes="CYX")
+    patches = s.generate_regions(image_shape=(6, 6), labels=labels)
+    assert len(patches) == 1
+    assert patches[0].label_id == 7
+
+
+def test_yxc_mask_selects_correct_channel():
+    """YXC layout: channel axis is 2. mask_channel=2 picks labels[:,:,2].
+    Under the old channel-first assumption this would wrongly look at axis 0.
+    """
+    labels = np.zeros((6, 6, 3), dtype=int)
+    labels[2:4, 2:4, 2] = 5  # only channel index 2 (last axis) has an object
+    s = CellSegmentationStrategy(CellConfig(mask_channel=2, exclude_border=False), mask_axes="YXC")
+    patches = s.generate_regions(image_shape=(6, 6), labels=labels)
+    assert len(patches) == 1
+    assert patches[0].label_id == 5
+
+
+def test_multidim_labels_without_c_axis_raises():
+    """mask_axes='YXZ' has no C axis — must raise ValueError."""
+    labels = np.zeros((6, 6, 2), dtype=int)
+    s = CellSegmentationStrategy(CellConfig(mask_channel=0), mask_axes="YXZ")
+    with pytest.raises(ValueError, match="C"):
+        s.generate_regions(image_shape=(6, 6), labels=labels)
+
+
+def test_multidim_labels_with_mask_channel_none_raises():
+    """3D labels with mask_axes='CYX' but mask_channel=None must raise ValueError."""
+    labels = np.zeros((2, 6, 6), dtype=int)
+    s = CellSegmentationStrategy(CellConfig(mask_channel=None), mask_axes="CYX")
+    with pytest.raises(ValueError, match="mask_channel"):
+        s.generate_regions(image_shape=(6, 6), labels=labels)
+
+
+def test_out_of_range_mask_channel_raises():
+    """mask_channel=5 for a C axis of size 2 must raise ValueError."""
+    labels = np.zeros((2, 6, 6), dtype=int)
+    s = CellSegmentationStrategy(CellConfig(mask_channel=5), mask_axes="CYX")
+    with pytest.raises(ValueError, match="out of bounds"):
+        s.generate_regions(image_shape=(6, 6), labels=labels)

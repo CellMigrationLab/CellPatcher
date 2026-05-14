@@ -103,7 +103,6 @@ def _maybe_extract_arrays(config: CellPatcherConfig, image_list, patches: list[P
                 axes=config.common.image_axes,
                 output_size=config.extraction.output_size,
                 order=config.extraction.resize_order,
-                keep_range=config.extraction.keep_range,
             )
         extracted.extend(per_image_arrays)
     return extracted
@@ -184,7 +183,7 @@ def run_patching(images=None, masks=None, config=None) -> PatchingResult:
         if len(image_list) != len(mask_list):
             raise ValueError("Number of images and masks must match for mode 'cell'.")
 
-        strategy = CellSegmentationStrategy(config.cell)
+        strategy = CellSegmentationStrategy(config.cell, mask_axes=config.common.mask_axes)
         patches: list[PatchRegion] = []
         for idx, (image, mask) in enumerate(zip(image_list, mask_list)):
             image_id = f"image_{idx:04d}"

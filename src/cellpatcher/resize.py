@@ -28,7 +28,7 @@ def _resize_nearest_fallback(array: np.ndarray, y_idx: int, x_idx: int, out_h: i
     return out
 
 
-def resize_patch(patch, *, axes: str = "YX", output_size=None, order: int = 1, keep_range: bool = True):
+def resize_patch(patch, *, axes: str = "YX", output_size=None, order: int = 1):
     array = np.asarray(patch)
     normalized_axes = normalize_axes(axes, array.ndim)
     y_idx, x_idx = require_spatial_axes(normalized_axes)
@@ -39,8 +39,6 @@ def resize_patch(patch, *, axes: str = "YX", output_size=None, order: int = 1, k
 
     if not isinstance(order, int) or order < 0:
         raise ValueError("order must be an int >= 0.")
-    if not isinstance(keep_range, bool):
-        raise ValueError("keep_range must be a bool.")
 
     out_h, out_w = out_size
     in_h = array.shape[y_idx]
@@ -60,8 +58,8 @@ def resize_patch(patch, *, axes: str = "YX", output_size=None, order: int = 1, k
         return _resize_nearest_fallback(array, y_idx, x_idx, out_h, out_w)
 
 
-def resize_patches(patches, *, axes: str = "YX", output_size=None, order: int = 1, keep_range: bool = True) -> list[np.ndarray]:
+def resize_patches(patches, *, axes: str = "YX", output_size=None, order: int = 1) -> list[np.ndarray]:
     return [
-        resize_patch(p, axes=axes, output_size=output_size, order=order, keep_range=keep_range)
+        resize_patch(p, axes=axes, output_size=output_size, order=order)
         for p in patches
     ]

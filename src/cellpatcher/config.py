@@ -8,11 +8,6 @@ class CommonConfig:
     preserve_non_spatial_axes: bool = True
     output_dir: str | None = None
     extract_arrays: bool = False
-    n_workers: int = 1
-
-    def __post_init__(self) -> None:
-        if self.n_workers < 1:
-            raise ValueError("n_workers must be >= 1.")
 
 
 @dataclass
@@ -98,16 +93,12 @@ class ExportConfig:
 class ExtractionConfig:
     pad_mode: str = "clip"
     constant_values: float = 0.0
-    preserve_non_spatial_axes: bool = True
     output_size: int | tuple[int, int] | None = None
     resize_order: int = 1
-    keep_range: bool = True
 
     def __post_init__(self) -> None:
         if self.pad_mode not in {"clip", "constant"}:
             raise ValueError("pad_mode must be either 'clip' or 'constant'.")
-        if not isinstance(self.preserve_non_spatial_axes, bool):
-            raise ValueError("preserve_non_spatial_axes must be a bool.")
 
         if self.output_size is not None:
             if isinstance(self.output_size, int):
@@ -122,8 +113,6 @@ class ExtractionConfig:
 
         if not isinstance(self.resize_order, int) or self.resize_order < 0:
             raise ValueError("resize_order must be an int >= 0.")
-        if not isinstance(self.keep_range, bool):
-            raise ValueError("keep_range must be a bool.")
 
 
 @dataclass
