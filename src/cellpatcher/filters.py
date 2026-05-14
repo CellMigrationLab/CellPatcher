@@ -5,6 +5,14 @@ from cellpatcher.extract import extract_patch
 
 
 def compute_threshold(image, threshold):
+    """Resolve a scalar foreground threshold from an image and threshold spec.
+
+    Note:
+        The threshold is computed over *all* values in ``image`` after ``np.asarray``.
+        For multidimensional arrays (e.g. ``CYX``, ``TCZYX``), this includes all channels
+        and non-spatial axes. No per-channel projection/selection is performed here.
+        If channel-specific filtering is needed, pass a preselected/projection image.
+    """
     arr = np.asarray(image)
     if threshold is None:
         return None
@@ -35,6 +43,12 @@ def compute_threshold(image, threshold):
 
 
 def foreground_fraction(patch, threshold) -> float:
+    """Return fraction of values in ``patch`` above ``threshold``.
+
+    Note:
+        The fraction is computed over *all* values in the extracted patch (including
+        channel/z/time axes when present). No per-channel reduction policy exists yet.
+    """
     if threshold is None:
         raise ValueError("threshold is required for foreground_fraction.")
     arr = np.asarray(patch)
@@ -42,6 +56,13 @@ def foreground_fraction(patch, threshold) -> float:
 
 
 def filter_regions(image, regions, config: FilterConfig, *, axes: str = "YX", pad_mode: str = "clip", constant_values=0):
+    """Filter regions by intensity and/or foreground fraction.
+
+    Current semantics are intentionally simple:
+    - threshold statistics are computed over the full ``image`` array;
+    - foreground fraction is computed over all values of each extracted patch.
+    Users needing channel-specific behavior should pass a projected/selected image.
+    """
     if (
         config.min_foreground_fraction is None
         and config.foreground_threshold is None

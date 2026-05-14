@@ -1,21 +1,12 @@
-from cellpatcher.strategies.base import BasePatchStrategy
+from cellpatcher.strategies.base import BasePatchStrategy, _spatial_shape_from_axes
 from cellpatcher.types import PatchRegion
 
 
 class WholeFOVStrategy(BasePatchStrategy):
     mode = "whole_fov"
 
-    def __init__(self, config=None) -> None:
-        self.config = config
-
-    def generate_regions(self, *, image_shape, labels=None, image_id=None) -> list[PatchRegion]:
-        if len(image_shape) < 2:
-            raise ValueError("image_shape must have at least 2 dimensions (Y, X).")
-
-        y_size = int(image_shape[-2])
-        x_size = int(image_shape[-1])
-        if y_size <= 0 or x_size <= 0:
-            raise ValueError(f"Spatial dimensions must be positive, got Y={y_size}, X={x_size}.")
+    def generate_regions(self, *, image_shape, labels=None, image_id=None, axes: str = "YX") -> list[PatchRegion]:
+        y_size, x_size = _spatial_shape_from_axes(image_shape, axes=axes)
 
         patch_id = f"{image_id}_whole_fov_0" if image_id is not None else "whole_fov_0"
         return [

@@ -81,17 +81,65 @@ def read_array_shape(file_path) -> tuple[int, ...]:
     return tuple(read_array(file_path).shape)
 
 
-def find_candidate_matches(image_files, mask_files) -> dict[Path, list[Path]]:
-    mask_names = {Path(m): Path(m).stem.lower() for m in mask_files}
+def find_candidate_matches(
+    image_files,
+    mask_files,
+    *,
+    strategy="exact_or_suffix",
+    mask_suffixes=("_mask", "_labels", "_label", "_seg", "_segmentation"),
+    case_sensitive=False,
+) -> dict[Path, list[Path]]:
+    """Find candidate mask matches for each image path.
+
+    Matching strategies:
+    - ``exact``: image stem == mask stem
+    - ``exact_or_suffix`` (default): exact stem or exact stem + allowed suffix
+    - ``substring``: legacy permissive behavior (``image_stem in mask_stem``)
+
+    Note:
+        ``substring`` can false-match names such as ``img1`` and ``img10_mask``.
+        Prefer ``exact_or_suffix`` for most datasets.
+    """
+    if strategy not in {"exact", "exact_or_suffix", "substring"}:
+        raise ValueError("strategy must be one of: 'exact', 'exact_or_suffix', 'substring'.")
+    if not isinstance(mask_suffixes, (tuple, list)) or not all(isinstance(value, str) for value in mask_suffixes):
+        raise ValueError("mask_suffixes must be a tuple/list of strings.")
+    if not isinstance(case_sensitive, bool):
+        raise ValueError("case_sensitive must be a bool.")
+
+    normalize = (lambda value: value) if case_sensitive else (lambda value: value.lower())
+    suffixes = tuple(normalize(value) for value in mask_suffixes)
+    mask_names = {Path(m): normalize(Path(m).stem) for m in mask_files}
     out = {}
     for image in image_files:
         image = Path(image)
-        key = image.stem.lower()
-        out[image] = [m for m, mname in mask_names.items() if key in mname]
+        key = normalize(image.stem)
+        matches: list[Path] = []
+        for mask_path, mask_name in mask_names.items():
+            if strategy == "exact":
+                if mask_name == key:
+                    matches.append(mask_path)
+            elif strategy == "exact_or_suffix":
+                if mask_name == key or any(mask_name == f"{key}{suffix}" for suffix in suffixes):
+                    matches.append(mask_path)
+            else:  # substring compatibility
+                if key in mask_name:
+                    matches.append(mask_path)
+        out[image] = matches
     return out
 
 
 def filter_shared_matches(candidate_matches) -> dict[Path, list[Path]]:
+    """Prune shared candidates when an image has exclusive alternatives.
+
+    Candidate generation can produce masks shared across multiple images.
+    For images with multiple candidates, shared masks are removed if that image
+    also has at least one exclusive (image-unique) candidate. This pruning is
+    repeated until stable.
+
+    Any remaining ambiguity is handled later by
+    ``validate_image_and_mask_folders``.
+    """
     filtered = {img: list(matches) for img, matches in candidate_matches.items()}
 
     changed = True
@@ -113,11 +161,28 @@ def filter_shared_matches(candidate_matches) -> dict[Path, list[Path]]:
     return filtered
 
 
-def validate_image_and_mask_folders(image_folder_path, mask_folder_path) -> dict[Path, Path]:
+def validate_image_and_mask_folders(
+    image_folder_path,
+    mask_folder_path,
+    *,
+    strategy="exact_or_suffix",
+    mask_suffixes=("_mask", "_labels", "_label", "_seg", "_segmentation"),
+    case_sensitive=False,
+) -> dict[Path, Path]:
     image_files = list_supported_files(image_folder_path)
     mask_files = list_supported_files(mask_folder_path)
+    if len(image_files) == 0:
+        raise ValueError("No supported image files found in image folder.")
+    if len(mask_files) == 0:
+        raise ValueError("No supported mask files found in mask folder.")
 
-    candidate = find_candidate_matches(image_files, mask_files)
+    candidate = find_candidate_matches(
+        image_files,
+        mask_files,
+        strategy=strategy,
+        mask_suffixes=mask_suffixes,
+        case_sensitive=case_sensitive,
+    )
     filtered = filter_shared_matches(candidate)
 
     no_match = [img for img, matches in filtered.items() if len(matches) == 0]

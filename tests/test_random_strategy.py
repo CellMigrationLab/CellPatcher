@@ -28,6 +28,17 @@ def test_random_strategy_different_seed_changes_output():
     assert [(r.y0, r.x0) for r in p1] != [(r.y0, r.x0) for r in p2]
 
 
+def test_random_strategy_seed_none_returns_valid_patches():
+    cfg = RandomConfig(patch_size=4, n_patches=3, seed=None)
+    p1 = RandomPatchStrategy(cfg).generate_regions(image_shape=(20, 20))
+    p2 = RandomPatchStrategy(cfg).generate_regions(image_shape=(20, 20))
+    assert len(p1) == 3
+    assert len(p2) == 3
+    for p in p1 + p2:
+        assert 0 <= p.y0 < p.y1 <= 20
+        assert 0 <= p.x0 < p.x1 <= 20
+
+
 def test_random_strategy_patch_size_larger_than_image_raises():
     with pytest.raises(ValueError):
         RandomPatchStrategy(RandomConfig(patch_size=40, n_patches=3)).generate_regions(image_shape=(20, 20))
@@ -65,3 +76,10 @@ def test_random_strategy_touches_border_when_on_edge():
     s = RandomPatchStrategy(RandomConfig(patch_size=10, n_patches=50, seed=42))
     patches = s.generate_regions(image_shape=(20, 20))
     assert any(p.touches_border for p in patches)
+
+
+def test_random_strategy_sampling_with_replacement_allows_duplicates():
+    s = RandomPatchStrategy(RandomConfig(patch_size=4, n_patches=3, seed=0))
+    patches = s.generate_regions(image_shape=(4, 4))
+    assert len(patches) == 3
+    assert all((p.y0, p.y1, p.x0, p.x1) == (0, 4, 0, 4) for p in patches)

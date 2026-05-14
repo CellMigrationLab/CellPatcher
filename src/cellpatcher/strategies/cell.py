@@ -4,12 +4,15 @@ import numpy as np
 
 from cellpatcher.axes import axis_index, normalize_axes
 from cellpatcher.config import CellConfig
-from cellpatcher.strategies.base import BasePatchStrategy
+from cellpatcher.strategies.base import BasePatchStrategy, _spatial_shape_from_axes
 from cellpatcher.types import PatchRegion
 
 
 class CellSegmentationStrategy(BasePatchStrategy):
     mode = "cell"
+    # Coordinates are generated in Y/X patch space and clipped to image bounds.
+    # Therefore, fixed patch_size near borders can yield smaller PatchRegion extents.
+    # If a fixed downstream array size is needed, use extraction padding/resizing.
 
     def __init__(self, config: CellConfig | None = None, mask_axes: str = "YX") -> None:
         self.config = config if config is not None else CellConfig()
@@ -84,14 +87,8 @@ class CellSegmentationStrategy(BasePatchStrategy):
             )
         return selected
 
-    def generate_regions(self, *, image_shape, labels=None, image_id=None) -> list[PatchRegion]:
-        if len(image_shape) < 2:
-            raise ValueError("image_shape must have at least 2 dimensions (Y, X).")
-
-        image_h = int(image_shape[-2])
-        image_w = int(image_shape[-1])
-        if image_h <= 0 or image_w <= 0:
-            raise ValueError(f"Spatial dimensions must be positive, got Y={image_h}, X={image_w}.")
+    def generate_regions(self, *, image_shape, labels=None, image_id=None, axes: str = "YX") -> list[PatchRegion]:
+        image_h, image_w = _spatial_shape_from_axes(image_shape, axes=axes)
 
         if labels is None:
             raise ValueError("labels is required for cell mode.")

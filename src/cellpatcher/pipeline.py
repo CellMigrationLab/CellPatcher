@@ -153,7 +153,11 @@ def run_patching(images=None, masks=None, config=None) -> PatchingResult:
         patches: list[PatchRegion] = []
         for idx, image in enumerate(image_list):
             image_id = f"image_{idx:04d}"
-            patches.extend(strategy.generate_regions(image_shape=image.shape, labels=None, image_id=image_id))
+            patches.extend(
+                strategy.generate_regions(
+                    image_shape=image.shape, labels=None, image_id=image_id, axes=config.common.image_axes
+                )
+            )
         patches = _apply_filters(config, image_list, patches)
         return _build_result(config, image_list, patches)
 
@@ -163,7 +167,11 @@ def run_patching(images=None, masks=None, config=None) -> PatchingResult:
         patches: list[PatchRegion] = []
         for idx, image in enumerate(image_list):
             image_id = f"image_{idx:04d}"
-            patches.extend(strategy.generate_regions(image_shape=image.shape, labels=None, image_id=image_id))
+            patches.extend(
+                strategy.generate_regions(
+                    image_shape=image.shape, labels=None, image_id=image_id, axes=config.common.image_axes
+                )
+            )
         patches = _apply_filters(config, image_list, patches)
         return _build_result(config, image_list, patches)
 
@@ -183,7 +191,11 @@ def run_patching(images=None, masks=None, config=None) -> PatchingResult:
         patches: list[PatchRegion] = []
         for idx, (image, mask) in enumerate(zip(image_list, mask_list)):
             image_id = f"image_{idx:04d}"
-            patches.extend(strategy.generate_regions(image_shape=image.shape, labels=mask, image_id=image_id))
+            patches.extend(
+                strategy.generate_regions(
+                    image_shape=image.shape, labels=mask, image_id=image_id, axes=config.common.image_axes
+                )
+            )
         patches = _apply_filters(config, image_list, patches)
         return _build_result(config, image_list, patches)
 
@@ -210,6 +222,10 @@ def run_patching(images=None, masks=None, config=None) -> PatchingResult:
                 else config.random
             )
             strategy = RandomPatchStrategy(image_random_config)
-            patches.extend(strategy.generate_regions(image_shape=image.shape, labels=mask, image_id=image_id))
+            patches.extend(
+                strategy.generate_regions(
+                    image_shape=image.shape, labels=mask, image_id=image_id, axes=config.common.image_axes
+                )
+            )
         patches = _apply_filters(config, image_list, patches)
         return _build_result(config, image_list, patches)

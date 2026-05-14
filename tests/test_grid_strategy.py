@@ -27,9 +27,11 @@ def test_grid_large_tile_with_partial_returns_one_tile():
 
 
 def test_grid_overlap_very_high_still_generates_tiles():
-    s = GridStrategy(GridConfig(tile_size=20, overlap=0.99, include_partial=True))
-    regions = s.generate_regions(image_shape=(30, 30))
+    s = GridStrategy(GridConfig(tile_size=5, overlap=0.99, include_partial=True))
+    regions = s.generate_regions(image_shape=(6, 6))
     assert len(regions) > 0
+    assert all(0 <= r.y0 < r.y1 <= 6 for r in regions)
+    assert all(0 <= r.x0 < r.x1 <= 6 for r in regions)
 
 
 def test_grid_large_tile_partial_with_high_overlap_still_one_tile():
@@ -63,3 +65,10 @@ def test_grid_touches_border_for_border_and_interior_tiles():
     border_flags = {(r.y0, r.x0): r.touches_border for r in regions}
     assert border_flags[(20, 20)] is False
     assert border_flags[(0, 0)] is True
+
+
+def test_grid_tile_size_equal_image_produces_single_full_tile():
+    s = GridStrategy(GridConfig(tile_size=10, overlap=0.0, include_partial=False))
+    regions = s.generate_regions(image_shape=(10, 10))
+    assert len(regions) == 1
+    assert (regions[0].y0, regions[0].y1, regions[0].x0, regions[0].x1) == (0, 10, 0, 10)

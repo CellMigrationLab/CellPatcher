@@ -54,6 +54,13 @@ def move_axes(array, source_axes: str, target_axes: str):
 
 
 def mapping_to_axes(mapping, ndim: int | None = None) -> str:
+    """Convert notebook/UI axis mapping dicts into compact axis strings.
+
+    This is a convenience helper (currently not used by the core pipeline) for
+    turning mappings like ``{0: "C", 1: "Y", 2: "X"}`` into ``"CYX"``.
+    Values ``"Other"`` and ``None`` are ignored, so
+    ``{0: "Other", 1: "Y", 2: "X"}`` resolves to ``"YX"``.
+    """
     if not hasattr(mapping, "items"):
         raise ValueError("mapping must be a dict-like object of dimension index to axis label.")
 

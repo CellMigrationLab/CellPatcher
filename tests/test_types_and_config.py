@@ -1,6 +1,6 @@
 import pytest
 
-from cellpatcher.config import CellConfig, CellPatcherConfig, GridConfig, RandomConfig
+from cellpatcher.config import CellConfig, CellPatcherConfig, GridConfig, MatchConfig, RandomConfig
 from cellpatcher.pipeline import run_patching
 from cellpatcher.types import PatchRegion
 
@@ -74,6 +74,16 @@ def test_random_config_rejects_invalid_n_patches():
 def test_grid_config_rejects_invalid_overlap():
     with pytest.raises(ValueError):
         GridConfig(overlap=1.0)
+
+
+def test_match_config_rejects_invalid_strategy():
+    with pytest.raises(ValueError):
+        MatchConfig(strategy="bad")
+
+
+def test_match_config_rejects_invalid_mask_suffixes_type():
+    with pytest.raises(ValueError):
+        MatchConfig(mask_suffixes=[1])
 
 
 def test_run_patching_cell_mode_requires_images_and_masks():

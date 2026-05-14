@@ -115,6 +115,32 @@ class ExtractionConfig:
 
 
 @dataclass
+class MatchConfig:
+    """Preferred image↔mask filename matching options.
+
+    ``validate_image_and_mask_folders`` is a standalone helper that accepts
+    matching options explicitly; it does not automatically consume
+    ``CellPatcherConfig.matching``.
+
+    The package-backed notebook/workflows should pass these fields through when
+    calling folder-validation helpers.
+    """
+    strategy: str = "exact_or_suffix"
+    mask_suffixes: tuple[str, ...] = ("_mask", "_labels", "_label", "_seg", "_segmentation")
+    case_sensitive: bool = False
+
+    def __post_init__(self) -> None:
+        if self.strategy not in {"exact", "exact_or_suffix", "substring"}:
+            raise ValueError("strategy must be one of: 'exact', 'exact_or_suffix', 'substring'.")
+        if not isinstance(self.mask_suffixes, (tuple, list)) or not all(
+            isinstance(value, str) for value in self.mask_suffixes
+        ):
+            raise ValueError("mask_suffixes must be a tuple/list of strings.")
+        if not isinstance(self.case_sensitive, bool):
+            raise ValueError("case_sensitive must be a bool.")
+
+
+@dataclass
 class CellPatcherConfig:
     mode: str = "cell"
     common: CommonConfig = field(default_factory=CommonConfig)
@@ -124,6 +150,7 @@ class CellPatcherConfig:
     filters: FilterConfig = field(default_factory=FilterConfig)
     export: ExportConfig = field(default_factory=ExportConfig)
     extraction: ExtractionConfig = field(default_factory=ExtractionConfig)
+    matching: MatchConfig = field(default_factory=MatchConfig)
 
     def __post_init__(self) -> None:
         valid_modes = {"cell", "random", "whole_fov", "grid"}
