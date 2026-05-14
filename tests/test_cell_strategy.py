@@ -200,7 +200,7 @@ def test_non_binary_float_labels_raise():
     """Float mask with values like 1.7, 2.3 must raise ValueError."""
     labels = np.array([[0.0, 1.7], [2.3, 0.0]], dtype=float)
     s = CellSegmentationStrategy(CellConfig(exclude_border=False))
-    with pytest.raises(ValueError, match="[Nn]on-binary float"):
+    with pytest.raises(ValueError, match="Non-binary float"):
         s.generate_regions(image_shape=(2, 2), labels=labels)
 
 

@@ -23,6 +23,7 @@ class CellSegmentationStrategy(BasePatchStrategy):
             labeled, _ = scipy_label(binary)
             return labeled.astype(np.int32)
         except ImportError:
+            # scipy is not installed; fall back to the built-in BFS implementation below
             pass
 
         h, w = binary.shape
@@ -112,8 +113,7 @@ class CellSegmentationStrategy(BasePatchStrategy):
             )
 
         if np.issubdtype(selected.dtype, np.floating):
-            non_binary = unique_values[(unique_values != 0.0) & (unique_values != 1.0)]
-            if len(non_binary) > 0:
+            if np.any((unique_values != 0.0) & (unique_values != 1.0)):
                 raise ValueError(
                     "Non-binary float label arrays are ambiguous. "
                     "Float masks must contain only 0.0 and 1.0. "
