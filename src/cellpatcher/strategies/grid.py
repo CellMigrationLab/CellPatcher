@@ -1,0 +1,81 @@
+from cellpatcher.config import GridConfig
+from cellpatcher.strategies.base import BasePatchStrategy
+from cellpatcher.types import PatchRegion
+
+
+class GridStrategy(BasePatchStrategy):
+    mode = "grid"
+
+    def __init__(self, config: GridConfig | None = None) -> None:
+        self.config = config if config is not None else GridConfig()
+
+    @staticmethod
+    def _starts(size: int, tile_size: int, stride: int, include_partial: bool) -> list[int]:
+        if include_partial and tile_size >= size:
+            return [0]
+
+        if not include_partial:
+            return list(range(0, size - tile_size + 1, stride))
+
+        starts = list(range(0, size, stride))
+        final_start = max(0, size - tile_size)
+        if final_start not in starts:
+            starts.append(final_start)
+        return sorted(set(starts))
+
+    def generate_regions(self, *, image_shape, labels=None, image_id=None) -> list[PatchRegion]:
+        if len(image_shape) < 2:
+            raise ValueError("image_shape must have at least 2 dimensions (Y, X).")
+
+        height = int(image_shape[-2])
+        width = int(image_shape[-1])
+        if height <= 0 or width <= 0:
+            raise ValueError(f"Spatial dimensions must be positive, got Y={height}, X={width}.")
+
+        tile_size = int(self.config.tile_size)
+        if tile_size <= 0:
+            raise ValueError("tile_size must be > 0.")
+
+        stride = max(1, round(tile_size * (1 - self.config.overlap)))
+
+        if not self.config.include_partial and (tile_size > height or tile_size > width):
+            return []
+
+        y_starts = self._starts(height, tile_size, stride, self.config.include_partial)
+        x_starts = self._starts(width, tile_size, stride, self.config.include_partial)
+
+        patches: list[PatchRegion] = []
+        idx = 0
+        for y0 in y_starts:
+            y1 = min(y0 + tile_size, height)
+            if not self.config.include_partial and (y1 - y0) != tile_size:
+                continue
+
+            for x0 in x_starts:
+                x1 = min(x0 + tile_size, width)
+                if not self.config.include_partial and (x1 - x0) != tile_size:
+                    continue
+
+                tile_h = y1 - y0
+                tile_w = x1 - x0
+                patch_id = f"{image_id}_grid_{idx:05d}" if image_id is not None else f"grid_{idx:05d}"
+                touches_border = y0 == 0 or x0 == 0 or y1 == height or x1 == width
+
+                patches.append(
+                    PatchRegion(
+                        patch_id=patch_id,
+                        image_id=image_id,
+                        mode=self.mode,
+                        y0=y0,
+                        y1=y1,
+                        x0=x0,
+                        x1=x1,
+                        center_y=(y0 + y1) / 2,
+                        center_x=(x0 + x1) / 2,
+                        area_px=tile_h * tile_w,
+                        touches_border=touches_border,
+                    )
+                )
+                idx += 1
+
+        return patches
