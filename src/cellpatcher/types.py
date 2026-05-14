@@ -10,7 +10,7 @@ class PatchRegion:
     y1: int = 0
     x0: int = 0
     x1: int = 0
-    # Reserved for future multidimensional workflows (Z-stack, time-series, channel selection).
+    # Reserved for future multidimensional workflows (Z-stack, time series, channel selection).
     z0: int | None = None
     z1: int | None = None
     t: int | None = None

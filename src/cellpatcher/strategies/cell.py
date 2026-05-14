@@ -50,37 +50,38 @@ class CellSegmentationStrategy(BasePatchStrategy):
         arr = np.asarray(labels)
         if arr.ndim == 2:
             return arr
-        if arr.ndim > 2:
-            if self.config.mask_channel is None:
-                raise ValueError(
-                    "mask_channel is required for multidimensional labels. "
-                    "Set config.mask_channel and config.common.mask_axes (e.g. mask_axes='CYX')."
-                )
-            if len(self.mask_axes) != arr.ndim:
-                raise ValueError(
-                    f"mask_axes length ({len(self.mask_axes)}) must match labels.ndim ({arr.ndim})."
-                )
-            c_axis = axis_index(self.mask_axes, "C")
-            if c_axis is None:
-                raise ValueError(
-                    f"mask_axes '{self.mask_axes}' does not contain a 'C' axis, "
-                    "which is required for multidimensional label channel selection."
-                )
-            c_size = arr.shape[c_axis]
-            ch = int(self.config.mask_channel)
-            if ch < 0 or ch >= c_size:
-                raise ValueError(
-                    f"mask_channel {ch} is out of bounds for C axis of size {c_size} "
-                    f"(mask_axes='{self.mask_axes}')."
-                )
-            selected = np.take(arr, ch, axis=c_axis)
-            if selected.ndim != 2:
-                raise ValueError(
-                    f"After selecting channel {ch} from axis {c_axis}, "
-                    f"the result is {selected.ndim}D; expected 2D."
-                )
-            return selected
-        raise ValueError("labels must be 2D or higher-dimensional with mask_axes and mask_channel set.")
+        if arr.ndim < 2:
+            raise ValueError(f"labels must be at least 2D, got ndim={arr.ndim}.")
+        # arr.ndim > 2
+        if self.config.mask_channel is None:
+            raise ValueError(
+                "mask_channel is required for multidimensional labels. "
+                "Set config.mask_channel and config.common.mask_axes (e.g. mask_axes='CYX')."
+            )
+        if len(self.mask_axes) != arr.ndim:
+            raise ValueError(
+                f"mask_axes length ({len(self.mask_axes)}) must match labels.ndim ({arr.ndim})."
+            )
+        c_axis = axis_index(self.mask_axes, "C")
+        if c_axis is None:
+            raise ValueError(
+                f"mask_axes '{self.mask_axes}' does not contain a 'C' axis, "
+                "which is required for multidimensional label channel selection."
+            )
+        c_size = arr.shape[c_axis]
+        ch = int(self.config.mask_channel)
+        if ch < 0 or ch >= c_size:
+            raise ValueError(
+                f"mask_channel {ch} is out of bounds for C axis of size {c_size} "
+                f"(mask_axes='{self.mask_axes}')."
+            )
+        selected = np.take(arr, ch, axis=c_axis)
+        if selected.ndim != 2:
+            raise ValueError(
+                f"After selecting channel {ch} from axis {c_axis}, "
+                f"the result is {selected.ndim}D; expected 2D."
+            )
+        return selected
 
     def generate_regions(self, *, image_shape, labels=None, image_id=None) -> list[PatchRegion]:
         if len(image_shape) < 2:
