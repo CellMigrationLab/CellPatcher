@@ -11,6 +11,9 @@ class GridStrategy(BasePatchStrategy):
 
     @staticmethod
     def _starts(size: int, tile_size: int, stride: int, include_partial: bool) -> list[int]:
+        if include_partial and tile_size >= size:
+            return [0]
+
         if not include_partial:
             return list(range(0, size - tile_size + 1, stride))
 
@@ -33,9 +36,7 @@ class GridStrategy(BasePatchStrategy):
         if tile_size <= 0:
             raise ValueError("tile_size must be > 0.")
 
-        stride = round(tile_size * (1 - self.config.overlap))
-        if stride < 1:
-            raise ValueError(f"Computed stride must be >= 1, got {stride}.")
+        stride = max(1, round(tile_size * (1 - self.config.overlap)))
 
         if not self.config.include_partial and (tile_size > height or tile_size > width):
             return []

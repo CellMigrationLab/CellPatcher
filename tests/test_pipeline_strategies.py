@@ -65,6 +65,20 @@ def test_pipeline_random_list_images_works():
     assert len(result.patches) == 6
 
 
+def test_pipeline_random_multi_image_seeded_not_identical_coordinates():
+    cfg = CellPatcherConfig(mode="random", random=RandomConfig(patch_size=8, n_patches=3, seed=0))
+    result = run_patching(images=[np.zeros((32, 32)), np.zeros((32, 32))], config=cfg)
+    by_image: dict[str, list[tuple[int, int]]] = {"image_0000": [], "image_0001": []}
+    for patch in result.patches:
+        by_image[str(patch.image_id)].append((patch.y0, patch.x0))
+    assert by_image["image_0000"] != by_image["image_0001"]
+
+
+def test_pipeline_rejects_empty_image_list():
+    with pytest.raises(ValueError):
+        run_patching(images=[], config=CellPatcherConfig(mode="grid"))
+
+
 def test_pipeline_random_matching_mask_list_works():
     cfg = CellPatcherConfig(mode="random", random=RandomConfig(patch_size=4, n_patches=2, seed=0))
     imgs = [np.zeros((16, 16)), np.zeros((16, 16))]

@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from dataclasses import replace
 
 from cellpatcher.config import CellPatcherConfig
 from cellpatcher.extract import extract_patches
@@ -26,6 +27,9 @@ def _normalize_images(images):
         normalized = list(images)
     else:
         normalized = [images]
+
+    if len(normalized) == 0:
+        raise ValueError("images must contain at least one image.")
 
     for image in normalized:
         if not hasattr(image, "shape"):
@@ -203,10 +207,13 @@ def run_patching(images=None, masks=None, config=None) -> PatchingResult:
                 raise ValueError("A single mask cannot be used with multiple images in mode 'random'.")
             mask_list = [masks]
 
-        strategy = RandomPatchStrategy(config.random)
         patches: list[PatchRegion] = []
         for idx, (image, mask) in enumerate(zip(image_list, mask_list)):
             image_id = f"image_{idx:04d}"
+            image_random_config = config.random
+            if config.random.seed is not None:
+                image_random_config = replace(config.random, seed=int(config.random.seed) + idx)
+            strategy = RandomPatchStrategy(image_random_config)
             patches.extend(strategy.generate_regions(image_shape=image.shape, labels=mask, image_id=image_id))
         patches = _apply_filters(config, image_list, patches)
         return _build_result(config, image_list, patches)

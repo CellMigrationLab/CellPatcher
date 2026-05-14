@@ -26,6 +26,19 @@ def test_grid_large_tile_with_partial_returns_one_tile():
     assert (regions[0].y0, regions[0].y1, regions[0].x0, regions[0].x1) == (0, 100, 0, 100)
 
 
+def test_grid_overlap_very_high_still_generates_tiles():
+    s = GridStrategy(GridConfig(tile_size=20, overlap=0.99, include_partial=True))
+    regions = s.generate_regions(image_shape=(30, 30))
+    assert len(regions) > 0
+
+
+def test_grid_large_tile_partial_with_high_overlap_still_one_tile():
+    s = GridStrategy(GridConfig(tile_size=200, overlap=0.9, include_partial=True))
+    regions = s.generate_regions(image_shape=(100, 100))
+    assert len(regions) == 1
+    assert (regions[0].y0, regions[0].y1, regions[0].x0, regions[0].x1) == (0, 100, 0, 100)
+
+
 def test_grid_include_partial_covers_edge():
     s = GridStrategy(GridConfig(tile_size=30, overlap=0.0, include_partial=True))
     regions = s.generate_regions(image_shape=(100, 100))
