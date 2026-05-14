@@ -86,6 +86,11 @@ def test_match_config_rejects_invalid_mask_suffixes_type():
         MatchConfig(mask_suffixes=[1])
 
 
+def test_match_config_rejects_invalid_case_sensitive_type():
+    with pytest.raises(ValueError):
+        MatchConfig(case_sensitive="yes")
+
+
 def test_run_patching_cell_mode_requires_images_and_masks():
     with pytest.raises(ValueError):
         run_patching(config=CellPatcherConfig(mode="cell"))

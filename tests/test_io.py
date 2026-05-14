@@ -120,6 +120,23 @@ def test_filter_shared_matches_prefers_exclusive_candidates():
     assert out[img2] == [m2]
 
 
+def test_filter_shared_matches_iterative_pruning_converges():
+    # img1 starts with three candidates; img2 and img3 each hold one exclusively.
+    # First pass prunes img1 to its own exclusive candidate (m1).
+    # Second pass finds the result is already stable.
+    img1 = Path("img1.tif")
+    img2 = Path("img2.tif")
+    img3 = Path("img3.tif")
+    m1 = Path("m1.tif")
+    m2 = Path("m2.tif")
+    m3 = Path("m3.tif")
+    candidate = {img1: [m1, m2, m3], img2: [m2], img3: [m3]}
+    out = filter_shared_matches(candidate)
+    assert out[img1] == [m1]
+    assert out[img2] == [m2]
+    assert out[img3] == [m3]
+
+
 def test_validate_image_and_mask_folders_success(tmp_path):
     img_dir = tmp_path / "images"
     mask_dir = tmp_path / "masks"
@@ -150,8 +167,9 @@ def test_validate_image_and_mask_folders_raises_ambiguous_image(tmp_path):
     img_dir.mkdir()
     mask_dir.mkdir()
     (img_dir / "a.npy").write_bytes(b"x")
-    (mask_dir / "a_mask1.npy").write_bytes(b"x")
-    (mask_dir / "a_mask2.npy").write_bytes(b"x")
+    # Both names match via different allowed suffixes → genuinely ambiguous under exact_or_suffix.
+    (mask_dir / "a_mask.npy").write_bytes(b"x")
+    (mask_dir / "a_labels.npy").write_bytes(b"x")
     with pytest.raises(ValueError):
         validate_image_and_mask_folders(img_dir, mask_dir)
 
@@ -228,10 +246,21 @@ def test_validate_image_and_mask_folders_raises_unmatched_mask(tmp_path):
         validate_image_and_mask_folders(img_dir, mask_dir)
 
 
-def test_validate_image_and_mask_folders_empty_folders_raise(tmp_path):
+def test_validate_image_and_mask_folders_empty_image_folder_raises(tmp_path):
     img_dir = tmp_path / "images"
     mask_dir = tmp_path / "masks"
     img_dir.mkdir()
     mask_dir.mkdir()
-    with pytest.raises(ValueError):
+    (mask_dir / "a_mask.npy").write_bytes(b"x")
+    with pytest.raises(ValueError, match="image folder"):
+        validate_image_and_mask_folders(img_dir, mask_dir)
+
+
+def test_validate_image_and_mask_folders_empty_mask_folder_raises(tmp_path):
+    img_dir = tmp_path / "images"
+    mask_dir = tmp_path / "masks"
+    img_dir.mkdir()
+    mask_dir.mkdir()
+    (img_dir / "a.npy").write_bytes(b"x")
+    with pytest.raises(ValueError, match="mask folder"):
         validate_image_and_mask_folders(img_dir, mask_dir)
