@@ -68,10 +68,12 @@ def test_pipeline_random_list_images_works():
 def test_pipeline_random_multi_image_seeded_not_identical_coordinates():
     cfg = CellPatcherConfig(mode="random", random=RandomConfig(patch_size=8, n_patches=3, seed=0))
     result = run_patching(images=[np.zeros((32, 32)), np.zeros((32, 32))], config=cfg)
-    by_image: dict[str, list[tuple[int, int]]] = {"image_0000": [], "image_0001": []}
+    image_ids = sorted({str(patch.image_id) for patch in result.patches})
+    assert len(image_ids) == 2
+    by_image: dict[str, list[tuple[int, int]]] = {image_id: [] for image_id in image_ids}
     for patch in result.patches:
         by_image[str(patch.image_id)].append((patch.y0, patch.x0))
-    assert by_image["image_0000"] != by_image["image_0001"]
+    assert by_image[image_ids[0]] != by_image[image_ids[1]]
 
 
 def test_pipeline_rejects_empty_image_list():

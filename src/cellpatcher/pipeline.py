@@ -1,5 +1,4 @@
-from dataclasses import dataclass, field
-from dataclasses import replace
+from dataclasses import dataclass, field, replace
 
 from cellpatcher.config import CellPatcherConfig
 from cellpatcher.extract import extract_patches
