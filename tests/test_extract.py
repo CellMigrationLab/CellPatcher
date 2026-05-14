@@ -58,6 +58,30 @@ def test_extract_patch_clip_fully_out_of_bounds_raises():
         extract_patch(image, region, axes="YX", pad_mode="clip")
 
 
+def test_extract_patch_constant_fully_out_of_bounds_yx():
+    image = np.arange(25).reshape(5, 5)
+    region = PatchRegion(patch_id="oob", y0=10, y1=12, x0=10, x1=12)
+    patch = extract_patch(image, region, axes="YX", pad_mode="constant", constant_values=7)
+    assert patch.shape == (2, 2)
+    assert np.all(patch == 7)
+
+
+def test_extract_patch_constant_fully_out_of_bounds_cyx():
+    image = np.arange(3 * 5 * 5).reshape(3, 5, 5)
+    region = PatchRegion(patch_id="oob", y0=10, y1=12, x0=10, x1=12)
+    patch = extract_patch(image, region, axes="CYX", pad_mode="constant", constant_values=0)
+    assert patch.shape == (3, 2, 2)
+    assert np.all(patch == 0)
+
+
+def test_extract_patch_constant_fully_out_of_bounds_yxc():
+    image = np.zeros((5, 5, 3), dtype=np.float32)
+    region = PatchRegion(patch_id="oob", y0=10, y1=12, x0=10, x1=12)
+    patch = extract_patch(image, region, axes="YXC", pad_mode="constant", constant_values=9)
+    assert patch.shape == (2, 2, 3)
+    assert np.all(patch == 9)
+
+
 def test_extract_patch_invalid_axes_raises():
     image = np.arange(25).reshape(5, 5)
     region = PatchRegion(patch_id="p", y0=1, y1=2, x0=1, x1=2)

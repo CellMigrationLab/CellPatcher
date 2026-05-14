@@ -181,3 +181,43 @@ def test_out_of_range_mask_channel_raises():
     s = CellSegmentationStrategy(CellConfig(mask_channel=5), mask_axes="CYX")
     with pytest.raises(ValueError, match="out of bounds"):
         s.generate_regions(image_shape=(6, 6), labels=labels)
+
+
+# ---------------------------------------------------------------------------
+# Float and negative label validation tests
+# ---------------------------------------------------------------------------
+
+def test_float_binary_mask_works():
+    """Float mask with only 0.0 and 1.0 should be treated as binary."""
+    labels = np.zeros((6, 6), dtype=float)
+    labels[2:4, 2:4] = 1.0
+    s = CellSegmentationStrategy(CellConfig(exclude_border=False, binary_mask_policy="connected_components"))
+    patches = s.generate_regions(image_shape=(6, 6), labels=labels)
+    assert len(patches) == 1
+
+
+def test_non_binary_float_labels_raise():
+    """Float mask with values like 1.7, 2.3 must raise ValueError."""
+    labels = np.array([[0.0, 1.7], [2.3, 0.0]], dtype=float)
+    s = CellSegmentationStrategy(CellConfig(exclude_border=False))
+    with pytest.raises(ValueError, match="[Nn]on-binary float"):
+        s.generate_regions(image_shape=(2, 2), labels=labels)
+
+
+def test_negative_integer_labels_raise():
+    """Labels containing negative values must raise ValueError."""
+    labels = np.array([[0, -1], [1, 0]], dtype=int)
+    s = CellSegmentationStrategy(CellConfig(exclude_border=False))
+    with pytest.raises(ValueError, match="non-negative"):
+        s.generate_regions(image_shape=(2, 2), labels=labels)
+
+
+def test_non_contiguous_label_ids_work():
+    """Labeled mask with IDs 1, 5, 42 should produce patches for all three."""
+    labels = np.zeros((10, 10), dtype=int)
+    labels[0:2, 0:2] = 1
+    labels[4:6, 4:6] = 5
+    labels[7:9, 7:9] = 42
+    s = CellSegmentationStrategy(CellConfig(exclude_border=False))
+    patches = s.generate_regions(image_shape=(10, 10), labels=labels)
+    assert [p.label_id for p in patches] == [1, 5, 42]

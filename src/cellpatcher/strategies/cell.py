@@ -22,7 +22,7 @@ class CellSegmentationStrategy(BasePatchStrategy):
 
             labeled, _ = scipy_label(binary)
             return labeled.astype(np.int32)
-        except Exception:
+        except ImportError:
             pass
 
         h, w = binary.shape
@@ -105,6 +105,20 @@ class CellSegmentationStrategy(BasePatchStrategy):
 
         unique_values = np.unique(selected)
         foreground_mask = selected.astype(bool)
+
+        if np.any(unique_values < 0):
+            raise ValueError(
+                "labels must be non-negative. Found negative values in the label array."
+            )
+
+        if np.issubdtype(selected.dtype, np.floating):
+            non_binary = unique_values[(unique_values != 0.0) & (unique_values != 1.0)]
+            if len(non_binary) > 0:
+                raise ValueError(
+                    "Non-binary float label arrays are ambiguous. "
+                    "Float masks must contain only 0.0 and 1.0. "
+                    "For labeled masks, use an integer dtype."
+                )
 
         if np.all(np.isin(unique_values, [0, 1, False, True])):
             if self.config.binary_mask_policy == "connected_components":

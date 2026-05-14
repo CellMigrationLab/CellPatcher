@@ -5,7 +5,6 @@ from dataclasses import dataclass, field
 class CommonConfig:
     image_axes: str = "YX"
     mask_axes: str = "YX"
-    preserve_non_spatial_axes: bool = True
     output_dir: str | None = None
     extract_arrays: bool = False
 

@@ -16,7 +16,6 @@ from cellpatcher.types import PatchRegion
 class PatchingResult:
     patches: list[PatchRegion]
     patch_arrays: list | None = None
-    warnings: list[str] = field(default_factory=list)
     exported_files: list[str] = field(default_factory=list)
     metadata_file: str | None = None
 
@@ -116,8 +115,6 @@ def _build_result(config: CellPatcherConfig, image_list, patches: list[PatchRegi
     if config.export.enabled:
         if config.common.output_dir is None:
             raise ValueError("common.output_dir is required when export.enabled is True.")
-        if patch_arrays_internal is None:
-            raise ValueError("Export requires extracted patch arrays.")
 
         exported_files = export_patches(
             patches,
@@ -136,7 +133,6 @@ def _build_result(config: CellPatcherConfig, image_list, patches: list[PatchRegi
     return PatchingResult(
         patches=patches,
         patch_arrays=patch_arrays_result,
-        warnings=[],
         exported_files=exported_files,
         metadata_file=metadata_file,
     )
@@ -217,5 +213,3 @@ def run_patching(images=None, masks=None, config=None) -> PatchingResult:
             patches.extend(strategy.generate_regions(image_shape=image.shape, labels=mask, image_id=image_id))
         patches = _apply_filters(config, image_list, patches)
         return _build_result(config, image_list, patches)
-
-    raise NotImplementedError(f"Mode '{config.mode}' is not implemented yet.")

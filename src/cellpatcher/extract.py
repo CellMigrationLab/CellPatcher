@@ -24,7 +24,13 @@ def extract_patch(image, region: PatchRegion, *, axes: str = "YX", pad_mode: str
     src_x1 = min(w, x1)
 
     if src_y1 <= src_y0 or src_x1 <= src_x0:
-        raise ValueError("Requested patch is completely out of image bounds.")
+        if pad_mode == "clip":
+            raise ValueError("Requested patch is completely out of image bounds.")
+        # constant mode: return a fully-padded array of the requested shape
+        out_shape = list(array.shape)
+        out_shape[y_idx] = y1 - y0
+        out_shape[x_idx] = x1 - x0
+        return np.full(out_shape, constant_values, dtype=array.dtype)
 
     slices = [slice(None)] * array.ndim
     slices[y_idx] = slice(src_y0, src_y1)
