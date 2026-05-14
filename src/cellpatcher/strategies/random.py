@@ -1,27 +1,22 @@
 import numpy as np
 
 from cellpatcher.config import RandomConfig
-from cellpatcher.strategies.base import BasePatchStrategy
+from cellpatcher.strategies.base import BasePatchStrategy, _spatial_shape_from_axes
 from cellpatcher.types import PatchRegion
 
 
 class RandomPatchStrategy(BasePatchStrategy):
     mode = "random"
+    # Sampling is with replacement: duplicate coordinates are allowed.
+    # seed=None uses NumPy's nondeterministic RNG initialization.
 
     def __init__(self, config: RandomConfig | None = None) -> None:
         self.config = config if config is not None else RandomConfig()
 
-    def generate_regions(self, *, image_shape, labels=None, image_id=None) -> list[PatchRegion]:
-        if len(image_shape) < 2:
-            raise ValueError("image_shape must have at least 2 dimensions (Y, X).")
-
-        height = int(image_shape[-2])
-        width = int(image_shape[-1])
+    def generate_regions(self, *, image_shape, labels=None, image_id=None, axes: str = "YX") -> list[PatchRegion]:
+        height, width = _spatial_shape_from_axes(image_shape, axes=axes)
         patch_size = int(self.config.patch_size)
         n_patches = int(self.config.n_patches)
-
-        if height <= 0 or width <= 0:
-            raise ValueError(f"Spatial dimensions must be positive, got Y={height}, X={width}.")
         if patch_size <= 0:
             raise ValueError("patch_size must be > 0.")
         if n_patches <= 0:

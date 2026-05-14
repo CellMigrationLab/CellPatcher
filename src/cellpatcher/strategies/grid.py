@@ -1,5 +1,5 @@
 from cellpatcher.config import GridConfig
-from cellpatcher.strategies.base import BasePatchStrategy
+from cellpatcher.strategies.base import BasePatchStrategy, _spatial_shape_from_axes
 from cellpatcher.types import PatchRegion
 
 
@@ -23,14 +23,8 @@ class GridStrategy(BasePatchStrategy):
             starts.append(final_start)
         return sorted(set(starts))
 
-    def generate_regions(self, *, image_shape, labels=None, image_id=None) -> list[PatchRegion]:
-        if len(image_shape) < 2:
-            raise ValueError("image_shape must have at least 2 dimensions (Y, X).")
-
-        height = int(image_shape[-2])
-        width = int(image_shape[-1])
-        if height <= 0 or width <= 0:
-            raise ValueError(f"Spatial dimensions must be positive, got Y={height}, X={width}.")
+    def generate_regions(self, *, image_shape, labels=None, image_id=None, axes: str = "YX") -> list[PatchRegion]:
+        height, width = _spatial_shape_from_axes(image_shape, axes=axes)
 
         tile_size = int(self.config.tile_size)
         if tile_size <= 0:
