@@ -65,7 +65,7 @@ def test_pipeline_random_list_images_works():
     assert len(result.patches) == 6
 
 
-def test_pipeline_random_multi_image_seeded_not_identical_coordinates():
+def test_pipeline_random_multi_image_seeded_unique_coordinates():
     cfg = CellPatcherConfig(mode="random", random=RandomConfig(patch_size=8, n_patches=3, seed=0))
     result = run_patching(images=[np.zeros((32, 32)), np.zeros((32, 32))], config=cfg)
     image_ids = sorted({str(patch.image_id) for patch in result.patches})

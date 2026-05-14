@@ -89,3 +89,13 @@ def test_export_patches_rejects_unsupported_image_format(tmp_path):
     arrays = [np.zeros((1, 1))]
     with pytest.raises(ValueError):
         export_patches(patches, arrays, tmp_path, image_format="png")
+
+
+def test_export_patches_rejects_duplicate_filenames_after_sanitization(tmp_path):
+    patches = [
+        PatchRegion(patch_id="a/b", y0=0, y1=1, x0=0, x1=1),
+        PatchRegion(patch_id="a?b", y0=0, y1=1, x0=0, x1=1),
+    ]
+    arrays = [np.zeros((1, 1)), np.ones((1, 1))]
+    with pytest.raises(ValueError, match="Duplicate export filenames"):
+        export_patches(patches, arrays, tmp_path, image_format="npy")

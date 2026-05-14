@@ -1,5 +1,6 @@
 import csv
 import re
+from collections import Counter
 from dataclasses import fields
 from pathlib import Path
 
@@ -73,6 +74,13 @@ def export_patches(
 
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    candidate_filenames = [f"{sanitize_filename(patch.patch_id)}.{fmt}" for patch in patches]
+    counts = Counter(candidate_filenames)
+    duplicate_filenames = sorted(name for name, count in counts.items() if count > 1)
+    if duplicate_filenames:
+        preview = ", ".join(duplicate_filenames[:5])
+        raise ValueError(f"Duplicate export filenames detected after sanitization: {preview}")
 
     saved_files: list[str] = []
     for patch, array in zip(patches, patch_arrays):
