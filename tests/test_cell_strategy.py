@@ -57,6 +57,17 @@ def test_border_object_included_and_clipped_when_exclude_border_false():
     assert patches[0].y0 == 0
 
 
+def test_fixed_patch_size_near_border_can_shrink_due_to_clipping():
+    labels = np.zeros((10, 10), dtype=int)
+    labels[0:2, 0:2] = 1
+    s = CellSegmentationStrategy(CellConfig(exclude_border=False, patch_size=6))
+    patches = s.generate_regions(image_shape=(10, 10), labels=labels)
+    assert len(patches) == 1
+    patch = patches[0]
+    assert patch.touches_border is True
+    assert patch.height < 6 or patch.width < 6
+
+
 def test_patch_size_auto_uses_object_bbox_size():
     labels = np.zeros((8, 8), dtype=int)
     labels[2:5, 3:7] = 1  # bbox 3x4 => auto patch 4

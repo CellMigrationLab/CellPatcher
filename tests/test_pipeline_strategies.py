@@ -12,11 +12,32 @@ def test_pipeline_whole_fov_one_patch_per_image():
     assert len(result.patches) == 2
 
 
+def test_pipeline_whole_fov_yxc_uses_yx_axes_not_trailing_dims():
+    cfg = CellPatcherConfig(mode="whole_fov")
+    cfg.common.image_axes = "YXC"
+    image = np.zeros((10, 20, 3))
+    result = run_patching(images=image, config=cfg)
+    assert len(result.patches) == 1
+    patch = result.patches[0]
+    assert patch.y1 == 10
+    assert patch.x1 == 20
+
+
 def test_pipeline_grid_returns_grid_patches():
     cfg = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=50, overlap=0.0, include_partial=False))
     image = np.zeros((100, 100))
     result = run_patching(images=image, config=cfg)
     assert len(result.patches) == 4
+
+
+def test_pipeline_grid_yxc_tiles_true_spatial_plane():
+    cfg = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=5, overlap=0.0, include_partial=False))
+    cfg.common.image_axes = "YXC"
+    image = np.zeros((10, 20, 3))
+    result = run_patching(images=image, config=cfg)
+    assert len(result.patches) == 8
+    assert all(0 <= p.y0 < p.y1 <= 10 for p in result.patches)
+    assert all(0 <= p.x0 < p.x1 <= 20 for p in result.patches)
 
 
 def test_pipeline_rejects_images_none_for_implemented_modes():
@@ -31,6 +52,21 @@ def test_pipeline_cell_single_image_mask_returns_patches():
     mask[2:4, 2:4] = 1
     result = run_patching(images=img, masks=mask, config=cfg)
     assert len(result.patches) == 1
+
+
+def test_pipeline_cell_yxc_uses_image_axes_and_yx_mask_axes():
+    cfg = CellPatcherConfig(mode="cell")
+    cfg.common.image_axes = "YXC"
+    cfg.common.mask_axes = "YX"
+    cfg.cell.exclude_border = False
+    cfg.cell.patch_size = "auto"
+    img = np.zeros((10, 20, 3))
+    mask = np.zeros((10, 20), dtype=int)
+    mask[2:5, 7:11] = 1
+    result = run_patching(images=img, masks=mask, config=cfg)
+    assert len(result.patches) == 1
+    patch = result.patches[0]
+    assert (patch.y0, patch.y1, patch.x0, patch.x1) == (2, 6, 7, 11)
 
 
 def test_pipeline_cell_list_images_masks_works():
@@ -57,6 +93,16 @@ def test_pipeline_random_single_image_returns_patches():
     cfg = CellPatcherConfig(mode="random", random=RandomConfig(patch_size=8, n_patches=4, seed=0))
     result = run_patching(images=np.zeros((32, 32)), config=cfg)
     assert len(result.patches) == 4
+
+
+def test_pipeline_random_yxc_uses_spatial_bounds():
+    cfg = CellPatcherConfig(mode="random", random=RandomConfig(patch_size=5, n_patches=10, seed=0))
+    cfg.common.image_axes = "YXC"
+    image = np.zeros((10, 20, 3))
+    result = run_patching(images=image, config=cfg)
+    assert len(result.patches) == 10
+    assert all(0 <= p.y0 < p.y1 <= 10 for p in result.patches)
+    assert all(0 <= p.x0 < p.x1 <= 20 for p in result.patches)
 
 
 def test_pipeline_random_list_images_works():
@@ -215,6 +261,16 @@ def test_pipeline_filters_applied_before_extraction_patch_arrays_count_matches_k
     result = run_patching(images=image, config=cfg)
     assert result.patch_arrays is not None
     assert len(result.patch_arrays) == len(result.patches)
+
+
+def test_pipeline_all_patches_filtered_out_returns_empty_arrays():
+    cfg = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=2, overlap=0.0, include_partial=False))
+    cfg.filters.min_mean_intensity = 1.0
+    cfg.common.extract_arrays = True
+    image = np.zeros((4, 4))
+    result = run_patching(images=image, config=cfg)
+    assert result.patches == []
+    assert result.patch_arrays == []
 
 
 def test_pipeline_export_enabled_writes_files_and_metadata(tmp_path):

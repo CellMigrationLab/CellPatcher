@@ -8,6 +8,7 @@ from cellpatcher.config import (
     ExtractionConfig,
     FilterConfig,
     GridConfig,
+    MatchConfig,
     RandomConfig,
 )
 from cellpatcher.export import export_patches, patch_metadata_to_rows, sanitize_filename, save_metadata_csv, save_patch_array
@@ -41,6 +42,7 @@ __all__ = [
     "CellConfig",
     "RandomConfig",
     "GridConfig",
+    "MatchConfig",
     "FilterConfig",
     "ExportConfig",
     "ExtractionConfig",

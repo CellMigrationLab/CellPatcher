@@ -1,6 +1,5 @@
 from dataclasses import dataclass, field, replace
 
-from cellpatcher.axes import normalize_axes, require_spatial_axes
 from cellpatcher.config import CellPatcherConfig
 from cellpatcher.extract import extract_patches
 from cellpatcher.export import export_patches
@@ -41,12 +40,6 @@ def _normalize_masks(masks):
     if isinstance(masks, (list, tuple)):
         return list(masks)
     return [masks]
-
-
-def _spatial_shape_from_axes(shape, axes: str) -> tuple[int, int]:
-    normalized = normalize_axes(axes, len(shape))
-    y_idx, x_idx = require_spatial_axes(normalized)
-    return int(shape[y_idx]), int(shape[x_idx])
 
 
 def _apply_filters(config: CellPatcherConfig, image_list, patches: list[PatchRegion]) -> list[PatchRegion]:
@@ -189,8 +182,11 @@ def run_patching(images=None, masks=None, config=None) -> PatchingResult:
         patches: list[PatchRegion] = []
         for idx, image in enumerate(image_list):
             image_id = f"image_{idx:04d}"
-            spatial_shape = _spatial_shape_from_axes(image.shape, config.common.image_axes)
-            patches.extend(strategy.generate_regions(image_shape=spatial_shape, labels=None, image_id=image_id))
+            patches.extend(
+                strategy.generate_regions(
+                    image_shape=image.shape, labels=None, image_id=image_id, axes=config.common.image_axes
+                )
+            )
         patches = _apply_filters(config, image_list, patches)
         return _build_result(config, image_list, patches, masks=None)
 
@@ -200,8 +196,11 @@ def run_patching(images=None, masks=None, config=None) -> PatchingResult:
         patches: list[PatchRegion] = []
         for idx, image in enumerate(image_list):
             image_id = f"image_{idx:04d}"
-            spatial_shape = _spatial_shape_from_axes(image.shape, config.common.image_axes)
-            patches.extend(strategy.generate_regions(image_shape=spatial_shape, labels=None, image_id=image_id))
+            patches.extend(
+                strategy.generate_regions(
+                    image_shape=image.shape, labels=None, image_id=image_id, axes=config.common.image_axes
+                )
+            )
         patches = _apply_filters(config, image_list, patches)
         return _build_result(config, image_list, patches, masks=None)
 
@@ -221,8 +220,11 @@ def run_patching(images=None, masks=None, config=None) -> PatchingResult:
         patches: list[PatchRegion] = []
         for idx, (image, mask) in enumerate(zip(image_list, mask_list)):
             image_id = f"image_{idx:04d}"
-            spatial_shape = _spatial_shape_from_axes(image.shape, config.common.image_axes)
-            patches.extend(strategy.generate_regions(image_shape=spatial_shape, labels=mask, image_id=image_id))
+            patches.extend(
+                strategy.generate_regions(
+                    image_shape=image.shape, labels=mask, image_id=image_id, axes=config.common.image_axes
+                )
+            )
         patches = _apply_filters(config, image_list, patches)
         return _build_result(config, image_list, patches, masks=mask_list)
 
@@ -249,7 +251,10 @@ def run_patching(images=None, masks=None, config=None) -> PatchingResult:
                 else config.random
             )
             strategy = RandomPatchStrategy(image_random_config)
-            spatial_shape = _spatial_shape_from_axes(image.shape, config.common.image_axes)
-            patches.extend(strategy.generate_regions(image_shape=spatial_shape, labels=mask, image_id=image_id))
+            patches.extend(
+                strategy.generate_regions(
+                    image_shape=image.shape, labels=mask, image_id=image_id, axes=config.common.image_axes
+                )
+            )
         patches = _apply_filters(config, image_list, patches)
         return _build_result(config, image_list, patches, masks=mask_list)

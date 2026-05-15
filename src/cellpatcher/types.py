@@ -3,6 +3,20 @@ from dataclasses import asdict, dataclass
 
 @dataclass
 class PatchRegion:
+    """Coordinate-first patch descriptor used across the backend.
+
+    Active spatial coordinates in the current backend are 2D ``y0/y1/x0/x1``.
+
+    Reserved metadata fields for future multidimensional workflows:
+    - ``z0/z1``, ``t``, ``c``, ``center_z``
+
+    Reserved metadata fields for future rejected-region diagnostics:
+    - ``valid``, ``reason``
+
+    Current pipeline behavior:
+    - only accepted patches are returned;
+    - rejected-patch diagnostics are not populated yet.
+    """
     patch_id: str
     image_id: str | None = None
     mode: str | None = None

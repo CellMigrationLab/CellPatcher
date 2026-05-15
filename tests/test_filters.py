@@ -101,3 +101,15 @@ def test_filter_regions_cyx_axes():
     cfg = FilterConfig(min_mean_intensity=1.0)
     out = filter_regions(img, regions, cfg, axes="CYX")
     assert len(out) == 1
+
+
+def test_filter_regions_multichannel_foreground_fraction_uses_all_values():
+    img = np.zeros((2, 10, 10), dtype=float)
+    img[1, :, :] = 1.0
+    regions = [PatchRegion(patch_id="r", y0=0, y1=10, x0=0, x1=10)]
+    assert foreground_fraction(img, 0.5) == 0.5
+
+    reject_cfg = FilterConfig(min_foreground_fraction=0.6, foreground_threshold=0.5)
+    keep_cfg = FilterConfig(min_foreground_fraction=0.5, foreground_threshold=0.5)
+    assert filter_regions(img, regions, reject_cfg, axes="CYX") == []
+    assert len(filter_regions(img, regions, keep_cfg, axes="CYX")) == 1
