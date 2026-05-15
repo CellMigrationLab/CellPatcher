@@ -4,6 +4,7 @@ from cellpatcher.config import CellPatcherConfig
 from cellpatcher.extract import extract_patches
 from cellpatcher.export import export_patches
 from cellpatcher.filters import filter_regions
+from cellpatcher.masking import apply_label_masks_to_patches
 from cellpatcher.resize import resize_patches
 from cellpatcher.strategies.cell import CellSegmentationStrategy
 from cellpatcher.strategies.grid import GridStrategy
@@ -41,8 +42,6 @@ def _normalize_masks(masks):
     return [masks]
 
 
-
-
 def _apply_filters(config: CellPatcherConfig, image_list, patches: list[PatchRegion]) -> list[PatchRegion]:
     if (
         config.filters.min_foreground_fraction is None
@@ -73,12 +72,21 @@ def _apply_filters(config: CellPatcherConfig, image_list, patches: list[PatchReg
         )
     return kept
 
-def _maybe_extract_arrays(config: CellPatcherConfig, image_list, patches: list[PatchRegion]):
+
+def _maybe_extract_arrays(config: CellPatcherConfig, image_list, patches: list[PatchRegion], masks=None):
     need_arrays = config.common.extract_arrays or config.export.enabled
     if not need_arrays:
         return None
 
     image_lookup = {f"image_{idx:04d}": image for idx, image in enumerate(image_list)}
+    mask_lookup = None
+    if config.extraction.apply_mask:
+        if masks is None:
+            raise ValueError("extraction.apply_mask=True requires masks to be provided.")
+        if len(masks) != len(image_list):
+            raise ValueError("Number of images and masks must match when extraction.apply_mask=True.")
+        mask_lookup = {f"image_{idx:04d}": mask for idx, mask in enumerate(masks)}
+
     grouped: dict[str, list[PatchRegion]] = {}
     for patch in patches:
         if patch.image_id is None or patch.image_id not in image_lookup:
@@ -96,6 +104,27 @@ def _maybe_extract_arrays(config: CellPatcherConfig, image_list, patches: list[P
             pad_mode=config.extraction.pad_mode,
             constant_values=config.extraction.constant_values,
         )
+
+        if config.extraction.apply_mask:
+            if mask_lookup is None or image_id not in mask_lookup:
+                raise ValueError(f"Unknown image_id for mask extraction: {image_id}")
+
+            label_patches = extract_patches(
+                mask_lookup[image_id],
+                image_patches,
+                axes=config.common.mask_axes,
+                pad_mode=config.extraction.pad_mode,
+                constant_values=0,
+            )
+            per_image_arrays = apply_label_masks_to_patches(
+                per_image_arrays,
+                label_patches,
+                image_patches,
+                image_axes=config.common.image_axes,
+                label_axes=config.common.mask_axes,
+                fill_value=config.extraction.mask_fill_value,
+            )
+
         if config.extraction.output_size is not None:
             per_image_arrays = resize_patches(
                 per_image_arrays,
@@ -107,8 +136,8 @@ def _maybe_extract_arrays(config: CellPatcherConfig, image_list, patches: list[P
     return extracted
 
 
-def _build_result(config: CellPatcherConfig, image_list, patches: list[PatchRegion]) -> PatchingResult:
-    patch_arrays_internal = _maybe_extract_arrays(config, image_list, patches)
+def _build_result(config: CellPatcherConfig, image_list, patches: list[PatchRegion], masks=None) -> PatchingResult:
+    patch_arrays_internal = _maybe_extract_arrays(config, image_list, patches, masks=masks)
 
     exported_files: list[str] = []
     metadata_file: str | None = None
@@ -159,7 +188,7 @@ def run_patching(images=None, masks=None, config=None) -> PatchingResult:
                 )
             )
         patches = _apply_filters(config, image_list, patches)
-        return _build_result(config, image_list, patches)
+        return _build_result(config, image_list, patches, masks=None)
 
     if config.mode == "grid":
         strategy = GridStrategy(config.grid)
@@ -173,7 +202,7 @@ def run_patching(images=None, masks=None, config=None) -> PatchingResult:
                 )
             )
         patches = _apply_filters(config, image_list, patches)
-        return _build_result(config, image_list, patches)
+        return _build_result(config, image_list, patches, masks=None)
 
     if config.mode == "cell":
         if images is None:
@@ -197,7 +226,7 @@ def run_patching(images=None, masks=None, config=None) -> PatchingResult:
                 )
             )
         patches = _apply_filters(config, image_list, patches)
-        return _build_result(config, image_list, patches)
+        return _build_result(config, image_list, patches, masks=mask_list)
 
     if config.mode == "random":
         image_list = _normalize_images(images)
@@ -228,4 +257,4 @@ def run_patching(images=None, masks=None, config=None) -> PatchingResult:
                 )
             )
         patches = _apply_filters(config, image_list, patches)
-        return _build_result(config, image_list, patches)
+        return _build_result(config, image_list, patches, masks=mask_list)
