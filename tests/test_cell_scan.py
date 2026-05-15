@@ -162,3 +162,67 @@ def test_mismatched_lengths_raises():
     labels = np.zeros((5, 5), dtype=np.int32)
     with pytest.raises(ValueError):
         scan_cell_patch_size(image_shapes=[(5, 5), (5, 5)], labels_list=[labels])
+
+
+# ---------------------------------------------------------------------------
+# Additional cell scan edge cases
+# ---------------------------------------------------------------------------
+
+from cellpatcher.cell_scan import _normalize_shape_inputs
+
+
+def test_normalize_shape_inputs_none_labels_raises():
+    with pytest.raises(ValueError, match="labels_list"):
+        _normalize_shape_inputs(image_shapes=(5, 5), labels_list=None)
+
+
+def test_normalize_shape_inputs_bad_image_shapes_type_raises():
+    labels = np.zeros((5, 5), dtype=np.int32)
+    with pytest.raises(ValueError, match="image_shapes"):
+        _normalize_shape_inputs(image_shapes=5, labels_list=[labels])
+
+
+def test_scan_cell_objects_shape_mismatch_raises():
+    """labels shape does not match image spatial shape → ValueError."""
+    labels = np.zeros((6, 8), dtype=np.int32)
+    labels[1:4, 1:4] = 1
+    with pytest.raises(ValueError):
+        scan_cell_objects(image_shape=(5, 5), labels=labels, config=CellConfig(exclude_border=False))
+
+
+def test_scan_cell_objects_max_area_filter():
+    """Objects with area > max_area should be excluded."""
+    labels = np.zeros((10, 10), dtype=np.int32)
+    labels[1:2, 1:2] = 1   # area 1
+    labels[3:8, 3:8] = 2   # area 25
+    records = scan_cell_objects(image_shape=(10, 10), labels=labels, config=CellConfig(exclude_border=False, max_area=10))
+    included = [r for r in records if r.included]
+    assert [r.label_id for r in included] == [1]
+    excluded = [r for r in records if not r.included]
+    assert excluded[0].reason == "area"
+
+
+def test_scan_cell_patch_size_with_area_skipped():
+    """Objects skipped by area filter are counted in n_skipped_area."""
+    labels = np.zeros((10, 10), dtype=np.int32)
+    labels[1:2, 1:2] = 1   # area 1 → below min_area=5
+    labels[3:7, 3:7] = 2   # area 16 → included
+    summary = scan_cell_patch_size(
+        image_shapes=(10, 10),
+        labels_list=labels,
+        config=CellConfig(exclude_border=False, min_area=5),
+    )
+    assert summary.n_skipped_area == 1
+    assert summary.n_included == 1
+    assert summary.min_square_size > 0
+
+
+# ---------------------------------------------------------------------------
+# Additional cell scan edge cases
+# ---------------------------------------------------------------------------
+
+def test_scan_cell_objects_zero_size_spatial_dim_raises():
+    """image_shape with zero spatial dimension should raise."""
+    labels = np.zeros((0, 5), dtype=np.int32)
+    with pytest.raises(ValueError, match="[Ss]patial"):
+        scan_cell_objects(image_shape=(0, 5), labels=labels, config=CellConfig(exclude_border=False))
