@@ -177,6 +177,59 @@ The active strategy is controlled by `config.matching.strategy`.
 
 ---
 
+## Configuration reference
+
+For readability, the complete settings/options reference now lives in:
+
+- [`docs/configuration_reference.md`](docs/configuration_reference.md)
+
+It includes all fields, defaults, and allowed values for `CellPatcherConfig` and nested sections.
+
+---
+
+## Saving/export examples
+
+### Save extracted patches to TIFF + metadata CSV
+
+```python
+from cellpatcher import CellPatcherConfig, run_patching_pipeline
+
+cfg = CellPatcherConfig(mode="grid")
+cfg.grid.tile_size = 128
+cfg.common.image_axes = "YX"
+cfg.common.output_dir = "./patches_tiff"
+cfg.common.extract_arrays = True
+
+cfg.export.enabled = True
+cfg.export.image_format = "tiff"          # "tif" and "tiff" are both supported
+cfg.export.save_metadata_csv = True
+
+result = run_patching_pipeline("./images", config=cfg)
+print(f"Exported files: {len(result.exported_files)}")
+print(f"Metadata CSV:   {result.metadata_file}")
+```
+
+### Keep results in memory only (no file export)
+
+```python
+from cellpatcher import CellPatcherConfig, run_patching_pipeline
+
+cfg = CellPatcherConfig(mode="grid")
+cfg.grid.tile_size = 128
+cfg.common.image_axes = "YX"
+cfg.common.extract_arrays = True
+
+cfg.export.enabled = False                 # no files written
+cfg.common.output_dir = None               # optional, keeps run in-memory
+
+result = run_patching_pipeline("./images", config=cfg)
+print(f"Patches: {len(result.patches)}")
+print(f"Arrays:  {len(result.patch_arrays)}")
+print(f"Files:   {len(result.exported_files)}")
+```
+
+---
+
 ## Notebooks
 
 | Notebook | Description |
