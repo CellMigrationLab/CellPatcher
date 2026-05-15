@@ -1,13 +1,28 @@
 # Legacy patch generation references
 
-These files are provided as reference material for the CellPatcher refactor.
+This folder contains **reference-only** legacy files used as inspiration during the CellPatcher refactor.
 
-They contain useful ideas for:
-- axis handling
-- random patch sampling
-- background patch filtering
-- transform-style named operations
+## Usage policy
 
-Do not import these modules directly into CellPatcher.
-Do not preserve their old package dependencies.
-Reimplement only the useful ideas in a simple, CellPatcher-specific way.
+- These files are **not imported** by the current CellPatcher package.
+- Do **not** copy code directly from these files into production modules.
+- Reimplement ideas in a simple CellPatcher-specific form when needed.
+
+## Useful ideas already incorporated (conceptually)
+
+- axis handling concepts
+- random sampling concepts
+- background filtering concepts
+- memory/checking inspiration
+
+## Intentionally not incorporated into core package
+
+- CSBDeep source/target training abstractions
+- generator transform stack design
+- legacy `six`/old import style
+- anisotropic distortion simulation workflows
+
+## Lifecycle note
+
+Keep these files for now as historical reference while Notebook v2 is being prepared.
+Revisit archive/deletion decisions after `notebooks/CellPatcher/CellPatcher_v2.ipynb` is created.
