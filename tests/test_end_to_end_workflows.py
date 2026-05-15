@@ -101,6 +101,18 @@ def test_e2e_whole_fov_export(tmp_path):
     assert len(result.patches) == 1
     assert len(result.exported_files) == 1
     assert (tmp_path / "patches.csv").exists()
+    assert result.metadata_file == str(tmp_path / "patches.csv")
+
+    with (tmp_path / "patches.csv").open("r", encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["mode"] == "whole_fov"
+    assert row["image_id"] == "image_0000"
+    assert int(row["y0"]) == 0
+    assert int(row["x0"]) == 0
+    assert int(row["y1"]) == image.shape[0]
+    assert int(row["x1"]) == image.shape[1]
 
 
 def test_e2e_yxc_cell_pipeline():

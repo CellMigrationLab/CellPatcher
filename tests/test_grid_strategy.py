@@ -34,6 +34,13 @@ def test_grid_overlap_very_high_still_generates_tiles():
     assert all(0 <= r.x0 < r.x1 <= 6 for r in regions)
 
 
+def test_grid_overlap_very_high_avoids_duplicate_coordinates():
+    s = GridStrategy(GridConfig(tile_size=5, overlap=0.99, include_partial=True))
+    regions = s.generate_regions(image_shape=(6, 6))
+    coords = [(r.y0, r.y1, r.x0, r.x1) for r in regions]
+    assert len(coords) == len(set(coords))
+
+
 def test_grid_large_tile_partial_with_high_overlap_still_one_tile():
     s = GridStrategy(GridConfig(tile_size=200, overlap=0.9, include_partial=True))
     regions = s.generate_regions(image_shape=(100, 100))

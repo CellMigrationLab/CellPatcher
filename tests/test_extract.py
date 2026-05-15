@@ -36,6 +36,14 @@ def test_extract_patch_zyx_preserves_z_axis():
     assert np.array_equal(out, image[:, 1:4, 2:6])
 
 
+def test_extract_patch_tczyx_preserves_non_spatial_axes_and_constant_padding():
+    image = np.arange(2 * 3 * 4 * 5 * 6).reshape(2, 3, 4, 5, 6)
+    region = PatchRegion(patch_id="p", y0=-1, y1=3, x0=4, x1=8)
+    out = extract_patch(image, region, axes="TCZYX", pad_mode="constant", constant_values=-9)
+    assert out.shape == (2, 3, 4, 4, 4)
+    assert np.all(out[..., 0, :] == -9)
+
+
 def test_extract_patch_clip_out_of_bounds():
     image = np.arange(25).reshape(5, 5)
     region = PatchRegion(patch_id="p", y0=-2, y1=3, x0=3, x1=7)

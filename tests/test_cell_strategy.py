@@ -84,6 +84,14 @@ def test_fixed_patch_size_produces_square_when_possible():
     assert patch.height == 6 and patch.width == 6
 
 
+def test_fixed_patch_size_larger_than_image_is_clipped_to_image_bounds():
+    labels = np.zeros((10, 10), dtype=int)
+    labels[4:6, 4:6] = 1
+    s = CellSegmentationStrategy(CellConfig(exclude_border=False, patch_size=20))
+    patch = s.generate_regions(image_shape=(10, 10), labels=labels)[0]
+    assert (patch.y0, patch.y1, patch.x0, patch.x1) == (0, 10, 0, 10)
+
+
 
 def test_default_center_on_matches_notebook_bbox_center_behavior():
     labels = np.zeros((10, 10), dtype=int)

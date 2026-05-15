@@ -191,6 +191,24 @@ def test_pipeline_extract_arrays_uses_extraction_pad_mode_constant():
     assert len(result.patch_arrays) == 1
 
 
+def test_pipeline_apply_mask_true_requires_masks_in_random_mode():
+    cfg = CellPatcherConfig(mode="random", random=RandomConfig(patch_size=3, n_patches=1, seed=0))
+    cfg.common.extract_arrays = True
+    cfg.extraction.apply_mask = True
+
+    with pytest.raises(ValueError, match="only supported in mode='cell'"):
+        run_patching(images=np.arange(25).reshape(5, 5), masks=None, config=cfg)
+
+
+def test_pipeline_apply_mask_random_mode_rejected_even_with_masks():
+    cfg = CellPatcherConfig(mode="random", random=RandomConfig(patch_size=8, n_patches=1, seed=0))
+    cfg.common.extract_arrays = True
+    cfg.extraction.apply_mask = True
+
+    with pytest.raises(ValueError, match="only supported in mode='cell'"):
+        run_patching(images=np.ones((8, 8), dtype=np.float32), masks=np.ones((8, 8), dtype=np.int32), config=cfg)
+
+
 def test_pipeline_extract_arrays_resized_output_size():
     cfg = CellPatcherConfig(mode="whole_fov")
     cfg.common.extract_arrays = True
