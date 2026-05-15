@@ -28,8 +28,8 @@ CellPatcher exposes two complementary run functions:
 
 | Function | When to use |
 |----------|-------------|
-| `run_patching_pipeline(folder, …)` | You have images (and masks) on disk in folders — the recommended starting point for scripts and notebooks |
-| `run_patching(images=[…], masks=[…], …)` | You already have arrays in memory — use inside interactive apps and custom loaders |
+| `run_patching_pipeline(folder, …)` | You have images (and masks) on disk in folders — the recommended starting point for scripts and simple one-off runs |
+| `run_patching(images=[…], masks=[…], …)` | You already have arrays in memory — use inside interactive apps, custom loaders, and widget-driven notebooks |
 
 Both return the same `PatchingResult` (regions, optional extracted arrays, exported file paths, metadata CSV path).
 
@@ -160,7 +160,7 @@ print(f"Patches: {len(result.patches)}, arrays: {len(result.patch_arrays)}")
 ## Cell mode — additional notes
 
 - Set both `config.common.image_axes` and `config.common.mask_axes` (e.g. `"CYX"`, `"YX"`).
-- If patch size is unknown, call `scan_cell_patch_size(mask, mask_axes=…)` first to get dataset-level recommendations, then set `config.cell.patch_size`.
+- If patch size is unknown, call `scan_cell_patch_size(image_shapes, labels_list, mask_axes=…)` first to get dataset-level recommendations, then set `config.cell.patch_size`.
 - Enable `config.extraction.apply_mask = True` to zero-out pixels outside the selected cell label before resize/export.
 
 ## Image/mask filename matching
