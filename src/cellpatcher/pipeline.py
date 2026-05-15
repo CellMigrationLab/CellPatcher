@@ -81,8 +81,12 @@ def _maybe_extract_arrays(config: CellPatcherConfig, image_list, patches: list[P
     image_lookup = {f"image_{idx:04d}": image for idx, image in enumerate(image_list)}
     mask_lookup = None
     if config.extraction.apply_mask:
+        if config.mode != "cell":
+            raise ValueError("extraction.apply_mask=True is only supported in mode='cell'.")
         if masks is None:
             raise ValueError("extraction.apply_mask=True requires masks to be provided.")
+        if any(mask is None for mask in masks):
+            raise ValueError("extraction.apply_mask=True requires one non-None mask per image.")
         if len(masks) != len(image_list):
             raise ValueError("Number of images and masks must match when extraction.apply_mask=True.")
         mask_lookup = {f"image_{idx:04d}": mask for idx, mask in enumerate(masks)}

@@ -84,6 +84,14 @@ def test_fixed_patch_size_produces_square_when_possible():
     assert patch.height == 6 and patch.width == 6
 
 
+def test_fixed_patch_size_larger_than_image_is_clipped_to_image_bounds():
+    labels = np.zeros((10, 10), dtype=int)
+    labels[4:6, 4:6] = 1
+    s = CellSegmentationStrategy(CellConfig(exclude_border=False, patch_size=20))
+    patch = s.generate_regions(image_shape=(10, 10), labels=labels)[0]
+    assert (patch.y0, patch.y1, patch.x0, patch.x1) == (0, 10, 0, 10)
+
+
 
 def test_default_center_on_matches_notebook_bbox_center_behavior():
     labels = np.zeros((10, 10), dtype=int)
@@ -232,3 +240,95 @@ def test_non_contiguous_label_ids_work():
     s = CellSegmentationStrategy(CellConfig(exclude_border=False))
     patches = s.generate_regions(image_shape=(10, 10), labels=labels)
     assert [p.label_id for p in patches] == [1, 5, 42]
+
+
+# ---------------------------------------------------------------------------
+# centroid center_on option
+# ---------------------------------------------------------------------------
+
+def test_centroid_center_on_uses_mean_of_pixel_coordinates():
+    """center_on='centroid' should place the patch at the mean of foreground pixels."""
+    labels = np.zeros((10, 10), dtype=int)
+    labels[2:5, 3:7] = 1  # ys in [2,3,4], xs in [3,4,5,6]
+    s = CellSegmentationStrategy(CellConfig(exclude_border=False, patch_size=4, center_on="centroid"))
+    patch = s.generate_regions(image_shape=(10, 10), labels=labels)[0]
+    ys, xs = np.where(labels == 1)
+    assert abs(patch.center_y - float(np.mean(ys))) < 1e-6
+    assert abs(patch.center_x - float(np.mean(xs))) < 1e-6
+
+
+def test_centroid_differs_from_bbox_center_for_asymmetric_object():
+    """For a non-symmetric object, centroid and bbox_center should differ."""
+    labels = np.zeros((10, 10), dtype=int)
+    # Place pixels at corners of a 3x6 region but only partially filled
+    labels[2, 3] = 1
+    labels[2, 8] = 1
+    labels[4, 3] = 1
+    s_centroid = CellSegmentationStrategy(CellConfig(exclude_border=False, patch_size=3, center_on="centroid"))
+    s_bbox = CellSegmentationStrategy(CellConfig(exclude_border=False, patch_size=3, center_on="bbox_center"))
+    p_centroid = s_centroid.generate_regions(image_shape=(10, 10), labels=labels)[0]
+    p_bbox = s_bbox.generate_regions(image_shape=(10, 10), labels=labels)[0]
+    assert (p_centroid.center_y, p_centroid.center_x) != (p_bbox.center_y, p_bbox.center_x)
+
+
+# ---------------------------------------------------------------------------
+# max_area filtering
+# ---------------------------------------------------------------------------
+
+def test_max_area_excludes_large_cells():
+    labels = np.zeros((10, 10), dtype=int)
+    labels[1:2, 1:2] = 1   # area 1
+    labels[3:8, 3:8] = 2   # area 25
+    s = CellSegmentationStrategy(CellConfig(exclude_border=False, max_area=10))
+    patches = s.generate_regions(image_shape=(10, 10), labels=labels)
+    assert len(patches) == 1
+    assert patches[0].label_id == 1
+
+
+# ---------------------------------------------------------------------------
+# 1D labels should raise
+# ---------------------------------------------------------------------------
+
+def test_1d_labels_raises():
+    import numpy as np
+    labels = np.array([1, 2, 3])
+    s = CellSegmentationStrategy(CellConfig(exclude_border=False))
+    with pytest.raises(ValueError):
+        s.generate_regions(image_shape=(5, 5), labels=labels)
+
+
+# ---------------------------------------------------------------------------
+# Further cell strategy edge cases
+# ---------------------------------------------------------------------------
+
+def test_cell_strategy_patch_size_zero_raises():
+    """patch_size=0 passed directly to strategy should raise (not caught by CellConfig)."""
+    labels = np.zeros((5, 5), dtype=int)
+    labels[2, 2] = 1
+    s = CellSegmentationStrategy(CellConfig(exclude_border=False, patch_size=0))
+    with pytest.raises(ValueError, match="patch_size"):
+        s.generate_regions(image_shape=(5, 5), labels=labels)
+
+
+def test_cell_strategy_empty_labels_raises():
+    """Empty (zero-size) 2D labels array should raise."""
+    labels = np.zeros((0, 5), dtype=int)
+    s = CellSegmentationStrategy(CellConfig(exclude_border=False))
+    with pytest.raises(ValueError):
+        s.generate_regions(image_shape=(0, 5), labels=labels)
+
+
+def test_cell_strategy_mask_axes_length_mismatch_raises():
+    """mask_axes length must match labels.ndim for multidimensional labels."""
+    labels = np.zeros((2, 2, 5, 5), dtype=int)  # ndim=4
+    s = CellSegmentationStrategy(CellConfig(mask_channel=0), mask_axes="CYX")  # len=3
+    with pytest.raises(ValueError, match="mask_axes"):
+        s.generate_regions(image_shape=(5, 5), labels=labels)
+
+
+def test_cell_strategy_4d_labels_produces_non_2d_selected_raises():
+    """4D labels with TCYX axes → channel selection returns 3D → raises."""
+    labels = np.zeros((2, 2, 5, 5), dtype=int)  # TCYX: T=2, C=2, Y=5, X=5
+    s = CellSegmentationStrategy(CellConfig(mask_channel=0), mask_axes="TCYX")
+    with pytest.raises(ValueError, match="3D"):
+        s.generate_regions(image_shape=(5, 5), labels=labels)

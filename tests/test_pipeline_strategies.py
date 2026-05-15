@@ -191,6 +191,24 @@ def test_pipeline_extract_arrays_uses_extraction_pad_mode_constant():
     assert len(result.patch_arrays) == 1
 
 
+def test_pipeline_apply_mask_true_requires_masks_in_random_mode():
+    cfg = CellPatcherConfig(mode="random", random=RandomConfig(patch_size=3, n_patches=1, seed=0))
+    cfg.common.extract_arrays = True
+    cfg.extraction.apply_mask = True
+
+    with pytest.raises(ValueError, match="only supported in mode='cell'"):
+        run_patching(images=np.arange(25).reshape(5, 5), masks=None, config=cfg)
+
+
+def test_pipeline_apply_mask_random_mode_rejected_even_with_masks():
+    cfg = CellPatcherConfig(mode="random", random=RandomConfig(patch_size=8, n_patches=1, seed=0))
+    cfg.common.extract_arrays = True
+    cfg.extraction.apply_mask = True
+
+    with pytest.raises(ValueError, match="only supported in mode='cell'"):
+        run_patching(images=np.ones((8, 8), dtype=np.float32), masks=np.ones((8, 8), dtype=np.int32), config=cfg)
+
+
 def test_pipeline_extract_arrays_resized_output_size():
     cfg = CellPatcherConfig(mode="whole_fov")
     cfg.common.extract_arrays = True
@@ -404,3 +422,305 @@ def test_pipeline_apply_mask_true_non_cell_region_raises():
     cfg.extraction.apply_mask = True
     with pytest.raises(ValueError):
         run_patching(images=np.ones((4, 4)), masks=[np.ones((4, 4), dtype=int)], config=cfg)
+
+
+# ---------------------------------------------------------------------------
+# Additional pipeline option coverage
+# ---------------------------------------------------------------------------
+
+def test_run_patching_rejects_non_config_instance():
+    with pytest.raises(TypeError):
+        run_patching(images=np.zeros((4, 4)), config={"mode": "grid"})
+
+
+def test_run_patching_none_config_defaults_to_cell_mode(tmp_path):
+    img = np.zeros((6, 6))
+    mask = np.zeros((6, 6), dtype=int)
+    mask[2:4, 2:4] = 1
+    result = run_patching(images=img, masks=mask, config=None)
+    assert len(result.patches) == 1
+
+
+def test_pipeline_image_without_shape_raises():
+    cfg = CellPatcherConfig(mode="whole_fov")
+    with pytest.raises(ValueError, match="shape"):
+        run_patching(images="not_an_array", config=cfg)
+
+
+# ---------------------------------------------------------------------------
+# Cell mode: all CellConfig options exercised through the pipeline
+# ---------------------------------------------------------------------------
+
+def test_pipeline_cell_centroid_center_on():
+    cfg = CellPatcherConfig(mode="cell")
+    cfg.cell.center_on = "centroid"
+    cfg.cell.patch_size = 4
+    cfg.cell.exclude_border = False
+    img = np.zeros((10, 10))
+    labels = np.zeros((10, 10), dtype=int)
+    labels[3:6, 3:6] = 1
+    result = run_patching(images=img, masks=labels, config=cfg)
+    assert len(result.patches) == 1
+    p = result.patches[0]
+    ys, xs = np.where(labels == 1)
+    assert abs(p.center_y - float(np.mean(ys))) < 1e-6
+
+
+def test_pipeline_cell_binary_mask_single_object_policy():
+    cfg = CellPatcherConfig(mode="cell")
+    cfg.cell.binary_mask_policy = "single_object"
+    cfg.cell.exclude_border = False
+    img = np.zeros((10, 10))
+    labels = np.zeros((10, 10), dtype=bool)
+    labels[1:3, 1:3] = True
+    labels[6:8, 6:8] = True
+    result = run_patching(images=img, masks=labels, config=cfg)
+    assert len(result.patches) == 1
+
+
+def test_pipeline_cell_binary_mask_connected_components_policy():
+    cfg = CellPatcherConfig(mode="cell")
+    cfg.cell.binary_mask_policy = "connected_components"
+    cfg.cell.exclude_border = False
+    img = np.zeros((10, 10))
+    labels = np.zeros((10, 10), dtype=bool)
+    labels[1:3, 1:3] = True
+    labels[6:8, 6:8] = True
+    result = run_patching(images=img, masks=labels, config=cfg)
+    assert len(result.patches) == 2
+
+
+def test_pipeline_cell_min_area_filters_tiny_cells():
+    cfg = CellPatcherConfig(mode="cell")
+    cfg.cell.min_area = 10
+    cfg.cell.exclude_border = False
+    img = np.zeros((10, 10))
+    labels = np.zeros((10, 10), dtype=int)
+    labels[1, 1] = 1     # area 1 → filtered
+    labels[4:7, 4:7] = 2  # area 9 → just below
+    result = run_patching(images=img, masks=labels, config=cfg)
+    assert len(result.patches) == 0
+
+
+def test_pipeline_cell_max_area_filters_large_cells():
+    cfg = CellPatcherConfig(mode="cell")
+    cfg.cell.max_area = 4
+    cfg.cell.exclude_border = False
+    img = np.zeros((10, 10))
+    labels = np.zeros((10, 10), dtype=int)
+    labels[1:2, 1:3] = 1  # area 2 → included
+    labels[4:8, 4:8] = 2  # area 16 → excluded
+    result = run_patching(images=img, masks=labels, config=cfg)
+    assert len(result.patches) == 1
+    assert result.patches[0].label_id == 1
+
+
+def test_pipeline_cell_exclude_border_false_includes_edge_cells():
+    cfg = CellPatcherConfig(mode="cell")
+    cfg.cell.exclude_border = False
+    cfg.cell.patch_size = 3
+    img = np.zeros((8, 8))
+    labels = np.zeros((8, 8), dtype=int)
+    labels[0:2, 0:2] = 1  # touches border
+    result = run_patching(images=img, masks=labels, config=cfg)
+    assert len(result.patches) == 1
+    assert result.patches[0].touches_border is True
+
+
+# ---------------------------------------------------------------------------
+# Grid options: overlap and include_partial
+# ---------------------------------------------------------------------------
+
+def test_pipeline_grid_with_overlap_produces_more_tiles():
+    base_cfg = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=20, overlap=0.0, include_partial=False))
+    overlap_cfg = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=20, overlap=0.5, include_partial=False))
+    image = np.zeros((100, 100))
+    base_result = run_patching(images=image, config=base_cfg)
+    overlap_result = run_patching(images=image, config=overlap_cfg)
+    assert len(overlap_result.patches) > len(base_result.patches)
+
+
+def test_pipeline_grid_include_partial_covers_all_pixels():
+    cfg = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=30, overlap=0.0, include_partial=True))
+    image = np.zeros((100, 100))
+    result = run_patching(images=image, config=cfg)
+    assert any(p.y1 == 100 for p in result.patches)
+    assert any(p.x1 == 100 for p in result.patches)
+
+
+# ---------------------------------------------------------------------------
+# Random strategy: seed reproducibility and mask
+# ---------------------------------------------------------------------------
+
+def test_pipeline_random_seed_produces_reproducible_patches():
+    cfg = CellPatcherConfig(mode="random", random=RandomConfig(patch_size=8, n_patches=5, seed=42))
+    image = np.zeros((32, 32))
+    r1 = run_patching(images=image, config=cfg)
+    r2 = run_patching(images=image, config=cfg)
+    assert [(p.y0, p.x0) for p in r1.patches] == [(p.y0, p.x0) for p in r2.patches]
+
+
+def test_pipeline_random_with_sampling_mask_stays_in_masked_region():
+    cfg = CellPatcherConfig(mode="random", random=RandomConfig(patch_size=6, n_patches=10, seed=7))
+    image = np.zeros((32, 32))
+    mask = np.zeros((32, 32), dtype=bool)
+    mask[10:20, 10:20] = True
+    result = run_patching(images=image, masks=mask, config=cfg)
+    for p in result.patches:
+        assert np.any(mask[p.y0:p.y1, p.x0:p.x1])
+
+
+# ---------------------------------------------------------------------------
+# Extraction options
+# ---------------------------------------------------------------------------
+
+def test_pipeline_extraction_pad_mode_constant_pads_out_of_bound_patches():
+    cfg = CellPatcherConfig(mode="cell")
+    cfg.cell.patch_size = 10
+    cfg.cell.exclude_border = False
+    cfg.common.extract_arrays = True
+    cfg.extraction.pad_mode = "constant"
+    cfg.extraction.constant_values = -1
+
+    img = np.zeros((8, 8), dtype=np.float32)
+    labels = np.zeros((8, 8), dtype=int)
+    labels[0:2, 0:2] = 1  # cell at top-left border
+    result = run_patching(images=img, masks=labels, config=cfg)
+    assert result.patch_arrays is not None
+    # With constant padding, patch should contain -1 fill at padded positions
+
+
+def test_pipeline_extraction_output_size_tuple():
+    cfg = CellPatcherConfig(mode="whole_fov")
+    cfg.common.extract_arrays = True
+    cfg.extraction.output_size = (4, 6)
+    cfg.extraction.resize_order = 0
+    image = np.zeros((10, 10))
+    result = run_patching(images=image, config=cfg)
+    assert result.patch_arrays is not None
+    assert result.patch_arrays[0].shape == (4, 6)
+
+
+def test_pipeline_extraction_mask_fill_value_controls_background():
+    cfg = CellPatcherConfig(mode="cell")
+    cfg.cell.patch_size = 6
+    cfg.cell.exclude_border = False
+    cfg.common.extract_arrays = True
+    cfg.common.image_axes = "YX"
+    cfg.extraction.apply_mask = True
+    cfg.extraction.mask_fill_value = -99
+
+    image = np.full((8, 8), 5, dtype=np.float32)
+    labels = np.zeros((8, 8), dtype=int)
+    labels[3:5, 3:5] = 1  # 2x2 cell inside a 6x6 patch; non-cell pixels get fill_value
+    result = run_patching(images=image, masks=labels, config=cfg)
+    arr = result.patch_arrays[0]
+    assert float(arr.min()) == pytest.approx(-99)
+
+
+# ---------------------------------------------------------------------------
+# Export options
+# ---------------------------------------------------------------------------
+
+def test_pipeline_export_tif_format_writes_tif_files(tmp_path):
+    try:
+        import tifffile  # noqa: F401
+    except ImportError:
+        pytest.skip("tifffile not available")
+    cfg = CellPatcherConfig(mode="whole_fov")
+    cfg.common.output_dir = str(tmp_path)
+    cfg.export.enabled = True
+    cfg.export.image_format = "tif"
+    cfg.export.save_metadata_csv = True
+    result = run_patching(images=np.zeros((4, 4)), config=cfg)
+    assert len(result.exported_files) == 1
+    assert result.exported_files[0].endswith(".tif")
+
+
+def test_pipeline_export_save_metadata_csv_false_skips_csv(tmp_path):
+    cfg = CellPatcherConfig(mode="whole_fov")
+    cfg.common.output_dir = str(tmp_path)
+    cfg.export.enabled = True
+    cfg.export.image_format = "npy"
+    cfg.export.save_metadata_csv = False
+    result = run_patching(images=np.zeros((4, 4)), config=cfg)
+    assert not (tmp_path / "patches.csv").exists()
+    assert result.metadata_file is None
+
+
+def test_pipeline_export_grid_multi_image_writes_all_patches(tmp_path):
+    cfg = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=8, overlap=0.0, include_partial=False))
+    cfg.common.output_dir = str(tmp_path)
+    cfg.export.enabled = True
+    cfg.export.image_format = "npy"
+    images = [np.zeros((16, 16)), np.zeros((16, 16))]
+    result = run_patching(images=images, config=cfg)
+    assert len(result.exported_files) == len(result.patches)
+
+
+# ---------------------------------------------------------------------------
+# Whole FOV: multi-image and channel axes
+# ---------------------------------------------------------------------------
+
+def test_pipeline_whole_fov_multi_image_one_patch_each():
+    cfg = CellPatcherConfig(mode="whole_fov")
+    images = [np.zeros((4, 5)), np.zeros((6, 7))]
+    result = run_patching(images=images, config=cfg)
+    assert len(result.patches) == 2
+    assert result.patches[0].y1 == 4 and result.patches[0].x1 == 5
+    assert result.patches[1].y1 == 6 and result.patches[1].x1 == 7
+
+
+def test_pipeline_whole_fov_zyx_axes():
+    cfg = CellPatcherConfig(mode="whole_fov")
+    cfg.common.image_axes = "ZYX"
+    image = np.zeros((3, 10, 20))
+    result = run_patching(images=image, config=cfg)
+    assert len(result.patches) == 1
+    patch = result.patches[0]
+    assert (patch.y1, patch.x1) == (10, 20)
+
+
+# ---------------------------------------------------------------------------
+# Filters through the pipeline
+# ---------------------------------------------------------------------------
+
+def test_pipeline_filter_foreground_fraction_removes_dark_tiles():
+    cfg = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=4, overlap=0.0, include_partial=False))
+    cfg.filters.min_foreground_fraction = 0.5
+    cfg.filters.foreground_threshold = 1.0
+    image = np.zeros((8, 8), dtype=float)
+    image[0:4, 4:8] = 5  # right half has bright values
+    result = run_patching(images=image, config=cfg)
+    assert len(result.patches) < 4
+    assert all(p.x0 >= 4 for p in result.patches)
+
+
+def test_pipeline_filter_foreground_threshold_mean_works():
+    cfg = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=4, overlap=0.0, include_partial=False))
+    cfg.filters.min_foreground_fraction = 0.5
+    cfg.filters.foreground_threshold = "mean"
+    image = np.zeros((8, 8), dtype=float)
+    image[0:4, 4:8] = 10.0
+    result = run_patching(images=image, config=cfg)
+    assert len(result.patches) <= 4
+
+
+# ---------------------------------------------------------------------------
+# Cell mode: apply_mask=True with None in masks list
+# ---------------------------------------------------------------------------
+
+def test_pipeline_cell_apply_mask_with_none_in_masks_raises():
+    """In cell mode, a None entry in the masks list should raise an error."""
+    cfg = CellPatcherConfig(mode="cell")
+    cfg.common.extract_arrays = True
+    cfg.extraction.apply_mask = True
+    cfg.cell.patch_size = 3
+    cfg.cell.exclude_border = False
+
+    img = np.zeros((6, 6))
+    labels1 = np.zeros((6, 6), dtype=int)
+    labels1[2:4, 2:4] = 1
+
+    with pytest.raises(ValueError):
+        run_patching(images=[img, img], masks=[labels1, None], config=cfg)

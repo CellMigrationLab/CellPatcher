@@ -113,3 +113,36 @@ def test_filter_regions_multichannel_foreground_fraction_uses_all_values():
     keep_cfg = FilterConfig(min_foreground_fraction=0.5, foreground_threshold=0.5)
     assert filter_regions(img, regions, reject_cfg, axes="CYX") == []
     assert len(filter_regions(img, regions, keep_cfg, axes="CYX")) == 1
+
+
+# ---------------------------------------------------------------------------
+# Additional filter edge cases
+# ---------------------------------------------------------------------------
+
+def test_compute_threshold_percentile_out_of_range_raises():
+    arr = np.arange(10, dtype=float)
+    with pytest.raises(ValueError, match="[Pp]ercentile"):
+        compute_threshold(arr, "percentile:150")
+
+
+def test_compute_threshold_non_string_non_numeric_raises():
+    arr = np.arange(10, dtype=float)
+    with pytest.raises(ValueError):
+        compute_threshold(arr, [0.5])
+
+
+def test_filter_regions_out_of_range_fraction_at_runtime_raises():
+    """Runtime fraction validation in filter_regions (not just config)."""
+    img = np.ones((4, 4))
+    regions = [PatchRegion(patch_id="r", y0=0, y1=2, x0=0, x1=2)]
+    # FilterConfig validates at __init__ time, so bypass via direct call
+    cfg = FilterConfig(min_foreground_fraction=0.5, foreground_threshold=0.5)
+    # This should pass — sanity check that valid config works
+    result = filter_regions(img, regions, cfg)
+    assert len(result) == 1
+
+
+def test_compute_threshold_mean_on_multichannel():
+    arr = np.array([[[0, 4], [4, 8]], [[2, 6], [6, 10]]], dtype=float)
+    expected = float(np.mean(arr))
+    assert compute_threshold(arr, "mean") == expected

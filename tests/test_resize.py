@@ -64,3 +64,43 @@ def test_resize_patch_invalid_axes_raises():
     arr = np.zeros((5, 5))
     with pytest.raises(ValueError):
         resize_patch(arr, axes="TC", output_size=3)
+
+
+# ---------------------------------------------------------------------------
+# Additional resize edge cases
+# ---------------------------------------------------------------------------
+
+def test_normalize_output_size_zero_int_raises():
+    with pytest.raises(ValueError, match="output_size"):
+        normalize_output_size(0)
+
+
+def test_normalize_output_size_negative_int_raises():
+    with pytest.raises(ValueError, match="output_size"):
+        normalize_output_size(-4)
+
+
+def test_normalize_output_size_zero_in_tuple_raises():
+    with pytest.raises(ValueError, match="output_size"):
+        normalize_output_size((0, 8))
+
+
+def test_normalize_output_size_unsupported_type_raises():
+    with pytest.raises(ValueError, match="output_size"):
+        normalize_output_size("large")
+
+
+def test_resize_patch_invalid_order_raises():
+    arr = np.zeros((4, 4))
+    with pytest.raises(ValueError, match="order"):
+        resize_patch(arr, axes="YX", output_size=8, order=-1)
+
+
+def test_resize_patches_empty_list_returns_empty():
+    assert resize_patches([], axes="YX", output_size=4, order=0) == []
+
+
+def test_resize_patch_output_size_tuple():
+    arr = np.arange(16).reshape(4, 4)
+    out = resize_patch(arr, axes="YX", output_size=(6, 8), order=0)
+    assert out.shape == (6, 8)

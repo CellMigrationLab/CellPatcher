@@ -87,3 +87,47 @@ def test_mapping_to_axes_rejects_out_of_range_indices_with_ndim():
 def test_mapping_to_axes_raises_when_empty():
     with pytest.raises(ValueError):
         mapping_to_axes({0: "Other", 1: None})
+
+
+# ---------------------------------------------------------------------------
+# Additional axes edge cases
+# ---------------------------------------------------------------------------
+
+def test_normalize_axes_rejects_non_string():
+    with pytest.raises(ValueError, match="axes must be a string"):
+        normalize_axes(["Y", "X"])
+
+
+def test_axis_index_rejects_multi_char_axis():
+    with pytest.raises(ValueError, match="single character"):
+        axis_index("YX", "YX")
+
+
+def test_axis_index_rejects_invalid_axis_char():
+    with pytest.raises(ValueError, match="one of T, C, Z, Y, X"):
+        axis_index("YX", "A")
+
+
+def test_move_axes_rejects_incompatible_axis_sets():
+    arr = np.arange(2 * 3 * 4).reshape(2, 3, 4)
+    with pytest.raises(ValueError, match="same axes"):
+        move_axes(arr, "CYX", "ZYX")
+
+
+# ---------------------------------------------------------------------------
+# mapping_to_axes additional edge cases
+# ---------------------------------------------------------------------------
+
+def test_mapping_to_axes_rejects_non_dict_like():
+    with pytest.raises(ValueError, match="dict-like"):
+        mapping_to_axes(42)
+
+
+def test_mapping_to_axes_rejects_non_integer_key():
+    with pytest.raises(ValueError, match="Invalid mapping index"):
+        mapping_to_axes({"first": "Y", 1: "X"})
+
+
+def test_mapping_to_axes_rejects_negative_index():
+    with pytest.raises(ValueError, match="Invalid mapping index"):
+        mapping_to_axes({-1: "Y", 0: "X"})

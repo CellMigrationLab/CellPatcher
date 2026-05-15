@@ -83,3 +83,13 @@ def test_random_strategy_sampling_with_replacement_allows_duplicates():
     patches = s.generate_regions(image_shape=(4, 4))
     assert len(patches) == 3
     assert all((p.y0, p.y1, p.x0, p.x1) == (0, 4, 0, 4) for p in patches)
+
+
+# ---------------------------------------------------------------------------
+# Additional strategy edge cases
+# ---------------------------------------------------------------------------
+
+def test_random_strategy_non_2d_mask_raises():
+    s = RandomPatchStrategy(RandomConfig(patch_size=4, n_patches=2, seed=0))
+    with pytest.raises(ValueError):
+        s.generate_regions(image_shape=(20, 20), labels=np.zeros((2, 20, 20), dtype=bool))

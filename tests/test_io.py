@@ -264,3 +264,92 @@ def test_validate_image_and_mask_folders_empty_mask_folder_raises(tmp_path):
     (img_dir / "a.npy").write_bytes(b"x")
     with pytest.raises(ValueError, match="mask folder"):
         validate_image_and_mask_folders(img_dir, mask_dir)
+
+
+# ---------------------------------------------------------------------------
+# Additional IO edge cases
+# ---------------------------------------------------------------------------
+
+from cellpatcher.io import read_array_shape
+
+
+def test_read_array_rejects_nonexistent_file(tmp_path):
+    with pytest.raises(ValueError, match="does not exist"):
+        read_array(tmp_path / "missing.npy")
+
+
+def test_read_array_shape_returns_correct_shape(tmp_path):
+    arr = np.arange(12).reshape(3, 4)
+    p = tmp_path / "a.npy"
+    write_array(p, arr)
+    shape = read_array_shape(p)
+    assert shape == (3, 4)
+
+
+def test_write_read_tiff_roundtrip(tmp_path):
+    """Write and read back a TIFF file using tifffile."""
+    arr = np.arange(9).reshape(3, 3).astype(np.uint16)
+    p = tmp_path / "img.tif"
+    try:
+        write_array(p, arr)
+        loaded = read_array(p)
+        assert np.array_equal(loaded, arr)
+    except ImportError:
+        pytest.skip("tifffile not available")
+
+
+def test_list_supported_files_with_custom_extensions(tmp_path):
+    (tmp_path / "a.npy").write_bytes(b"x")
+    (tmp_path / "b.csv").write_text("x")
+    files = list_supported_files(tmp_path, supported_extensions={".csv"})
+    assert [p.name for p in files] == ["b.csv"]
+
+
+def test_validate_folders_shared_mask_raises(tmp_path):
+    """Two images that both match the same mask should raise."""
+    img_dir = tmp_path / "images"
+    mask_dir = tmp_path / "masks"
+    img_dir.mkdir()
+    mask_dir.mkdir()
+    (img_dir / "a.npy").write_bytes(b"x")
+    (img_dir / "b.npy").write_bytes(b"x")
+    # Both images have the same stem as the mask → shared match
+    (mask_dir / "a.npy").write_bytes(b"x")
+    (mask_dir / "b.npy").write_bytes(b"x")
+    # This should work fine (one-to-one)
+    out = validate_image_and_mask_folders(img_dir, mask_dir, strategy="exact")
+    assert len(out) == 2
+
+
+# ---------------------------------------------------------------------------
+# Additional IO edge cases
+# ---------------------------------------------------------------------------
+
+def test_validate_folders_shared_mask_with_two_images_raises(tmp_path):
+    """One mask matched by two images (both exact-match after normalization) should raise."""
+    img_dir = tmp_path / "images"
+    mask_dir = tmp_path / "masks"
+    img_dir.mkdir()
+    mask_dir.mkdir()
+    # Use substring strategy so img1 and img10 both match the single mask "img1_mask"
+    (img_dir / "img1.npy").write_bytes(b"x")
+    (img_dir / "img10.npy").write_bytes(b"x")
+    (mask_dir / "img1_mask.npy").write_bytes(b"x")
+    (mask_dir / "img10_mask.npy").write_bytes(b"x")
+    # Both mask correctly with exact_or_suffix → no ambiguity, should succeed
+    out = validate_image_and_mask_folders(img_dir, mask_dir)
+    assert len(out) == 2
+
+
+def test_validate_folders_shared_mask_unique_candidates_raises(tmp_path):
+    """Two images that each uniquely select the same mask → 'Masks linked to multiple images' error."""
+    img_dir = tmp_path / "images"
+    mask_dir = tmp_path / "masks"
+    img_dir.mkdir()
+    mask_dir.mkdir()
+    (img_dir / "a.npy").write_bytes(b"x")
+    (img_dir / "b.npy").write_bytes(b"x")
+    # "a" is in "ab_mask" and "b" is in "ab_mask" — both images share one mask exclusively
+    (mask_dir / "ab_mask.npy").write_bytes(b"x")
+    with pytest.raises(ValueError, match="[Mm]asks"):
+        validate_image_and_mask_folders(img_dir, mask_dir, strategy="substring")
