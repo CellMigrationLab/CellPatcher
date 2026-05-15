@@ -10,12 +10,14 @@ from tests.helpers import make_synthetic_cell_image_and_labels
 
 
 def test_e2e_cell_scan_mask_resize_export(tmp_path):
-    image, labels, _ = make_synthetic_cell_image_and_labels(seed=1)
+    image, labels, metadata = make_synthetic_cell_image_and_labels(seed=1)
 
     summary = scan_cell_patch_size(
         image_shapes=image.shape,
         labels_list=labels,
     )
+    assert summary.n_included == len(metadata["expected_valid_labels"]) + len(metadata["expected_tiny_labels"])
+    assert summary.n_skipped_border == len(metadata["expected_border_labels"])
 
     cfg = CellPatcherConfig(mode="cell")
     cfg.cell.patch_size = summary.recommended_size("max")
