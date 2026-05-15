@@ -222,7 +222,10 @@ def run_patching_from_folders(
     mask_suffixes=None,
     case_sensitive=None,
 ):
-    """Backward-compatible alias for run_patching_pipeline."""
+    """Convenience alias for :func:`cellpatcher.orchestration.run_patching_pipeline`.
+
+    See that function for full parameter documentation.
+    """
     from cellpatcher.orchestration import run_patching_pipeline
 
     return run_patching_pipeline(
