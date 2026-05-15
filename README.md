@@ -15,77 +15,177 @@ CellPatcher generates patch coordinates and optional patch arrays for multiple s
 
 ## Supported patching modes
 
-- `cell`
-- `random`
-- `grid`
-- `whole_fov`
+| Mode | Description | Masks |
+|------|-------------|-------|
+| `cell` | One patch per segmented object, centred on each cell | Required |
+| `random` | Randomly sampled patches of a fixed size | Optional (restricts sample region) |
+| `grid` | Regular non-overlapping (or overlapping) tiles | Not used |
+| `whole_fov` | Single patch covering the entire field of view | Not used |
 
-## Core workflow
+## Two entry points
 
-1. Validate/read inputs.
-2. Configure explicit axes (`image_axes`, `mask_axes`).
-3. Generate patch regions via strategy.
-4. Optionally filter candidate regions.
-5. Optionally extract arrays.
-6. Optionally apply label mask (`apply_mask`).
-7. Optionally resize extracted arrays.
-8. Optionally export arrays and metadata CSV.
+CellPatcher exposes two complementary run functions:
 
-## Minimal example (cell mode)
+| Function | When to use |
+|----------|-------------|
+| `run_patching_pipeline(folder, …)` | You have images (and masks) on disk in folders — the recommended starting point for scripts and simple one-off runs |
+| `run_patching(images=[…], masks=[…], …)` | You already have arrays in memory — use inside interactive apps, custom loaders, and widget-driven notebooks |
+
+Both return the same `PatchingResult` (regions, optional extracted arrays, exported file paths, metadata CSV path).
+
+---
+
+## Quickstart: folder-based pipeline
+
+Build a config, set attributes directly, then call `run_patching_pipeline`.
+
+### Grid patches
+
+```python
+from cellpatcher import CellPatcherConfig, run_patching_pipeline
+
+cfg = CellPatcherConfig(mode="grid")
+cfg.grid.tile_size = 128
+cfg.grid.overlap = 0.1
+cfg.common.image_axes = "YX"
+cfg.common.output_dir = "./patches_out"
+cfg.export.enabled = True
+
+result = run_patching_pipeline("./images", config=cfg)
+print(f"Regions:        {len(result.patches)}")
+print(f"Exported files: {len(result.exported_files)}")
+print(f"Metadata CSV:   {result.metadata_file}")
+```
+
+### Cell patches (requires masks)
+
+```python
+from cellpatcher import CellPatcherConfig, run_patching_pipeline
+
+cfg = CellPatcherConfig(mode="cell")
+cfg.cell.patch_size = 128          # or "auto" for per-cell adaptive size
+cfg.common.image_axes = "YX"
+cfg.common.mask_axes  = "YX"
+cfg.common.output_dir = "./cell_patches"
+cfg.export.enabled = True
+
+result = run_patching_pipeline(
+    "./images",
+    mask_folder_path="./masks",
+    config=cfg,
+)
+```
+
+### Random patches
+
+```python
+from cellpatcher import CellPatcherConfig, run_patching_pipeline
+
+cfg = CellPatcherConfig(mode="random")
+cfg.random.patch_size = 96
+cfg.random.n_patches  = 200
+cfg.random.seed       = 42
+
+result = run_patching_pipeline("./images", config=cfg)
+```
+
+### Whole field-of-view patches
+
+```python
+from cellpatcher import CellPatcherConfig, run_patching_pipeline
+
+cfg = CellPatcherConfig(mode="whole_fov")
+result = run_patching_pipeline("./images", config=cfg)
+```
+
+---
+
+## Using a config file
+
+Generate a JSON template, edit it in any text editor, then load and run:
+
+```python
+from cellpatcher import save_config_for_mode, load_config, run_patching_pipeline
+
+# Write a clean template for the chosen mode
+save_config_for_mode("grid", "./grid_config.json")
+
+# Edit grid_config.json, then load it back
+cfg = load_config("./grid_config.json")
+result = run_patching_pipeline("./images", config=cfg)
+```
+
+`save_default_config(path)` writes a template with every section; `save_config_for_mode(mode, path)` writes only the sections relevant to the requested mode.
+
+---
+
+## Parameter sweeps with `apply_overrides`
+
+For sweeps where a shared base config must stay immutable, use `apply_overrides` to derive independent copies:
+
+```python
+from cellpatcher import CellPatcherConfig, apply_overrides, run_patching_pipeline
+
+base = CellPatcherConfig(mode="grid")
+for tile_size in [64, 128, 256]:
+    cfg = apply_overrides(base, {
+        "grid.tile_size":       tile_size,
+        "common.output_dir":    f"./patches_{tile_size}",
+    })
+    run_patching_pipeline("./images", config=cfg)
+```
+
+---
+
+## In-memory entry point: `run_patching`
+
+Use `run_patching` when you already have arrays (e.g. inside an interactive app or custom loader):
 
 ```python
 import numpy as np
-from cellpatcher import CellPatcherConfig, run_patching, scan_cell_patch_size
+from cellpatcher import CellPatcherConfig, run_patching
 
-# Example arrays
-image = np.random.rand(256, 256).astype(np.float32)
-labels = np.zeros((256, 256), dtype=np.int32)
-labels[80:140, 100:170] = 1
+image = np.random.randint(0, 256, (512, 512), dtype=np.uint16)
 
-config = CellPatcherConfig(mode="cell")
-config.common.image_axes = "YX"
-config.common.mask_axes = "YX"
+cfg = CellPatcherConfig(mode="grid")
+cfg.grid.tile_size = 64
+cfg.common.extract_arrays = True   # return patch arrays in result
 
-summary = scan_cell_patch_size(
-    image_shapes=[image.shape],
-    labels_list=[labels],
-    config=config.cell,
-    image_axes=config.common.image_axes,
-    mask_axes=config.common.mask_axes,
-)
-config.cell.patch_size = summary.recommended_size("p95") or summary.recommended_size("max")
-
-config.extraction.apply_mask = True
-config.extraction.output_size = (128, 128)
-
-config.export.enabled = True
-config.common.output_dir = "./patches_out"
-
-result = run_patching(images=image, masks=labels, config=config)
-print(len(result.patches), len(result.exported_files))
+result = run_patching(images=[image], config=cfg)
+print(f"Patches: {len(result.patches)}, arrays: {len(result.patch_arrays)}")
 ```
 
-## Other mode examples (minimal)
+---
 
-- **Grid mode**: `CellPatcherConfig(mode="grid")`, set `config.grid.tile_size` and optional `config.grid.overlap`, then call `run_patching(images=...)`.
-- **Random mode**: `CellPatcherConfig(mode="random")`, set `config.random.patch_size`, `config.random.n_patches`, optional seed/mask.
-- **Whole FOV mode**: `CellPatcherConfig(mode="whole_fov")`, call `run_patching(images=...)` to generate one full-frame region per image.
+## Cell mode — additional notes
 
-## Image/mask matching notes
+- Set both `config.common.image_axes` and `config.common.mask_axes` (e.g. `"CYX"`, `"YX"`).
+- If patch size is unknown, call `scan_cell_patch_size(image_shapes, labels_list, mask_axes=…)` first to get dataset-level recommendations, then set `config.cell.patch_size`.
+- Enable `config.extraction.apply_mask = True` to zero-out pixels outside the selected cell label before resize/export.
 
-Matching helpers support:
-- `exact`
-- `exact_or_suffix` (default; recommended)
-- `substring` (legacy; can false-match names like `img1` and `img10_mask`)
+## Image/mask filename matching
 
-## `apply_mask` notes
+`run_patching_pipeline` automatically matches image and mask filenames. Three strategies are available:
 
-`ExtractionConfig.apply_mask` is intended for cell-label patches and clears pixels outside the selected object label before resize/export.
+| Strategy | Behaviour |
+|----------|-----------|
+| `exact_or_suffix` | Exact stem match **or** stem + suffix (default; recommended) |
+| `exact` | Exact stem match only |
+| `substring` | Legacy; may false-match names like `img1` and `img10_mask` |
 
-## Notebook status
+The active strategy is controlled by `config.matching.strategy`.
 
-- Legacy notebook: `notebooks/CellPatcher/CellPatcher.ipynb`
-- Planned package-backed notebook v2: `notebooks/CellPatcher/CellPatcher_v2.ipynb` (not yet created)
+---
+
+## Notebooks
+
+| Notebook | Description |
+|----------|-------------|
+| `notebooks/CellPatcher/CellPatcher.ipynb` | Legacy notebook — preserved as reference |
+| `notebooks/CellPatcher/CellPatcher_v2.ipynb` | Step-by-step widget notebook backed by the `cellpatcher` package |
+| `notebooks/CellPatcher/CellPatcher_v3.ipynb` | App-style widget notebook (`CellPatcherApp`) with a separate explicit run/QC cell |
+
+Both v2 and v3 call `run_patching` directly with pre-loaded arrays; folder scanning, mask matching, and file loading are handled by the notebook UI before the run call.
 
 ## Testing
 

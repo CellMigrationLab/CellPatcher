@@ -148,6 +148,55 @@ class MatchConfig:
 
 @dataclass
 class CellPatcherConfig:
+    """Top-level configuration for a CellPatcher run.
+
+    All settings are plain dataclass fields, so the simplest way to customise a
+    run is to build a config and set attributes directly — you get IDE
+    autocomplete and immediate validation::
+
+        from cellpatcher import CellPatcherConfig
+
+        cfg = CellPatcherConfig(mode="grid")
+        cfg.grid.tile_size = 64
+        cfg.grid.overlap = 0.1
+        cfg.common.output_dir = "./patches"
+        cfg.export.enabled = True
+
+    For batch runs where you want to keep a shared base config immutable, use
+    :func:`~cellpatcher.apply_overrides` to produce independent copies::
+
+        from cellpatcher import CellPatcherConfig, apply_overrides
+
+        base = CellPatcherConfig(mode="grid")
+        for tile_size in [64, 128, 256]:
+            cfg = apply_overrides(base, {"grid.tile_size": tile_size})
+            run_patching_pipeline("./images", config=cfg)
+
+    Parameters
+    ----------
+    mode:
+        Patch strategy to use.  One of ``'cell'``, ``'random'``, ``'grid'``,
+        ``'whole_fov'``.
+    common:
+        Shared settings (axes, output directory, array extraction).
+    cell:
+        Parameters for ``mode='cell'`` (cell-centred patching).
+    random:
+        Parameters for ``mode='random'`` (randomly sampled patches).
+    grid:
+        Parameters for ``mode='grid'`` (regular tiled grid).
+    filters:
+        Foreground-intensity filters applied after region generation.
+    export:
+        File export settings (format, metadata CSV).
+    extraction:
+        Array extraction settings (padding, resizing, mask application).
+    matching:
+        Image↔mask filename matching strategy, used by
+        :func:`~cellpatcher.run_patching_pipeline` and
+        :func:`~cellpatcher.validate_image_and_mask_folders`.
+    """
+
     mode: str = "cell"
     common: CommonConfig = field(default_factory=CommonConfig)
     cell: CellConfig = field(default_factory=CellConfig)

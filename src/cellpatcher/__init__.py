@@ -1,3 +1,4 @@
+from cellpatcher.orchestration import apply_overrides, default_config, load_config, run_patching_pipeline, save_config_for_mode, save_default_config
 from cellpatcher.axes import axis_index, axes_dict, mapping_to_axes, move_axes, normalize_axes, require_spatial_axes
 from cellpatcher.cell_scan import CellObjectRecord, CellPatchSizeSummary, scan_cell_objects, scan_cell_patch_size
 from cellpatcher.config import (
@@ -21,6 +22,7 @@ from cellpatcher.io import (
     read_array_shape,
     validate_image_and_mask_folders,
     write_array,
+    run_patching_from_folders,
 )
 from cellpatcher.filters import compute_threshold, filter_regions, foreground_fraction
 from cellpatcher.pipeline import PatchingResult, run_patching
@@ -56,6 +58,13 @@ __all__ = [
     "find_candidate_matches",
     "filter_shared_matches",
     "validate_image_and_mask_folders",
+    "run_patching_from_folders",
+    "load_config",
+    "save_default_config",
+    "save_config_for_mode",
+    "apply_overrides",
+    "default_config",
+    "run_patching_pipeline",
     "sanitize_filename",
     "patch_metadata_to_rows",
     "save_metadata_csv",

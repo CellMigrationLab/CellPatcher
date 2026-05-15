@@ -172,6 +172,55 @@ def _build_result(config: CellPatcherConfig, image_list, patches: list[PatchRegi
 
 
 def run_patching(images=None, masks=None, config=None) -> PatchingResult:
+    """Generate patch regions (and optionally extract arrays) from in-memory images.
+
+    This is the low-level entry point.  Use :func:`~cellpatcher.run_patching_pipeline`
+    if you want to read images and masks from disk folders automatically.
+
+    Parameters
+    ----------
+    images:
+        A single array or a list/tuple of arrays.  Each array must expose a
+        ``.shape`` attribute (NumPy, Dask, etc.).  Required for all modes
+        except when only coordinate-generation is needed from shape alone.
+    masks:
+        A single label array or a list/tuple of label arrays, one per image.
+
+        * ``mode='cell'`` — **required**.  Integer label map where each unique
+          non-zero value is a separate cell.
+        * ``mode='random'`` — **optional**.  When provided, patches are
+          restricted to the spatial region covered by the mask.
+        * ``mode='grid'`` / ``'whole_fov'`` — not consumed; pass ``None``.
+    config:
+        A :class:`~cellpatcher.CellPatcherConfig` instance.  Defaults to
+        ``CellPatcherConfig()`` (cell mode with all defaults).
+
+        The easiest way to customise behaviour is to edit attributes directly::
+
+            cfg = CellPatcherConfig(mode="grid")
+            cfg.grid.tile_size = 64
+            cfg.export.enabled = True
+            cfg.common.output_dir = "./patches"
+            result = run_patching(images=my_images, config=cfg)
+
+    Returns
+    -------
+    PatchingResult
+        * ``patches`` — list of :class:`~cellpatcher.PatchRegion` objects.
+        * ``patch_arrays`` — list of extracted arrays when
+          ``config.common.extract_arrays=True``; otherwise ``None``.
+        * ``exported_files`` — list of written file paths when
+          ``config.export.enabled=True``; otherwise an empty list.
+        * ``metadata_file`` — path to the metadata CSV, or ``None``.
+
+    Raises
+    ------
+    TypeError
+        If *config* is not a ``CellPatcherConfig`` instance.
+    ValueError
+        If required arguments are missing for the chosen mode, or if
+        images/masks counts do not match.
+    """
     if config is None:
         config = CellPatcherConfig()
     if not isinstance(config, CellPatcherConfig):

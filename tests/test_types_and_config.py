@@ -1,6 +1,9 @@
+import json
+
 import pytest
 
 from cellpatcher.config import CellConfig, CellPatcherConfig, GridConfig, MatchConfig, RandomConfig
+from cellpatcher.orchestration import apply_overrides, save_config_for_mode, load_config, save_default_config
 from cellpatcher.pipeline import run_patching
 from cellpatcher.types import PatchRegion
 
@@ -237,3 +240,125 @@ def test_run_patching_rejects_non_config_instance():
     import numpy as np
     with pytest.raises(TypeError, match="CellPatcherConfig"):
         run_patching(images=np.zeros((4, 4)), config={"mode": "grid"})
+
+
+# ---------------------------------------------------------------------------
+# apply_overrides
+# ---------------------------------------------------------------------------
+
+def test_apply_overrides_top_level_mode():
+    cfg = CellPatcherConfig(mode="cell")
+    result = apply_overrides(cfg, {"mode": "grid"})
+    assert result.mode == "grid"
+    assert cfg.mode == "cell"  # original is not mutated
+
+
+def test_apply_overrides_section_field():
+    cfg = CellPatcherConfig(mode="grid")
+    result = apply_overrides(cfg, {"grid.tile_size": 64})
+    assert result.grid.tile_size == 64
+    assert cfg.grid.tile_size == 128  # original is not mutated
+
+
+def test_apply_overrides_multiple_keys():
+    cfg = CellPatcherConfig(mode="random")
+    result = apply_overrides(cfg, {"random.n_patches": 50, "random.seed": 42, "common.image_axes": "CYX"})
+    assert result.random.n_patches == 50
+    assert result.random.seed == 42
+    assert result.common.image_axes == "CYX"
+
+
+def test_apply_overrides_empty_dict_returns_equal_config():
+    cfg = CellPatcherConfig(mode="grid")
+    result = apply_overrides(cfg, {})
+    assert result.mode == cfg.mode
+    assert result.grid.tile_size == cfg.grid.tile_size
+
+
+def test_apply_overrides_rejects_unknown_top_level_field():
+    cfg = CellPatcherConfig()
+    with pytest.raises(ValueError, match="Unknown top-level config field"):
+        apply_overrides(cfg, {"nonexistent": 1})
+
+
+def test_apply_overrides_rejects_unknown_section():
+    cfg = CellPatcherConfig()
+    with pytest.raises(ValueError, match="Unknown config section"):
+        apply_overrides(cfg, {"bogus.field": 1})
+
+
+def test_apply_overrides_rejects_unknown_field_in_section():
+    cfg = CellPatcherConfig()
+    with pytest.raises(ValueError, match="Unknown field"):
+        apply_overrides(cfg, {"grid.nonexistent": 1})
+
+
+# ---------------------------------------------------------------------------
+# save_config_for_mode
+# ---------------------------------------------------------------------------
+
+def test_save_config_for_mode_grid_contains_only_expected_sections(tmp_path):
+    out = save_config_for_mode("grid", tmp_path / "grid_cfg.json")
+    assert out.exists()
+    data = json.loads(out.read_text())
+    assert data["mode"] == "grid"
+    # common sections always present
+    for section in ("common", "filters", "export", "extraction"):
+        assert section in data, f"Expected section '{section}' in grid config"
+    # grid-specific section present
+    assert "grid" in data
+    # other mode sections must NOT be present
+    for absent in ("cell", "random", "matching"):
+        assert absent not in data, f"Section '{absent}' should not appear in grid config"
+
+
+def test_save_config_for_mode_cell_contains_cell_and_matching(tmp_path):
+    out = save_config_for_mode("cell", tmp_path / "cell_cfg.json")
+    data = json.loads(out.read_text())
+    assert data["mode"] == "cell"
+    assert "cell" in data
+    assert "matching" in data
+    assert "random" not in data
+    assert "grid" not in data
+
+
+def test_save_config_for_mode_random_contains_random_and_matching(tmp_path):
+    out = save_config_for_mode("random", tmp_path / "random_cfg.json")
+    data = json.loads(out.read_text())
+    assert data["mode"] == "random"
+    assert "random" in data
+    assert "matching" in data
+    assert "cell" not in data
+    assert "grid" not in data
+
+
+def test_save_config_for_mode_whole_fov_has_no_mode_specific_sections(tmp_path):
+    out = save_config_for_mode("whole_fov", tmp_path / "wfov_cfg.json")
+    data = json.loads(out.read_text())
+    assert data["mode"] == "whole_fov"
+    for absent in ("cell", "random", "grid", "matching"):
+        assert absent not in data
+
+
+def test_save_config_for_mode_rejects_invalid_mode(tmp_path):
+    with pytest.raises(ValueError, match="mode must be one of"):
+        save_config_for_mode("bad_mode", tmp_path / "cfg.json")
+
+
+def test_load_config_handles_mode_specific_file_roundtrip(tmp_path):
+    """load_config must reconstruct a full CellPatcherConfig from a mode-sparse file."""
+    out = save_config_for_mode("grid", tmp_path / "grid_cfg.json")
+    cfg = load_config(out)
+    assert isinstance(cfg, CellPatcherConfig)
+    assert cfg.mode == "grid"
+    assert cfg.grid.tile_size == 128  # default
+    assert cfg.cell.patch_size == "auto"  # load_config initializes missing sections from dataclass defaults
+
+
+def test_save_config_for_mode_default_values_match_dataclass_defaults(tmp_path):
+    out = save_config_for_mode("grid", tmp_path / "cfg.json")
+    cfg = load_config(out)
+    expected = CellPatcherConfig(mode="grid")
+    assert cfg.grid.tile_size == expected.grid.tile_size
+    assert cfg.common.image_axes == expected.common.image_axes
+    assert cfg.export.enabled == expected.export.enabled
