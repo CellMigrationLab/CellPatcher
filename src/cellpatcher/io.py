@@ -211,3 +211,25 @@ def validate_image_and_mask_folders(
         raise ValueError("; ".join(errors))
 
     return selected
+
+
+def run_patching_from_folders(
+    image_folder_path,
+    *,
+    config=None,
+    mask_folder_path=None,
+    strategy=None,
+    mask_suffixes=None,
+    case_sensitive=None,
+):
+    """Backward-compatible alias for run_patching_pipeline."""
+    from cellpatcher.orchestration import run_patching_pipeline
+
+    return run_patching_pipeline(
+        image_folder_path,
+        config=config,
+        mask_folder_path=mask_folder_path,
+        strategy=strategy,
+        mask_suffixes=mask_suffixes,
+        case_sensitive=case_sensitive,
+    )

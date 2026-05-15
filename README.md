@@ -20,56 +20,80 @@ CellPatcher generates patch coordinates and optional patch arrays for multiple s
 - `grid`
 - `whole_fov`
 
-## Core workflow
+## API pipeline (minimal, folder-based, orchestrated)
 
-1. Validate/read inputs.
-2. Configure explicit axes (`image_axes`, `mask_axes`).
-3. Generate patch regions via strategy.
-4. Optionally filter candidate regions.
-5. Optionally extract arrays.
-6. Optionally apply label mask (`apply_mask`).
-7. Optionally resize extracted arrays.
-8. Optionally export arrays and metadata CSV.
+Use this sequence for a simple and correct end-to-end run:
 
-## Minimal example (cell mode)
+1. Build a `CellPatcherConfig` and set `mode` + axes.
+2. Enable export and set `output_dir` (optional).
+3. Call `run_patching_pipeline(...)`.
+4. Use `PatchingResult` for regions and exported file paths.
+
+### Example: create grid patches from an images folder
 
 ```python
-import numpy as np
-from cellpatcher import CellPatcherConfig, run_patching, scan_cell_patch_size
+from cellpatcher import CellPatcherConfig, run_patching_pipeline
 
-# Example arrays
-image = np.random.rand(256, 256).astype(np.float32)
-labels = np.zeros((256, 256), dtype=np.int32)
-labels[80:140, 100:170] = 1
-
-config = CellPatcherConfig(mode="cell")
+config = CellPatcherConfig(mode="grid")
 config.common.image_axes = "YX"
-config.common.mask_axes = "YX"
-
-summary = scan_cell_patch_size(
-    image_shapes=[image.shape],
-    labels_list=[labels],
-    config=config.cell,
-    image_axes=config.common.image_axes,
-    mask_axes=config.common.mask_axes,
-)
-config.cell.patch_size = summary.recommended_size("p95") or summary.recommended_size("max")
-
-config.extraction.apply_mask = True
-config.extraction.output_size = (128, 128)
+config.grid.tile_size = 128
+config.grid.overlap = 0.0
 
 config.export.enabled = True
 config.common.output_dir = "./patches_out"
 
-result = run_patching(images=image, masks=labels, config=config)
-print(len(result.patches), len(result.exported_files))
+result = run_patching_pipeline("./images", config=config)
+print(f"Generated regions: {len(result.patches)}")
+print(f"Exported files: {len(result.exported_files)}")
+print(f"Metadata CSV: {result.metadata_file}")
 ```
 
-## Other mode examples (minimal)
+### Built-in orchestration helper
 
-- **Grid mode**: `CellPatcherConfig(mode="grid")`, set `config.grid.tile_size` and optional `config.grid.overlap`, then call `run_patching(images=...)`.
-- **Random mode**: `CellPatcherConfig(mode="random")`, set `config.random.patch_size`, `config.random.n_patches`, optional seed/mask.
-- **Whole FOV mode**: `CellPatcherConfig(mode="whole_fov")`, call `run_patching(images=...)` to generate one full-frame region per image.
+Use `run_patching_pipeline(...)` when you want a minimal folder-based entry point. It reads arrays, validates image↔mask matching for `cell` mode, and calls `run_patching` for you.
+
+```python
+from cellpatcher import CellPatcherConfig, run_patching_pipeline
+
+# grid/random/whole_fov mode: images folder only
+grid_config = CellPatcherConfig(mode="grid")
+grid_config.grid.tile_size = 96
+grid_result = run_patching_pipeline("./images", config=grid_config)
+
+# cell mode: images + masks folders
+cell_config = CellPatcherConfig(mode="cell")
+cell_config.cell.patch_size = 128
+cell_result = run_patching_pipeline(
+    "./images",
+    mask_folder_path="./masks",
+    config=cell_config,
+)
+```
+
+
+
+### Editable default config file
+
+You can generate a default JSON config, edit it, then load and run:
+
+```python
+from cellpatcher import load_config, run_patching_pipeline, save_default_config
+
+save_default_config("./cellpatcher_config.json")
+config = load_config("./cellpatcher_config.json")
+result = run_patching_pipeline("./images", config=config)
+```
+
+## Cell mode pipeline notes (images + masks)
+
+For `mode="cell"`, provide both images and label masks in the same order:
+
+- `run_patching(images=[...], masks=[...], config=...)`
+- or use `run_patching_pipeline("./images", mask_folder_path="./masks", config=...)`
+- set both `config.common.image_axes` and `config.common.mask_axes`
+- optionally enable `config.extraction.apply_mask = True` to keep only selected label pixels within each extracted patch
+
+If patch size is unknown, use `scan_cell_patch_size(...)` first, then set `config.cell.patch_size`.
 
 ## Image/mask matching notes
 

@@ -353,3 +353,68 @@ def test_validate_folders_shared_mask_unique_candidates_raises(tmp_path):
     (mask_dir / "ab_mask.npy").write_bytes(b"x")
     with pytest.raises(ValueError, match="[Mm]asks"):
         validate_image_and_mask_folders(img_dir, mask_dir, strategy="substring")
+
+from cellpatcher import CellPatcherConfig
+from cellpatcher.io import run_patching_from_folders
+
+
+def test_run_patching_from_folders_grid_mode(tmp_path):
+    img_dir = tmp_path / "images"
+    img_dir.mkdir()
+    write_array(img_dir / "a.npy", np.arange(64).reshape(8, 8))
+
+    config = CellPatcherConfig(mode="grid")
+    config.grid.tile_size = 4
+
+    result = run_patching_from_folders(img_dir, config=config)
+    assert len(result.patches) == 4
+
+
+def test_run_patching_from_folders_cell_mode(tmp_path):
+    img_dir = tmp_path / "images"
+    mask_dir = tmp_path / "masks"
+    img_dir.mkdir()
+    mask_dir.mkdir()
+
+    image = np.zeros((16, 16), dtype=np.float32)
+    labels = np.zeros((16, 16), dtype=np.int32)
+    labels[4:12, 5:13] = 1
+
+    write_array(img_dir / "sample.npy", image)
+    write_array(mask_dir / "sample_mask.npy", labels)
+
+    config = CellPatcherConfig(mode="cell")
+    config.cell.patch_size = 8
+
+    result = run_patching_from_folders(img_dir, mask_folder_path=mask_dir, config=config)
+    assert len(result.patches) == 1
+
+
+def test_run_patching_from_folders_cell_requires_mask_folder(tmp_path):
+    img_dir = tmp_path / "images"
+    img_dir.mkdir()
+    write_array(img_dir / "a.npy", np.zeros((8, 8), dtype=np.float32))
+
+    with pytest.raises(ValueError, match="mask_folder_path"):
+        run_patching_from_folders(img_dir, config=CellPatcherConfig(mode="cell"))
+
+from cellpatcher.orchestration import load_config, run_patching_pipeline, save_default_config
+
+
+def test_run_patching_pipeline_alias_grid_mode(tmp_path):
+    img_dir = tmp_path / "images"
+    img_dir.mkdir()
+    write_array(img_dir / "a.npy", np.arange(64).reshape(8, 8))
+
+    config = CellPatcherConfig(mode="grid")
+    config.grid.tile_size = 4
+    result = run_patching_pipeline(img_dir, config=config)
+    assert len(result.patches) == 4
+
+
+def test_save_and_load_default_config(tmp_path):
+    config_path = tmp_path / "cellpatcher_config.json"
+    save_default_config(config_path)
+    loaded = load_config(config_path)
+    assert isinstance(loaded, CellPatcherConfig)
+    assert loaded.mode == "cell"
