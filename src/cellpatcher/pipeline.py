@@ -189,7 +189,8 @@ def run_patching(images=None, masks=None, config=None) -> PatchingResult:
         patches: list[PatchRegion] = []
         for idx, image in enumerate(image_list):
             image_id = f"image_{idx:04d}"
-            patches.extend(strategy.generate_regions(image_shape=image.shape, labels=None, image_id=image_id))
+            spatial_shape = _spatial_shape_from_axes(image.shape, config.common.image_axes)
+            patches.extend(strategy.generate_regions(image_shape=spatial_shape, labels=None, image_id=image_id))
         patches = _apply_filters(config, image_list, patches)
         return _build_result(config, image_list, patches, masks=None)
 
@@ -199,7 +200,8 @@ def run_patching(images=None, masks=None, config=None) -> PatchingResult:
         patches: list[PatchRegion] = []
         for idx, image in enumerate(image_list):
             image_id = f"image_{idx:04d}"
-            patches.extend(strategy.generate_regions(image_shape=image.shape, labels=None, image_id=image_id))
+            spatial_shape = _spatial_shape_from_axes(image.shape, config.common.image_axes)
+            patches.extend(strategy.generate_regions(image_shape=spatial_shape, labels=None, image_id=image_id))
         patches = _apply_filters(config, image_list, patches)
         return _build_result(config, image_list, patches, masks=None)
 

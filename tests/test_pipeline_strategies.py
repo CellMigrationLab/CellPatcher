@@ -171,6 +171,33 @@ def test_pipeline_extract_arrays_resized_non_yx_axes_cyx():
     assert result.patch_arrays[0].shape == (2, 3, 3)
 
 
+def test_pipeline_whole_fov_yxc_uses_image_axes_spatial_shape():
+    cfg = CellPatcherConfig(mode="whole_fov")
+    cfg.common.extract_arrays = True
+    cfg.common.image_axes = "YXC"
+
+    image = np.arange(4 * 5 * 2).reshape(4, 5, 2)
+    result = run_patching(images=image, config=cfg)
+
+    assert len(result.patches) == 1
+    assert (result.patches[0].y0, result.patches[0].y1, result.patches[0].x0, result.patches[0].x1) == (0, 4, 0, 5)
+    assert result.patch_arrays is not None
+    assert result.patch_arrays[0].shape == (4, 5, 2)
+
+
+def test_pipeline_grid_yxc_uses_image_axes_spatial_shape():
+    cfg = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=2, overlap=0.0, include_partial=False))
+    cfg.common.extract_arrays = True
+    cfg.common.image_axes = "YXC"
+
+    image = np.arange(4 * 6 * 3).reshape(4, 6, 3)
+    result = run_patching(images=image, config=cfg)
+
+    assert len(result.patches) == 6
+    assert result.patch_arrays is not None
+    assert all(array.shape == (2, 2, 3) for array in result.patch_arrays)
+
+
 def test_pipeline_grid_filters_out_dark_patches():
     cfg = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=2, overlap=0.0, include_partial=False))
     cfg.filters.min_mean_intensity = 1.0

@@ -34,13 +34,18 @@ def test_e2e_cell_scan_mask_resize_export(tmp_path):
 
     result = run_patching(images=image, masks=labels, config=cfg)
 
-    assert len(result.exported_files) > 0
+    assert cfg.cell.patch_size == summary.recommended_size("max")
+    assert len(result.exported_files) == summary.n_included
     csv_path = tmp_path / "patches.csv"
     assert csv_path.exists()
+    with csv_path.open("r", encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
+    assert len(rows) == summary.n_included
 
     arr = np.load(result.exported_files[0])
     assert arr.shape == (32, 32)
     assert np.any(arr == 0)
+    assert np.any(arr != 0)
 
 
 def test_e2e_grid_filter_resize_export(tmp_path):
