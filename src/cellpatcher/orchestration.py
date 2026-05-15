@@ -50,6 +50,25 @@ def apply_overrides(config: CellPatcherConfig, overrides: dict[str, Any]) -> Cel
     field (e.g. ``"mode"``) or a two-part dotted path ``"<section>.<field>"``
     (e.g. ``"grid.tile_size"``).
 
+    **When to use this vs. direct attribute editing**
+
+    For a one-off run, setting attributes directly on a config object is
+    simpler and gives you IDE autocomplete::
+
+        cfg = CellPatcherConfig(mode="grid")
+        cfg.grid.tile_size = 64               # clear, IDE-autocompleted
+        cfg.common.output_dir = "./patches"
+        run_patching_pipeline("./images", config=cfg)
+
+    Use ``apply_overrides`` when you want to keep a *shared base config
+    immutable* and derive multiple independent copies — for example during a
+    parameter sweep::
+
+        base = CellPatcherConfig(mode="grid")
+        for tile_size in [64, 128, 256]:
+            cfg = apply_overrides(base, {"grid.tile_size": tile_size})
+            run_patching_pipeline("./images", config=cfg)
+
     Parameters
     ----------
     config:
@@ -96,7 +115,28 @@ def apply_overrides(config: CellPatcherConfig, overrides: dict[str, Any]) -> Cel
 
 
 def default_config() -> CellPatcherConfig:
-    """Return a fresh default config instance for easy editing."""
+    """Return a fresh default :class:`~cellpatcher.CellPatcherConfig` instance.
+
+    This is the recommended starting point for building a config in code.
+    Attributes can be edited directly on the returned object — you get IDE
+    autocomplete and validation fires immediately::
+
+        from cellpatcher import default_config, run_patching_pipeline
+
+        cfg = default_config()          # mode='cell', all defaults
+        cfg.mode = "grid"
+        cfg.grid.tile_size = 64
+        cfg.grid.overlap = 0.1
+        cfg.common.output_dir = "./patches"
+        cfg.export.enabled = True
+
+        result = run_patching_pipeline("./images", config=cfg)
+
+    Returns
+    -------
+    CellPatcherConfig
+        A new config with all fields set to their defaults.
+    """
     return CellPatcherConfig()
 
 
@@ -161,11 +201,31 @@ def save_config_for_mode(mode: str, path) -> Path:
 
 
 def load_config(path) -> CellPatcherConfig:
-    """Load a ``CellPatcherConfig`` from a JSON file written by :func:`save_default_config`.
+    """Load a :class:`~cellpatcher.CellPatcherConfig` from a JSON file.
 
-    All nested sub-configs (``CommonConfig``, ``GridConfig``, etc.) are
-    reconstructed as proper dataclass instances so the returned object is
-    fully usable with :func:`run_patching` and :func:`run_patching_pipeline`.
+    The file is typically created by :func:`save_default_config` or
+    :func:`save_config_for_mode`.  All nested sub-configs are reconstructed as
+    proper dataclass instances, so the returned object is fully usable with
+    :func:`run_patching` and :func:`run_patching_pipeline`.
+
+    After loading you can edit any attribute before passing the config to a
+    run function — there is no need to re-serialise::
+
+        from cellpatcher import load_config, run_patching_pipeline
+
+        cfg = load_config("./grid_config.json")
+        cfg.grid.tile_size = 64          # tweak in-place, IDE autocomplete works
+        cfg.common.output_dir = "./out"
+
+        result = run_patching_pipeline("./images", config=cfg)
+
+    For immutable base configs that are reused across multiple runs, use
+    :func:`apply_overrides` to produce independent copies::
+
+        base = load_config("./grid_config.json")
+        for tile_size in [64, 128, 256]:
+            cfg = apply_overrides(base, {"grid.tile_size": tile_size})
+            run_patching_pipeline("./images", config=cfg)
 
     Parameters
     ----------
@@ -243,12 +303,64 @@ def run_patching_pipeline(
     matches and loads mask files, then calls :func:`run_patching` with the
     supplied config.
 
+    **Typical usage — direct attribute editing (recommended for interactive use)**
+
+    Build a config, set attributes, and pass it in.  This gives you IDE
+    autocomplete and immediate validation::
+
+        from cellpatcher import CellPatcherConfig, run_patching_pipeline
+
+        cfg = CellPatcherConfig(mode="grid")
+        cfg.grid.tile_size = 64
+        cfg.grid.overlap = 0.1
+        cfg.common.output_dir = "./patches"
+        cfg.export.enabled = True
+
+        result = run_patching_pipeline("./images", config=cfg)
+
+    For cell mode you also need to supply a mask folder::
+
+        cfg = CellPatcherConfig(mode="cell")
+        cfg.cell.patch_size = 128
+        cfg.common.output_dir = "./cell_patches"
+        cfg.export.enabled = True
+
+        result = run_patching_pipeline(
+            "./images",
+            mask_folder_path="./masks",
+            config=cfg,
+        )
+
+    **Batch / sweep usage — apply_overrides**
+
+    When you want to keep a shared base config immutable and run multiple
+    variants, use :func:`apply_overrides` to derive independent copies before
+    calling this function::
+
+        from cellpatcher import CellPatcherConfig, apply_overrides, run_patching_pipeline
+
+        base = CellPatcherConfig(mode="grid")
+        for tile_size in [64, 128, 256]:
+            cfg = apply_overrides(base, {"grid.tile_size": tile_size,
+                                         "common.output_dir": f"./patches_{tile_size}"})
+            run_patching_pipeline("./images", config=cfg)
+
+    Alternatively the *overrides* keyword provides an inline shorthand that
+    behaves identically::
+
+        run_patching_pipeline(
+            "./images",
+            config=base,
+            overrides={"grid.tile_size": 64, "common.output_dir": "./patches_64"},
+        )
+
     Parameters
     ----------
     image_folder_path:
         Path to the folder containing image files.
     config:
-        A ``CellPatcherConfig`` instance. Defaults to ``CellPatcherConfig()``.
+        A :class:`~cellpatcher.CellPatcherConfig` instance.  Defaults to
+        ``CellPatcherConfig()`` (cell mode with all defaults).
     mask_folder_path:
         Path to the folder containing mask files.
 
