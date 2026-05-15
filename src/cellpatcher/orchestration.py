@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import copy
 from dataclasses import asdict
 from pathlib import Path
 import json
+from typing import Any
 
 from cellpatcher.config import (
     CellConfig,
@@ -17,6 +19,80 @@ from cellpatcher.config import (
 )
 from cellpatcher.io import list_supported_files, read_array, validate_image_and_mask_folders
 from cellpatcher.pipeline import run_patching
+
+# Sections always written regardless of mode
+_COMMON_SECTIONS = ("common", "filters", "export", "extraction")
+
+# Mode-specific sections (beyond the common ones above)
+_MODE_SECTIONS: dict[str, tuple[str, ...]] = {
+    "cell": ("cell", "matching"),
+    "random": ("random", "matching"),
+    "grid": ("grid",),
+    "whole_fov": (),
+}
+
+
+def _config_to_mode_dict(config: CellPatcherConfig) -> dict:
+    """Serialize only the sections relevant to *config.mode*."""
+    full = asdict(config)
+    result: dict = {"mode": full["mode"]}
+    for section in _COMMON_SECTIONS:
+        result[section] = full[section]
+    for section in _MODE_SECTIONS.get(config.mode, ()):
+        result[section] = full[section]
+    return result
+
+
+def apply_overrides(config: CellPatcherConfig, overrides: dict[str, Any]) -> CellPatcherConfig:
+    """Return a copy of *config* with dotted-path *overrides* applied.
+
+    Each key in *overrides* must be either a top-level ``CellPatcherConfig``
+    field (e.g. ``"mode"``) or a two-part dotted path ``"<section>.<field>"``
+    (e.g. ``"grid.tile_size"``).
+
+    Parameters
+    ----------
+    config:
+        Base config to derive from (not mutated).
+    overrides:
+        Mapping of dotted-path keys to new values.  Example::
+
+            overrides={"mode": "grid", "grid.tile_size": 64, "common.output_dir": "./out"}
+
+    Returns
+    -------
+    CellPatcherConfig
+        A new config instance with all overrides applied.
+
+    Raises
+    ------
+    ValueError
+        If a key refers to an unknown section or field.
+    """
+    cfg = copy.deepcopy(config)
+    for key, value in overrides.items():
+        parts = key.split(".", 1)
+        if len(parts) == 1:
+            if not hasattr(cfg, key):
+                raise ValueError(
+                    f"Unknown top-level config field: '{key}'. "
+                    f"Valid fields: {[f.name for f in cfg.__dataclass_fields__.values()]}."  # type: ignore[attr-defined]
+                )
+            setattr(cfg, key, value)
+        else:
+            section, field = parts
+            if not hasattr(cfg, section):
+                raise ValueError(
+                    f"Unknown config section: '{section}'. "
+                    f"Valid sections: {[f.name for f in cfg.__dataclass_fields__.values()]}."  # type: ignore[attr-defined]
+                )
+            sub = getattr(cfg, section)
+            if not hasattr(sub, field):
+                raise ValueError(
+                    f"Unknown field '{field}' in config section '{section}'."
+                )
+            setattr(sub, field, value)
+    return cfg
 
 
 def default_config() -> CellPatcherConfig:
@@ -44,6 +120,43 @@ def save_default_config(path) -> Path:
     out = Path(path)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(asdict(config), indent=2))
+    return out
+
+
+def save_config_for_mode(mode: str, path) -> Path:
+    """Serialize a mode-specific default config to a JSON file.
+
+    Unlike :func:`save_default_config`, only the sections relevant to *mode*
+    are written, producing a clean template that users can open, edit, and
+    load back with :func:`load_config`.
+
+    The common sections (``common``, ``filters``, ``export``, ``extraction``)
+    are always included.  Mode-specific sections:
+
+    * ``cell``   → ``cell``, ``matching``
+    * ``random`` → ``random``, ``matching``
+    * ``grid``   → ``grid``
+    * ``whole_fov`` → *(none beyond common)*
+
+    Parameters
+    ----------
+    mode:
+        One of ``'cell'``, ``'random'``, ``'grid'``, ``'whole_fov'``.
+    path:
+        Destination file path (e.g. ``"./grid_config.json"``).
+
+    Returns
+    -------
+    Path
+        Resolved path to the written file.
+    """
+    valid_modes = {"cell", "random", "whole_fov", "grid"}
+    if mode not in valid_modes:
+        raise ValueError(f"mode must be one of {sorted(valid_modes)}.")
+    config = CellPatcherConfig(mode=mode)
+    out = Path(path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(_config_to_mode_dict(config), indent=2))
     return out
 
 
@@ -122,6 +235,7 @@ def run_patching_pipeline(
     strategy=None,
     mask_suffixes=None,
     case_sensitive=None,
+    overrides: dict[str, Any] | None = None,
 ):
     """Orchestrate a folder-based patching run end-to-end.
 
@@ -147,6 +261,13 @@ def run_patching_pipeline(
     strategy, mask_suffixes, case_sensitive:
         Override the corresponding ``config.matching`` fields when resolving
         image↔mask filename pairs. Unused for modes that do not load masks.
+    overrides:
+        Optional dotted-path overrides applied on top of *config* before
+        running.  Keys follow the same ``"<section>.<field>"`` convention as
+        :func:`apply_overrides`.  The original *config* object is not
+        mutated.  Example::
+
+            overrides={"grid.tile_size": 64, "common.output_dir": "./out"}
 
     Returns
     -------
@@ -157,6 +278,8 @@ def run_patching_pipeline(
         config = CellPatcherConfig()
     if not isinstance(config, CellPatcherConfig):
         raise TypeError("config must be a CellPatcherConfig instance.")
+    if overrides:
+        config = apply_overrides(config, overrides)
 
     image_files = list_supported_files(image_folder_path)
     if len(image_files) == 0:

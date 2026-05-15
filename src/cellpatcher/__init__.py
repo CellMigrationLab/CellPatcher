@@ -1,4 +1,4 @@
-from cellpatcher.orchestration import default_config, load_config, run_patching_pipeline, save_default_config
+from cellpatcher.orchestration import apply_overrides, default_config, load_config, run_patching_pipeline, save_config_for_mode, save_default_config
 from cellpatcher.axes import axis_index, axes_dict, mapping_to_axes, move_axes, normalize_axes, require_spatial_axes
 from cellpatcher.cell_scan import CellObjectRecord, CellPatchSizeSummary, scan_cell_objects, scan_cell_patch_size
 from cellpatcher.config import (
@@ -61,6 +61,8 @@ __all__ = [
     "run_patching_from_folders",
     "load_config",
     "save_default_config",
+    "save_config_for_mode",
+    "apply_overrides",
     "default_config",
     "run_patching_pipeline",
     "sanitize_filename",
