@@ -245,3 +245,79 @@ def test_pipeline_zero_patches_export_writes_metadata_only(tmp_path):
     assert result.metadata_file is not None
     assert (tmp_path / "patches.csv").exists()
     assert list(tmp_path.glob("*.npy")) == []
+
+def test_pipeline_cell_apply_mask_true_clears_outside_label():
+    cfg = CellPatcherConfig(mode="cell")
+    cfg.common.extract_arrays = True
+    cfg.common.image_axes = "YX"
+    cfg.common.mask_axes = "YX"
+    cfg.extraction.apply_mask = True
+    cfg.extraction.mask_fill_value = 0
+    cfg.cell.patch_size = 5
+
+    image = np.full((8, 8), 9, dtype=np.int32)
+    labels = np.zeros((8, 8), dtype=np.int32)
+    labels[2:5, 2:5] = 1
+
+    result = run_patching(images=image, masks=labels, config=cfg)
+    assert result.patch_arrays is not None
+    patch = result.patch_arrays[0]
+    assert np.all(patch[0, :] == 0)
+    assert np.all(patch[:, 0] == 0)
+    assert patch[1, 1] == 9
+
+
+def test_pipeline_cell_apply_mask_before_resize_runs():
+    cfg = CellPatcherConfig(mode="cell")
+    cfg.common.extract_arrays = True
+    cfg.common.image_axes = "YX"
+    cfg.common.mask_axes = "YX"
+    cfg.extraction.apply_mask = True
+    cfg.extraction.output_size = (10, 10)
+    cfg.extraction.resize_order = 0
+
+    image = np.full((8, 8), 5, dtype=np.int32)
+    labels = np.zeros((8, 8), dtype=np.int32)
+    labels[2:5, 2:5] = 1
+
+    result = run_patching(images=image, masks=labels, config=cfg)
+    assert result.patch_arrays is not None
+    assert result.patch_arrays[0].shape == (10, 10)
+
+
+def test_pipeline_export_path_apply_mask_true_exports_masked_npy(tmp_path):
+    cfg = CellPatcherConfig(mode="cell")
+    cfg.common.extract_arrays = False
+    cfg.common.output_dir = str(tmp_path)
+    cfg.export.enabled = True
+    cfg.export.image_format = "npy"
+    cfg.common.image_axes = "YX"
+    cfg.common.mask_axes = "YX"
+    cfg.extraction.apply_mask = True
+    cfg.cell.patch_size = 5
+
+    image = np.full((8, 8), 7, dtype=np.int32)
+    labels = np.zeros((8, 8), dtype=np.int32)
+    labels[2:5, 2:5] = 1
+
+    result = run_patching(images=image, masks=labels, config=cfg)
+    assert len(result.exported_files) == 1
+    arr = np.load(result.exported_files[0])
+    assert arr[0, 0] == 0
+    assert arr[1, 1] == 7
+
+
+def test_pipeline_apply_mask_true_without_masks_raises():
+    cfg = CellPatcherConfig(mode="whole_fov")
+    cfg.common.extract_arrays = True
+    cfg.extraction.apply_mask = True
+    with pytest.raises(ValueError):
+        run_patching(images=np.ones((4, 4)), masks=None, config=cfg)
+
+
+def test_pipeline_apply_mask_true_non_cell_region_raises():
+    cfg = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=2, overlap=0.0, include_partial=False))
+    cfg.common.extract_arrays = True
+    cfg.extraction.apply_mask = True
+    with pytest.raises(ValueError):
+        run_patching(images=np.ones((4, 4)), masks=[np.ones((4, 4), dtype=int)], config=cfg)

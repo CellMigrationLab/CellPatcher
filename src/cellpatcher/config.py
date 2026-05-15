@@ -94,6 +94,8 @@ class ExtractionConfig:
     constant_values: float = 0.0
     output_size: int | tuple[int, int] | None = None
     resize_order: int = 1
+    apply_mask: bool = False
+    mask_fill_value: float = 0.0
 
     def __post_init__(self) -> None:
         if self.pad_mode not in {"clip", "constant"}:
@@ -112,6 +114,10 @@ class ExtractionConfig:
 
         if not isinstance(self.resize_order, int) or self.resize_order < 0:
             raise ValueError("resize_order must be an int >= 0.")
+        if not isinstance(self.apply_mask, bool):
+            raise ValueError("apply_mask must be a bool.")
+        if not isinstance(self.mask_fill_value, (int, float)):
+            raise ValueError("mask_fill_value must be a scalar number.")
 
 
 @dataclass

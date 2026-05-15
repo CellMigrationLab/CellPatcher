@@ -1,4 +1,5 @@
 from cellpatcher.axes import axis_index, axes_dict, mapping_to_axes, move_axes, normalize_axes, require_spatial_axes
+from cellpatcher.cell_scan import CellObjectRecord, CellPatchSizeSummary, scan_cell_objects, scan_cell_patch_size
 from cellpatcher.config import (
     CellConfig,
     CellPatcherConfig,
@@ -74,4 +75,8 @@ __all__ = [
     "GridStrategy",
     "CellSegmentationStrategy",
     "RandomPatchStrategy",
+    "CellObjectRecord",
+    "CellPatchSizeSummary",
+    "scan_cell_objects",
+    "scan_cell_patch_size",
 ]
