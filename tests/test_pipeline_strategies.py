@@ -612,10 +612,9 @@ def test_pipeline_extraction_mask_fill_value_controls_background():
 
     image = np.full((8, 8), 5, dtype=np.float32)
     labels = np.zeros((8, 8), dtype=int)
-    labels[3:5, 3:5] = 1  # 2x2 cell; patch_size=6 → background around the cell
+    labels[3:5, 3:5] = 1  # 2x2 cell inside a 6x6 patch; non-cell pixels get fill_value
     result = run_patching(images=image, masks=labels, config=cfg)
     arr = result.patch_arrays[0]
-    # The 6x6 patch contains the 2x2 cell and 4x4 background area.
     assert float(arr.min()) == pytest.approx(-99)
 
 
