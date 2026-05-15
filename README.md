@@ -2,6 +2,29 @@
 
 CellPatcher is a microscopy patch-generation project centered on a reusable Python backend package (`src/cellpatcher`) and notebook workflows.
 
+## Table of contents
+
+- [Project overview](#project-overview)
+- [Installation](#installation)
+- [Supported patching modes](#supported-patching-modes)
+- [Two entry points](#two-entry-points)
+- [Quickstart: folder-based pipeline](#quickstart-folder-based-pipeline)
+- [Using a config file](#using-a-config-file)
+- [Parameter sweeps with `apply_overrides`](#parameter-sweeps-with-apply_overrides)
+- [In-memory entry point: `run_patching`](#in-memory-entry-point-run_patching)
+- [Cell mode — additional notes](#cell-mode--additional-notes)
+- [Foreground filtering](#foreground-filtering)
+- [Extracting and resizing patch arrays](#extracting-and-resizing-patch-arrays)
+- [Saving and export examples](#saving-and-export-examples)
+- [Image/mask filename matching](#imagemask-filename-matching)
+- [Understanding `PatchingResult`](#understanding-patchingresult)
+- [Supported file formats](#supported-file-formats)
+- [Configuration reference](#configuration-reference)
+- [Notebooks](#notebooks)
+- [Testing](#testing)
+
+---
+
 ## Project overview
 
 CellPatcher generates patch coordinates and optional patch arrays for multiple sampling modes while keeping core logic in the package (not duplicated in notebooks).
@@ -10,8 +33,27 @@ CellPatcher generates patch coordinates and optional patch arrays for multiple s
 
 - Generates patch regions (`PatchRegion`) from images and optional masks.
 - Supports cell/object-centered, random, grid, and whole-field patching.
-- Applies optional region filtering.
+- Applies optional region filtering (intensity, foreground fraction).
 - Optionally extracts patch arrays, applies label masking, resizes, and exports patches + metadata.
+
+---
+
+## Installation
+
+```bash
+pip install -e .   # editable install from the repository root
+```
+
+Optional dependencies (install as needed):
+
+| Dependency | When needed |
+|------------|-------------|
+| `tifffile` | Reading/writing TIFF files |
+| `imageio` | Reading/writing PNG, JPEG, BMP, GIF |
+| `scipy` | Resize with interpolation order > 0 |
+| `scikit-image` | `foreground_threshold="otsu"` filter |
+
+---
 
 ## Supported patching modes
 
@@ -21,6 +63,8 @@ CellPatcher generates patch coordinates and optional patch arrays for multiple s
 | `random` | Randomly sampled patches of a fixed size | Optional (restricts sample region) |
 | `grid` | Regular non-overlapping (or overlapping) tiles | Not used |
 | `whole_fov` | Single patch covering the entire field of view | Not used |
+
+---
 
 ## Two entry points
 
@@ -32,6 +76,8 @@ CellPatcher exposes two complementary run functions:
 | `run_patching(images=[…], masks=[…], …)` | You already have arrays in memory — use inside interactive apps, custom loaders, and widget-driven notebooks |
 
 Both return the same `PatchingResult` (regions, optional extracted arrays, exported file paths, metadata CSV path).
+
+`run_patching_from_folders` is an alias for `run_patching_pipeline` provided for backwards compatibility.
 
 ---
 
@@ -117,6 +163,20 @@ result = run_patching_pipeline("./images", config=cfg)
 
 `save_default_config(path)` writes a template with every section; `save_config_for_mode(mode, path)` writes only the sections relevant to the requested mode.
 
+You can also start from a fresh default config using `default_config()`:
+
+```python
+from cellpatcher import default_config, run_patching_pipeline
+
+cfg = default_config()   # equivalent to CellPatcherConfig()
+cfg.mode = "grid"
+cfg.grid.tile_size = 64
+cfg.common.output_dir = "./patches"
+cfg.export.enabled = True
+
+result = run_patching_pipeline("./images", config=cfg)
+```
+
 ---
 
 ## Parameter sweeps with `apply_overrides`
@@ -133,6 +193,16 @@ for tile_size in [64, 128, 256]:
         "common.output_dir":    f"./patches_{tile_size}",
     })
     run_patching_pipeline("./images", config=cfg)
+```
+
+The `overrides` keyword on `run_patching_pipeline` provides the same inline shorthand:
+
+```python
+run_patching_pipeline(
+    "./images",
+    config=base,
+    overrides={"grid.tile_size": 64, "common.output_dir": "./patches_64"},
+)
 ```
 
 ---
@@ -160,8 +230,154 @@ print(f"Patches: {len(result.patches)}, arrays: {len(result.patch_arrays)}")
 ## Cell mode — additional notes
 
 - Set both `config.common.image_axes` and `config.common.mask_axes` (e.g. `"CYX"`, `"YX"`).
-- If patch size is unknown, call `scan_cell_patch_size(image_shapes, labels_list, mask_axes=…)` first to get dataset-level recommendations, then set `config.cell.patch_size`.
+- If patch size is unknown, call `scan_cell_patch_size()` first to get dataset-level recommendations, then set `config.cell.patch_size`.
 - Enable `config.extraction.apply_mask = True` to zero-out pixels outside the selected cell label before resize/export.
+
+### Determining patch size with `scan_cell_patch_size`
+
+```python
+import numpy as np
+from cellpatcher import CellPatcherConfig, run_patching_pipeline, scan_cell_patch_size
+
+# Gather your images and label masks (as arrays)
+images = [...]   # list of image arrays
+masks  = [...]   # list of corresponding label arrays
+
+# Scan all objects to get bounding-box statistics
+summary = scan_cell_patch_size(
+    image_shapes=[img.shape for img in images],
+    labels_list=masks,
+    mask_axes="YX",
+)
+print(f"Objects included: {summary.n_included}")
+print(f"Max bounding box: {summary.max_bbox_height} x {summary.max_bbox_width}")
+print(f"Recommended size (95th percentile): {summary.recommended_size('p95')}")
+
+# Use the recommended size
+cfg = CellPatcherConfig(mode="cell")
+cfg.cell.patch_size = summary.recommended_size("p95")
+cfg.common.image_axes = "YX"
+cfg.common.mask_axes  = "YX"
+
+result = run_patching(images=images, masks=masks, config=cfg)
+```
+
+`recommended_size(method)` accepts: `"max"`, `"median"`, `"mean"`, `"p90"`, `"p95"`.
+
+### Masking out background pixels (`apply_mask`)
+
+```python
+from cellpatcher import CellPatcherConfig, run_patching
+
+cfg = CellPatcherConfig(mode="cell")
+cfg.cell.patch_size = 128
+cfg.common.extract_arrays = True
+cfg.extraction.apply_mask = True       # zero out pixels outside the cell
+cfg.extraction.mask_fill_value = 0.0   # fill value for background pixels
+
+result = run_patching(images=images, masks=masks, config=cfg)
+# Each array in result.patch_arrays has background pixels zeroed out
+```
+
+---
+
+## Foreground filtering
+
+Post-generation filters discard low-quality patches based on intensity statistics. All filter fields default to `None` (disabled).
+
+```python
+from cellpatcher import CellPatcherConfig, run_patching_pipeline
+
+cfg = CellPatcherConfig(mode="grid")
+cfg.grid.tile_size = 128
+
+# Keep only patches where at least 20 % of pixels are above the Otsu threshold
+cfg.filters.foreground_threshold  = "otsu"   # also: "mean", "median", "percentile:75"
+cfg.filters.min_foreground_fraction = 0.2
+
+# Optionally also filter by mean intensity
+cfg.filters.min_mean_intensity = 50.0
+
+result = run_patching_pipeline("./images", config=cfg)
+```
+
+Supported `foreground_threshold` strings: `"mean"`, `"median"`, `"otsu"` (requires `scikit-image`), `"percentile:<N>"` (e.g. `"percentile:75"`). A numeric value is also accepted.
+
+---
+
+## Extracting and resizing patch arrays
+
+By default, `run_patching` / `run_patching_pipeline` only returns coordinate regions. Enable array extraction and optional resizing:
+
+```python
+from cellpatcher import CellPatcherConfig, run_patching_pipeline
+
+cfg = CellPatcherConfig(mode="grid")
+cfg.grid.tile_size = 128
+cfg.common.extract_arrays = True      # extract arrays into result.patch_arrays
+
+# Resize every patch to 64 × 64 (requires scipy for order > 0)
+cfg.extraction.output_size  = 64      # or (64, 96) for non-square
+cfg.extraction.resize_order = 1       # bilinear interpolation (0 = nearest)
+
+# Pad patches near the border with zeros instead of clipping
+cfg.extraction.pad_mode        = "constant"
+cfg.extraction.constant_values = 0.0
+
+result = run_patching_pipeline("./images", config=cfg)
+# result.patch_arrays[i].shape → (64, 64) for a YX image
+```
+
+---
+
+## Saving and export examples
+
+### Save extracted patches to TIFF + metadata CSV
+
+```python
+from cellpatcher import CellPatcherConfig, run_patching_pipeline
+
+cfg = CellPatcherConfig(mode="grid")
+cfg.grid.tile_size = 128
+cfg.common.image_axes = "YX"
+cfg.common.output_dir = "./patches_tiff"
+cfg.common.extract_arrays = True
+
+cfg.export.enabled = True
+cfg.export.image_format = "tiff"          # "tif" and "tiff" are both supported
+cfg.export.save_metadata_csv = True
+
+result = run_patching_pipeline("./images", config=cfg)
+print(f"Exported files: {len(result.exported_files)}")
+print(f"Metadata CSV:   {result.metadata_file}")
+```
+
+### Save patches as NumPy arrays
+
+```python
+cfg.export.image_format = "npy"   # writes .npy files instead of TIFF
+```
+
+### Keep results in memory only (no file export)
+
+```python
+from cellpatcher import CellPatcherConfig, run_patching_pipeline
+
+cfg = CellPatcherConfig(mode="grid")
+cfg.grid.tile_size = 128
+cfg.common.image_axes = "YX"
+cfg.common.extract_arrays = True
+
+cfg.export.enabled = False                 # no files written
+cfg.common.output_dir = None               # optional, keeps run in-memory
+
+result = run_patching_pipeline("./images", config=cfg)
+print(f"Patches: {len(result.patches)}")
+print(f"Arrays:  {len(result.patch_arrays)}")
+print(f"Files:   {len(result.exported_files)}")
+```
+
+---
 
 ## Image/mask filename matching
 
@@ -173,7 +389,53 @@ print(f"Patches: {len(result.patches)}, arrays: {len(result.patch_arrays)}")
 | `exact` | Exact stem match only |
 | `substring` | Legacy; may false-match names like `img1` and `img10_mask` |
 
-The active strategy is controlled by `config.matching.strategy`.
+The active strategy and suffix list are controlled by `config.matching`:
+
+```python
+cfg.matching.strategy       = "exact_or_suffix"
+cfg.matching.mask_suffixes  = ("_mask", "_labels", "_seg")
+cfg.matching.case_sensitive = False
+```
+
+> `config.matching` applies to `mode="cell"` and `mode="random"` only (the only modes that load masks from disk). It is ignored for `grid` and `whole_fov`.
+
+---
+
+## Understanding `PatchingResult`
+
+Both `run_patching` and `run_patching_pipeline` return a `PatchingResult` dataclass:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `patches` | `list[PatchRegion]` | All accepted patch regions. Always populated. |
+| `patch_arrays` | `list \| None` | Extracted arrays when `common.extract_arrays=True`; otherwise `None`. |
+| `exported_files` | `list[str]` | Paths to written patch files when `export.enabled=True`; otherwise an empty list. |
+| `metadata_file` | `str \| None` | Path to the metadata CSV, or `None`. |
+
+Each `PatchRegion` carries: `patch_id`, `image_id`, `mode`, `y0`, `y1`, `x0`, `x1`, `label_id` (cell mode), `center_y`, `center_x`, `touches_border`, `area_px`, and computed properties `height` / `width`. See the [configuration reference](docs/configuration_reference.md#patchregion-fields) for the full field list.
+
+---
+
+## Supported file formats
+
+| Format | Extensions | Notes |
+|--------|-----------|-------|
+| TIFF | `.tif`, `.tiff` | Requires `tifffile` (preferred) or `imageio` |
+| NumPy | `.npy` | No extra dependencies |
+| PNG | `.png` | Requires `imageio` |
+| JPEG | `.jpg`, `.jpeg` | Requires `imageio` |
+| BMP | `.bmp` | Requires `imageio` |
+| GIF | `.gif` | Requires `imageio` |
+
+---
+
+## Configuration reference
+
+For the complete settings/options reference see:
+
+- [`docs/configuration_reference.md`](docs/configuration_reference.md)
+
+It documents all fields, defaults, allowed values, supported threshold strings, mode-to-section mapping, and the `PatchRegion` field list.
 
 ---
 
