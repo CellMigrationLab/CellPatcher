@@ -352,7 +352,7 @@ def test_load_config_handles_mode_specific_file_roundtrip(tmp_path):
     assert isinstance(cfg, CellPatcherConfig)
     assert cfg.mode == "grid"
     assert cfg.grid.tile_size == 128  # default
-    assert cfg.cell.patch_size == "auto"  # defaulted from missing section
+    assert cfg.cell.patch_size == "auto"  # load_config initializes missing sections from dataclass defaults
 
 
 def test_save_config_for_mode_default_values_match_dataclass_defaults(tmp_path):
