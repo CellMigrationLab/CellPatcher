@@ -5,8 +5,9 @@
 CellPatcher is a reusable backend Python package (under `src/cellpatcher`) plus notebooks for microscopy patch generation workflows.
 
 Current notebook status:
-- Legacy notebook is preserved at `notebooks/CellPatcher/CellPatcher.ipynb`.
-- Notebook v2 is planned at `notebooks/CellPatcher/CellPatcher_v2.ipynb` (not created yet).
+- Legacy notebook is preserved at `notebooks/CellPatcher/CellPatcher.ipynb` (reference/provenance; not the preferred path).
+- Notebook v2 is available at `notebooks/CellPatcher/CellPatcher_v2.ipynb` (package-backed staged workflow).
+- Notebook v3 is available at `notebooks/CellPatcher/CellPatcher_v3.ipynb` (app-style/tabbed workflow and preferred manual-testing path when present).
 
 ## Core backend design
 
@@ -64,13 +65,16 @@ Primary command:
 PYTHONPATH=src python -m pytest -q
 ```
 
-Current health snapshot (as of this cleanup pass):
-- 328 tests passing.
+Current health snapshot (latest audit):
+- 353 tests passing.
 
 ## Development guidance
 
+- Backend remains package-backed and coordinate-first.
 - Do not copy backend logic into notebooks.
 - Notebooks should call package APIs (`run_patching`, config dataclasses, utility helpers).
+- Notebook code should not duplicate backend patching logic.
 - Keep Torch/DINO/model-specific logic out of core package.
 - If optional ML support is added later, keep it optional and model-agnostic.
 - Do not import code from `references/legacy_patch_generation/`.
+

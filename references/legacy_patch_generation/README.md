@@ -24,5 +24,6 @@ This folder contains **reference-only** legacy files used as inspiration during 
 
 ## Lifecycle note
 
-Keep these files for now as historical reference while Notebook v2 is being prepared.
-Revisit archive/deletion decisions after `notebooks/CellPatcher/CellPatcher_v2.ipynb` is created.
+These files are historical reference only.
+Useful ideas have already been reimplemented where appropriate in the package-backed workflow.
+Revisit archive/deletion decisions after Notebook v3 app-style workflow has been manually tested.
