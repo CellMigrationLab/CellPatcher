@@ -32,6 +32,14 @@ EXPECTED_CELL_LABEL_IDS_INCLUDE_BORDER = set(range(1, 11))
 EXPECTED_GRID_COUNT_64_NO_OVERLAP = 256
 EXPECTED_GRID_COUNT_64_OVERLAP_PARTIAL = 484
 
+# When `labels > 0` is converted to binary and connected-components labeled, the
+# fixture's 10 cells merge spatially into exactly 2 large blobs — both of which
+# touch the image border.  With exclude_border=False all 2 components are kept;
+# with exclude_border=True none survive.  This constant is distinct from
+# EXPECTED_CELL_PATCH_COUNT_EXCLUDE_BORDER (which counts per-label non-border
+# cells in the *labeled* mask) even though both equal 2 for this fixture.
+EXPECTED_BINARY_CC_PATCH_COUNT = 2
+
 
 def _cell_config(*, patch_size="auto", center_on="bbox_center", apply_mask=False, binary_mask_policy="connected_components", exclude_border=True):
     cfg = CellPatcherConfig(mode="cell")
@@ -115,9 +123,13 @@ def test_real_tiff_cell_mode_binary_policy_connected_components():
     binary = labels > 0
     result = run_patching(images=image, masks=binary, config=_cell_config(exclude_border=False, binary_mask_policy="connected_components"))
 
-    assert len(result.patches) == EXPECTED_CELL_PATCH_COUNT_EXCLUDE_BORDER
+    # Both binary CCs in this fixture touch the image border; exclude_border=False
+    # means they are kept, giving EXPECTED_BINARY_CC_PATCH_COUNT patches.
+    assert len(result.patches) == EXPECTED_BINARY_CC_PATCH_COUNT
     assert result.patch_arrays is not None
     assert all(arr.shape == (32, 32) for arr in result.patch_arrays)
+    # Confirm that exclude_border=False actually retains border-touching objects.
+    assert any(p.touches_border for p in result.patches)
 
 
 @pytest.mark.parametrize("resize_order", [0, 1])
@@ -155,9 +167,12 @@ def test_real_tiff_random_mode_label_constrained():
     cfg.common.extract_arrays = True
     cfg.extraction.output_size = 32
 
-    result = run_patching(images=image, masks=(labels > 0), config=cfg)
+    mask = labels > 0
+    result = run_patching(images=image, masks=mask, config=cfg)
     assert len(result.patches) == len(result.patch_arrays) == 4
     assert all(arr.shape == (32, 32) for arr in result.patch_arrays)
+    # Every patch must overlap the foreground mask (mask-constrained sampling).
+    assert all(np.any(mask[p.y0:p.y1, p.x0:p.x1]) for p in result.patches)
 
 
 def test_real_tiff_grid_mode_no_overlap():
@@ -220,7 +235,9 @@ def test_real_tiff_filtering_smoke():
     filtered.filters.foreground_threshold = "mean"
     filtered_result = run_patching(images=image, masks=(labels > 0), config=filtered)
 
-    assert len(filtered_result.patches) <= len(base_result.patches)
+    # The intensity threshold (mean + 10) must eliminate a meaningful fraction of
+    # patches — require strictly fewer, not merely ≤, to confirm filtering is active.
+    assert len(filtered_result.patches) < len(base_result.patches)
     assert len(filtered_result.patches) > 0
 
 
@@ -259,6 +276,7 @@ def test_real_tiff_export_all_modes_npy(tmp_path, mode):
 
     result = run_patching(images=image, masks=masks, config=cfg)
     assert len(result.patches) == expected
+    assert result.patch_arrays is None  # extract_arrays=False; arrays written to disk, not returned
     assert len(result.exported_files) == len(result.patches)
     assert all(Path(p).exists() for p in result.exported_files)
     assert (out_dir / "patches.csv").exists()
@@ -290,6 +308,11 @@ def test_real_tiff_padding_modes_smoke(pad_mode, constant_values):
     cfg.extraction.pad_mode = pad_mode
     cfg.extraction.constant_values = constant_values
     result = run_patching(images=image, masks=labels, config=cfg)
+    # Smoke test: verify the config is accepted and patches are produced.
+    # Note: run_patching clips all PatchRegion coordinates to image bounds before
+    # extraction, so constant padding (constant_values) is never triggered through
+    # this code path.  Behavioral coverage for out-of-bounds constant padding is
+    # provided by tests/test_extract.py (e.g. test_extract_patch_constant_padding_preserves_requested_shape).
     assert len(result.patches) == EXPECTED_CELL_PATCH_COUNT_EXCLUDE_BORDER
     assert result.patch_arrays is not None
 
