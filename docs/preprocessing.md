@@ -1,0 +1,97 @@
+# Multidimensional preprocessing (optional)
+
+CellPatcher generates 2D Y/X patch regions. If your image has Z or T axes, you can either select/project a single 2D plane before patching, or expand the stack into multiple 2D planes and run the same patching mode on each plane.
+
+## Core principle
+
+- Core patching modes (`cell`, `random`, `grid`, `whole_fov`) are 2D Y/X region generators.
+- Preprocessing is explicit and optional.
+- CellPatcher does **not** silently project Z/T, merge channels, or normalize intensities.
+
+## Image preparation helpers
+
+Use:
+
+- `prepare_image_for_patching(...)`
+- `iter_image_planes_for_patching(...)`
+
+Typical tasks:
+
+- select a single Z/T plane
+- apply max/mean/sum projection on image Z
+- keep/select/project channels
+- repeat grayscale to RGB for model-facing workflows
+- optional percentile/min-max normalization
+
+## Label preparation helpers (cell mode)
+
+Use:
+
+- `prepare_labels_for_cell_patching(...)`
+- `iter_cell_planes_for_patching(...)`
+
+Rules:
+
+- labels must resolve to one 2D `YX` plane for cell mode
+- no silent label averaging/summing
+- strict matching for T/Z when iterating `all` planes
+
+## Important limitation: no true 3D patching
+
+CellPatcher currently does **not** generate volumetric 3D patches.
+If you process stacks, helpers produce a sequence of 2D planes and each plane runs through normal 2D patching.
+
+## Example: patch every Z slice (grid mode)
+
+```python
+from cellpatcher import (
+    CellPatcherConfig,
+    CommonConfig,
+    GridConfig,
+    iter_image_planes_for_patching,
+    run_patching,
+)
+
+planes = list(iter_image_planes_for_patching(image, "ZYX", z_policy="all"))
+images = [p.array for p in planes]
+
+config = CellPatcherConfig(mode="grid")
+config.common = CommonConfig(image_axes=planes[0].axes, extract_arrays=True)
+config.grid = GridConfig(tile_size=128)
+
+result = run_patching(images=images, config=config)
+```
+
+## Example: cell mode over matched Z planes
+
+```python
+from cellpatcher import (
+    CellPatcherConfig,
+    CommonConfig,
+    CellConfig,
+    iter_cell_planes_for_patching,
+    run_patching,
+)
+
+pairs = list(iter_cell_planes_for_patching(
+    image,
+    "ZYX",
+    labels,
+    "ZYX",
+    z_policy="all",
+))
+
+images = [p.image for p in pairs]
+labels_2d = [p.labels for p in pairs]
+
+config = CellPatcherConfig(mode="cell")
+config.common = CommonConfig(image_axes=pairs[0].image_axes, mask_axes="YX", extract_arrays=True)
+config.cell = CellConfig(patch_size="auto")
+
+result = run_patching(images=images, masks=labels_2d, config=config)
+```
+
+
+## Metadata caveat
+
+Iterator helpers return per-plane `metadata` and `plane_id`, but this information is **not automatically copied** into `PatchRegion` fields or export CSV metadata. If you need that mapping downstream, store and join it explicitly in your workflow.

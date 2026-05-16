@@ -26,6 +26,19 @@ from cellpatcher.io import (
 )
 from cellpatcher.filters import compute_threshold, filter_regions, foreground_fraction
 from cellpatcher.pipeline import PatchingResult, run_patching
+from cellpatcher.preprocess import (
+    PreparedPlane,
+    PreparedPlanePair,
+    iter_cell_planes_for_patching,
+    iter_image_planes_for_patching,
+    minmax_normalize,
+    percentile_normalize,
+    prepare_image_for_patching,
+    prepare_labels_for_cell_patching,
+    project_axis,
+    repeat_to_rgb,
+    select_axis_index,
+)
 from cellpatcher.resize import normalize_output_size, resize_patch, resize_patches
 from cellpatcher.strategies import (
     CellSegmentationStrategy,
@@ -90,4 +103,15 @@ __all__ = [
     "CellPatchSizeSummary",
     "scan_cell_objects",
     "scan_cell_patch_size",
+    "percentile_normalize",
+    "minmax_normalize",
+    "repeat_to_rgb",
+    "select_axis_index",
+    "project_axis",
+    "prepare_image_for_patching",
+    "prepare_labels_for_cell_patching",
+    "PreparedPlane",
+    "PreparedPlanePair",
+    "iter_image_planes_for_patching",
+    "iter_cell_planes_for_patching",
 ]

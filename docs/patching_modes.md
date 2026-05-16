@@ -138,3 +138,17 @@ Typical flow: generate regions → filter → extract → resize → export + me
 - For exploratory QC: start with `whole_fov` or `grid`.
 - For random controls: use `random` with an explicit `seed`.
 - For DINO-like downstream modeling: use fixed-size resized outputs; inference itself is **not** part of CellPatcher core.
+
+
+## Multidimensional stacks (Z/T) and preprocessing
+
+CellPatcher generates 2D Y/X patch regions. If your image has Z or T axes, you can either select/project a single 2D plane before patching, or expand the stack into multiple 2D planes and run the same patching mode on each plane.
+
+Patching modes (`cell`, `random`, `grid`, `whole_fov`) generate **2D Y/X** regions.
+
+If your data has Z or T axes:
+
+- preprocess one plane with `prepare_image_for_patching(...)` / `prepare_labels_for_cell_patching(...)`, or
+- iterate all planes with `iter_image_planes_for_patching(...)` / `iter_cell_planes_for_patching(...)`.
+
+This is explicit preprocessing before normal patching. It is **not** a `mode="all"` and **not** true volumetric 3D patching.
