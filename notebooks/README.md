@@ -20,3 +20,19 @@ Scripts and one-off runs that don't need interactive UI should use `run_patching
 - **V3 (`CellPatcher_v3.ipynb`)** is expected to work in both local JupyterLab/LabConstrictor-style environments and Google Colab.
 - Colab-specific installation/mount behavior must stay guarded so local Jupyter usage is not affected.
 - Notebook UI should remain package-backed (no duplication of backend patching logic in notebook cells).
+
+## Bundled real TIFF fixture
+
+Bundled fixture files:
+- `tests/fixtures/cellpatcher_demo_image.tif`
+- `tests/fixtures/cellpatcher_demo_labels.tif`
+
+Intended use:
+- pytest smoke/integration tests
+- quick notebook smoke/manual testing
+
+Not intended for benchmarking or biological interpretation.
+
+Notes:
+- `CellPatcher_strategy_examples.ipynb` can optionally load the fixture (default is synthetic data).
+- `CellPatcher_v3.ipynb` provides a "Load bundled TIFF demo fixture" button for quick app setup.
