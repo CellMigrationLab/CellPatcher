@@ -43,6 +43,8 @@ summary = scan_cell_patch_size(
     mask_axes="YX",
 )
 patch_size = summary.recommended_size("p95") or summary.recommended_size("max")
+# Note: if the dataset has no included objects, both methods return 0.
+# Guard against this before passing patch_size to CellConfig.
 
 config = CellPatcherConfig(
     mode="cell",
@@ -122,6 +124,8 @@ first_image_path, first_mask_path = next(iter(pairs.items()))
 image = read_array(first_image_path)
 labels = read_array(first_mask_path)
 ```
+
+When using `run_patching_pipeline`, the `config.matching` field is used automatically — no need to pass matching parameters separately.
 
 ## Example 6 — Filtering background patches
 

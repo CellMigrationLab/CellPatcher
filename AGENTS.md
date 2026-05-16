@@ -66,7 +66,7 @@ PYTHONPATH=src python -m pytest -q
 ```
 
 Current health snapshot (latest audit):
-- 353 tests passing.
+- 417 tests passing.
 
 ## Development guidance
 

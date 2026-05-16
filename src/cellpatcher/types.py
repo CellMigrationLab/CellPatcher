@@ -15,7 +15,9 @@ class PatchRegion:
 
     Current pipeline behavior:
     - only accepted patches are returned;
-    - rejected-patch diagnostics are not populated yet.
+    - ``valid`` is always ``True`` and ``reason`` is always ``None`` for every
+      patch currently returned by the pipeline — these fields are reserved for
+      future rejected-patch reporting and are not yet populated.
     """
     patch_id: str
     image_id: str | None = None

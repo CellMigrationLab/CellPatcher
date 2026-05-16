@@ -46,9 +46,9 @@ Notes:
 
 - `patch_size="auto"` is per-object adaptive sizing.
 - `scan_cell_patch_size(...)` gives dataset-level recommendations for a fixed patch size.
-- **`dataset_max`** (via `recommended_size("max")`) is closest to legacy fixed-size behavior.
-- **`dataset_p95`** (via `recommended_size("p95")`) is often a practical compromise for model workflows.
-- Other scan summaries are also available for tuning: `dataset_median` (`"median"`), `dataset_mean` (`"mean"`), and `dataset_p90` (`"p90"`).
+- `recommended_size("max")` returns the largest included bounding-box square size across the dataset — closest to legacy fixed-size behavior.
+- `recommended_size("p95")` returns the 95th-percentile square size — often a practical compromise for model workflows.
+- Other scan summaries are also available for tuning: `recommended_size("median")`, `recommended_size("mean")`, and `recommended_size("p90")`.
 - `apply_mask=True` clears pixels outside the selected label before resize/export.
 
 Common pitfalls:
@@ -56,7 +56,7 @@ Common pitfalls:
 - Wrong `image_axes` / `mask_axes`.
 - Expecting binary masks to preserve original instance IDs.
 - Picking a global patch size without scanning first.
-- Expecting border-touching objects when `exclude_border=True`.
+- Expecting border-touching objects when `exclude_border=True` (default): it skips objects whose *bounding boxes* touch the image border, not patches.
 
 ### Cell mode figure
 

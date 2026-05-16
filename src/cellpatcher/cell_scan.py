@@ -111,6 +111,36 @@ def _prepare_labeled_plane(labels, config: CellConfig, mask_axes: str) -> np.nda
 
 
 def scan_cell_objects(*, image_shape, labels, image_id=None, config=None, image_axes="YX", mask_axes="YX") -> list[CellObjectRecord]:
+    """Scan a single image/label pair and return per-object size records.
+
+    For each non-zero label in *labels*, one :class:`CellObjectRecord` is
+    returned containing the object's bounding-box dimensions, area, border
+    status, and whether it passes the ``config`` inclusion criteria
+    (``min_area``, ``max_area``, ``exclude_border``).
+
+    Parameters
+    ----------
+    image_shape:
+        Shape tuple of the image (used to determine spatial dimensions).
+    labels:
+        Integer label array (2D ``YX``, or multidimensional when
+        ``mask_axes`` and ``config.mask_channel`` are set).
+    image_id:
+        Optional identifier string embedded in each returned record.
+        Defaults to ``"image_0000"``.
+    config:
+        :class:`~cellpatcher.CellConfig` instance.  Defaults to
+        ``CellConfig()`` (all defaults).
+    image_axes:
+        Axes string for *image_shape* (e.g. ``"YX"``, ``"CYX"``).
+    mask_axes:
+        Axes string for *labels*.
+
+    Returns
+    -------
+    list[CellObjectRecord]
+        One record per non-zero label, sorted by label id.
+    """
     local_config = config if config is not None else CellConfig()
 
     normalized_image_axes = normalize_axes(image_axes, len(image_shape))

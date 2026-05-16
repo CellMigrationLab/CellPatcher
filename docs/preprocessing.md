@@ -47,6 +47,12 @@ Rules:
 - no silent label averaging/summing
 - strict matching for T/Z when iterating `all` planes
 
+Note: `iter_cell_planes_for_patching` supports `z_policy` values `{error, first, select, max, all}`.
+The `"mean"` and `"sum"` Z projection methods are **not** available through this iterator, even for
+the image component. If you need a mean- or sum-projected image alongside per-plane labels, call
+`iter_image_planes_for_patching` (which supports `"mean"` and `"sum"`) and
+`prepare_labels_for_cell_patching` separately on each Z slice.
+
 ## Common mistakes
 
 - Expecting automatic Z projection inside `run_patching(...)`.
