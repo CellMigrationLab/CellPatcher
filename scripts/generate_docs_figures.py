@@ -6,6 +6,7 @@ import colorsys
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 import matplotlib.patches as mpatches
 import numpy as np
 
@@ -140,8 +141,6 @@ def draw_patch_boxes(
     show_numbers:
         Number each box with its 1-based index.
     """
-    import matplotlib.colors as mcolors
-
     rgb = mcolors.to_rgb(color)
     facecolor_rgba = (*rgb, fill_alpha)
 
@@ -191,7 +190,7 @@ def _render_patch_gallery(ax, arrays, n=6, title="Patches", gap=3):
     for arr in arrays[:m]:
         a = np.asarray(arr)
         if a.ndim > 2:
-            a = np.squeeze(a)
+            a = a.reshape(a.shape[-2], a.shape[-1])
         patches_disp.append(normalize_percentile(a))
 
     h, w = patches_disp[0].shape
@@ -434,7 +433,7 @@ def save_whole_fov_mode(image_n, image):
     if result.patch_arrays:
         arr = np.asarray(result.patch_arrays[0])
         if arr.ndim > 2:
-            arr = np.squeeze(arr)
+            arr = arr.reshape(arr.shape[-2], arr.shape[-1])
         axs[1].imshow(normalize_percentile(arr), cmap="gray", vmin=0, vmax=1)
         axs[1].set_title(
             f"Resized output  ({output_sz} × {output_sz} px)\n"
