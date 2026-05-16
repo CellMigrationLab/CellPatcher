@@ -83,6 +83,7 @@ result = run_patching(images=image, masks=labels, config=cfg)
 print(len(result.patches), len(result.patch_arrays or []))
 ```
 
+
 ### Example B — grid mode
 
 ```python
@@ -101,6 +102,45 @@ cfg = CellPatcherConfig(
 result = run_patching(images=image, config=cfg)
 print(len(result.patches), result.patch_arrays[0].shape)
 ```
+
+
+### Example C — dataset-wide max cell box -> masked patches -> DINO size
+
+If you want one patch per segmented cell, sized from the largest cell in the dataset, then resized for DINO-style inputs:
+
+```python
+from cellpatcher import CellPatcherConfig, CellConfig, CommonConfig, ExtractionConfig, run_patching, scan_cell_patch_size
+
+# images: list[np.ndarray]
+# labels: list[np.ndarray] with one label map per image
+
+summary = scan_cell_patch_size(
+    image_shapes=[img.shape for img in images],
+    labels_list=labels,
+    image_axes="YX",
+    mask_axes="YX",
+)
+
+# Use largest included bbox dimensions (convert to square for cell patch mode)
+patch_size = summary.recommended_size("max")
+
+cfg = CellPatcherConfig(
+    mode="cell",
+    common=CommonConfig(image_axes="YX", mask_axes="YX", extract_arrays=True),
+    cell=CellConfig(patch_size=patch_size, center_on="centroid"),
+    extraction=ExtractionConfig(apply_mask=True, output_size=224),
+)
+
+result = run_patching(images=images, masks=labels, config=cfg)
+# result.patch_arrays -> masked, resized arrays suitable for DINO ingestion
+```
+
+Notes:
+- `scan_cell_patch_size` reports dataset-wide `max_bbox_height` and `max_bbox_width`.
+- `CellConfig(patch_size="auto")` is per-object/per-image (each cell gets its own square size), **not** dataset-wide fixed sizing.
+- For one fixed size across the whole dataset, explicitly use `summary.recommended_size("max")` (largest included square size).
+- Cell mode uses square patches, so dataset-wide fixed sizing should be a single int.
+- `apply_mask=True` clears pixels outside each selected label before resize/export.
 
 ## Real TIFF demo fixture
 
