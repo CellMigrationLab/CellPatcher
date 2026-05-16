@@ -233,7 +233,9 @@ def save_random_mode(image_n, image, labels):
     mask = labels > 0
     try:
         result = run_patching(images=image, masks=mask, config=cfg)
-    except Exception:
+    except Exception as exc:
+        import warnings
+        warnings.warn(f"Random mode with mask failed ({exc}); retrying without mask.", stacklevel=2)
         result = run_patching(images=image, config=cfg)
 
     fig, axs = plt.subplots(1, 2, figsize=(9, 4), dpi=150)

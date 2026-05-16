@@ -50,7 +50,7 @@ result = run_patching(images=image, masks=labels, config=config)
 ```python
 config = CellPatcherConfig(
     mode="grid",
-    common=CommonConfig(image_axes="YX", extract_arrays=False, output_dir="./patches_out"),
+    common=CommonConfig(image_axes="YX", output_dir="./patches_out"),
     grid=GridConfig(tile_size=128, overlap=0.25, include_partial=True),
     export=ExportConfig(enabled=True, image_format="npy", save_metadata_csv=True),
 )
@@ -91,8 +91,8 @@ print(len(result.patches))  # 1
 ## Example 5 — Folder matching and loading
 
 ```python
-
 matcher = MatchConfig(strategy="exact_or_suffix", mask_suffixes=("_mask", "_labels"), case_sensitive=False)
+# pairs is a dict[Path, Path]: {image_path: mask_path} for every matched pair
 pairs = validate_image_and_mask_folders(
     image_folder_path="./images",
     mask_folder_path="./masks",
