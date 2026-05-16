@@ -2,6 +2,13 @@
 
 This folder contains multiple notebooks because they serve different purposes.
 
+## Quick recommendation
+
+- **Use `CellPatcher_v3.ipynb` for normal use and manual testing.**
+- **Use `CellPatcher_strategy_examples.ipynb` to learn the Python API fastest.**
+- Use `CellPatcher_v2.ipynb` as a staged fallback/reference workflow.
+- Use `CellPatcher.ipynb` only as historical reference.
+
 ## Which notebook should I open?
 
 | I want to... | Open this notebook |

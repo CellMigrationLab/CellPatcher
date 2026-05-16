@@ -4,6 +4,15 @@ CellPatcher is a package-backed microscopy patch generation project for scientis
 
 ## What CellPatcher does
 
+## Start here in 3 steps
+
+1. **Choose your path**
+   - App-style notebook: `notebooks/CellPatcher/CellPatcher_v3.ipynb`
+   - Minimal API learning: `notebooks/CellPatcher/CellPatcher_strategy_examples.ipynb`
+   - Python-first docs: `docs/api_examples.md`
+2. **Choose a patching mode** (`cell`, `random`, `grid`, `whole_fov`) in `docs/patching_modes.md`.
+3. **If your data has Z/T/C axes**, read `docs/preprocessing.md` first. Core patching modes generate 2D `Y/X` regions; multidimensional handling is explicit preprocessing.
+
 - Matches image files and mask/label files with configurable matching strategies.
 - Generates patch regions (`PatchRegion`) for `cell`, `random`, `grid`, and `whole_fov` modes.
 - Optionally filters regions, extracts arrays, resizes outputs, and exports patch files.
@@ -106,9 +115,10 @@ Note:
 
 ## More documentation
 
-- [Quick start](docs/quick_start.md)
-- [Preprocessing guide](docs/preprocessing.md)
 - [Patching mode guide](docs/patching_modes.md)
 - [API examples](docs/api_examples.md)
+- [Preprocessing guide](docs/preprocessing.md)
 - [Notebook guide](notebooks/README.md)
+- [Fixture guide](tests/fixtures/readme.md)
+- [Quick start](docs/quick_start.md)
 

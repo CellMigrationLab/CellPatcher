@@ -13,6 +13,16 @@
 
 The overview figure is generated from the bundled real TIFF fixture so all modes are visually comparable.
 
+## Important: modes are 2D Y/X region generators
+
+`cell`, `random`, `grid`, and `whole_fov` decide how **2D `Y/X` regions** are generated.
+If you want every Z slice or T frame, expand stacks first with:
+
+- `iter_image_planes_for_patching`
+- `iter_cell_planes_for_patching`
+
+This is explicit plane-by-plane preprocessing, **not** true volumetric 3D patching. See `docs/preprocessing.md`.
+
 ## Cell mode
 
 Cell mode creates one patch per segmented object/cell. It accepts either:
@@ -30,6 +40,7 @@ Key parameters to know:
 - `apply_mask` (in `ExtractionConfig`)
 - `mask_fill_value` (fill value used when `apply_mask=True`)
 - `mask_channel` (required for multi-channel label arrays)
+- labels must resolve to one 2D `YX` plane (use preprocessing helpers for C/Z/T labels)
 
 Notes:
 
@@ -72,6 +83,8 @@ Common pitfalls:
 - No `seed` means non-deterministic outputs.
 - Duplicate patches are valid behavior.
 
+For all-Z/all-T runs, expand planes first with `iter_image_planes_for_patching(...)` from `docs/preprocessing.md`.
+
 ### Random mode figure
 
 ![Random mode example](assets/random_mode_example.png)
@@ -91,6 +104,8 @@ Common pitfalls:
 - `overlap` changes stride (higher overlap → more patches).
 - `include_partial` controls edge coverage.
 - Large images and small tiles can produce many patches quickly.
+
+For all-Z/all-T runs, expand planes first with `iter_image_planes_for_patching(...)` from `docs/preprocessing.md`.
 
 ### Grid mode figure
 
@@ -112,6 +127,8 @@ Common pitfalls:
 - Expecting multiple patches.
 - Forgetting `output_size` when a fixed model input size is required.
 
+For all-Z/all-T runs, expand planes first with `iter_image_planes_for_patching(...)` from `docs/preprocessing.md`.
+
 ### Whole-FOV figure
 
 ![Whole-FOV mode example](assets/whole_fov_example.png)
@@ -130,7 +147,9 @@ Mode selects **where** patches come from. The rest of the pipeline controls **wh
 - `ExtractionConfig`: extract arrays, set `output_size`, set `pad_mode`, optionally `apply_mask` in cell mode.
 - `ExportConfig`: write patch files (`image_format`) and optional metadata CSV.
 
-Typical flow: generate regions → filter → extract → resize → export + metadata.
+Typical flow: generate regions → filter → extract → apply mask (cell mode only) → resize → export + metadata.
+
+Note: iterator `metadata`/`plane_id` are not automatically injected into `PatchRegion` fields or export CSV metadata.
 
 ## Practical recommendations
 
