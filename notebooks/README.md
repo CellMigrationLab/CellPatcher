@@ -4,9 +4,9 @@ Notebook status and conventions:
 
 | Notebook | Status | Description |
 |----------|--------|-------------|
-| `CellPatcher/CellPatcher.ipynb` | Legacy — preserved | Original notebook; kept as reference only. |
-| `CellPatcher/CellPatcher_v2.ipynb` | Active | Step-by-step widget notebook backed by the `cellpatcher` package. Each workflow stage (folder validation, axes, mode settings, scan, preview, export) is its own titled cell. |
-| `CellPatcher/CellPatcher_v3.ipynb` | Active (latest) | App-style notebook: a single `CellPatcherApp` widget wraps all configuration tabs; the full run/QC is an explicit, separate cell at the end for visibility. |
+| `CellPatcher/CellPatcher_v3.ipynb` | Active (preferred) | App-style notebook: a `CellPatcherApp` widget wraps configuration tabs; the full run/QC is an explicit, separate final cell for visibility. Preferred UI for current manual testing. |
+| `CellPatcher/CellPatcher_v2.ipynb` | Active (fallback/reference) | Package-backed, step-by-step staged workflow notebook. Useful as a guided fallback and reference workflow. |
+| `CellPatcher/CellPatcher.ipynb` | Legacy — preserved | Original notebook kept for provenance/reference; not the preferred path for current manual testing. |
 
 ## Design convention
 
@@ -14,3 +14,9 @@ Both v2 and v3 call `run_patching(images=…, masks=…, config=…)` directly w
 The notebooks handle folder scanning, image↔mask file matching, and array loading themselves (with progress feedback), so there is no benefit to delegating that to `run_patching_pipeline` — which would redo the same work silently.
 
 Scripts and one-off runs that don't need interactive UI should use `run_patching_pipeline(folder, …)` directly.
+
+## Runtime compatibility expectations
+
+- **V3 (`CellPatcher_v3.ipynb`)** is expected to work in both local JupyterLab/LabConstrictor-style environments and Google Colab.
+- Colab-specific installation/mount behavior must stay guarded so local Jupyter usage is not affected.
+- Notebook UI should remain package-backed (no duplication of backend patching logic in notebook cells).
