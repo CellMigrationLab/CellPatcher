@@ -1,0 +1,2 @@
+tests/fixtures/cellpatcher_demo_image.tif
+tests/fixtures/cellpatcher_demo_labels.tif
