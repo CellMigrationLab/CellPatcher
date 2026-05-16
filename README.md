@@ -454,3 +454,15 @@ Both v2 and v3 call `run_patching` directly with pre-loaded arrays; folder scann
 ```bash
 PYTHONPATH=src python -m pytest -q
 ```
+
+## Real TIFF smoke-test fixture
+
+CellPatcher includes a bundled real TIFF smoke-test fixture:
+- `tests/fixtures/cellpatcher_demo_image.tif`
+- `tests/fixtures/cellpatcher_demo_labels.tif`
+
+Use this fixture for deterministic pytest smoke tests and quick notebook smoke testing only. It is **not** intended for benchmarking, model comparison, or biological conclusions.
+
+`notebooks/CellPatcher/CellPatcher_strategy_examples.ipynb` can optionally load this fixture (`USE_REAL_TIFF_FIXTURE=True`).
+
+`notebooks/CellPatcher/CellPatcher_v3.ipynb` includes a **Load bundled TIFF demo fixture** button for fast manual app testing.
