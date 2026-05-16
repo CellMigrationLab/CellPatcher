@@ -11,6 +11,8 @@
 
 ![CellPatcher patching modes](assets/patching_modes_overview.png)
 
+The overview figure is generated from the bundled real TIFF fixture so all modes are visually comparable.
+
 ## Cell mode
 
 Cell mode creates one patch per segmented object/cell. It accepts either:
@@ -45,6 +47,10 @@ Common pitfalls:
 - Picking a global patch size without scanning first.
 - Expecting border-touching objects when `exclude_border=True`.
 
+### Cell mode figure
+
+![Cell mode example](assets/cell_mode_apply_mask.png)
+
 ## Random mode
 
 Random mode creates fixed-size random patches, with optional seeded reproducibility.
@@ -66,6 +72,10 @@ Common pitfalls:
 - No `seed` means non-deterministic outputs.
 - Duplicate patches are valid behavior.
 
+### Random mode figure
+
+![Random mode example](assets/random_mode_example.png)
+
 ## Grid mode
 
 Grid mode performs deterministic tiling across each image.
@@ -82,6 +92,10 @@ Common pitfalls:
 - `include_partial` controls edge coverage.
 - Large images and small tiles can produce many patches quickly.
 
+### Grid mode figure
+
+![Grid mode example](assets/grid_mode_example.png)
+
 ## Whole-FOV mode
 
 Whole-FOV mode returns one region covering the entire image.
@@ -97,6 +111,16 @@ Common pitfalls:
 
 - Expecting multiple patches.
 - Forgetting `output_size` when a fixed model input size is required.
+
+### Whole-FOV figure
+
+![Whole-FOV mode example](assets/whole_fov_example.png)
+
+## Fixture visual context
+
+These docs figures are derived from the same demo fixture image and labels:
+
+![Fixture overview](assets/fixture_overview.png)
 
 ## Filtering, extraction, resizing, and export
 
