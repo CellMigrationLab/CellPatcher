@@ -135,17 +135,31 @@ def repeat_to_rgb(image, axes):
     )
 
 
-def _apply_axis_policy(arr, axes, *, axis, policy, index=None, allowed_project_methods=None, label_context=False):
+def _apply_axis_policy(
+    arr,
+    axes,
+    *,
+    axis,
+    policy,
+    index=None,
+    allowed_project_methods=None,
+    label_context=False,
+    param_name=None,
+    index_param_name=None,
+):
     idx = axis_index(axes, axis)
     if idx is None:
         return arr, axes
+
+    _policy_param = param_name if param_name is not None else f"{axis.lower()}_policy"
+    _index_param = index_param_name if index_param_name is not None else f"{axis.lower()}_index"
 
     size = arr.shape[idx]
     if policy == "error":
         if size > 1:
             raise ValueError(
                 f"{axis} axis has size {size}; explicit selection/projection is required "
-                f"(got {axis.lower()}_policy='error')."
+                f"(got {_policy_param}='error')."
             )
         return select_axis_index(arr, axes, axis, 0)
 
@@ -154,15 +168,15 @@ def _apply_axis_policy(arr, axes, *, axis, policy, index=None, allowed_project_m
 
     if policy == "select":
         if index is None:
-            raise ValueError(f"{axis.lower()}_policy='select' requires {axis.lower()}_index.")
+            raise ValueError(f"{_policy_param}='select' requires {_index_param}.")
         return select_axis_index(arr, axes, axis, index)
 
     if allowed_project_methods and policy in allowed_project_methods:
         return project_axis(arr, axes, axis, policy)
 
     if label_context:
-        raise ValueError(f"Unsupported {axis.lower()}_policy for labels: {policy}")
-    raise ValueError(f"Unsupported {axis.lower()}_policy: {policy}")
+        raise ValueError(f"Unsupported {_policy_param} for labels: {policy}")
+    raise ValueError(f"Unsupported {_policy_param}: {policy}")
 
 
 def prepare_image_for_patching(
@@ -195,9 +209,16 @@ def prepare_image_for_patching(
         arr, ax = repeat_to_rgb(arr, ax)
     elif channel_policy in {"select", "first"}:
         idx = 0 if channel_policy == "first" else channel_index
-        arr, ax = _apply_axis_policy(arr, ax, axis="C", policy="select", index=idx)
+        arr, ax = _apply_axis_policy(
+            arr, ax, axis="C", policy="select", index=idx,
+            param_name="channel_policy", index_param_name="channel_index",
+        )
     elif channel_policy in {"max", "mean"}:
-        arr, ax = _apply_axis_policy(arr, ax, axis="C", policy=channel_policy, allowed_project_methods={"max", "mean"})
+        arr, ax = _apply_axis_policy(
+            arr, ax, axis="C", policy=channel_policy,
+            allowed_project_methods={"max", "mean"},
+            param_name="channel_policy",
+        )
     else:
         raise ValueError(f"Unsupported channel_policy: {channel_policy}")
 
@@ -242,11 +263,20 @@ def prepare_labels_for_cell_patching(
     )
 
     if channel_policy == "error":
-        arr, ax = _apply_axis_policy(arr, ax, axis="C", policy="error", label_context=True)
+        arr, ax = _apply_axis_policy(
+            arr, ax, axis="C", policy="error", label_context=True,
+            param_name="channel_policy",
+        )
     elif channel_policy == "first":
-        arr, ax = _apply_axis_policy(arr, ax, axis="C", policy="first", label_context=True)
+        arr, ax = _apply_axis_policy(
+            arr, ax, axis="C", policy="first", label_context=True,
+            param_name="channel_policy",
+        )
     elif channel_policy == "select":
-        arr, ax = _apply_axis_policy(arr, ax, axis="C", policy="select", index=channel_index, label_context=True)
+        arr, ax = _apply_axis_policy(
+            arr, ax, axis="C", policy="select", index=channel_index, label_context=True,
+            param_name="channel_policy", index_param_name="channel_index",
+        )
     else:
         raise ValueError(f"Unsupported channel_policy for labels: {channel_policy}")
 

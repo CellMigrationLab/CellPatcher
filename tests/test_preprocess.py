@@ -1,7 +1,12 @@
 import numpy as np
 import pytest
 
+from cellpatcher import CellConfig, CellPatcherConfig, CommonConfig, run_patching
 from cellpatcher.preprocess import (
+    PreparedPlane,
+    PreparedPlanePair,
+    iter_cell_planes_for_patching,
+    iter_image_planes_for_patching,
     minmax_normalize,
     percentile_normalize,
     prepare_image_for_patching,
@@ -259,8 +264,6 @@ def test_prepare_labels_for_cell_patching_behaviors():
         prepare_labels_for_cell_patching(np.zeros((2, 4, 5), dtype=np.int32), "ZYX", z_policy="all")
     with pytest.raises(ValueError):
         prepare_labels_for_cell_patching(np.zeros((2, 4, 5), dtype=np.int32), "TYX", t_policy="all")
-from cellpatcher import CellConfig, CellPatcherConfig, CommonConfig, run_patching
-from cellpatcher.preprocess import PreparedPlane, PreparedPlanePair, iter_cell_planes_for_patching, iter_image_planes_for_patching
 
 
 def test_iter_image_planes_yx_single_plane_id():
@@ -320,13 +323,13 @@ def test_iter_cell_planes_all_and_axes_and_errors():
     ))
     assert all(p.image_axes == "CYX" and p.label_axes == "YX" for p in pairs)
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="z_policy='all' requires both image and labels to contain a Z axis"):
         list(iter_cell_planes_for_patching(np.zeros((2, 5, 6)), "ZYX", np.zeros((2, 5, 6), dtype=int), "CYX", z_policy="all"))
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Z sizes must match"):
         list(iter_cell_planes_for_patching(np.zeros((2, 5, 6)), "ZYX", np.zeros((3, 5, 6), dtype=int), "ZYX", z_policy="all"))
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="T sizes must match"):
         list(iter_cell_planes_for_patching(np.zeros((2, 3, 5, 6)), "TZYX", np.zeros((3, 3, 5, 6), dtype=int), "TZYX", t_policy="all", z_policy="all"))
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Spatial shape mismatch"):
         list(iter_cell_planes_for_patching(np.zeros((2, 5, 6)), "ZYX", np.zeros((2, 4, 6), dtype=int), "ZYX", z_policy="all"))
 
 
@@ -378,8 +381,13 @@ def test_iter_image_mixed_policy_metadata_semantics():
 
 
 def test_prepare_labels_channel_error_message_clear():
-    with pytest.raises(ValueError, match="explicit selection/projection is required"):
+    with pytest.raises(ValueError, match=r"channel_policy='error'"):
         prepare_labels_for_cell_patching(np.zeros((2, 5, 6), dtype=np.int32), "CYX", channel_policy="error")
+
+
+def test_prepare_image_channel_select_missing_index_error_message():
+    with pytest.raises(ValueError, match=r"channel_policy='select' requires channel_index"):
+        prepare_image_for_patching(np.zeros((2, 6, 7)), "CYX", channel_policy="select")
 
 
 def test_prepare_image_all_policy_error_message_points_to_iterator():
@@ -390,3 +398,25 @@ def test_prepare_image_all_policy_error_message_points_to_iterator():
 def test_prepare_labels_all_policy_error_message_points_to_iterator():
     with pytest.raises(ValueError, match="iter_cell_planes_for_patching"):
         prepare_labels_for_cell_patching(np.zeros((2, 5, 6), dtype=np.int32), "ZYX", z_policy="all")
+
+
+def test_iter_image_planes_tzyx_t_all_z_first_yields_t_planes():
+    """TZYX + t_policy='all' + z_policy='first' yields T planes; only t in metadata (no z)."""
+    planes = list(
+        iter_image_planes_for_patching(np.zeros((2, 3, 5, 6)), "TZYX", t_policy="all", z_policy="first")
+    )
+    assert len(planes) == 2
+    assert all(p.axes == "YX" for p in planes)
+    assert [p.metadata for p in planes] == [{"t": 0}, {"t": 1}]
+    assert [p.plane_id for p in planes] == ["t000", "t001"]
+
+
+def test_iter_cell_planes_t_all_only_yields_t_planes():
+    """TZYX + t_policy='all', z_policy='first' yields T paired planes with t metadata only."""
+    image = np.zeros((2, 3, 5, 6))
+    labels = np.zeros((2, 3, 5, 6), dtype=np.int32)
+    pairs = list(iter_cell_planes_for_patching(image, "TZYX", labels, "TZYX", t_policy="all", z_policy="first"))
+    assert len(pairs) == 2
+    assert [p.plane_id for p in pairs] == ["t000", "t001"]
+    assert all(p.image_axes == "YX" and p.label_axes == "YX" for p in pairs)
+    assert [p.metadata for p in pairs] == [{"t": 0}, {"t": 1}]
