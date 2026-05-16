@@ -1,38 +1,44 @@
 # Notebooks
 
-Notebook status and conventions:
+This folder contains multiple notebooks because they serve different purposes.
+
+## Which notebook should I open?
+
+| I want to... | Open this notebook |
+|---|---|
+| use the app-style interface | `CellPatcher/CellPatcher_v3.ipynb` |
+| learn the API with minimal examples | `CellPatcher/CellPatcher_strategy_examples.ipynb` |
+| follow every step manually | `CellPatcher/CellPatcher_v2.ipynb` |
+| inspect the old workflow | `CellPatcher/CellPatcher.ipynb` |
+
+## Notebook status
 
 | Notebook | Status | Description |
-|----------|--------|-------------|
-| `CellPatcher/CellPatcher_v3.ipynb` | Active (preferred) | App-style notebook: a `CellPatcherApp` widget wraps configuration tabs; the full run/QC is an explicit, separate final cell for visibility. Preferred UI for current manual testing. |
-| `CellPatcher/CellPatcher_v2.ipynb` | Active (fallback/reference) | Package-backed, step-by-step staged workflow notebook. Useful as a guided fallback and reference workflow. |
-| `CellPatcher/CellPatcher.ipynb` | Legacy — preserved | Original notebook kept for provenance/reference; not the preferred path for current manual testing. |
+|---|---|---|
+| `CellPatcher/CellPatcher_v3.ipynb` | recommended | App-style configuration tabs (`CellPatcherApp`) plus explicit run/QC cells. Preferred manual-testing notebook. |
+| `CellPatcher/CellPatcher_strategy_examples.ipynb` | recommended examples | Minimal API-focused examples covering `cell`, `random`, `grid`, and `whole_fov` modes. |
+| `CellPatcher/CellPatcher_v2.ipynb` | active fallback/reference | Guided, staged package-backed workflow for users who want a step-by-step path. |
+| `CellPatcher/CellPatcher.ipynb` | legacy/reference only | Historical notebook preserved for provenance; not recommended for new work. |
 
-## Design convention
+## Runtime notes
 
-Both v2 and v3 call `run_patching(images=…, masks=…, config=…)` directly with pre-loaded arrays.  
-The notebooks handle folder scanning, image↔mask file matching, and array loading themselves (with progress feedback), so there is no benefit to delegating that to `run_patching_pipeline` — which would redo the same work silently.
+- **Local JupyterLab / LabConstrictor:** V3 is expected to run directly in local notebook environments.
+- **Google Colab:** V3 and strategy examples are designed to work in Colab when Colab-specific setup is guarded.
+- **Private repository install in Colab (if needed):** use a `GITHUB_TOKEN` flow for authenticated installs.
+- **Colab Drive paths:** paths often look like `/content/gdrive/MyDrive/...`; verify image/mask paths before running.
 
-Scripts and one-off runs that don't need interactive UI should use `run_patching_pipeline(folder, …)` directly.
+## Bundled demo fixture
 
-## Runtime compatibility expectations
+Bundled real TIFF fixture files:
 
-- **V3 (`CellPatcher_v3.ipynb`)** is expected to work in both local JupyterLab/LabConstrictor-style environments and Google Colab.
-- Colab-specific installation/mount behavior must stay guarded so local Jupyter usage is not affected.
-- Notebook UI should remain package-backed (no duplication of backend patching logic in notebook cells).
-
-## Bundled real TIFF fixture
-
-Bundled fixture files:
 - `tests/fixtures/cellpatcher_demo_image.tif`
 - `tests/fixtures/cellpatcher_demo_labels.tif`
 
-Intended use:
-- pytest smoke/integration tests
-- quick notebook smoke/manual testing
+You can use these for quick smoke tests in notebooks and for reproducible demos.
 
-Not intended for benchmarking or biological interpretation.
+## Notebook hygiene
 
-Notes:
-- `CellPatcher_strategy_examples.ipynb` can optionally load the fixture (default is synthetic data).
-- `CellPatcher_v3.ipynb` provides a "Load bundled TIFF demo fixture" button for quick app setup.
+- Keep interactive code cells titled with `# @title` where applicable.
+- Strip notebook outputs before committing.
+- Do not duplicate backend patching logic in notebooks.
+- Use package APIs (`run_patching`, config dataclasses, I/O helpers).
