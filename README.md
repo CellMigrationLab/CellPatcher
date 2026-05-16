@@ -1,468 +1,148 @@
 # CellPatcher
 
-CellPatcher is a microscopy patch-generation project centered on a reusable Python backend package (`src/cellpatcher`) and notebook workflows.
-
-## Table of contents
-
-- [Project overview](#project-overview)
-- [Installation](#installation)
-- [Supported patching modes](#supported-patching-modes)
-- [Two entry points](#two-entry-points)
-- [Quickstart: folder-based pipeline](#quickstart-folder-based-pipeline)
-- [Using a config file](#using-a-config-file)
-- [Parameter sweeps with `apply_overrides`](#parameter-sweeps-with-apply_overrides)
-- [In-memory entry point: `run_patching`](#in-memory-entry-point-run_patching)
-- [Cell mode — additional notes](#cell-mode--additional-notes)
-- [Foreground filtering](#foreground-filtering)
-- [Extracting and resizing patch arrays](#extracting-and-resizing-patch-arrays)
-- [Saving and export examples](#saving-and-export-examples)
-- [Image/mask filename matching](#imagemask-filename-matching)
-- [Understanding `PatchingResult`](#understanding-patchingresult)
-- [Supported file formats](#supported-file-formats)
-- [Configuration reference](#configuration-reference)
-- [Notebooks](#notebooks)
-- [Testing](#testing)
-
----
-
-## Project overview
-
-CellPatcher generates patch coordinates and optional patch arrays for multiple sampling modes while keeping core logic in the package (not duplicated in notebooks).
+CellPatcher is a package-backed microscopy patch generation project for scientists, notebook users, and Python users who want reproducible patch extraction workflows. It creates patch coordinates (and optional extracted arrays) from microscopy images using multiple strategies, including segmentation-based cell patches, random patches, grid tiles, and whole-field patches. You can run it through interactive notebooks or directly through the Python API, depending on your workflow.
 
 ## What CellPatcher does
 
-- Generates patch regions (`PatchRegion`) from images and optional masks.
-- Supports cell/object-centered, random, grid, and whole-field patching.
-- Applies optional region filtering (intensity, foreground fraction).
-- Optionally extracts patch arrays, applies label masking, resizes, and exports patches + metadata.
+- Matches image files and mask/label files with configurable matching strategies.
+- Generates patch regions (`PatchRegion`) for `cell`, `random`, `grid`, and `whole_fov` modes.
+- Optionally filters regions, extracts arrays, resizes outputs, and exports patch files.
+- Optionally clears pixels outside the selected segmented object in cell mode (`apply_mask=True`).
+- Writes patch metadata (CSV) alongside exported patch files when enabled.
 
----
+## Which patching mode should I use?
 
-## Installation
+| Mode | Use it when... | Needs masks? | Typical output |
+|---|---|---|---|
+| `cell` | You have segmentation labels and want one patch per object/cell. | Yes | One patch per labeled object/cell |
+| `random` | You want random fixed-size sampling for controls or coverage checks. | Optional | Random fixed-size patches |
+| `grid` | You want deterministic tiling over the image. | No | Regular tiles (with optional overlap/partials) |
+| `whole_fov` | You want one patch representing the entire field of view. | No | One patch covering the full image |
 
-```bash
-pip install -e .   # editable install from the repository root
+## Workflow at a glance
+
+```text
+images/masks → CellPatcherConfig → run_patching → PatchRegion metadata + patch arrays and/or exported files
 ```
 
-Optional dependencies (install as needed):
+All four modes use the same orchestration function: `run_patching`. The notebooks build `CellPatcherConfig` for you and call the same backend API.
 
-| Dependency | When needed |
-|------------|-------------|
-| `tifffile` | Reading/writing TIFF files |
-| `imageio` | Reading/writing PNG, JPEG, BMP, GIF |
-| `scipy` | Resize with interpolation order > 0 |
-| `scikit-image` | `foreground_threshold="otsu"` filter |
 
----
+## Patching modes at a glance
 
-## Supported patching modes
+![CellPatcher patching modes](docs/assets/patching_modes_overview.png)
 
-| Mode | Description | Masks |
-|------|-------------|-------|
-| `cell` | One patch per segmented object, centred on each cell | Required |
-| `random` | Randomly sampled patches of a fixed size | Optional (restricts sample region) |
-| `grid` | Regular non-overlapping (or overlapping) tiles | Not used |
-| `whole_fov` | Single patch covering the entire field of view | Not used |
+## Quick start: notebooks
 
----
+| Notebook | Best for | Status |
+|---|---|---|
+| `notebooks/CellPatcher/CellPatcher_v3.ipynb` | app-style UI, manual testing, most users | recommended |
+| `notebooks/CellPatcher/CellPatcher_strategy_examples.ipynb` | learning the Python API and modes | recommended examples |
+| `notebooks/CellPatcher/CellPatcher_v2.ipynb` | step-by-step guided workflow | fallback/reference |
+| `notebooks/CellPatcher/CellPatcher.ipynb` | historical notebook | legacy/reference only |
 
-## Two entry points
+V3 and strategy examples are the best starting points for most users. The legacy notebook is preserved for provenance and is not recommended for new work.
 
-CellPatcher exposes two complementary run functions:
+## Quick start: Python API
 
-| Function | When to use |
-|----------|-------------|
-| `run_patching_pipeline(folder, …)` | You have images (and masks) on disk in folders — the recommended starting point for scripts and simple one-off runs |
-| `run_patching(images=[…], masks=[…], …)` | You already have arrays in memory — use inside interactive apps, custom loaders, and widget-driven notebooks |
-
-Both return the same `PatchingResult` (regions, optional extracted arrays, exported file paths, metadata CSV path).
-
-`run_patching_from_folders` is an alias for `run_patching_pipeline` provided for backwards compatibility.
-
----
-
-## Quickstart: folder-based pipeline
-
-Build a config, set attributes directly, then call `run_patching_pipeline`.
-
-### Grid patches
-
-```python
-from cellpatcher import CellPatcherConfig, run_patching_pipeline
-
-cfg = CellPatcherConfig(mode="grid")
-cfg.grid.tile_size = 128
-cfg.grid.overlap = 0.1
-cfg.common.image_axes = "YX"
-cfg.common.output_dir = "./patches_out"
-cfg.export.enabled = True
-
-result = run_patching_pipeline("./images", config=cfg)
-print(f"Regions:        {len(result.patches)}")
-print(f"Exported files: {len(result.exported_files)}")
-print(f"Metadata CSV:   {result.metadata_file}")
-```
-
-### Cell patches (requires masks)
-
-```python
-from cellpatcher import CellPatcherConfig, run_patching_pipeline
-
-cfg = CellPatcherConfig(mode="cell")
-cfg.cell.patch_size = 128          # or "auto" for per-cell adaptive size
-cfg.common.image_axes = "YX"
-cfg.common.mask_axes  = "YX"
-cfg.common.output_dir = "./cell_patches"
-cfg.export.enabled = True
-
-result = run_patching_pipeline(
-    "./images",
-    mask_folder_path="./masks",
-    config=cfg,
-)
-```
-
-### Random patches
-
-```python
-from cellpatcher import CellPatcherConfig, run_patching_pipeline
-
-cfg = CellPatcherConfig(mode="random")
-cfg.random.patch_size = 96
-cfg.random.n_patches  = 200
-cfg.random.seed       = 42
-
-result = run_patching_pipeline("./images", config=cfg)
-```
-
-### Whole field-of-view patches
-
-```python
-from cellpatcher import CellPatcherConfig, run_patching_pipeline
-
-cfg = CellPatcherConfig(mode="whole_fov")
-result = run_patching_pipeline("./images", config=cfg)
-```
-
----
-
-## Using a config file
-
-Generate a JSON template, edit it in any text editor, then load and run:
-
-```python
-from cellpatcher import save_config_for_mode, load_config, run_patching_pipeline
-
-# Write a clean template for the chosen mode
-save_config_for_mode("grid", "./grid_config.json")
-
-# Edit grid_config.json, then load it back
-cfg = load_config("./grid_config.json")
-result = run_patching_pipeline("./images", config=cfg)
-```
-
-`save_default_config(path)` writes a template with every section; `save_config_for_mode(mode, path)` writes only the sections relevant to the requested mode.
-
-You can also start from a fresh default config using `default_config()`:
-
-```python
-from cellpatcher import default_config, run_patching_pipeline
-
-cfg = default_config()   # equivalent to CellPatcherConfig()
-cfg.mode = "grid"
-cfg.grid.tile_size = 64
-cfg.common.output_dir = "./patches"
-cfg.export.enabled = True
-
-result = run_patching_pipeline("./images", config=cfg)
-```
-
----
-
-## Parameter sweeps with `apply_overrides`
-
-For sweeps where a shared base config must stay immutable, use `apply_overrides` to derive independent copies:
-
-```python
-from cellpatcher import CellPatcherConfig, apply_overrides, run_patching_pipeline
-
-base = CellPatcherConfig(mode="grid")
-for tile_size in [64, 128, 256]:
-    cfg = apply_overrides(base, {
-        "grid.tile_size":       tile_size,
-        "common.output_dir":    f"./patches_{tile_size}",
-    })
-    run_patching_pipeline("./images", config=cfg)
-```
-
-The `overrides` keyword on `run_patching_pipeline` provides the same inline shorthand:
-
-```python
-run_patching_pipeline(
-    "./images",
-    config=base,
-    overrides={"grid.tile_size": 64, "common.output_dir": "./patches_64"},
-)
-```
-
----
-
-## In-memory entry point: `run_patching`
-
-Use `run_patching` when you already have arrays (e.g. inside an interactive app or custom loader):
+### Example A — cell mode with scan + `apply_mask`
 
 ```python
 import numpy as np
-from cellpatcher import CellPatcherConfig, run_patching
+from cellpatcher import (
+    CellPatcherConfig,
+    CommonConfig,
+    CellConfig,
+    ExtractionConfig,
+    scan_cell_patch_size,
+    run_patching,
+)
 
-image = np.random.randint(0, 256, (512, 512), dtype=np.uint16)
+# Example in-memory image + labels
+image = np.random.randint(0, 4096, (256, 256), dtype=np.uint16)
+labels = np.zeros((256, 256), dtype=np.uint8)
+labels[60:140, 80:170] = 1
+labels[150:220, 30:110] = 2
 
-cfg = CellPatcherConfig(mode="grid")
-cfg.grid.tile_size = 64
-cfg.common.extract_arrays = True   # return patch arrays in result
-
-result = run_patching(images=[image], config=cfg)
-print(f"Patches: {len(result.patches)}, arrays: {len(result.patch_arrays)}")
-```
-
----
-
-## Cell mode — additional notes
-
-- Set both `config.common.image_axes` and `config.common.mask_axes` (e.g. `"CYX"`, `"YX"`).
-- If patch size is unknown, call `scan_cell_patch_size()` first to get dataset-level recommendations, then set `config.cell.patch_size`.
-- Enable `config.extraction.apply_mask = True` to zero-out pixels outside the selected cell label before resize/export.
-
-### Determining patch size with `scan_cell_patch_size`
-
-```python
-import numpy as np
-from cellpatcher import CellPatcherConfig, run_patching_pipeline, scan_cell_patch_size
-
-# Gather your images and label masks (as arrays)
-images = [...]   # list of image arrays
-masks  = [...]   # list of corresponding label arrays
-
-# Scan all objects to get bounding-box statistics
 summary = scan_cell_patch_size(
-    image_shapes=[img.shape for img in images],
-    labels_list=masks,
+    image_shapes=image.shape,
+    labels_list=labels,
+    image_axes="YX",
     mask_axes="YX",
 )
-print(f"Objects included: {summary.n_included}")
-print(f"Max bounding box: {summary.max_bbox_height} x {summary.max_bbox_width}")
-print(f"Recommended size (95th percentile): {summary.recommended_size('p95')}")
+patch_size = summary.recommended_size("p95") or summary.recommended_size("max")
 
-# Use the recommended size
-cfg = CellPatcherConfig(mode="cell")
-cfg.cell.patch_size = summary.recommended_size("p95")
-cfg.common.image_axes = "YX"
-cfg.common.mask_axes  = "YX"
+cfg = CellPatcherConfig(
+    mode="cell",
+    common=CommonConfig(image_axes="YX", mask_axes="YX", extract_arrays=True),
+    cell=CellConfig(patch_size=patch_size),
+    extraction=ExtractionConfig(output_size=128, apply_mask=True),
+)
 
-result = run_patching(images=images, masks=masks, config=cfg)
+result = run_patching(images=image, masks=labels, config=cfg)
+print(len(result.patches), len(result.patch_arrays or []))
 ```
 
-`recommended_size(method)` accepts: `"max"`, `"median"`, `"mean"`, `"p90"`, `"p95"`.
-
-### Masking out background pixels (`apply_mask`)
+### Example B — grid mode
 
 ```python
-from cellpatcher import CellPatcherConfig, run_patching
+import numpy as np
+from cellpatcher import CellPatcherConfig, CommonConfig, GridConfig, ExtractionConfig, run_patching
 
-cfg = CellPatcherConfig(mode="cell")
-cfg.cell.patch_size = 128
-cfg.common.extract_arrays = True
-cfg.extraction.apply_mask = True       # zero out pixels outside the cell
-cfg.extraction.mask_fill_value = 0.0   # fill value for background pixels
+image = np.random.randint(0, 4096, (512, 512), dtype=np.uint16)
 
-result = run_patching(images=images, masks=masks, config=cfg)
-# Each array in result.patch_arrays has background pixels zeroed out
+cfg = CellPatcherConfig(
+    mode="grid",
+    common=CommonConfig(image_axes="YX", extract_arrays=True),
+    grid=GridConfig(tile_size=128, overlap=0.0, include_partial=False),
+    extraction=ExtractionConfig(output_size=64),
+)
+
+result = run_patching(images=image, config=cfg)
+print(len(result.patches), result.patch_arrays[0].shape)
 ```
 
----
+## Real TIFF demo fixture
 
-## Foreground filtering
+A small real TIFF fixture is bundled for smoke tests and notebook demos:
 
-Post-generation filters discard low-quality patches based on intensity statistics. All filter fields default to `None` (disabled).
+- `tests/fixtures/cellpatcher_demo_image.tif`
+- `tests/fixtures/cellpatcher_demo_labels.tif`
 
-```python
-from cellpatcher import CellPatcherConfig, run_patching_pipeline
+Use it for validation and examples, not for benchmarking or biological conclusions.
 
-cfg = CellPatcherConfig(mode="grid")
-cfg.grid.tile_size = 128
+## Installation / local development
 
-# Keep only patches where at least 20 % of pixels are above the Otsu threshold
-cfg.filters.foreground_threshold  = "otsu"   # also: "mean", "median", "percentile:75"
-cfg.filters.min_foreground_fraction = 0.2
+- From the repository root, use `PYTHONPATH=src` for development commands.
+- If needed, install editable from source: `pip install -e .`.
+- Notebook/runtime dependencies are pinned in `requirements.txt` and notebook-specific requirements files.
 
-# Optionally also filter by mean intensity
-cfg.filters.min_mean_intensity = 50.0
-
-result = run_patching_pipeline("./images", config=cfg)
-```
-
-Supported `foreground_threshold` strings: `"mean"`, `"median"`, `"otsu"` (requires `scikit-image`), `"percentile:<N>"` (e.g. `"percentile:75"`). A numeric value is also accepted.
-
----
-
-## Extracting and resizing patch arrays
-
-By default, `run_patching` / `run_patching_pipeline` only returns coordinate regions. Enable array extraction and optional resizing:
-
-```python
-from cellpatcher import CellPatcherConfig, run_patching_pipeline
-
-cfg = CellPatcherConfig(mode="grid")
-cfg.grid.tile_size = 128
-cfg.common.extract_arrays = True      # extract arrays into result.patch_arrays
-
-# Resize every patch to 64 × 64 (requires scipy for order > 0)
-cfg.extraction.output_size  = 64      # or (64, 96) for non-square
-cfg.extraction.resize_order = 1       # bilinear interpolation (0 = nearest)
-
-# Pad patches near the border with zeros instead of clipping
-cfg.extraction.pad_mode        = "constant"
-cfg.extraction.constant_values = 0.0
-
-result = run_patching_pipeline("./images", config=cfg)
-# result.patch_arrays[i].shape → (64, 64) for a YX image
-```
-
----
-
-## Saving and export examples
-
-### Save extracted patches to TIFF + metadata CSV
-
-```python
-from cellpatcher import CellPatcherConfig, run_patching_pipeline
-
-cfg = CellPatcherConfig(mode="grid")
-cfg.grid.tile_size = 128
-cfg.common.image_axes = "YX"
-cfg.common.output_dir = "./patches_tiff"
-cfg.common.extract_arrays = True
-
-cfg.export.enabled = True
-cfg.export.image_format = "tiff"          # "tif" and "tiff" are both supported
-cfg.export.save_metadata_csv = True
-
-result = run_patching_pipeline("./images", config=cfg)
-print(f"Exported files: {len(result.exported_files)}")
-print(f"Metadata CSV:   {result.metadata_file}")
-```
-
-### Save patches as NumPy arrays
-
-```python
-cfg.export.image_format = "npy"   # writes .npy files instead of TIFF
-```
-
-### Keep results in memory only (no file export)
-
-```python
-from cellpatcher import CellPatcherConfig, run_patching_pipeline
-
-cfg = CellPatcherConfig(mode="grid")
-cfg.grid.tile_size = 128
-cfg.common.image_axes = "YX"
-cfg.common.extract_arrays = True
-
-cfg.export.enabled = False                 # no files written
-cfg.common.output_dir = None               # optional, keeps run in-memory
-
-result = run_patching_pipeline("./images", config=cfg)
-print(f"Patches: {len(result.patches)}")
-print(f"Arrays:  {len(result.patch_arrays)}")
-print(f"Files:   {len(result.exported_files)}")
-```
-
----
-
-## Image/mask filename matching
-
-`run_patching_pipeline` automatically matches image and mask filenames. Three strategies are available:
-
-| Strategy | Behaviour |
-|----------|-----------|
-| `exact_or_suffix` | Exact stem match **or** stem + suffix (default; recommended) |
-| `exact` | Exact stem match only |
-| `substring` | Legacy; may false-match names like `img1` and `img10_mask` |
-
-The active strategy and suffix list are controlled by `config.matching`:
-
-```python
-cfg.matching.strategy       = "exact_or_suffix"
-cfg.matching.mask_suffixes  = ("_mask", "_labels", "_seg")
-cfg.matching.case_sensitive = False
-```
-
-> `config.matching` applies to `mode="cell"` and `mode="random"` only (the only modes that load masks from disk). It is ignored for `grid` and `whole_fov`.
-
----
-
-## Understanding `PatchingResult`
-
-Both `run_patching` and `run_patching_pipeline` return a `PatchingResult` dataclass:
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `patches` | `list[PatchRegion]` | All accepted patch regions. Always populated. |
-| `patch_arrays` | `list \| None` | Extracted arrays when `common.extract_arrays=True`; otherwise `None`. |
-| `exported_files` | `list[str]` | Paths to written patch files when `export.enabled=True`; otherwise an empty list. |
-| `metadata_file` | `str \| None` | Path to the metadata CSV, or `None`. |
-
-Each `PatchRegion` carries: `patch_id`, `image_id`, `mode`, `y0`, `y1`, `x0`, `x1`, `label_id` (cell mode), `center_y`, `center_x`, `touches_border`, `area_px`, and computed properties `height` / `width`. See the [configuration reference](docs/configuration_reference.md#patchregion-fields) for the full field list.
-
----
-
-## Supported file formats
-
-| Format | Extensions | Notes |
-|--------|-----------|-------|
-| TIFF | `.tif`, `.tiff` | Requires `tifffile` (preferred) or `imageio` |
-| NumPy | `.npy` | No extra dependencies |
-| PNG | `.png` | Requires `imageio` |
-| JPEG | `.jpg`, `.jpeg` | Requires `imageio` |
-| BMP | `.bmp` | Requires `imageio` |
-| GIF | `.gif` | Requires `imageio` |
-
----
-
-## Configuration reference
-
-For the complete settings/options reference see:
-
-- [`docs/configuration_reference.md`](docs/configuration_reference.md)
-
-It documents all fields, defaults, allowed values, supported threshold strings, mode-to-section mapping, and the `PatchRegion` field list.
-
----
-
-## Notebooks
-
-| Notebook | Description |
-|----------|-------------|
-| `notebooks/CellPatcher/CellPatcher.ipynb` | Legacy notebook — preserved as reference |
-| `notebooks/CellPatcher/CellPatcher_v2.ipynb` | Step-by-step widget notebook backed by the `cellpatcher` package |
-| `notebooks/CellPatcher/CellPatcher_v3.ipynb` | App-style widget notebook (`CellPatcherApp`) with a separate explicit run/QC cell |
-
-Both v2 and v3 call `run_patching` directly with pre-loaded arrays; folder scanning, mask matching, and file loading are handled by the notebook UI before the run call.
-
-## Testing
+## Running tests
 
 ```bash
 PYTHONPATH=src python -m pytest -q
 ```
 
-## Real TIFF smoke-test fixture
+Run the command above to verify the current test suite in your environment.
 
-CellPatcher includes a bundled real TIFF smoke-test fixture:
-- `tests/fixtures/cellpatcher_demo_image.tif`
-- `tests/fixtures/cellpatcher_demo_labels.tif`
+## Limitations / non-goals
 
-Use this fixture for deterministic pytest smoke tests and quick notebook smoke testing only. It is **not** intended for benchmarking, model comparison, or biological conclusions.
+- CellPatcher does **not** segment cells; you must provide masks/labels for cell mode.
+- CellPatcher does **not** run DINO/Torch inference in the core package.
+- Demo fixtures are for smoke testing, not biological benchmarking.
+- Users must provide valid images and, for cell mode, masks/labels.
 
-`notebooks/CellPatcher/CellPatcher_strategy_examples.ipynb` can optionally load this fixture (`USE_REAL_TIFF_FIXTURE=True`).
+## Development notes
 
-`notebooks/CellPatcher/CellPatcher_v3.ipynb` includes a **Load bundled TIFF demo fixture** button for fast manual app testing.
+- Package code lives in `src/cellpatcher`.
+- Notebooks should call package APIs and avoid duplicating backend patching logic.
+- See `AGENTS.md` for contributor/agent guidance.
+- See `notebooks/README.md` for notebook-specific guidance.
+
+
+## More documentation
+
+- [Patching mode guide](docs/patching_modes.md)
+- [API examples](docs/api_examples.md)
+- [Notebook guide](notebooks/README.md)
+
