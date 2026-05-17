@@ -2,7 +2,7 @@
 
 CellPatcher generates 2D Y/X patch regions. If your image has Z or T axes, you can either select/project a single 2D plane before patching, or expand the stack into multiple 2D planes and run the same patching mode on each plane.
 
-## Core principle
+## Core idea
 
 - Core patching modes (`cell`, `random`, `grid`, `whole_fov`) are 2D Y/X region generators.
 - Preprocessing is explicit and optional.
@@ -116,6 +116,36 @@ config.cell = CellConfig(patch_size="auto")
 result = run_patching(images=images, masks=labels_2d, config=config)
 ```
 
+
+## Keeping Z/T plane metadata with patch results
+
+`iter_image_planes_for_patching` and `iter_cell_planes_for_patching` return `metadata` and `plane_id` on each yielded item.
+When you pass a list of prepared planes into `run_patching`, image IDs are assigned as `image_0000`, `image_0001`, ... .
+That plane metadata is not automatically copied into `PatchRegion` fields or export CSV rows, so preserve it with an explicit lookup.
+
+```python
+pairs = list(iter_cell_planes_for_patching(image, "ZYX", labels, "ZYX", z_policy="all"))
+
+images = [p.image for p in pairs]
+labels_2d = [p.labels for p in pairs]
+
+plane_lookup = {
+    f"image_{i:04d}": {
+        "plane_id": p.plane_id,
+        **p.metadata,
+    }
+    for i, p in enumerate(pairs)
+}
+
+result = run_patching(images=images, masks=labels_2d, config=config)
+
+rows = []
+for patch in result.patches:
+    rows.append({
+        **patch.to_dict(),
+        **plane_lookup.get(patch.image_id, {}),
+    })
+```
 
 ## Metadata caveat
 

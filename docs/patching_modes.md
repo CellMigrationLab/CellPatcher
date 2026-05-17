@@ -13,9 +13,9 @@
 
 The overview figure is generated from the bundled real TIFF fixture so all modes are visually comparable.
 
-## Important: modes are 2D Y/X region generators
+## Important: patching modes generate 2D Y/X regions
 
-`cell`, `random`, `grid`, and `whole_fov` decide how **2D `Y/X` regions** are generated.
+`cell`, `random`, `grid`, and `whole_fov` all define how **2D `Y/X` regions** are generated.
 If you want every Z slice or T frame, expand stacks first with:
 
 - `iter_image_planes_for_patching`
@@ -83,7 +83,7 @@ Common pitfalls:
 - No `seed` means non-deterministic outputs.
 - Duplicate patches are valid behavior.
 
-For all-Z/all-T runs, expand planes first with `iter_image_planes_for_patching(...)` from `docs/preprocessing.md`.
+For C/Z/T data, patching modes are 2D Y/X; see `docs/preprocessing.md`.
 
 ### Random mode figure
 
@@ -105,7 +105,7 @@ Common pitfalls:
 - `include_partial` controls edge coverage.
 - Large images and small tiles can produce many patches quickly.
 
-For all-Z/all-T runs, expand planes first with `iter_image_planes_for_patching(...)` from `docs/preprocessing.md`.
+For C/Z/T data, patching modes are 2D Y/X; see `docs/preprocessing.md`.
 
 ### Grid mode figure
 
@@ -127,7 +127,7 @@ Common pitfalls:
 - Expecting multiple patches.
 - Forgetting `output_size` when a fixed model input size is required.
 
-For all-Z/all-T runs, expand planes first with `iter_image_planes_for_patching(...)` from `docs/preprocessing.md`.
+For C/Z/T data, patching modes are 2D Y/X; see `docs/preprocessing.md`.
 
 ### Whole-FOV figure
 
@@ -161,13 +161,6 @@ Note: iterator `metadata`/`plane_id` are not automatically injected into `PatchR
 
 ## Multidimensional stacks (Z/T) and preprocessing
 
-CellPatcher generates 2D Y/X patch regions. If your image has Z or T axes, you can either select/project a single 2D plane before patching, or expand the stack into multiple 2D planes and run the same patching mode on each plane.
+Patching modes are 2D Y/X; for C/Z/T data, see `docs/preprocessing.md`.
 
-Patching modes (`cell`, `random`, `grid`, `whole_fov`) generate **2D Y/X** regions.
-
-If your data has Z or T axes:
-
-- preprocess one plane with `prepare_image_for_patching(...)` / `prepare_labels_for_cell_patching(...)`, or
-- iterate all planes with `iter_image_planes_for_patching(...)` / `iter_cell_planes_for_patching(...)`.
-
-This is explicit preprocessing before normal patching. It is **not** a `mode="all"` and **not** true volumetric 3D patching.
+Use `prepare_image_for_patching(...)` / `prepare_labels_for_cell_patching(...)` for single-plane prep, or `iter_image_planes_for_patching(...)` / `iter_cell_planes_for_patching(...)` to iterate all planes. This is explicit preprocessing (not true volumetric 3D patching).

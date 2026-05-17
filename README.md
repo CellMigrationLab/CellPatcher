@@ -4,6 +4,8 @@ CellPatcher is a package-backed microscopy patch generation project for scientis
 
 ## What CellPatcher does
 
+CellPatcher helps you turn microscopy images into reproducible patch datasets with a consistent Python API and notebook workflows.
+
 ## Start here in 3 steps
 
 1. **Choose your path**
@@ -11,7 +13,7 @@ CellPatcher is a package-backed microscopy patch generation project for scientis
    - Minimal API learning: `notebooks/CellPatcher/CellPatcher_strategy_examples.ipynb`
    - Python-first docs: `docs/api_examples.md`
 2. **Choose a patching mode** (`cell`, `random`, `grid`, `whole_fov`) in `docs/patching_modes.md`.
-3. **If your data has Z/T/C axes**, read `docs/preprocessing.md` first. Core patching modes generate 2D `Y/X` regions; multidimensional handling is explicit preprocessing.
+3. **If your data has Z/T/C axes**, patching modes are 2D Y/X; see `docs/preprocessing.md`.
 
 - Matches image files and mask/label files with configurable matching strategies.
 - Generates patch regions (`PatchRegion`) for `cell`, `random`, `grid`, and `whole_fov` modes.
@@ -109,15 +111,21 @@ Run the command above to verify the current test suite in your environment.
 
 ## Optional preprocessing for multidimensional data
 
-CellPatcher generates 2D Y/X patch regions. If your image has Z or T axes, you can either select/project a single 2D plane before patching, or expand the stack into multiple 2D planes and run the same patching mode on each plane.
+Patching modes are 2D Y/X; for C/Z/T data, see `docs/preprocessing.md`.
 
-For a human-friendly guide to preprocessing helpers and plane iterators, see:
+Note: Plane iterator metadata (`metadata`, `plane_id`) is returned by helper objects and is not automatically injected into `PatchRegion` or export CSV metadata.
 
-- `docs/preprocessing.md`
 
-Note:
+## Everyday APIs
 
-- Plane iterator metadata (`metadata`, `plane_id`) is returned by helper objects and is not automatically injected into `PatchRegion` or export CSV metadata.
+- `CellPatcherConfig` and config dataclasses
+- `run_patching`
+- `run_patching_pipeline`
+- `read_array` / `validate_image_and_mask_folders`
+- `scan_cell_patch_size`
+- `prepare_image_for_patching` / `iter_image_planes_for_patching`
+
+If you need finer control, use `strategies`, low-level `extract`/`resize`/`export` helpers, and axis utilities.
 
 ## Limitations / non-goals
 
