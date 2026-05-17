@@ -1,5 +1,7 @@
 # Multidimensional preprocessing (optional)
 
+> See also: [Docs map](README.md) · [Quick start](quick_start.md) · [Patching modes](patching_modes.md) · [API examples](api_examples.md) · [Preprocessing](preprocessing.md) · [Config reference](configuration_reference.md)
+
 CellPatcher generates 2D Y/X patch regions. If your image has Z or T axes, choose your lane up front: select/project a single 2D plane before patching, or expand the stack into multiple 2D planes and run the same patching mode on each plane.
 
 ## Core idea

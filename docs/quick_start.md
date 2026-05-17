@@ -1,5 +1,7 @@
 # Quick start
 
+> See also: [Docs map](README.md) · [Quick start](quick_start.md) · [Patching modes](patching_modes.md) · [API examples](api_examples.md) · [Preprocessing](preprocessing.md) · [Config reference](configuration_reference.md)
+
 This page is the shortest path to running CellPatcher from Python, with practical examples you can copy/paste.
 
 ## Install / dev setup
@@ -117,6 +119,6 @@ Notes:
 
 ## Next steps
 
-- Patching mode guide: `docs/patching_modes.md`
-- API examples: `docs/api_examples.md`
-- Multidimensional preprocessing: `docs/preprocessing.md`
+- Patching mode guide: `patching_modes.md`
+- API examples: `api_examples.md`
+- Multidimensional preprocessing: `preprocessing.md`
