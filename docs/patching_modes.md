@@ -1,5 +1,7 @@
 # Patching modes
 
+> See also: [Docs map](README.md) · [Quick start](quick_start.md) · [Patching modes](patching_modes.md) · [API examples](api_examples.md) · [Preprocessing](preprocessing.md) · [Config reference](configuration_reference.md)
+
 ## Choosing a mode
 
 | Mode | Use when | Needs masks? | Typical output |
@@ -21,7 +23,7 @@ If you want every Z slice or T frame, expand stacks first with:
 - `iter_image_planes_for_patching`
 - `iter_cell_planes_for_patching`
 
-Treat this as explicit plane-by-plane preprocessing, **not** true volumetric 3D patching. See `docs/preprocessing.md`.
+Treat this as explicit plane-by-plane preprocessing, **not** true volumetric 3D patching. See `preprocessing.md`.
 
 ## Cell mode
 
@@ -83,7 +85,7 @@ Common pitfalls:
 - No `seed` means non-deterministic outputs.
 - Duplicate patches are valid behavior.
 
-For C/Z/T data, patching modes are 2D Y/X; see `docs/preprocessing.md`.
+For C/Z/T data, patching modes are 2D Y/X; see `preprocessing.md`.
 
 ### Random mode figure
 
@@ -105,7 +107,7 @@ Common pitfalls:
 - `include_partial` controls edge coverage.
 - Large images and small tiles can produce many patches quickly.
 
-For C/Z/T data, patching modes are 2D Y/X; see `docs/preprocessing.md`.
+For C/Z/T data, patching modes are 2D Y/X; see `preprocessing.md`.
 
 ### Grid mode figure
 
@@ -127,7 +129,7 @@ Common pitfalls:
 - Expecting multiple patches.
 - Forgetting `output_size` when a fixed model input size is required.
 
-For C/Z/T data, patching modes are 2D Y/X; see `docs/preprocessing.md`.
+For C/Z/T data, patching modes are 2D Y/X; see `preprocessing.md`.
 
 ### Whole-FOV figure
 
@@ -161,6 +163,6 @@ Note: iterator `metadata`/`plane_id` values are not automatically injected into 
 
 ## Multidimensional stacks (Z/T) and preprocessing
 
-Patching modes are 2D Y/X; for C/Z/T data, see `docs/preprocessing.md`.
+Patching modes are 2D Y/X; for C/Z/T data, see `preprocessing.md`.
 
 Use `prepare_image_for_patching(...)` / `prepare_labels_for_cell_patching(...)` for single-plane prep, or `iter_image_planes_for_patching(...)` / `iter_cell_planes_for_patching(...)` to iterate all planes. This is explicit preprocessing (not true volumetric 3D patching).

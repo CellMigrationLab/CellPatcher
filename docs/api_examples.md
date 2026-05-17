@@ -1,5 +1,7 @@
 # API examples
 
+> See also: [Docs map](README.md) · [Quick start](quick_start.md) · [Patching modes](patching_modes.md) · [API examples](api_examples.md) · [Preprocessing](preprocessing.md) · [Config reference](configuration_reference.md)
+
 These examples are designed for quick copy/paste experimentation.
 Assume `image` and `labels` are already loaded NumPy arrays.
 If you're reading from disk, use `read_array(...)` for TIFF/NPY inputs.
@@ -172,7 +174,7 @@ Here, `foreground_threshold="mean"` means foreground is defined relative to each
 
 For arrays with C/Z/T axes, prepare planes explicitly before patching.
 
-Patching modes are 2D Y/X; for C/Z/T data, see `docs/preprocessing.md`.
+Patching modes are 2D Y/X; for C/Z/T data, see `preprocessing.md`.
 
 ```python
 from cellpatcher import prepare_image_for_patching, prepare_labels_for_cell_patching

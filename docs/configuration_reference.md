@@ -1,5 +1,7 @@
 # CellPatcher Configuration Reference
 
+> See also: [Docs map](README.md) · [Quick start](quick_start.md) · [Patching modes](patching_modes.md) · [API examples](api_examples.md) · [Preprocessing](preprocessing.md) · [Config reference](configuration_reference.md)
+
 This document is the complete runtime configuration reference for `CellPatcherConfig` and all nested config sections.
 
 ---
