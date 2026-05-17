@@ -103,3 +103,6 @@ Note: plane iterator metadata (`metadata`, `plane_id`) is available on helper ou
 - [Developer notes](docs/developer_notes.md)
 - [Notebook guide](notebooks/README.md)
 - [Fixture guide](tests/fixtures/readme.md)
+
+
+- Optional Torch dataset adapter is available via `cellpatcher.torch_dataset`; Torch remains optional and DINO inference is not included in core (see `docs/api_examples.md`).
