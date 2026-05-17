@@ -4,6 +4,15 @@ CellPatcher is a package-backed microscopy patch generation project for scientis
 
 ## What CellPatcher does
 
+## Start here in 3 steps
+
+1. **Choose your path**
+   - App-style notebook: `notebooks/CellPatcher/CellPatcher_v3.ipynb`
+   - Minimal API learning: `notebooks/CellPatcher/CellPatcher_strategy_examples.ipynb`
+   - Python-first docs: `docs/api_examples.md`
+2. **Choose a patching mode** (`cell`, `random`, `grid`, `whole_fov`) in `docs/patching_modes.md`.
+3. **If your data has Z/T/C axes**, read `docs/preprocessing.md` first. Core patching modes generate 2D `Y/X` regions; multidimensional handling is explicit preprocessing.
+
 - Matches image files and mask/label files with configurable matching strategies.
 - Generates patch regions (`PatchRegion`) for `cell`, `random`, `grid`, and `whole_fov` modes.
 - Optionally filters regions, extracts arrays, resizes outputs, and exports patch files.
@@ -64,9 +73,30 @@ Use it for validation and examples, not for benchmarking or biological conclusio
 
 ## Installation / local development
 
+**Local / JupyterLab:**
+
 - From the repository root, use `PYTHONPATH=src` for development commands.
 - If needed, install editable from source: `pip install -e .`.
 - Notebook/runtime dependencies are pinned in `requirements.txt` and notebook-specific requirements files.
+
+**Google Colab (private repo):**
+
+While the repository is private, install from GitHub using a personal access token stored as a Colab Secret (`GITHUB_TOKEN`):
+
+```python
+import subprocess, sys
+from urllib.parse import quote
+from google.colab import userdata
+
+token = userdata.get("GITHUB_TOKEN")
+encoded = quote(token, safe="")
+subprocess.run([
+    sys.executable, "-m", "pip", "install", "-q",
+    f"cellpatcher @ git+https://x-access-token:{encoded}@github.com/guijacquemet/CellPatcher.git",
+], check=True)
+```
+
+The notebooks (`CellPatcher_v3.ipynb`, `CellPatcher_v2.ipynb`) contain a ready-to-run version of this install cell — run it first when opening in Colab.
 
 ## Running tests
 
@@ -106,9 +136,10 @@ Note:
 
 ## More documentation
 
-- [Quick start](docs/quick_start.md)
-- [Preprocessing guide](docs/preprocessing.md)
 - [Patching mode guide](docs/patching_modes.md)
 - [API examples](docs/api_examples.md)
+- [Preprocessing guide](docs/preprocessing.md)
 - [Notebook guide](notebooks/README.md)
+- [Fixture guide](tests/fixtures/readme.md)
+- [Quick start](docs/quick_start.md)
 

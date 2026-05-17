@@ -8,6 +8,17 @@ CellPatcher generates 2D Y/X patch regions. If your image has Z or T axes, you c
 - Preprocessing is explicit and optional.
 - CellPatcher does **not** silently project Z/T, merge channels, or normalize intensities.
 
+## Quick policy matrix
+
+| Data situation | Recommended helper | Why |
+|---|---|---|
+| 2D `YX` image | Use directly | Already compatible |
+| Z stack, one projected image wanted | `prepare_image_for_patching(..., z_policy="max")` | Explicit projection |
+| Z stack, patch every slice | `iter_image_planes_for_patching(..., z_policy="all")` | One 2D workflow per slice |
+| Multichannel image, keep all channels | Use `image_axes="CYX"` or `"YXC"` | Preserves channel data |
+| Label stack | `prepare_labels_for_cell_patching(..., z_policy="select")` | Labels must resolve to one `YX` plane |
+| DINO-like RGB input | `prepare_image_for_patching(..., channel_policy="repeat_to_rgb")` | Explicit model-facing prep |
+
 ## Image preparation helpers
 
 Use:
@@ -35,6 +46,20 @@ Rules:
 - labels must resolve to one 2D `YX` plane for cell mode
 - no silent label averaging/summing
 - strict matching for T/Z when iterating `all` planes
+
+Note: `iter_cell_planes_for_patching` supports `z_policy` values `{error, first, select, max, all}`.
+The `"mean"` and `"sum"` Z projection methods are **not** available through this iterator, even for
+the image component. If you need a mean- or sum-projected image alongside per-plane labels, call
+`iter_image_planes_for_patching` (which supports `"mean"` and `"sum"`) and
+`prepare_labels_for_cell_patching` separately on each Z slice.
+
+## Common mistakes
+
+- Expecting automatic Z projection inside `run_patching(...)`.
+- Expecting true 3D patch generation from core modes.
+- Passing multichannel labels without selecting a label channel/plane first.
+- Assuming iterator `metadata`/`plane_id` appear automatically in patch/export metadata.
+- Using percentile normalization outputs for biological quantification without caution.
 
 ## Important limitation: no true 3D patching
 

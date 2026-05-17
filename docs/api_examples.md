@@ -4,6 +4,13 @@ These examples assume `image` and `labels` are already loaded NumPy arrays.
 Use `read_array(...)` for TIFF/NPY inputs when loading from disk.
 All examples use `run_patching(...)`.
 
+These examples assume:
+
+- arrays are already loaded unless the example is about folder matching
+- axis strings describe the array layout
+- export examples require `common.output_dir`
+- CellPatcher does not run segmentation or DINO/Torch inference
+
 ## Imports
 
 ```python
@@ -26,6 +33,8 @@ from cellpatcher import (
 
 ## Example 1 — Cell mode with scan + `apply_mask`
 
+Use this when you want one patch per labeled object with dataset-guided sizing and masked backgrounds.
+
 ```python
 summary = scan_cell_patch_size(
     image_shapes=image.shape,
@@ -34,6 +43,8 @@ summary = scan_cell_patch_size(
     mask_axes="YX",
 )
 patch_size = summary.recommended_size("p95") or summary.recommended_size("max")
+# Note: if the dataset has no included objects, both methods return 0.
+# Guard against this before passing patch_size to CellConfig.
 
 config = CellPatcherConfig(
     mode="cell",
@@ -46,6 +57,8 @@ result = run_patching(images=image, masks=labels, config=config)
 ```
 
 ## Example 2 — Grid mode export to `.npy`
+
+Use this when you want deterministic tiling and saved patch files + CSV metadata.
 
 ```python
 config = CellPatcherConfig(
@@ -60,6 +73,8 @@ print(result.metadata_file)
 ```
 
 ## Example 3 — Random mode with sampling mask
+
+Use this when you need random control patches restricted to allowed regions.
 
 ```python
 sampling_mask = labels > 0
@@ -77,6 +92,8 @@ Random sampling is with replacement, so duplicate regions are possible.
 
 ## Example 4 — Whole-FOV resize
 
+Use this when you need one resized patch per full field of view.
+
 ```python
 config = CellPatcherConfig(
     mode="whole_fov",
@@ -89,6 +106,8 @@ print(len(result.patches))  # 1
 ```
 
 ## Example 5 — Folder matching and loading
+
+Use this when images and masks live in separate folders and need safe pairing.
 
 ```python
 matcher = MatchConfig(strategy="exact_or_suffix", mask_suffixes=("_mask", "_labels"), case_sensitive=False)
@@ -106,7 +125,11 @@ image = read_array(first_image_path)
 labels = read_array(first_mask_path)
 ```
 
+When using `run_patching_pipeline`, the `config.matching` field is used automatically — no need to pass matching parameters separately.
+
 ## Example 6 — Filtering background patches
+
+Use this when you want to suppress low-signal/background-heavy patches.
 
 ```python
 config = CellPatcherConfig(
@@ -125,6 +148,8 @@ result = run_patching(images=image, masks=(labels > 0), config=config)
 Here, `foreground_threshold="mean"` means foreground is defined relative to each patch's mean intensity.
 
 ## Preparing multidimensional images and labels
+
+Use this when arrays include C/Z/T axes and you want explicit preparation before patching.
 
 CellPatcher core does **not** silently project Z, merge channels, or normalize intensities inside `run_patching(...)`.
 Use explicit preprocessing when needed for model/display workflows.
@@ -163,6 +188,8 @@ image_rgb, image_axes = prepare_image_for_patching(
 This is useful for DINO-like model inputs, while CellPatcher still does not run DINO/Torch inference itself.
 
 ## Patching every Z slice or T frame
+
+Use this when you want to run normal 2D patching mode on every Z slice or T frame.
 
 `cell`, `grid`, `random`, and `whole_fov` are still Y/X patching modes. If you want every Z slice or T frame, first expand data into prepared 2D planes with iterators.
 
