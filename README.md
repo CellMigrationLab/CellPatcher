@@ -2,14 +2,13 @@
 
 CellPatcher helps you turn microscopy images into reproducible patch datasets without wrestling with custom one-off scripts. It generates patch coordinates (and, if you want, extracted arrays) using segmentation-based cell patches, random patches, grid tiles, and whole-field patches. You can drive everything from interactive notebooks or the Python API.
 
-## Start here in 3 steps
+## Start here
 
-1. **Choose your path**
-   - App-style notebook: `notebooks/CellPatcher/CellPatcher_v3.ipynb`
-   - Minimal API learning: `notebooks/CellPatcher/CellPatcher_strategy_examples.ipynb`
-   - Python-first docs: `docs/quick_start.md`
-2. **Pick a patching mode** (`cell`, `random`, `grid`, `whole_fov`) below.
-3. **Working with Z/T/C axes?** Patching modes are 2D Y/X; see `docs/preprocessing.md`.
+- **Normal user / manual workflow:** open `notebooks/CellPatcher/CellPatcher_v3.ipynb`.
+- **Python learner:** open `notebooks/CellPatcher/CellPatcher_strategy_examples.ipynb`.
+- **API copy-paste examples:** read `docs/api_examples.md`.
+- **Multidimensional C/Z/T data:** read `docs/preprocessing.md`.
+- **Legacy notebook:** `notebooks/CellPatcher/CellPatcher.ipynb` is reference only.
 
 - Matches image files and mask/label files with configurable matching strategies.
 - Generates patch regions (`PatchRegion`) for `cell`, `random`, `grid`, and `whole_fov` modes.
@@ -47,6 +46,21 @@ Open the v3 notebook in Colab:
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/guijacquemet/CellPatcher/blob/main/notebooks/CellPatcher/CellPatcher_v3.ipynb)
 
+## Common user-facing APIs vs advanced helpers
+
+**Common user-facing APIs**
+- `CellPatcherConfig` and config dataclasses
+- `run_patching` and `run_patching_pipeline`
+- `read_array` and `validate_image_and_mask_folders`
+- `scan_cell_patch_size`
+- `prepare_image_for_patching` and `iter_image_planes_for_patching`
+
+**Advanced helpers**
+- low-level strategy classes
+- axis utilities
+- extract/resize/export helper functions
+- other lower-level utility APIs
+
 ## Quick start: Python API
 
 - Start here: [Quick start](docs/quick_start.md)
@@ -57,9 +71,12 @@ Open the v3 notebook in Colab:
 
 **Local / JupyterLab:**
 
-- From the repository root, use `PYTHONPATH=src` for development commands.
-- If needed, install editable from source: `pip install -e .`.
-- Notebook/runtime dependencies are pinned in `requirements.txt` and notebook-specific requirements files.
+- From the repository root, install the package: `python -m pip install -e .`
+- Add extras as needed:
+  - tests: `python -m pip install -e .[test]`
+  - notebooks: `python -m pip install -e .[notebook]`
+  - optional Torch adapter: `python -m pip install -e .[torch]`
+- `requirements.txt` remains a pinned notebook/tooling environment snapshot.
 
 **Google Colab (private repo):**
 

@@ -1,13 +1,14 @@
 # Notebooks
 
-This folder contains multiple notebooks because they serve different purposes.
+This folder contains multiple notebooks with different roles.
 
 ## Quick recommendation
 
-- **Use `CellPatcher_v3.ipynb` for normal use and manual testing.**
-- **Use `CellPatcher_strategy_examples.ipynb` to learn the Python API fastest.**
-- Use `CellPatcher_v2.ipynb` as a staged fallback/reference workflow.
-- Use `CellPatcher.ipynb` only as historical reference.
+- **`CellPatcher_v3.ipynb`** = recommended app-style notebook for normal use and manual testing.
+- **`CellPatcher_strategy_examples.ipynb`** = best notebook to learn the API quickly.
+- **`CellPatcher_v2.ipynb`** = fallback/reference staged workflow.
+- **`CellPatcher.ipynb`** = legacy historical reference only.
+- **`CellPatcher_torch_colab_validation.ipynb`** = optional developer/ML validation only (not a normal user workflow).
 
 ## Which notebook should I open?
 
