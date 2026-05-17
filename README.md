@@ -73,9 +73,30 @@ Use it for validation and examples, not for benchmarking or biological conclusio
 
 ## Installation / local development
 
+**Local / JupyterLab:**
+
 - From the repository root, use `PYTHONPATH=src` for development commands.
 - If needed, install editable from source: `pip install -e .`.
 - Notebook/runtime dependencies are pinned in `requirements.txt` and notebook-specific requirements files.
+
+**Google Colab (private repo):**
+
+While the repository is private, install from GitHub using a personal access token stored as a Colab Secret (`GITHUB_TOKEN`):
+
+```python
+import subprocess, sys
+from urllib.parse import quote
+from google.colab import userdata
+
+token = userdata.get("GITHUB_TOKEN")
+encoded = quote(token, safe="")
+subprocess.run([
+    sys.executable, "-m", "pip", "install", "-q",
+    f"cellpatcher @ git+https://x-access-token:{encoded}@github.com/guijacquemet/CellPatcher.git",
+], check=True)
+```
+
+The notebooks (`CellPatcher_v3.ipynb`, `CellPatcher_v2.ipynb`) contain a ready-to-run version of this install cell — run it first when opening in Colab.
 
 ## Running tests
 
