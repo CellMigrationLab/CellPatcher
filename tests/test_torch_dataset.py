@@ -402,11 +402,16 @@ def test_exported_patch_torch_dataset_ambiguous_and_prefer_format(tmp_path):
     csv_path = tmp_path / "patches.csv"
     _write_csv(csv_path, ["patch_id"], [{"patch_id": "p1"}])
 
+    # Default prefer_format=None: ambiguous → raises ValueError
     with pytest.raises(ValueError, match="Multiple exported patch files"):
         ExportedPatchTorchDataset(csv_path)[0]
 
+    # Explicit prefer_format resolves ambiguity
     ds = ExportedPatchTorchDataset(csv_path, prefer_format="npy")
     assert ds[0]["path"].endswith("p1.npy")
+
+    ds_tif = ExportedPatchTorchDataset(csv_path, prefer_format="tif")
+    assert ds_tif[0]["path"].endswith("p1.tif")
 
 
 def test_exported_patch_torch_dataset_axes_conversion_yxc(tmp_path):

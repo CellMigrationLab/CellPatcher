@@ -354,4 +354,4 @@ dataset = ExportedPatchTorchDataset(
 )
 ```
 
-Current `patches.csv` may not include an explicit filename column. `ExportedPatchTorchDataset` reconstructs filenames from sanitized `patch_id` values by default. If your workflow adds custom filenames, pass `filename_column`. Rows loaded from `patches.csv` are returned as strings in `sample["patch"]`; convert fields to numbers if your downstream code needs typed values.
+Current `patches.csv` may not include an explicit filename column. `ExportedPatchTorchDataset` reconstructs filenames from sanitized `patch_id` values by default. If your workflow adds custom filenames, pass `filename_column`. When both `.npy` and `.tif` files exist for the same patch, pass `prefer_format="npy"` or `prefer_format="tif"` to resolve the ambiguity; if no preference is given and multiple formats exist, a `ValueError` is raised. Rows loaded from `patches.csv` are returned as strings in `sample["patch"]`; convert fields to numbers if your downstream code needs typed values.

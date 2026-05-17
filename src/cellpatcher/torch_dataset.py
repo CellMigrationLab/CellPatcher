@@ -231,7 +231,7 @@ class ExportedPatchTorchDataset(torch.utils.data.Dataset):
         transform=None,
         extra_metadata_by_image_id=None,
         filename_column=None,
-        prefer_format="npy",
+        prefer_format=None,
     ):
         self._metadata_file = Path(metadata_file)
         if not self._metadata_file.exists():
@@ -244,10 +244,13 @@ class ExportedPatchTorchDataset(torch.utils.data.Dataset):
         self._extra_metadata = extra_metadata_by_image_id or {}
         self._filename_column = filename_column
 
-        fmt = str(prefer_format).lower()
-        if fmt not in {"npy", "tif", "tiff"}:
-            raise ValueError("prefer_format must be one of: 'npy', 'tif', 'tiff'.")
-        self._prefer_format = fmt
+        if prefer_format is not None:
+            fmt = str(prefer_format).lower()
+            if fmt not in {"npy", "tif", "tiff"}:
+                raise ValueError("prefer_format must be one of: 'npy', 'tif', 'tiff'.")
+            self._prefer_format = fmt
+        else:
+            self._prefer_format = None
 
         with self._metadata_file.open("r", newline="", encoding="utf-8") as f:
             reader = csv.DictReader(f)
@@ -278,7 +281,12 @@ class ExportedPatchTorchDataset(torch.utils.data.Dataset):
             return out_path
 
         stem = sanitize_filename(patch_id)
-        ordered = [self._prefer_format] + [ext for ext in ["npy", "tif", "tiff"] if ext != self._prefer_format]
+        all_formats = ["npy", "tif", "tiff"]
+        ordered = (
+            [self._prefer_format] + [ext for ext in all_formats if ext != self._prefer_format]
+            if self._prefer_format is not None
+            else all_formats
+        )
         candidates = [self._root_dir / f"{stem}.{ext}" for ext in ordered]
         existing = [p for p in candidates if p.exists()]
 
@@ -289,6 +297,9 @@ class ExportedPatchTorchDataset(torch.utils.data.Dataset):
                 f"No exported patch file found for patch_id '{patch_id}' in {self._root_dir}. "
                 f"Tried formats: {ordered}"
             )
+        # Multiple formats exist: resolve using prefer_format if set
+        if self._prefer_format is not None:
+            return existing[0]  # candidates already ordered with prefer_format first
         raise ValueError(
             f"Multiple exported patch files found for patch_id '{patch_id}': {', '.join(str(p) for p in existing)}. "
             "Set prefer_format or provide filename_column."
