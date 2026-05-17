@@ -12,6 +12,67 @@ pip install -e .
 PYTHONPATH=src python -m pytest -q
 ```
 
+## Data-shape guide (what happens to my data?)
+
+CellPatcher processes data in three stages. Use the tables below as a quick decision matrix.
+
+---
+
+### Stage 1: Preprocessing — getting to 2D
+
+Patching modes work on 2D Y/X arrays. If your data has Z, T, or C axes, resolve them explicitly first.
+
+| Your input | Goal | Helper to use | Result |
+|---|---|---|---|
+| `YX` image (grayscale / single-channel) | Already 2D | Use directly — no helper needed | `YX` array |
+| `CYX` or `YXC` image (multichannel, including RGB) | Keep all channels | Set `image_axes="CYX"` or `"YXC"` directly | `CYX`/`YXC` array (channels preserved through extraction/masking/resize) |
+| `ZYX` stack | Single projected plane | `prepare_image_for_patching(image, "ZYX", z_policy="max")` | `YX` array (max-projection) |
+| `ZYX` stack | One run per Z slice | `iter_image_planes_for_patching(image, "ZYX", z_policy="all")` | Sequence of `YX` arrays |
+| `ZYX` image + `ZYX` labels (cell mode) | Patch every Z slice with matched labels | `iter_cell_planes_for_patching(image, "ZYX", labels, "ZYX", z_policy="all")` | Sequence of matched 2D pairs |
+| `ZYX` image + `YX` labels (cell mode) | Reduce image Z, keep 2D labels | `iter_cell_planes_for_patching(image, "ZYX", labels, "YX", z_policy="select"/"first"/"max")` | Single 2D pair |
+| `CZYX` image + `ZYX` labels (cell mode) | Expand Z, preserve channels | `iter_cell_planes_for_patching(image, "CZYX", labels, "ZYX", z_policy="all")` | Sequence of `CYX`/`YX` pairs |
+| `TCZYX` image + `TZYX` labels (cell mode) | Expand T and Z | `iter_cell_planes_for_patching(image, "TCZYX", labels, "TZYX", t_policy="all", z_policy="all")` | Sequence of matched pairs |
+| Any layout without labels (`random`, `grid`, `whole_fov`) | Projection or per-slice expansion | `prepare_image_for_patching(...)` for projection; `iter_image_planes_for_patching(...)` for per-slice | `YX` array or sequence of `YX` arrays |
+
+> **Principle:** CellPatcher never silently projects Z/T axes, merges channels, or normalizes intensities. All preprocessing is explicit.
+
+See [Preprocessing](preprocessing.md) for full details, policy options, and examples.
+
+---
+
+### Stage 2: Patching — how regions are generated
+
+Once you have a 2D image (and labels for cell mode), choose a patching mode.
+
+| You want | Mode | Key config |
+|---|---|---|
+| One patch per segmented cell/object | `cell` | `CellConfig(patch_size=...)`, optionally `ExtractionConfig(apply_mask=True)` |
+| Fixed-size random patches (controls, random coverage) | `random` | `RandomConfig(patch_size=64, n_patches=100)` |
+| Deterministic full-image tiling | `grid` | `GridConfig(tile_size=128, overlap=0.0)` |
+| One patch per full field of view | `whole_fov` | `ExtractionConfig(output_size=...)` for a fixed resize |
+
+**Cell mode sizing tip:** use `scan_cell_patch_size(...)` to get a dataset-wide recommended fixed patch size. `patch_size="auto"` gives each cell its own adaptive size based on its bounding box — not a single shared size.
+
+See [Patching modes](patching_modes.md) for mode details, figures, and common pitfalls.
+
+---
+
+### Stage 3: Export and consumption
+
+After patching, choose how to use the results.
+
+| Goal | Config | Output / API |
+|---|---|---|
+| In-memory arrays only | `common.extract_arrays=True` | `result.patch_arrays` |
+| Patch files + CSV metadata on disk (`.npy`, recommended for Torch) | `ExportConfig(enabled=True, image_format="npy", save_metadata_csv=True)` + `common.output_dir=...` | `.npy` files + `patches.csv` in `output_dir` |
+| Patch files + CSV metadata on disk (TIFF) | `ExportConfig(enabled=True, image_format="tif")` + `common.output_dir=...` | `.tif` files + `patches.csv` |
+| Live Torch dataset (no disk round-trip) | `common.extract_arrays=False`, no export | `PatchTorchDataset(images, result.patches, ...)` |
+| Torch dataset from exported files (decoupled export + training) | Export to disk first, then load | `ExportedPatchTorchDataset(result.metadata_file, axes=..., tensor_config=...)` |
+
+> **DINO/model recommendation:** keep CellPatcher responsible for coordinates, masking, resize, and export; apply channel merge and model normalization in your Torch transform. This decouples patch generation from model experiments so you can iterate channel and normalization strategies without regenerating patches.
+
+See [API examples](api_examples.md) for end-to-end patterns and Torch dataset usage.
+
 ## Quick start examples
 
 ### Example A — cell mode with scan + `apply_mask`
@@ -71,26 +132,41 @@ result = run_patching(images=image, config=cfg)
 print(len(result.patches), result.patch_arrays[0].shape)
 ```
 
-### Example C — dataset-wide max cell box -> masked patches -> DINO size
+### Example C — dataset-wide max cell box -> masked patches -> DINO size (with preprocessing + Torch-compatible export)
 
-If you want one patch per segmented cell, sized from the largest cell in the dataset, then resized for DINO-style inputs:
+If you want one patch per segmented cell, sized from the largest cell in the dataset, then resized for DINO-style inputs with explicit preprocessing and export that can be loaded by Torch:
 
 ```python
 from cellpatcher import (
     CellPatcherConfig,
     CellConfig,
     CommonConfig,
+    ExportConfig,
     ExtractionConfig,
+    iter_cell_planes_for_patching,
     run_patching,
     scan_cell_patch_size,
 )
+from cellpatcher.torch_dataset import ExportedPatchTorchDataset, PatchTensorConfig
 
-# images: list[np.ndarray]
-# labels: list[np.ndarray] with one label map per image
+# raw_images/raw_labels can be C/Z/T-aware arrays loaded from your pipeline.
+# Use explicit preprocessing to iterate 2D YX planes for cell patching.
+prepared_images = []
+prepared_labels = []
+for raw_image, raw_label in zip(raw_images, raw_labels):
+    for item in iter_cell_planes_for_patching(
+        raw_image,
+        "CZYX",   # image_axes (adjust to your real source axes)
+        raw_label,
+        "ZYX",    # label_axes (adjust to your real label axes)
+        z_policy="all",
+    ):
+        prepared_images.append(item.image)
+        prepared_labels.append(item.labels)
 
 summary = scan_cell_patch_size(
-    image_shapes=[img.shape for img in images],
-    labels_list=labels,
+    image_shapes=[img.shape for img in prepared_images],
+    labels_list=prepared_labels,
     image_axes="YX",
     mask_axes="YX",
 )
@@ -100,13 +176,28 @@ patch_size = summary.recommended_size("max")
 
 cfg = CellPatcherConfig(
     mode="cell",
-    common=CommonConfig(image_axes="YX", mask_axes="YX", extract_arrays=True),
+    common=CommonConfig(
+        image_axes="YX",
+        mask_axes="YX",
+        extract_arrays=True,
+        output_dir="outputs/cell_dino_patches",
+    ),
     cell=CellConfig(patch_size=patch_size, center_on="centroid"),
     extraction=ExtractionConfig(apply_mask=True, output_size=224),
+    export=ExportConfig(enabled=True, image_format="npy", save_metadata_csv=True),
 )
 
-result = run_patching(images=images, masks=labels, config=cfg)
-# result.patch_arrays -> masked, resized arrays suitable for DINO ingestion
+result = run_patching(images=prepared_images, masks=prepared_labels, config=cfg)
+# result.patch_arrays  -> masked, resized arrays in memory.
+# result.exported_files -> .npy patch files written to output_dir.
+# result.metadata_file  -> path to patches.csv in output_dir.
+
+torch_ds = ExportedPatchTorchDataset(
+    result.metadata_file,   # path to patches.csv; root_dir defaults to metadata_file.parent
+    axes="YX",
+    tensor_config=PatchTensorConfig(channel_policy="repeat_to_rgb"),
+)
+sample = torch_ds[0]  # CHW tensor compatible with common DINO pipelines
 ```
 
 Notes:
@@ -116,6 +207,29 @@ Notes:
 - For one fixed size across the whole dataset, use `summary.recommended_size("max")`.
 - Cell mode uses square patches, so dataset-wide fixed sizing should be a single int.
 - `apply_mask=True` clears pixels outside each selected label before resize/export.
+- Patching remains 2D `Y/X`; for C/Z/T data, use explicit preprocessing helpers first.
+- `ExportConfig(... image_format="npy")` works well with `ExportedPatchTorchDataset` for Torch ingestion.
+
+#### DINO preprocessing policy (explicit recommendation)
+
+For model-facing pipelines (for example DINO/DINOv2), we recommend splitting responsibilities:
+
+- **CellPatcher stage (patch generation):** coordinate generation, optional cell masking, resize, and optional `.npy` export.
+- **Torch stage (model input):** channel merge strategy (for example 6-channel Cell Painting -> 3-channel RGB) and model normalization.
+
+This keeps core patch generation model-agnostic and lets you iterate on channel/normalization strategy without regenerating patches.
+
+Practical guidance:
+
+- `PatchTensorConfig(channel_policy="repeat_to_rgb")` supports only 1- or 3-channel patches.
+- For >3 channels (for example Cell Painting), implement an explicit 6->3 mapping in your Torch transform.
+- Apply DINO/ImageNet-style normalization in that same transform stage.
+- `scale_policy="auto"` in `PatchTensorConfig` is only dtype-based integer scaling, not model normalization.
+
+Visual QA tip (recommended):
+
+- Keep an intermediate exported/inspectable artifact for validation (for example masked/resized `.npy` patches from CellPatcher).
+- Add a small debug utility in your training/inference code that saves a few post-transform RGB tensors to PNG so you can visually verify channel merge + normalization outputs.
 
 ## Next steps
 
