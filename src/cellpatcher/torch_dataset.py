@@ -181,7 +181,7 @@ class PatchTorchDataset(torch.utils.data.Dataset):
             array = apply_label_mask_to_patch(
                 array,
                 label_patch,
-                patch,
+                label_id=patch.label_id,
                 image_axes=self._image_axes,
                 label_axes=self._mask_axes,
                 fill_value=self._extraction.mask_fill_value,
