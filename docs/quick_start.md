@@ -14,18 +14,64 @@ PYTHONPATH=src python -m pytest -q
 
 ## Data-shape guide (what happens to my data?)
 
-Use this as a quick decision matrix before choosing an example.
+CellPatcher processes data in three stages. Use the tables below as a quick decision matrix.
 
-| Your input data | Typical settings / helper | What happens in CellPatcher | Typical downstream step |
+---
+
+### Stage 1: Preprocessing — getting to 2D
+
+Patching modes work on 2D Y/X arrays. If your data has Z, T, or C axes, resolve them explicitly first.
+
+| Your input | Goal | Helper to use | Result |
 |---|---|---|---|
-| `YX` image (single-channel IF or grayscale) + `YX` labels | `common.image_axes="YX"`, `mask_axes="YX"` (cell mode), optional `apply_mask=True`, optional `output_size=...` | Direct 2D patching. In cell mode, one patch per selected label; optional masking clears outside-label pixels; optional resize sets final spatial size. | Optional tensor conversion and model-specific normalization/augmentation. |
-| `YXC` or `CYX` image (multichannel; includes RGB) + `YX` labels | `common.image_axes="YXC"` or `"CYX"`, `mask_axes="YX"` (cell mode), optional `apply_mask=True` | Channels are preserved during extraction/masking/resize. Label mask is applied on Y/X and broadcast across channels as needed. | Keep channels, or apply explicit channel selection/projection/mapping before model input. |
-| `ZYX` image stack + `ZYX` labels (cell) | `iter_cell_planes_for_patching(..., z_policy="all")` | Expands to one 2D plane pair per Z slice; each plane then follows normal 2D patch flow. | Aggregate plane-level outputs or feed per-plane patches to downstream pipeline. |
-| `ZYX` image stack + `YX` labels (cell) | `iter_cell_planes_for_patching(..., z_policy="select"/"first"/"max")` | Resolves image Z according to policy; labels remain a single `YX` plane; then normal 2D cell patching runs. | Use chosen projected/selected image representation consistently in analysis/modeling. |
-| `CZYX`/`ZCYX` image + `ZYX` labels (cell) | `iter_cell_planes_for_patching(...)` + explicit `z_policy`, optional `image_channel_policy` (`keep`, `select`, `first`, `max`, `mean`, `repeat_to_rgb`) | Explicitly resolves Z/T as requested and returns 2D planes with chosen channel handling, then standard 2D patching. | Optional model-facing channel mapping and normalization; keep preprocessing parameters in metadata for reproducibility. |
-| `TCZYX`/`TZCYX` image + `TZYX` labels (cell) | `iter_cell_planes_for_patching(..., t_policy="all", z_policy="all")` | Expands over matching T and Z planes; each emitted 2D plane pair is patched independently. | Group outputs by `plane_id`/metadata for time- or depth-aware downstream analysis. |
-| `TCZYX`/`TZCYX` image + `YX` labels (cell) | `prepare_image_for_patching(...)` with explicit `t_policy` + `z_policy`, then `run_patching(...)` | Reduces image to a single 2D representation (select/projection), then runs standard 2D patching against `YX` labels. | Useful when you want one canonical representation per field of view for training/export. |
-| Any image layout without labels (`random`, `grid`, `whole_fov`) | `run_patching(...)` directly for `YX`/`CYX`; use `iter_image_planes_for_patching(...)` for Z/T expansion or `prepare_image_for_patching(...)` for projection/selection | Region generation is label-free; extraction/resize/export behave the same once a 2D plane is provided. | Same downstream tensor/model pipeline as above; choose channel/normalization strategy explicitly. |
+| `YX` image (grayscale / single-channel) | Already 2D | Use directly — no helper needed | `YX` array |
+| `CYX` or `YXC` image (multichannel, including RGB) | Keep all channels | Set `image_axes="CYX"` or `"YXC"` directly | `CYX`/`YXC` array (channels preserved through extraction/masking/resize) |
+| `ZYX` stack | Single projected plane | `prepare_image_for_patching(image, "ZYX", z_policy="max")` | `YX` array (max-projection) |
+| `ZYX` stack | One run per Z slice | `iter_image_planes_for_patching(image, "ZYX", z_policy="all")` | Sequence of `YX` arrays |
+| `ZYX` image + `ZYX` labels (cell mode) | Patch every Z slice with matched labels | `iter_cell_planes_for_patching(image, "ZYX", labels, "ZYX", z_policy="all")` | Sequence of matched 2D pairs |
+| `ZYX` image + `YX` labels (cell mode) | Reduce image Z, keep 2D labels | `iter_cell_planes_for_patching(image, "ZYX", labels, "YX", z_policy="select"/"first"/"max")` | Single 2D pair |
+| `CZYX` image + `ZYX` labels (cell mode) | Expand Z, preserve channels | `iter_cell_planes_for_patching(image, "CZYX", labels, "ZYX", z_policy="all")` | Sequence of `CYX`/`YX` pairs |
+| `TCZYX` image + `TZYX` labels (cell mode) | Expand T and Z | `iter_cell_planes_for_patching(image, "TCZYX", labels, "TZYX", t_policy="all", z_policy="all")` | Sequence of matched pairs |
+| Any layout without labels (`random`, `grid`, `whole_fov`) | Projection or per-slice expansion | `prepare_image_for_patching(...)` for projection; `iter_image_planes_for_patching(...)` for per-slice | `YX` array or sequence of `YX` arrays |
+
+> **Principle:** CellPatcher never silently projects Z/T axes, merges channels, or normalizes intensities. All preprocessing is explicit.
+
+See [Preprocessing](preprocessing.md) for full details, policy options, and examples.
+
+---
+
+### Stage 2: Patching — how regions are generated
+
+Once you have a 2D image (and labels for cell mode), choose a patching mode.
+
+| You want | Mode | Key config |
+|---|---|---|
+| One patch per segmented cell/object | `cell` | `CellConfig(patch_size=...)`, optionally `ExtractionConfig(apply_mask=True)` |
+| Fixed-size random patches (controls, random coverage) | `random` | `RandomConfig(patch_size=64, n_patches=100)` |
+| Deterministic full-image tiling | `grid` | `GridConfig(tile_size=128, overlap=0.0)` |
+| One patch per full field of view | `whole_fov` | `ExtractionConfig(output_size=...)` for a fixed resize |
+
+**Cell mode sizing tip:** use `scan_cell_patch_size(...)` to get a dataset-wide recommended fixed patch size. `patch_size="auto"` gives each cell its own adaptive size based on its bounding box — not a single shared size.
+
+See [Patching modes](patching_modes.md) for mode details, figures, and common pitfalls.
+
+---
+
+### Stage 3: Export and consumption
+
+After patching, choose how to use the results.
+
+| Goal | Config | Output / API |
+|---|---|---|
+| In-memory arrays only | `common.extract_arrays=True` | `result.patch_arrays` |
+| Patch files + CSV metadata on disk (`.npy`, recommended for Torch) | `ExportConfig(enabled=True, image_format="npy", save_metadata_csv=True)` + `common.output_dir=...` | `.npy` files + `patches.csv` in `output_dir` |
+| Patch files + CSV metadata on disk (TIFF) | `ExportConfig(enabled=True, image_format="tif")` + `common.output_dir=...` | `.tif` files + `patches.csv` |
+| Live Torch dataset (no disk round-trip) | `common.extract_arrays=False`, no export | `PatchTorchDataset(images, result.patches, ...)` |
+| Torch dataset from exported files (decoupled export + training) | Export to disk first, then load | `ExportedPatchTorchDataset(result.metadata_file, axes=..., tensor_config=...)` |
+
+> **DINO/model recommendation:** keep CellPatcher responsible for coordinates, masking, resize, and export; apply channel merge and model normalization in your Torch transform. This decouples patch generation from model experiments so you can iterate channel and normalization strategies without regenerating patches.
+
+See [API examples](api_examples.md) for end-to-end patterns and Torch dataset usage.
 
 ## Quick start examples
 
@@ -142,12 +188,12 @@ cfg = CellPatcherConfig(
 )
 
 result = run_patching(images=prepared_images, masks=prepared_labels, config=cfg)
-# result.patch_arrays -> masked, resized arrays suitable for DINO ingestion.
-# result.exported_files -> .npy patches + metadata CSV on disk.
+# result.patch_arrays  -> masked, resized arrays in memory.
+# result.exported_files -> .npy patch files written to output_dir.
+# result.metadata_file  -> path to patches.csv in output_dir.
 
 torch_ds = ExportedPatchTorchDataset(
-    patches=result.patches,
-    root_dir=cfg.common.output_dir,
+    result.metadata_file,   # path to patches.csv; root_dir defaults to metadata_file.parent
     axes="YX",
     tensor_config=PatchTensorConfig(channel_policy="repeat_to_rgb"),
 )
