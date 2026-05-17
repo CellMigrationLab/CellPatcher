@@ -263,3 +263,95 @@ config.cell = CellConfig(patch_size="auto")
 
 result = run_patching(images=images, masks=labels_2d, config=config)
 ```
+
+
+## Optional Torch dataset
+
+Torch integration is optional. CellPatcher does not run DINO/Torch inference in core; this adapter only makes patch tensors easier to feed into user models.
+
+- Import from `cellpatcher.torch_dataset`
+- Dataset returns `C,H,W` tensors
+- Use your own transform for ImageNet/DINO normalization
+- `scale_policy="auto"` scales integer arrays by dtype max; it does not percentile-normalize or ImageNet-normalize data
+- For non-singleton Z/T, preprocess first with `prepare_image_for_patching(...)`, `iter_image_planes_for_patching(...)`, or `iter_cell_planes_for_patching(...)`
+- Keep `extra_metadata_by_image_id` values DataLoader-collate-friendly (for example strings, numbers, lists, or small dictionaries)
+
+```python
+from torch.utils.data import DataLoader
+from cellpatcher.torch_dataset import PatchTorchDataset, PatchTensorConfig
+
+config.common.extract_arrays = False
+config.export.enabled = False
+result = run_patching(images=image, masks=labels, config=config)
+
+dataset = PatchTorchDataset(
+    images=image,
+    patches=result.patches,
+    image_axes=config.common.image_axes,
+    masks=labels,
+    mask_axes=config.common.mask_axes,
+    extraction=config.extraction,
+    tensor_config=PatchTensorConfig(channel_policy="repeat_to_rgb"),
+    transform=dinov2_transform,
+)
+
+loader = DataLoader(dataset, batch_size=64)
+```
+
+```python
+from cellpatcher import iter_image_planes_for_patching
+
+planes = list(iter_image_planes_for_patching(image, "ZYX", z_policy="all"))
+images = [p.array for p in planes]
+plane_lookup = {
+    f"image_{i:04d}": {"plane_id": p.plane_id, **p.metadata}
+    for i, p in enumerate(planes)
+}
+
+dataset = PatchTorchDataset(
+    images=images,
+    patches=result.patches,
+    image_axes=planes[0].axes,
+    extra_metadata_by_image_id=plane_lookup,
+)
+```
+
+
+## Loading exported `.npy` patches with Torch
+
+Use this pattern when patch extraction/export and model training/inference happen at different times or on different machines.
+
+- Export with `image_format="npy"`
+- Load with `ExportedPatchTorchDataset`
+- `.npy` is preferred over TIFF for Torch loading
+- Apply model-specific normalization in your transform
+- DINO/Torch inference is not included in CellPatcher core
+
+```python
+from cellpatcher import CellPatcherConfig, CommonConfig, ExportConfig, GridConfig, run_patching
+from cellpatcher.torch_dataset import ExportedPatchTorchDataset, PatchTensorConfig
+
+config = CellPatcherConfig(mode="grid")
+config.common = CommonConfig(
+    image_axes="YX",
+    output_dir="./patches_out",
+    extract_arrays=False,
+)
+config.grid = GridConfig(tile_size=128)
+config.export = ExportConfig(
+    enabled=True,
+    image_format="npy",
+    save_metadata_csv=True,
+)
+
+result = run_patching(images=image, config=config)
+
+dataset = ExportedPatchTorchDataset(
+    result.metadata_file,
+    axes=config.common.image_axes,
+    tensor_config=PatchTensorConfig(channel_policy="repeat_to_rgb"),
+    transform=dinov2_transform,
+)
+```
+
+Current `patches.csv` may not include an explicit filename column. `ExportedPatchTorchDataset` reconstructs filenames from sanitized `patch_id` values by default. If your workflow adds custom filenames, pass `filename_column`. Rows loaded from `patches.csv` are returned as strings in `sample["patch"]`; convert fields to numbers if your downstream code needs typed values.
