@@ -26,6 +26,7 @@ This folder contains multiple notebooks because they serve different purposes.
 | `CellPatcher/CellPatcher_strategy_examples.ipynb` | recommended examples | Minimal API-focused examples covering `cell`, `random`, `grid`, and `whole_fov` modes. |
 | `CellPatcher/CellPatcher_v2.ipynb` | active fallback/reference | Guided, staged package-backed workflow for users who want a step-by-step path. |
 | `CellPatcher/CellPatcher.ipynb` | legacy/reference only | Historical notebook preserved for provenance; not recommended for new work. |
+| `CellPatcher/CellPatcher_torch_colab_validation.ipynb` | developer validation | Colab-first validation notebook for optional Torch adapter: installs Torch, runs full pytest, Torch-specific tests, heavy real-fixture E2E checks, and tensor parity checks; not a normal user-facing workflow. |
 
 ## Runtime notes
 

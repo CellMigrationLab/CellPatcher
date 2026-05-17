@@ -231,7 +231,7 @@ def test_patch_torch_dataset_helper_parity_mask_and_resize():
 
     expected = extract_patch(image, patch, axes="YX", pad_mode=extraction.pad_mode, constant_values=extraction.constant_values)
     label_patch = extract_patch(labels, patch, axes="YX", pad_mode=extraction.pad_mode, constant_values=0)
-    expected = apply_label_mask_to_patch(expected, label_patch, patch, image_axes="YX", label_axes="YX", fill_value=17)
+    expected = apply_label_mask_to_patch(expected, label_patch, label_id=patch.label_id, image_axes="YX", label_axes="YX", fill_value=17)
     expected = resize_patch(expected, axes="YX", output_size=5, order=extraction.resize_order)
     expected = patch_array_to_tensor(expected, axes="YX", config=cfg).numpy()
 
