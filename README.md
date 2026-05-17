@@ -1,10 +1,10 @@
 # CellPatcher
 
-CellPatcher is a package-backed microscopy patch generation project for scientists, notebook users, and Python users who want reproducible patch extraction workflows. It creates patch coordinates (and optional extracted arrays) from microscopy images using multiple strategies, including segmentation-based cell patches, random patches, grid tiles, and whole-field patches. You can run it through interactive notebooks or directly through the Python API, depending on your workflow.
+CellPatcher helps you turn microscopy images into reproducible patch datasets without wrestling with custom one-off scripts. It generates patch coordinates (and, if you want, extracted arrays) using segmentation-based cell patches, random patches, grid tiles, and whole-field patches. You can drive everything from interactive notebooks or the Python API.
 
 ## What CellPatcher does
 
-CellPatcher helps you turn microscopy images into reproducible patch datasets with a consistent Python API and notebook workflows.
+Build patch datasets from microscopy images with one consistent backend, whether you prefer notebooks or Python scripts.
 
 ## Start here in 3 steps
 
@@ -12,8 +12,8 @@ CellPatcher helps you turn microscopy images into reproducible patch datasets wi
    - App-style notebook: `notebooks/CellPatcher/CellPatcher_v3.ipynb`
    - Minimal API learning: `notebooks/CellPatcher/CellPatcher_strategy_examples.ipynb`
    - Python-first docs: `docs/api_examples.md`
-2. **Choose a patching mode** (`cell`, `random`, `grid`, `whole_fov`) in `docs/patching_modes.md`.
-3. **If your data has Z/T/C axes**, patching modes are 2D Y/X; see `docs/preprocessing.md`.
+2. **Pick a patching mode** (`cell`, `random`, `grid`, `whole_fov`) in `docs/patching_modes.md`.
+3. **Working with Z/T/C axes?** Patching modes are 2D Y/X; see `docs/preprocessing.md`.
 
 - Matches image files and mask/label files with configurable matching strategies.
 - Generates patch regions (`PatchRegion`) for `cell`, `random`, `grid`, and `whole_fov` modes.
@@ -56,11 +56,11 @@ V3 and strategy examples are the best starting points for most users. The legacy
 
 ## Quick start: Python API
 
-For the most readable getting-started examples (cell mode and grid mode), see:
+For a quick and practical on-ramp (cell mode + grid mode), start with:
 
 - `docs/quick_start.md`
 
-For more scenario-based snippets:
+For more scenario-based snippets and patterns:
 
 - `docs/api_examples.md`
 
@@ -113,10 +113,10 @@ Run the command above to verify the current test suite in your environment.
 
 Patching modes are 2D Y/X; for C/Z/T data, see `docs/preprocessing.md`.
 
-Note: Plane iterator metadata (`metadata`, `plane_id`) is returned by helper objects and is not automatically injected into `PatchRegion` or export CSV metadata.
+Note: plane iterator metadata (`metadata`, `plane_id`) is available on helper outputs, but it is not automatically copied into `PatchRegion` rows or export CSV metadata.
 
 
-## Everyday APIs
+## Everyday APIs you'll use most
 
 - `CellPatcherConfig` and config dataclasses
 - `run_patching`
@@ -125,7 +125,7 @@ Note: Plane iterator metadata (`metadata`, `plane_id`) is returned by helper obj
 - `scan_cell_patch_size`
 - `prepare_image_for_patching` / `iter_image_planes_for_patching`
 
-If you need finer control, use `strategies`, low-level `extract`/`resize`/`export` helpers, and axis utilities.
+Need finer control? Move to `strategies`, low-level `extract`/`resize`/`export` helpers, and axis utilities.
 
 ## Limitations / non-goals
 
@@ -150,4 +150,3 @@ If you need finer control, use `strategies`, low-level `extract`/`resize`/`expor
 - [Notebook guide](notebooks/README.md)
 - [Fixture guide](tests/fixtures/readme.md)
 - [Quick start](docs/quick_start.md)
-

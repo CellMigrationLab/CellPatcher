@@ -11,7 +11,7 @@
 
 ![CellPatcher patching modes](assets/patching_modes_overview.png)
 
-The overview figure is generated from the bundled real TIFF fixture so all modes are visually comparable.
+The overview figure uses the bundled real TIFF fixture so you can compare every mode side by side.
 
 ## Important: patching modes generate 2D Y/X regions
 
@@ -21,7 +21,7 @@ If you want every Z slice or T frame, expand stacks first with:
 - `iter_image_planes_for_patching`
 - `iter_cell_planes_for_patching`
 
-This is explicit plane-by-plane preprocessing, **not** true volumetric 3D patching. See `docs/preprocessing.md`.
+Treat this as explicit plane-by-plane preprocessing, **not** true volumetric 3D patching. See `docs/preprocessing.md`.
 
 ## Cell mode
 
@@ -115,7 +115,7 @@ For C/Z/T data, patching modes are 2D Y/X; see `docs/preprocessing.md`.
 
 Whole-FOV mode returns one region covering the entire image.
 
-Useful for:
+Great for:
 
 - full-image export
 - downstream workflows expecting one standardized resized image per field
@@ -141,7 +141,7 @@ These docs figures are derived from the same demo fixture image and labels:
 
 ## Filtering, extraction, resizing, and export
 
-Mode selects **where** patches come from. The rest of the pipeline controls **what happens next**:
+Mode chooses **where** patches come from. The rest of the pipeline controls **what happens next**:
 
 - `FilterConfig`: remove candidate regions by intensity/foreground criteria.
 - `ExtractionConfig`: extract arrays, set `output_size`, set `pad_mode`, optionally `apply_mask` in cell mode.
@@ -149,7 +149,7 @@ Mode selects **where** patches come from. The rest of the pipeline controls **wh
 
 Typical flow: generate regions → filter → extract → apply mask (cell mode only) → resize → export + metadata.
 
-Note: iterator `metadata`/`plane_id` are not automatically injected into `PatchRegion` fields or export CSV metadata.
+Note: iterator `metadata`/`plane_id` values are not automatically injected into `PatchRegion` fields or export CSV metadata.
 
 ## Practical recommendations
 

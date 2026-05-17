@@ -1,8 +1,9 @@
 # API examples
 
-These examples assume `image` and `labels` are already loaded NumPy arrays.
-Use `read_array(...)` for TIFF/NPY inputs when loading from disk.
-All examples use `run_patching(...)`.
+These examples are designed for quick copy/paste experimentation.
+Assume `image` and `labels` are already loaded NumPy arrays.
+If you're reading from disk, use `read_array(...)` for TIFF/NPY inputs.
+All examples call `run_patching(...)`.
 
 These examples assume:
 
@@ -34,7 +35,7 @@ from cellpatcher import (
 
 ## Everyday APIs vs advanced helpers
 
-Everyday APIs:
+Start with these for almost everything:
 
 - `CellPatcherConfig` and config dataclasses
 - `run_patching`
@@ -43,7 +44,7 @@ Everyday APIs:
 - `scan_cell_patch_size`
 - `prepare_image_for_patching` / `iter_image_planes_for_patching`
 
-Advanced helpers:
+Reach for these when you want lower-level control:
 
 - `strategies`
 - low-level `extract` / `resize` / `export` helpers
@@ -51,7 +52,7 @@ Advanced helpers:
 
 ## Example 1 — Cell mode with scan + `apply_mask`
 
-A practical default for one patch per labeled object, with dataset-guided sizing and masked backgrounds.
+A strong default when you want one patch per labeled object, dataset-guided sizing, and masked backgrounds.
 
 ```python
 summary = scan_cell_patch_size(
@@ -76,7 +77,7 @@ result = run_patching(images=image, masks=labels, config=config)
 
 ## Example 2 — Grid mode export to `.npy`
 
-Choose this for deterministic tiling plus exported patch files and CSV metadata.
+Use this when you want deterministic tiling plus exported patch files and CSV metadata.
 
 ```python
 config = CellPatcherConfig(
@@ -125,7 +126,7 @@ print(len(result.patches))  # 1
 
 ## Example 5 — Folder matching and loading
 
-Use this pattern when images and masks live in separate folders and need safe pairing.
+Use this pattern when images and masks live in separate folders and need reliable pairing.
 
 ```python
 matcher = MatchConfig(strategy="exact_or_suffix", mask_suffixes=("_mask", "_labels"), case_sensitive=False)
@@ -211,9 +212,9 @@ Use:
 - `iter_image_planes_for_patching`
 - `iter_cell_planes_for_patching`
 
-This is explicit preprocessing/iteration, not `mode="all"`, and not true volumetric 3D patching.
+This is explicit preprocessing/iteration—not `mode="all"` and not true volumetric 3D patching.
 
-Note: iterator `metadata` / `plane_id` are available on yielded objects, but are not automatically written into `PatchRegion` or export CSV metadata.
+Note: iterator `metadata` / `plane_id` values are available on yielded objects, but they are not automatically written into `PatchRegion` rows or export CSV metadata.
 
 ```python
 from cellpatcher import (
