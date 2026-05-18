@@ -66,9 +66,9 @@ After regions are generated, configure extraction-time processing (mask clearing
 | Keep native extracted patch size | `ExtractionConfig(output_size=None)` | Cropped patch arrays are returned/exported without resize |
 | Resize patches to a fixed model-ready size | `ExtractionConfig(output_size=224)` | Each extracted patch is resized to the requested square size |
 | Clear background pixels outside each selected cell label (cell mode) | `ExtractionConfig(apply_mask=True)` | Non-cell pixels are zeroed before resize/export |
-| Keep only patches/cells meeting size constraints | `CellFilterConfig(...)` | Exclude small/large objects based on configured shape/area thresholds |
-| Keep only patches meeting intensity/content constraints | `PatchFilterConfig(...)` | Exclude low-information or out-of-range patches using intensity-based rules |
-| Combine shape + intensity constraints | `CellFilterConfig(...)` + `PatchFilterConfig(...)` | Apply both object-level and patch-level filtering before final outputs |
+| Keep only cells meeting area constraints (cell mode) | `CellConfig(min_area=..., max_area=...)` | Objects outside the area range are excluded before patching |
+| Keep only patches meeting intensity/content constraints | `FilterConfig(min_mean_intensity=..., min_foreground_fraction=...)` | Exclude low-information patches using intensity-based rules |
+| Combine area constraints + intensity filters | `CellConfig(min_area=..., max_area=...)` + `FilterConfig(...)` | Apply both object-level and patch-level filtering before final outputs |
 
 > **Tip:** apply filtering before export/training to reduce storage and avoid downstream sampling from low-quality patches.
 
