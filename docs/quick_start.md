@@ -14,7 +14,7 @@ PYTHONPATH=src python -m pytest -q
 
 ## Data-shape guide (what happens to my data?)
 
-CellPatcher processes data in three stages. Use the tables below as a quick decision matrix.
+CellPatcher processes data in four stages. Use the tables below as a quick decision matrix.
 
 ---
 
@@ -57,7 +57,26 @@ See [Patching modes](patching_modes.md) for mode details, figures, and common pi
 
 ---
 
-### Stage 3: Export and consumption
+### Stage 3: Patch processing and filtering
+
+After regions are generated, configure extraction-time processing (mask clearing + resize) and optional quality/control filters.
+
+| You want | Config | Behavior |
+|---|---|---|
+| Keep native extracted patch size | `ExtractionConfig(output_size=None)` | Cropped patch arrays are returned/exported without resize |
+| Resize patches to a fixed model-ready size | `ExtractionConfig(output_size=224)` | Each extracted patch is resized to the requested square size |
+| Clear background pixels outside each selected cell label (cell mode) | `ExtractionConfig(apply_mask=True)` | Non-cell pixels are zeroed before resize/export |
+| Keep only cells meeting area constraints (cell mode) | `CellConfig(min_area=..., max_area=...)` | Objects outside the area range are excluded before patching |
+| Keep only patches meeting intensity/content constraints | `FilterConfig(min_mean_intensity=..., min_foreground_fraction=...)` | Exclude low-information patches using intensity-based rules |
+| Combine area constraints + intensity filters | `CellConfig(min_area=..., max_area=...)` + `FilterConfig(...)` | Apply both object-level and patch-level filtering before final outputs |
+
+> **Tip:** apply filtering before export/training to reduce storage and avoid downstream sampling from low-quality patches.
+
+See [Config reference](configuration_reference.md) for full filtering options and thresholds.
+
+---
+
+### Stage 4: Export and consumption
 
 After patching, choose how to use the results.
 
