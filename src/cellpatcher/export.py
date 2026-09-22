@@ -25,6 +25,8 @@ def save_metadata_csv(patches, csv_path):
     path.parent.mkdir(parents=True, exist_ok=True)
 
     header = [f.name for f in fields(PatchRegion)]
+    x1_index = header.index("x1")
+    header = header[: x1_index + 1] + ["height", "width"] + header[x1_index + 1 :]
     rows = patch_metadata_to_rows(patches)
 
     with path.open("w", newline="", encoding="utf-8") as f:
@@ -88,6 +90,7 @@ def export_patches(
         path = out_dir / filename
         save_patch_array(array, path)
         saved_files.append(str(path))
+        patch.patch_file = filename
 
     if save_metadata:
         save_metadata_csv(patches, out_dir / metadata_filename)

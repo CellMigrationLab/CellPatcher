@@ -101,7 +101,7 @@ The notebooks (`CellPatcher_v3.ipynb`, `CellPatcher_v2.ipynb`) contain a ready-t
 
 Patching modes are 2D Y/X; for C/Z/T data, see `docs/preprocessing.md`.
 
-Note: plane iterator metadata (`metadata`, `plane_id`) is available on helper outputs, but it is not automatically copied into `PatchRegion` rows or export CSV metadata.
+Note: plane iterator `metadata` (the `t`/`z` indices) reaches `PatchRegion` rows and the export CSV when passed through as `run_patching(..., image_metadata=...)`; the `plane_id` string itself is not mirrored onto `PatchRegion` and still needs an explicit join if you need it. See `docs/preprocessing.md`.
 
 ## Limitations / non-goals
 

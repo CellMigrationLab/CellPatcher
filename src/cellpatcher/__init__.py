@@ -25,7 +25,7 @@ from cellpatcher.io import (
     run_patching_from_folders,
 )
 from cellpatcher.filters import compute_threshold, filter_regions, foreground_fraction
-from cellpatcher.pipeline import PatchingResult, run_patching
+from cellpatcher.pipeline import RUN_CONFIG_FILENAME, PatchingResult, run_patching
 from cellpatcher.preprocess import (
     PreparedPlane,
     PreparedPlanePair,
@@ -63,6 +63,7 @@ __all__ = [
     "ExtractionConfig",
     "PatchingResult",
     "run_patching",
+    "RUN_CONFIG_FILENAME",
     "SUPPORTED_EXTENSIONS",
     "list_supported_files",
     "read_array",

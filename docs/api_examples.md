@@ -216,7 +216,7 @@ Use:
 
 This is explicit preprocessing/iteration—not `mode="all"` and not true volumetric 3D patching.
 
-Note: iterator `metadata` / `plane_id` values are available on yielded objects, but they are not automatically written into `PatchRegion` rows or export CSV metadata.
+Note: iterator `metadata` (`t`/`z` indices) is written into `PatchRegion` rows and export CSV metadata when passed through as `run_patching(..., image_metadata=[p.metadata for p in pairs])`; see `docs/preprocessing.md`. The `plane_id` string itself is not mirrored onto `PatchRegion` and still needs an explicit join.
 
 ```python
 from cellpatcher import (
@@ -354,4 +354,4 @@ dataset = ExportedPatchTorchDataset(
 )
 ```
 
-Current `patches.csv` may not include an explicit filename column. `ExportedPatchTorchDataset` reconstructs filenames from sanitized `patch_id` values by default. If your workflow adds custom filenames, pass `filename_column`. When both `.npy` and `.tif` files exist for the same patch, pass `prefer_format="npy"` or `prefer_format="tif"` to resolve the ambiguity; if no preference is given and multiple formats exist, a `ValueError` is raised. Rows loaded from `patches.csv` are returned as strings in `sample["patch"]`; convert fields to numbers if your downstream code needs typed values.
+`patches.csv` includes a `patch_file` column with the exact exported filename for every row (written by `export_patches`), and `ExportedPatchTorchDataset` uses it by default. Older CSVs without that column, or rows where it's empty, fall back to reconstructing filenames from sanitized `patch_id` values. If your workflow uses custom filenames in a different column, pass `filename_column` to use that instead. When multiple formats exist for a patch and neither `patch_file` nor `filename_column` resolves it, pass `prefer_format="npy"` or `prefer_format="tif"`; if no preference is given and multiple formats exist, a `ValueError` is raised. Rows loaded from `patches.csv` are returned as strings in `sample["patch"]`; convert fields to numbers if your downstream code needs typed values.

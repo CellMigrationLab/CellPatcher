@@ -273,8 +273,10 @@ def _load_matched_masks(image_folder_path, mask_folder_path, image_files, config
 
     Returns
     -------
-    list
-        Mask arrays in the same order as *image_files*.
+    tuple
+        ``(masks, mask_paths)`` — mask arrays and their source
+        :class:`~pathlib.Path` objects, both in the same order as
+        *image_files*.
     """
     matching = config.matching
     selected = validate_image_and_mask_folders(
@@ -284,7 +286,24 @@ def _load_matched_masks(image_folder_path, mask_folder_path, image_files, config
         mask_suffixes=matching.mask_suffixes if mask_suffixes is None else mask_suffixes,
         case_sensitive=matching.case_sensitive if case_sensitive is None else case_sensitive,
     )
-    return [read_array(selected[path]) for path in image_files]
+    mask_paths = [selected[path] for path in image_files]
+    return [read_array(path) for path in mask_paths], mask_paths
+
+
+def _image_metadata_for_filenames(image_files, mask_paths=None) -> list[dict]:
+    """Build the per-image ``run_patching(image_metadata=...)`` payload.
+
+    Carries source filenames through so they land on every ``PatchRegion``
+    (and the exported metadata CSV) *before* ``export_patches`` writes it —
+    passing this into ``run_patching`` rather than stamping the result
+    afterwards is what makes that ordering guarantee hold.
+    """
+    if mask_paths is None:
+        return [{"image_file": path.name} for path in image_files]
+    return [
+        {"image_file": image_path.name, "mask_file": mask_path.name}
+        for image_path, mask_path in zip(image_files, mask_paths)
+    ]
 
 
 def run_patching_pipeline(
@@ -404,22 +423,26 @@ def run_patching_pipeline(
                 f"mask_folder_path is not supported for mode='{config.mode}'. "
                 "Remove it, or switch to 'cell' or 'random' mode."
             )
-        return run_patching(images=images, masks=None, config=config)
+        image_metadata = _image_metadata_for_filenames(image_files)
+        return run_patching(images=images, masks=None, config=config, image_metadata=image_metadata)
 
     if config.mode == "cell":
         if mask_folder_path is None:
             raise ValueError("mask_folder_path is required when config.mode='cell'.")
-        masks = _load_matched_masks(
+        masks, mask_paths = _load_matched_masks(
             image_folder_path, mask_folder_path, image_files, config,
             strategy, mask_suffixes, case_sensitive,
         )
-        return run_patching(images=images, masks=masks, config=config)
+        image_metadata = _image_metadata_for_filenames(image_files, mask_paths)
+        return run_patching(images=images, masks=masks, config=config, image_metadata=image_metadata)
 
     # random mode: masks are optional (restrict patch placement region)
     masks = None
+    mask_paths = None
     if mask_folder_path is not None:
-        masks = _load_matched_masks(
+        masks, mask_paths = _load_matched_masks(
             image_folder_path, mask_folder_path, image_files, config,
             strategy, mask_suffixes, case_sensitive,
         )
-    return run_patching(images=images, masks=masks, config=config)
+    image_metadata = _image_metadata_for_filenames(image_files, mask_paths)
+    return run_patching(images=images, masks=masks, config=config, image_metadata=image_metadata)

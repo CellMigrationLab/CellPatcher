@@ -7,6 +7,12 @@ class CommonConfig:
     mask_axes: str = "YX"
     output_dir: str | None = None
     extract_arrays: bool = False
+    # Stamped onto every PatchRegion/metadata-CSV row for this run when set.
+    # These are the MorphoBricks shared-CSV-contract `condition`/`repeat`
+    # columns (see AGENTS.md §5); CellPatcher does not infer them from
+    # folder structure, so callers must supply them explicitly.
+    condition: str | None = None
+    repeat: str | None = None
 
 
 @dataclass

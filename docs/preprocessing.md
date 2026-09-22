@@ -123,32 +123,28 @@ result = run_patching(images=images, masks=labels_2d, config=config)
 
 `iter_image_planes_for_patching` and `iter_cell_planes_for_patching` return `metadata` and `plane_id` on each yielded item.
 When you pass a list of prepared planes into `run_patching`, image IDs are assigned as `image_0000`, `image_0001`, ... .
-That plane metadata is not automatically copied into `PatchRegion` fields or export CSV rows, so keep it with an explicit lookup.
+
+Pass that per-plane `metadata` straight through as `run_patching(..., image_metadata=...)` and it is stamped onto the
+matching `PatchRegion`'s `t`/`z0`/`z1`/`c` fields automatically — and therefore into the exported `patches.csv` too,
+since `patches.csv` is written from those same `PatchRegion` objects.
 
 ```python
 pairs = list(iter_cell_planes_for_patching(image, "ZYX", labels, "ZYX", z_policy="all"))
 
 images = [p.image for p in pairs]
 labels_2d = [p.labels for p in pairs]
+image_metadata = [p.metadata for p in pairs]  # each dict has "t"/"z" keys as applicable
 
-plane_lookup = {
-    f"image_{i:04d}": {
-        "plane_id": p.plane_id,
-        **p.metadata,
-    }
-    for i, p in enumerate(pairs)
-}
+result = run_patching(images=images, masks=labels_2d, config=config, image_metadata=image_metadata)
 
-result = run_patching(images=images, masks=labels_2d, config=config)
-
-rows = []
-for patch in result.patches:
-    rows.append({
-        **patch.to_dict(),
-        **plane_lookup.get(patch.image_id, {}),
-    })
+# result.patches[i].t / .z0 / .z1 now reflect pairs[i].metadata, and the same
+# values are already in patches.csv if config.export.enabled=True.
 ```
 
-## Metadata caveat
+If you need the exact `plane_id` string (not just the `t`/`z` indices it's built from) on each row, join it in
+separately the same way — that one field is not currently mirrored onto `PatchRegion`:
 
-Iterator helpers return per-plane `metadata` and `plane_id`, but this information is **not automatically copied** into `PatchRegion` fields or export CSV metadata. If you need that mapping downstream, store it and join it explicitly in your workflow.
+```python
+plane_id_lookup = {f"image_{i:04d}": p.plane_id for i, p in enumerate(pairs)}
+rows = [{**patch.to_dict(), "plane_id": plane_id_lookup.get(patch.image_id)} for patch in result.patches]
+```

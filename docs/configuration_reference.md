@@ -24,6 +24,8 @@ Shared settings that apply to every run, regardless of mode.
 | `mask_axes` | `str` | `"YX"` | Axes string for mask arrays. Must include `Y` and `X`. |
 | `output_dir` | `str \| None` | `None` | Output folder path. Required when `export.enabled=True`; keep `None` for in-memory-only runs. |
 | `extract_arrays` | `bool` | `False` | When `True`, extracted patch arrays are returned in `PatchingResult.patch_arrays`. |
+| `condition` | `str \| None` | `None` | Experimental group label, stamped onto every `PatchRegion`/CSV row for this run. Part of the MorphoBricks shared CSV contract (see `AGENTS.md` §5). Not inferred from folder structure — set it explicitly. |
+| `repeat` | `str \| None` | `None` | Replicate identifier (e.g. `"YYYY_MM_DD"`), stamped onto every `PatchRegion`/CSV row for this run. Same status as `condition`. |
 
 **Axes strings** may contain any combination of `T`, `C`, `Z`, `Y`, `X` (in any order). Examples: `"YX"`, `"CYX"`, `"TCYX"`, `"ZYX"`.
 
@@ -164,20 +166,42 @@ The table below shows which config sections are written by `save_config_for_mode
 
 ## `PatchRegion` fields
 
-Every generated patch is a `PatchRegion` dataclass. The fields below are populated for all modes.
+Every generated patch is a `PatchRegion` dataclass. The fields below are populated for all modes; `to_dict()`/the exported `patches.csv` also include the `height`/`width` computed properties as extra convenience columns.
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `patch_id` | `str` | Unique identifier for the patch (used as the export filename stem). |
 | `image_id` | `str \| None` | Identifier of the source image (e.g. `"image_0000"`). |
 | `mode` | `str \| None` | Patching mode that generated this patch. |
+| `condition` | `str \| None` | From `config.common.condition`. See the shared CSV contract below. |
+| `repeat` | `str \| None` | From `config.common.repeat`. See the shared CSV contract below. |
+| `image_file` | `str \| None` | Source image filename. Populated automatically by `run_patching_pipeline`; `None` for direct `run_patching()` calls unless supplied via `image_metadata`. |
+| `mask_file` | `str \| None` | Source mask filename (cell/random mode only, when a mask was loaded). Same population rule as `image_file`. |
 | `y0`, `y1` | `int` | Vertical extent of the patch in pixels (`y0` inclusive, `y1` exclusive). |
 | `x0`, `x1` | `int` | Horizontal extent of the patch in pixels (`x0` inclusive, `x1` exclusive). |
+| `z0`, `z1` | `int \| None` | Selected Z-slice range (`z0` inclusive, `z1` exclusive — one slice thick). Populated when the caller passes `image_metadata=[{"z": ...}, ...]` to `run_patching`; `None` otherwise. |
+| `t` | `int \| None` | Selected time index. Populated the same way via `image_metadata=[{"t": ...}, ...]`. |
+| `c` | `int \| None` | Selected channel index. Populated the same way via `image_metadata=[{"c": ...}, ...]`. |
 | `label_id` | `int \| None` | Cell label value from the mask (cell mode only). |
 | `center_y`, `center_x` | `float \| None` | Patch centre coordinates in pixels. |
+| `center_z` | `float \| None` | Reserved for future multidimensional support; not yet populated. |
 | `touches_border` | `bool` | Whether the patch touches the image border. |
 | `area_px` | `int \| None` | Object area in pixels (cell mode only). |
-| `height` | `int` | Patch height (`y1 - y0`). Computed property. |
-| `width` | `int` | Patch width (`x1 - x0`). Computed property. |
+| `patch_file` | `str \| None` | Exported patch filename, stamped by `export_patches`/`export.enabled=True`. `None` when the patch was not exported to disk. |
+| `output_height`, `output_width` | `int \| None` | Final exported array shape. Differs from `y1 - y0`/`x1 - x0` when `extraction.output_size` resizes the patch. `None` unless arrays were extracted (`extract_arrays=True` or `export.enabled=True`). |
+| `config_file` | `str \| None` | Filename of the full run-config JSON saved alongside `patches.csv` (see below). `None` unless `export.enabled=True`. |
+| `valid`, `reason` | `bool`, `str \| None` | Reserved for future rejected-patch reporting; not yet populated (`valid` is always `True`). |
 
-Fields `z0`, `z1`, `t`, `c`, and `center_z` are reserved for future multidimensional support.
+### Shared MorphoBricks CSV contract
+
+`condition`, `repeat`, `image_file`, `mask_file`, and `patch_file` are the columns the MorphoBricks ecosystem's shared CSV contract requires (`AGENTS.md` §5). CellPatcher now populates all five (previously this contract was aspirational/unimplemented):
+
+- `condition`/`repeat` require the caller to set `config.common.condition`/`config.common.repeat` — CellPatcher does not parse them from a `raw_data/<condition>/<repeat>/` folder layout.
+- `image_file`/`mask_file`/`patch_file` are populated automatically by `run_patching_pipeline` (folder-based runs) and `export_patches` respectively.
+
+### Deterministic reconstruction
+
+Each exported `patches.csv` row, together with the `run_config.json` file it references via `config_file` (written alongside it whenever `export.enabled=True`; see `cellpatcher.RUN_CONFIG_FILENAME`), is enough to reconstruct the patch without re-deriving anything from code:
+
+- The row's own coordinates (`y0/y1/x0/x1`, `z0/z1`, `t`, `c`) and `output_height`/`output_width` fully describe the patch geometry and final exported array shape.
+- `run_config.json` is the complete, serialized `CellPatcherConfig` for the run — strategy parameters (including `random.seed`), extraction/resize settings, matching strategy, and axes — everything needed to reproduce the same coordinates deterministically from the same inputs.
