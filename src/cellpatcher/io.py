@@ -1,8 +1,14 @@
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 
 SUPPORTED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".gif", ".npy"}
+
+# Repeat label stamped when a condition folder holds images directly, with
+# no repeat subfolder (see discover_condition_repeat_folders below). Treated
+# as "this condition has exactly one repeat" rather than an error.
+SINGLE_REPEAT_LABEL = "single"
 
 
 def list_supported_files(folder_path, supported_extensions=None) -> list[Path]:
@@ -17,6 +23,91 @@ def list_supported_files(folder_path, supported_extensions=None) -> list[Path]:
         p for p in folder.iterdir()
         if p.is_file() and p.suffix.lower() in exts
     )
+
+
+@dataclass
+class ConditionRepeatFolder:
+    """One discovered ``<condition>/<repeat>`` (or single-repeat ``<condition>``) leaf.
+
+    ``repeat`` is ``SINGLE_REPEAT_LABEL`` when *condition_dir* holds image
+    files directly with no repeat subfolder; in that case ``image_folder``
+    is the condition folder itself. See
+    :func:`discover_condition_repeat_folders`.
+    """
+    condition: str
+    repeat: str
+    image_folder: Path
+    mask_folder: Path | None = None
+
+
+def _classify_condition_subfolders(condition_dir: Path, exts: set[str]) -> list[tuple[str, Path]]:
+    entries = list(condition_dir.iterdir())
+    loose_images = [p for p in entries if p.is_file() and p.suffix.lower() in exts]
+    subdirs = [p for p in entries if p.is_dir()]
+
+    if loose_images and subdirs:
+        raise ValueError(
+            f"Condition folder '{condition_dir}' mixes image files directly inside it with "
+            "subfolders. Put all images either directly in the condition folder (treated as "
+            "a single implicit repeat) or entirely inside repeat subfolders, not both."
+        )
+    if loose_images:
+        return [(SINGLE_REPEAT_LABEL, condition_dir)]
+    return [(d.name, d) for d in sorted(subdirs, key=lambda p: p.name)]
+
+
+def discover_condition_repeat_folders(
+    root_path,
+    *,
+    mask_root_path=None,
+    supported_extensions=None,
+) -> list[ConditionRepeatFolder]:
+    """Discover ``<condition>/<repeat>/`` image folders under *root_path*.
+
+    Each immediate subfolder of *root_path* is treated as a condition. Within
+    a condition folder, two layouts are supported:
+
+    - ``<condition>/<repeat>/<image files>`` — one or more repeat
+      subfolders, each its own repeat.
+    - ``<condition>/<image files>`` — no repeat subfolder. The whole
+      condition folder is treated as a single implicit repeat, labeled
+      ``SINGLE_REPEAT_LABEL`` (``"single"``).
+
+    A condition folder mixing loose image files with subfolders is
+    ambiguous and raises ``ValueError``.
+
+    When *mask_root_path* is given, the same ``<condition>/<repeat>``
+    (or ``<condition>``) path is mirrored under it for each discovered
+    leaf's ``mask_folder`` — its existence is not checked here; callers
+    (e.g. :func:`~cellpatcher.orchestration.run_patching_condition_repeat_tree`)
+    decide whether a missing mask folder matters for the mode in use.
+    """
+    root = Path(root_path).expanduser()
+    if not root.exists() or not root.is_dir():
+        raise ValueError(f"Folder does not exist or is not a directory: {root}")
+
+    mask_root = Path(mask_root_path).expanduser() if mask_root_path is not None else None
+    if mask_root is not None and (not mask_root.exists() or not mask_root.is_dir()):
+        raise ValueError(f"Folder does not exist or is not a directory: {mask_root}")
+
+    exts = supported_extensions if supported_extensions is not None else SUPPORTED_EXTENSIONS
+    exts = {e.lower() for e in exts}
+
+    condition_dirs = sorted((p for p in root.iterdir() if p.is_dir()), key=lambda p: p.name)
+
+    results: list[ConditionRepeatFolder] = []
+    for condition_dir in condition_dirs:
+        condition = condition_dir.name
+        for repeat, image_folder in _classify_condition_subfolders(condition_dir, exts):
+            mask_folder = None
+            if mask_root is not None:
+                mask_folder = mask_root / condition if repeat == SINGLE_REPEAT_LABEL else mask_root / condition / repeat
+            results.append(
+                ConditionRepeatFolder(
+                    condition=condition, repeat=repeat, image_folder=image_folder, mask_folder=mask_folder
+                )
+            )
+    return results
 
 
 def read_array(file_path):

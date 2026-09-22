@@ -21,7 +21,7 @@
 
 Key dependencies: `numpy`, `scipy`, `tifffile`, `imageio` (core, required). Optional extras: `ipywidgets`, `matplotlib`, `pillow`, `tqdm`, `joblib`, `jl-hidecode` (notebook extra); `torch` (optional `cellpatcher.torch_dataset` adapter only — never a core dependency).
 
-Current health snapshot (latest audit): 430 tests passing.
+Current health snapshot (latest audit): 467 tests passing.
 
 ---
 
@@ -60,8 +60,9 @@ These rules override other implementation preferences.
   (`CellPatcherConfig` and friends), function arguments, or environment
   variables.
 * **Never break public interfaces** without explicit user approval:
-  `run_patching`, `run_patching_pipeline`, config dataclasses, `read_array`,
-  `validate_image_and_mask_folders`, `scan_cell_patch_size`,
+  `run_patching`, `run_patching_pipeline`, `run_patching_condition_repeat_tree`,
+  config dataclasses, `read_array`, `validate_image_and_mask_folders`,
+  `discover_condition_repeat_folders`, `scan_cell_patch_size`,
   `prepare_image_for_patching`, `iter_image_planes_for_patching`. Other
   repos (and notebooks) import these.
 * **Keep public pipeline functionality usable from three contexts:** Jupyter
@@ -221,13 +222,25 @@ in notebooks where practical.
 CellPatcher reads image files, and (for `cell` mode) matching label/mask
 files, directly from user-provided folders. Matching is validated via
 `validate_image_and_mask_folders`/`io.py`, using an `exact`,
-`exact_or_suffix` (default), or `substring` strategy. **CellPatcher does not
-currently assume or enforce the `<condition>/<repeat_YYYY_MM_DD>/` folder
-layout described in §6** — that layout is the target MorphoBricks
-convention, not an enforced contract today; `condition`/`repeat` must be
-set explicitly via `CellPatcherConfig.common.condition`/`.repeat` (they are
-not parsed from folder names). This recursive-folder-input gap is tracked
-separately from the CSV contract below, which *is* implemented.
+`exact_or_suffix` (default), or `substring` strategy.
+
+Two ways to point CellPatcher at input data:
+
+- `run_patching_pipeline(image_folder_path, ...)` — a single flat folder of
+  images (optionally with a matching mask folder). `condition`/`repeat`
+  must be set explicitly via `CellPatcherConfig.common.condition`/`.repeat`
+  when using this entry point; they are not parsed from the folder path.
+- `run_patching_condition_repeat_tree(image_root_path, ...)` — the
+  `<condition>/<repeat_YYYY_MM_DD>/` layout from §6, walked automatically
+  via `discover_condition_repeat_folders`/`io.py`. Also accepts a condition
+  folder holding images directly with **no repeat subfolder**; that case is
+  treated as a single implicit repeat, labeled
+  `cellpatcher.SINGLE_REPEAT_LABEL` (`"single"`), consistently through
+  input discovery, processing (stamped as `common.repeat` on every patch
+  from that condition), and output (its own `<output_dir>/<condition>/single/`
+  subfolder, same as an explicit repeat gets). A condition folder that mixes
+  loose image files with repeat subfolders is ambiguous and raises
+  `ValueError` rather than guessing.
 
 ### Outputs this repo produces
 
@@ -254,7 +267,7 @@ repo **must** include these columns with exactly these names:
 | Column       | Type   | Required | Notes                                         |
 | ------------ | ------ | -------- | --------------------------------------------- |
 | `condition`  | string | Always   | Experimental group label                      |
-| `repeat`     | string | Always   | Replicate ID (format: `YYYY_MM_DD`)           |
+| `repeat`     | string | Always   | Replicate ID (format: `YYYY_MM_DD`, or `cellpatcher.SINGLE_REPEAT_LABEL`/`"single"` for a condition with no repeat subfolder — see "Inputs" above) |
 | `image_file` | string | Always   | Source image filename                         |
 | `mask_file`  | string | If used  | Mask filename; omit column if not applicable  |
 | `patch_file` | string | If used  | Patch filename; omit column if not applicable |
@@ -270,10 +283,15 @@ columns: `patch_id`, `image_id`, `mode`, `y0`/`y1`/`x0`/`x1`, `height`/
 `valid`, `reason` (documented in `src/cellpatcher/types.py` and
 `docs/configuration_reference.md`). How each contract column is populated:
 
-- `condition`/`repeat` — set `CellPatcherConfig.common.condition`/`.repeat`
-  explicitly; still not inferred from folder structure (see "Inputs" above).
+- `condition`/`repeat` — either set `CellPatcherConfig.common.condition`/
+  `.repeat` explicitly and call `run_patching_pipeline`, or call
+  `run_patching_condition_repeat_tree` on a `<condition>/<repeat>/` root and
+  let it derive both from the folder path per leaf (single-repeat condition
+  folders get `SINGLE_REPEAT_LABEL`). Never inferred by `run_patching()`
+  itself.
 - `image_file`/`mask_file` — populated automatically by
-  `run_patching_pipeline` from the folders it read. `None` for direct
+  `run_patching_pipeline` (and therefore `run_patching_condition_repeat_tree`,
+  which calls it per leaf) from the folders it read. `None` for direct
   `run_patching()` calls unless the caller supplies them via
   `image_metadata=[{"image_file": ..., "mask_file": ...}, ...]`.
 - `patch_file` — populated automatically by `export_patches`
@@ -303,8 +321,10 @@ The full pipeline across all repos is:
 ```text
 raw_data/
   <condition>/
-    <repeat_YYYY_MM_DD>/
-      <image_file>.tif
+    <repeat_YYYY_MM_DD>/        # omit this level entirely for a
+      <image_file>.tif          # condition with only one repeat --
+                                 # CellPatcher then treats the whole
+                                 # <condition>/ folder as that one repeat.
 
 masks/                          # optional
   <condition>/
@@ -312,8 +332,8 @@ masks/                          # optional
       <mask_file>.tif
 ```
 
-(This is the target/ecosystem-wide input layout; see §5 for CellPatcher's
-current, less prescriptive input handling.)
+CellPatcher's `run_patching_condition_repeat_tree` (§5) walks exactly this
+layout, including the no-repeat-subfolder case.
 
 **Known repos in the ecosystem:**
 
@@ -334,8 +354,9 @@ here as new feature-extraction/analysis repos are created.
 
 | Term            | Definition                                                                                       |
 | --------------- | ------------------------------------------------------------------------------------------------- |
-| Condition       | An experimental group (e.g. `treated`, `control`). A `PatchRegion`/CSV column in CellPatcher, set via `CellPatcherConfig.common.condition`; not yet inferred from the MorphoBricks folder layout (§6) |
-| Repeat          | A biological or technical replicate, identified by date. Same status as Condition above (`common.repeat`) |
+| Condition       | An experimental group (e.g. `treated`, `control`). A `PatchRegion`/CSV column in CellPatcher, set via `CellPatcherConfig.common.condition` or discovered per folder by `run_patching_condition_repeat_tree` (§5) |
+| Repeat          | A biological or technical replicate, identified by date. Same status as Condition above (`common.repeat`); see also Single repeat |
+| Single repeat    | A condition with no repeat subfolder — `<condition>/<image files>` instead of `<condition>/<repeat>/<image files>`. `run_patching_condition_repeat_tree` treats it as one implicit repeat, labeled `cellpatcher.SINGLE_REPEAT_LABEL` (`"single"`) (§5, §6) |
 | Patch           | A sub-region cropped from a microscopy image                                                      |
 | Mask            | Binary/label image marking regions of interest (e.g. cell outlines), used in `cell` mode           |
 | Feature         | A numeric descriptor extracted from a patch or image (produced downstream, e.g. by fiberfeatures)  |

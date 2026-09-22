@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import copy
-from dataclasses import asdict
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 import json
 from typing import Any
@@ -17,8 +17,14 @@ from cellpatcher.config import (
     MatchConfig,
     RandomConfig,
 )
-from cellpatcher.io import list_supported_files, read_array, validate_image_and_mask_folders
-from cellpatcher.pipeline import run_patching
+from cellpatcher.io import (
+    ConditionRepeatFolder,
+    discover_condition_repeat_folders,
+    list_supported_files,
+    read_array,
+    validate_image_and_mask_folders,
+)
+from cellpatcher.pipeline import PatchingResult, run_patching
 
 # Sections always written regardless of mode
 _COMMON_SECTIONS = ("common", "filters", "export", "extraction")
@@ -446,3 +452,114 @@ def run_patching_pipeline(
         )
     image_metadata = _image_metadata_for_filenames(image_files, mask_paths)
     return run_patching(images=images, masks=masks, config=config, image_metadata=image_metadata)
+
+
+@dataclass
+class ConditionRepeatResult:
+    """One leaf's outcome from :func:`run_patching_condition_repeat_tree`."""
+    condition: str
+    repeat: str
+    image_folder: str
+    result: PatchingResult
+
+
+def run_patching_condition_repeat_tree(
+    image_root_path,
+    *,
+    config: CellPatcherConfig | None = None,
+    mask_root_path=None,
+    strategy=None,
+    mask_suffixes=None,
+    case_sensitive=None,
+    overrides: dict[str, Any] | None = None,
+) -> list[ConditionRepeatResult]:
+    """Run :func:`run_patching_pipeline` once per ``<condition>/<repeat>`` leaf.
+
+    Walks *image_root_path* with
+    :func:`~cellpatcher.io.discover_condition_repeat_folders`, which accepts
+    both the full MorphoBricks layout (``<condition>/<repeat_YYYY_MM_DD>/``)
+    and a condition folder holding images directly with no repeat subfolder
+    — the latter is treated as a single implicit repeat, labeled
+    ``cellpatcher.io.SINGLE_REPEAT_LABEL`` (``"single"``), consistently
+    across input discovery, processing (the ``config.common.repeat`` value
+    stamped on every patch from that condition), and output (its own output
+    subfolder, same as an explicit repeat would get).
+
+    For each discovered leaf, a copy of *config* is made with
+    ``common.condition``/``common.repeat`` set to the values discovered from
+    the folder path. When ``config.export.enabled`` and
+    ``config.common.output_dir`` are set, each leaf's ``output_dir`` becomes
+    ``<output_dir>/<condition>/<repeat>``, mirroring the input layout.
+
+    Parameters
+    ----------
+    image_root_path:
+        Root folder containing one subfolder per condition.
+    config:
+        Base :class:`~cellpatcher.CellPatcherConfig`, applied to every leaf
+        (with ``common.condition``/``.repeat``/``.output_dir`` overridden
+        per leaf as described above). Defaults to ``CellPatcherConfig()``.
+    mask_root_path:
+        Root folder mirroring *image_root_path*'s ``<condition>/<repeat>``
+        (or ``<condition>``) structure for masks. Required for
+        ``mode='cell'`` (each leaf's mask subfolder must exist); optional
+        for ``mode='random'``; must not be provided for ``'grid'``/
+        ``'whole_fov'`` (same rules as :func:`run_patching_pipeline`, applied
+        per leaf).
+    strategy, mask_suffixes, case_sensitive, overrides:
+        Same as :func:`run_patching_pipeline`, applied to every leaf.
+
+    Returns
+    -------
+    list[ConditionRepeatResult]
+        One entry per discovered leaf, in the order
+        :func:`~cellpatcher.io.discover_condition_repeat_folders` returns
+        them (conditions, then repeats, both sorted by name).
+
+    Raises
+    ------
+    ValueError
+        If no condition subfolders with images are found, or (propagated
+        from :func:`run_patching_pipeline`) if a leaf fails validation, e.g.
+        a missing required mask folder. The first failing leaf aborts the
+        whole run rather than silently skipping it.
+    """
+    if config is None:
+        config = CellPatcherConfig()
+    if not isinstance(config, CellPatcherConfig):
+        raise TypeError("config must be a CellPatcherConfig instance.")
+    if overrides:
+        config = apply_overrides(config, overrides)
+
+    leaves = discover_condition_repeat_folders(image_root_path, mask_root_path=mask_root_path)
+    if not leaves:
+        raise ValueError(f"No condition subfolders with images found under: {image_root_path}")
+
+    base_output_dir = Path(config.common.output_dir) if config.common.output_dir is not None else None
+    masks_allowed = config.mode not in {"grid", "whole_fov"}
+
+    results: list[ConditionRepeatResult] = []
+    for leaf in leaves:
+        leaf_common = replace(config.common, condition=leaf.condition, repeat=leaf.repeat)
+        if base_output_dir is not None:
+            leaf_common.output_dir = str(base_output_dir / leaf.condition / leaf.repeat)
+        leaf_config = replace(config, common=leaf_common)
+
+        leaf_mask_folder = None
+        if masks_allowed and leaf.mask_folder is not None and leaf.mask_folder.exists():
+            leaf_mask_folder = str(leaf.mask_folder)
+
+        result = run_patching_pipeline(
+            str(leaf.image_folder),
+            config=leaf_config,
+            mask_folder_path=leaf_mask_folder,
+            strategy=strategy,
+            mask_suffixes=mask_suffixes,
+            case_sensitive=case_sensitive,
+        )
+        results.append(
+            ConditionRepeatResult(
+                condition=leaf.condition, repeat=leaf.repeat, image_folder=str(leaf.image_folder), result=result
+            )
+        )
+    return results
