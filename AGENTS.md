@@ -1,80 +1,353 @@
-# AGENTS.md
+# AGENTS.md — CellPatcher
 
-## Project goal
+> This file is the authoritative context for any AI agent working in this
+> repository. Read it before taking action. Prefer repository evidence over
+> assumptions, and inspect the relevant code, tests, and documentation before
+> making non-trivial changes.
 
-CellPatcher is a reusable backend Python package (under `src/cellpatcher`) plus notebooks for microscopy patch generation workflows.
+---
 
-Current notebook status:
-- Legacy notebook is preserved at `notebooks/CellPatcher/CellPatcher.ipynb` (reference/provenance; not the preferred path).
-- Notebook v2 is available at `notebooks/CellPatcher/CellPatcher_v2.ipynb` (package-backed staged workflow).
-- Notebook v3 is available at `notebooks/CellPatcher/CellPatcher_v3.ipynb` (app-style/tabbed workflow and preferred manual-testing path when present).
+## 1. Project identity
 
-## Core backend design
+| Field       | Value                                                                                                                                                    |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Repo        | `CellMigrationLab/CellPatcher`                                                                                                                            |
+| Purpose     | Turns microscopy images (and, for cell mode, segmentation masks) into reproducible patch datasets — coordinates, optionally extracted/resized arrays, optionally exported files — using `cell`, `random`, `grid`, and `whole_fov` patch modes. |
+| Ecosystem   | MorphoBricks — one of several interconnected repos                                                                                                        |
+| Position    | Step 1 of 3 in the MorphoBricks pipeline (image patching)                                                                                                 |
+| Language    | Python 3.11+                                                                                                                                              |
+| Tests       | `PYTHONPATH=src python -m pytest -q` (equivalent to `pytest tests/` once the package is installed editable)                                              |
+| Environment | `python -m pip install -e .` (add extras as needed: `.[test]`, `.[notebook]`, `.[torch]`) or `conda env create -f environment.yml`                       |
 
-CellPatcher is **coordinate-first**:
-1. generate patch regions (`PatchRegion` coordinates + metadata)
-2. optionally filter regions
-3. optionally extract arrays
-4. optionally apply label mask
-5. optionally resize extracted arrays
-6. optionally export files
+Key dependencies: `numpy`, `scipy`, `tifffile`, `imageio` (core, required). Optional extras: `ipywidgets`, `matplotlib`, `pillow`, `tqdm`, `joblib`, `jl-hidecode` (notebook extra); `torch` (optional `cellpatcher.torch_dataset` adapter only — never a core dependency).
 
-Strategies generate patch coordinates; downstream extraction/export is handled by the pipeline.
+Current health snapshot (latest audit): 417 tests passing.
 
-Keep Torch/DINO/GPU/model-specific logic out of the core package.
+---
 
-## Supported patch modes
+## 2. Non-negotiable rules
 
-- `cell`
-- `random`
-- `grid`
-- `whole_fov`
+These rules override other implementation preferences.
 
-## Important modules
+* **Keep the core package coordinate-first.** The pipeline is: (1) generate
+  patch regions (`PatchRegion` coordinates + metadata) via a strategy, (2)
+  optionally filter regions, (3) optionally extract arrays, (4) optionally
+  apply the label mask (cell mode only), (5) optionally resize, (6)
+  optionally export. Strategies (`src/cellpatcher/strategies/`) only
+  generate coordinates; extraction/export is handled by the pipeline.
+* **Keep Torch/DINO/GPU/model-specific logic out of the core package.** The
+  optional `cellpatcher.torch_dataset` adapter is the one sanctioned
+  exception and must stay optional and model-agnostic.
+* **Never rename or repurpose an existing `PatchRegion` field**
+  (`patch_id`, `image_id`, `mode`, `y0/y1/x0/x1`, `z0/z1`, `t`, `c`,
+  `label_id`, `center_y`/`center_x`/`center_z`, `touches_border`,
+  `area_px`, `valid`, `reason`). These are exactly the columns written to
+  the exported metadata CSV (`save_metadata_csv` in
+  `src/cellpatcher/export.py`), and downstream repos may already depend on
+  them.
+* **The MorphoBricks-wide `condition`/`repeat`/`image_file`/`mask_file`/
+  `patch_file` CSV contract in §5 is a target convention, not current
+  behavior.** CellPatcher does not implement it yet. Never present it as
+  already implemented in code, docs, or commit messages; treat adopting it
+  as a deliberate, user-approved change (see §8).
+* **Never hard-code machine-specific paths.** Use config dataclasses
+  (`CellPatcherConfig` and friends), function arguments, or environment
+  variables.
+* **Never break public interfaces** without explicit user approval:
+  `run_patching`, `run_patching_pipeline`, config dataclasses, `read_array`,
+  `validate_image_and_mask_folders`, `scan_cell_patch_size`,
+  `prepare_image_for_patching`, `iter_image_planes_for_patching`. Other
+  repos (and notebooks) import these.
+* **Keep public pipeline functionality usable from three contexts:** Jupyter
+  notebooks, CLI/script workflows, and as an imported pipeline dependency.
+* **Do not copy backend logic into notebooks.** Notebooks
+  (`notebooks/CellPatcher/*.ipynb`) must call package APIs (`run_patching`,
+  config dataclasses, utility helpers) rather than duplicating patching
+  logic inline.
+* **Do not import from `references/legacy_patch_generation/`.** It is
+  reference/provenance only, not production code.
+* **Make the smallest coherent change needed for the task.** Do not perform
+  unrelated refactors, dependency upgrades, renames, or formatting changes.
+* **Run relevant tests after code changes.** For substantive changes, run
+  `PYTHONPATH=src python -m pytest -q` before considering the task complete
+  when the environment permits it.
+* **Never claim a test or validation command passed unless it was actually
+  run successfully.** If something could not be run, say so explicitly.
+* **Don't hand-edit `requirements.txt`.** It is generated by
+  `.tools/python/merge_requirements.py` from
+  `notebooks/CellPatcher/requirements.yaml`; edit the source YAML and
+  regenerate instead.
 
-- `src/cellpatcher/config.py`
-- `src/cellpatcher/types.py`
-- `src/cellpatcher/axes.py`
-- `src/cellpatcher/io.py`
-- `src/cellpatcher/cell_scan.py`
-- `src/cellpatcher/pipeline.py`
-- `src/cellpatcher/filters.py`
-- `src/cellpatcher/extract.py`
-- `src/cellpatcher/masking.py`
-- `src/cellpatcher/resize.py`
-- `src/cellpatcher/export.py`
-- `src/cellpatcher/strategies/`
+---
 
-## Important behavior
+## 3. Coding standards
 
-- `image_axes` and `mask_axes` are explicit and axis-aware.
-- Image/mask matching supports:
-  - `exact`
-  - `exact_or_suffix` (default)
-  - `substring` (legacy, permissive)
-- `scan_cell_patch_size` computes dataset-level patch-size recommendations.
-- `ExtractionConfig.apply_mask` is cell-mode oriented and clears pixels outside selected labels before resize/export.
-- Export can write patch files and metadata CSV.
-- Files in `references/legacy_patch_generation/` are reference-only and not production code.
+Follow PEP 8 and any formatter/linter configuration present in the repo.
 
-## Testing
+Key rules:
 
-Primary command:
+* 4-space indentation
+* Descriptive variable names; avoid single-letter names outside obvious loop
+  counters
+* Blank lines between functions and classes
+* Docstrings on public modules, classes, and functions
+* Follow the existing quote and formatting style of the repo
+* Prefer simple, readable implementations over clever ones
+* Comments should explain non-obvious reasoning, constraints, or scientific
+  assumptions — do not narrate obvious code
 
-```bash
-PYTHONPATH=src python -m pytest -q
+Error handling:
+
+* Raise exceptions with descriptive messages; never fail silently
+* Prefer specific exception types over bare `Exception`
+* When catching errors, explain what went wrong and, where useful, what the
+  caller should do
+
+Design principles:
+
+* Functions should be modular and focused
+* Minimise unnecessary coupling and unintended side effects between modules
+* Reuse existing utilities and patterns before introducing new ones
+* Minimise function complexity; if a function is difficult to reason about,
+  split independent responsibilities
+* Do not add abstractions for hypothetical future requirements
+
+---
+
+## 4. Repository structure
+
+```text
+src/
+  cellpatcher/
+    __init__.py
+    config.py              # CellPatcherConfig and related config dataclasses
+    types.py                # PatchRegion and shared types
+    axes.py                  # axis-aware helpers (image_axes / mask_axes)
+    io.py                     # array/file IO, image-mask matching
+    cell_scan.py              # scan_cell_patch_size dataset-level sizing
+    preprocess.py              # multidimensional (C/Z/T) plane prep
+    pipeline.py                 # run_patching / run_patching_pipeline
+    orchestration.py
+    filters.py                   # optional region filtering
+    extract.py                    # array extraction from regions
+    masking.py                     # apply_mask (cell-mode label clearing)
+    resize.py                       # optional resize of extracted arrays
+    export.py                        # patch file + metadata CSV export
+    torch_dataset.py                  # OPTIONAL Torch adapter; not core
+    strategies/
+      __init__.py
+      base.py
+      cell.py                          # cell mode
+      random.py                         # random mode
+      grid.py                            # grid mode
+      whole_fov.py                        # whole_fov mode
+
+tests/
+  test_*.py             # mirrors src/cellpatcher modules
+  fixtures/              # small, deterministic TIFF fixtures (see tests/fixtures/readme.md)
+
+docs/
+  README.md               # documentation map / entry point
+  quick_start.md, patching_modes.md, api_examples.md,
+  preprocessing.md, configuration_reference.md, developer_notes.md
+  assets/                  # doc images
+
+notebooks/
+  README.md
+  notebook_latest_versions.yaml
+  CellPatcher/
+    CellPatcher.ipynb                    # legacy; reference/provenance only, not preferred
+    CellPatcher_v2.ipynb                  # package-backed staged workflow
+    CellPatcher_v3.ipynb                   # app-style/tabbed; PREFERRED manual-testing path when present
+    CellPatcher_strategy_examples.ipynb     # Python-API learning examples
+    CellPatcher_torch_colab_validation.ipynb
+    requirements.yaml                        # source of truth for requirements.txt
+    CHANGELOG.md
+
+references/
+  legacy_patch_generation/   # reference-only; DO NOT import from here
+
+app/                # Colab / conda-constructor packaging (menuinst, installer scripts) — not pipeline code
+scripts/
+  generate_docs_figures.py
+.tools/               # CI/maintenance tooling (requirements merge, version bump, notebook sync) — not pipeline code
+
+README.md
+setup.py
+requirements.txt       # GENERATED — do not hand-edit, see .tools/python/merge_requirements.py
+environment.yml / environment.yaml
 ```
 
-Current health snapshot (latest audit):
-- 417 tests passing.
+CellPatcher-specific conventions:
 
-## Development guidance
+* `image_axes`/`mask_axes` are explicit and axis-aware (see `axes.py`).
+  Image/mask matching supports `exact`, `exact_or_suffix` (default), and
+  `substring` (legacy, permissive).
+* `scan_cell_patch_size` computes dataset-level patch-size recommendations.
+* `ExtractionConfig.apply_mask` is cell-mode oriented and clears pixels
+  outside selected labels before resize/export.
+* Patching itself is strictly 2D Y/X; C/Z/T handling is a separate
+  preprocessing step (`preprocess.py`, `docs/preprocessing.md`), not a
+  patch mode.
+* Three notebook generations coexist: `CellPatcher.ipynb` (legacy,
+  reference-only), `CellPatcher_v2.ipynb` (staged), `CellPatcher_v3.ipynb`
+  (preferred, app-style/tabbed — the default manual-testing path when
+  present).
 
-- Backend remains package-backed and coordinate-first.
-- Do not copy backend logic into notebooks.
-- Notebooks should call package APIs (`run_patching`, config dataclasses, utility helpers).
-- Notebook code should not duplicate backend patching logic.
-- Keep Torch/DINO/model-specific logic out of core package.
-- If optional ML support is added later, keep it optional and model-agnostic.
-- Do not import code from `references/legacy_patch_generation/`.
+Reusable pipeline logic should live in importable modules rather than only
+in notebooks where practical.
 
+---
+
+## 5. Inter-repo interfaces
+
+> This section defines the contract between this repo and the rest of the
+> MorphoBricks ecosystem. Keep it accurate — other agents and developers
+> rely on it.
+
+### Inputs this repo consumes
+
+CellPatcher reads image files, and (for `cell` mode) matching label/mask
+files, directly from user-provided folders. Matching is validated via
+`validate_image_and_mask_folders`/`io.py`, using an `exact`,
+`exact_or_suffix` (default), or `substring` strategy. **CellPatcher does not
+currently assume or enforce the `<condition>/<repeat_YYYY_MM_DD>/` folder
+layout described in §6** — that layout is the target MorphoBricks
+convention, not an enforced contract today.
+
+### Outputs this repo produces
+
+- Patch coordinate/region metadata (`PatchRegion` fields) as a CSV
+  (`save_metadata_csv`, default filename `patches.csv`) via
+  `export_patches` / `run_patching_pipeline`.
+- Optionally, exported patch arrays as `.npy` or `.tif`/`.tiff` files
+  (`save_patch_array`).
+- Consumed downstream by feature-extraction repos — currently
+  [fiberfeatures](https://github.com/CellMigrationLab/fiberfeatures/tree/main)
+  (an early starting point, expected to change), and in future by other
+  MorphoBricks feature-extraction repos.
+
+### Shared CSV column contract
+
+Any CSV produced or consumed by this repo that connects to another MorphoBricks
+repo **must** include these columns with exactly these names:
+
+| Column       | Type   | Required | Notes                                         |
+| ------------ | ------ | -------- | --------------------------------------------- |
+| `condition`  | string | Always   | Experimental group label                      |
+| `repeat`     | string | Always   | Replicate ID (format: `YYYY_MM_DD`)           |
+| `image_file` | string | Always   | Source image filename                         |
+| `mask_file`  | string | If used  | Mask filename; omit column if not applicable  |
+| `patch_file` | string | If used  | Patch filename; omit column if not applicable |
+
+Do not silently change the meaning of an existing shared column.
+
+**Status for this repo: aspirational / target convention, not yet
+implemented.** CellPatcher's current metadata CSV columns are the
+`PatchRegion` dataclass fields instead: `patch_id`, `image_id`, `mode`,
+`y0`/`y1`/`x0`/`x1`, `z0`/`z1`, `t`, `c`, `label_id`,
+`center_y`/`center_x`/`center_z`, `touches_border`, `area_px`, `valid`,
+`reason` (documented in `src/cellpatcher/types.py`). Do not present the
+`condition`/`repeat`/`image_file`/`mask_file`/`patch_file` contract as
+already implemented in this repo; adopting it is a deliberate,
+user-approved migration (see §2, §8), not something to do incidentally
+while working on an unrelated task.
+
+---
+
+## 6. MorphoBricks pipeline (bigger picture)
+
+MorphoBricks is a multi-repo image analysis system for microscopy data.
+
+The full pipeline across all repos is:
+
+```text
+[Step 1] raw_data/ + masks/  →  **[THIS REPO] CellPatcher**  →  patches/
+[Step 2] patches/            →  Feature extraction            →  features.csv
+[Step 3] features.csv        →  Analysis & applications        →  results/
+```
+
+**Global input structure (raw data, produced outside MorphoBricks):**
+
+```text
+raw_data/
+  <condition>/
+    <repeat_YYYY_MM_DD>/
+      <image_file>.tif
+
+masks/                          # optional
+  <condition>/
+    <repeat_YYYY_MM_DD>/
+      <mask_file>.tif
+```
+
+(This is the target/ecosystem-wide input layout; see §5 for CellPatcher's
+current, less prescriptive input handling.)
+
+**Known repos in the ecosystem:**
+
+| Step | Repo          | Description                                                          | Link                                                        |
+| ---- | ------------- | --------------------------------------------------------------------- | ------------------------------------------------------------ |
+| 1    | CellPatcher   | Image patching                                                       | https://github.com/CellMigrationLab/CellPatcher              |
+| 2    | fiberfeatures | Feature extraction (starting point; many more feature-extraction repos expected over time) | https://github.com/CellMigrationLab/fiberfeatures/tree/main  |
+| 3    | BioExplainer  | Downstream analysis / XAI (initial version; not yet updated to follow the standards in this document) | https://github.com/CellMigrationLab/BioExplainer             |
+
+Note: `fiberfeatures` and `BioExplainer` are early/initial versions and are
+not yet aligned to the shared CSV contract in §5 — do not assume interface
+stability with them without checking their current state first. Add rows
+here as new feature-extraction/analysis repos are created.
+
+---
+
+## 7. Glossary
+
+| Term            | Definition                                                                                       |
+| --------------- | ------------------------------------------------------------------------------------------------- |
+| Condition       | An experimental group (e.g. `treated`, `control`) — part of the target MorphoBricks folder/CSV convention (§5, §6), not yet used inside CellPatcher itself |
+| Repeat          | A biological or technical replicate, identified by date — same status as Condition above          |
+| Patch           | A sub-region cropped from a microscopy image                                                      |
+| Mask            | Binary/label image marking regions of interest (e.g. cell outlines), used in `cell` mode           |
+| Feature         | A numeric descriptor extracted from a patch or image (produced downstream, e.g. by fiberfeatures)  |
+| Patch mode      | One of `cell`, `random`, `grid`, `whole_fov` — determines how `PatchRegion` coordinates are generated |
+| `PatchRegion`   | Coordinate-first descriptor of a single patch and its metadata (`src/cellpatcher/types.py`)        |
+| `apply_mask`    | `ExtractionConfig` option that clears pixels outside the selected label before resize/export (cell mode) |
+| `image_axes` / `mask_axes` | Explicit axis labels for images/masks, used by axis-aware matching and preprocessing (`axes.py`) |
+
+---
+
+## 8. When to ask before acting
+
+Ask the user before:
+
+* Renaming or restructuring any public function or class
+* Adding a new required dependency
+* Changing any output format, file structure, or `PatchRegion`/metadata CSV
+  columns
+* Adopting or changing the shared MorphoBricks CSV column contract in §5
+  (e.g. adding `condition`/`repeat`/`image_file`/`mask_file`/`patch_file`)
+* Changing which notebook version (`CellPatcher.ipynb` / `_v2` / `_v3`) is
+  presented as the preferred path
+* Modifying anything in `__init__.py` that affects the public API
+* Making changes that would require updates in other MorphoBricks repos
+  (e.g. fiberfeatures, BioExplainer)
+* Making a change that could materially alter scientific interpretation
+* Performing destructive or difficult-to-reverse operations
+
+Do not ask for permission to:
+
+* Write or update tests
+* Add appropriate docstrings or comments
+* Fix clear bugs in private functions
+* Improve error messages
+* Run tests, linting, or other validation
+* Make small internal changes clearly required by the requested task
+
+For minor ambiguity, first inspect the repository, tests, documentation, and
+similar existing implementations. Prefer the most conservative reversible
+interpretation rather than stopping unnecessarily.
+
+When finishing a substantive task, briefly report:
+
+* what changed
+* what tests or validation were actually run
+* any important assumptions, limitations, or unresolved issues
