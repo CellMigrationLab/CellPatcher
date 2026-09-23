@@ -120,6 +120,7 @@ Controls whether and how patch arrays are written to disk.
 | `enabled` | `bool` | `False` | Master switch for file export. When `True`, patch arrays are written to `common.output_dir`. |
 | `save_metadata_csv` | `bool` | `True` | When `True`, a `patches.csv` file with per-patch metadata is written alongside the patch files. |
 | `image_format` | `str` | `"tif"` | Output file format. One of `"tif"`, `"tiff"` (both write TIFF), or `"npy"` (NumPy binary). |
+| `save_run_config` | `bool` | `True` | When `True`, `run_config.json` (the full serialized config) is written next to the patch files and named in every row's `config_file`. `run_patching_condition_repeat_tree(combine_metadata=True)` turns it off per folder and writes one for the whole tree instead. |
 
 > To export files, set `export.enabled=True` **and** `common.output_dir` to a valid path. Enabling export automatically triggers array extraction even if `common.extract_arrays=False`.
 
@@ -205,11 +206,15 @@ Every generated patch is a `PatchRegion` dataclass. The fields below are populat
 
 - `<condition>/<repeat>/<image files>` — one or more repeat subfolders, each its own repeat.
 - `<condition>/<image files>` — **no repeat subfolder.** The whole condition folder is treated as a single implicit repeat, labeled `cellpatcher.SINGLE_REPEAT_LABEL` (`"single"`) — consistently in the discovered `repeat` value, the `condition`/`repeat` stamped on every patch from that folder, and (when exporting) its own `<output_dir>/<condition>/single/` output subfolder, same as an explicit repeat gets.
-- A condition folder mixing loose image files with repeat subfolders is ambiguous and raises `ValueError`.
+- `<image files>` directly in the root — **no condition subfolders.** The whole dataset is treated as one condition and one repeat, labeled `cellpatcher.SINGLE_CONDITION_LABEL`/`cellpatcher.SINGLE_REPEAT_LABEL` (both `"single"`), exported to `<output_dir>/single/single/`.
+- A root or condition folder mixing loose image files with subfolders is ambiguous and raises `ValueError`. Hidden subfolders (names starting with `.`, e.g. `.ipynb_checkpoints`) are ignored.
 
 When `mask_root_path` is given, the same structure is mirrored under it per leaf. Mask folder requirements follow the same per-mode rules as `run_patching_pipeline` (required for `mode="cell"`, optional for `mode="random"`, not accepted for `mode="grid"`/`"whole_fov"`), applied independently to each leaf — a leaf missing a required mask folder raises immediately and aborts the whole tree run rather than being silently skipped.
 
 Returns a list of `ConditionRepeatResult(condition, repeat, image_folder, result)`, one per leaf, in the same (condition, then repeat) sorted order `discover_condition_repeat_folders` returns.
+
+- `combine_metadata=True` (requires `export.enabled=True` and `common.output_dir`) writes **one** `patches.csv` and **one** `run_config.json` directly in `output_dir` instead of a pair per leaf folder. Patch files still go to `<output_dir>/<condition>/<repeat>/`, and each row's `patch_file` is the path relative to the CSV, e.g. `treated/2026_01_01/image_0000_grid_00000.tif` — the same "relative to the CSV" meaning as in the per-leaf layout, so `ExportedPatchTorchDataset` reads the combined CSV unchanged. `patch_id`/`image_id` are only unique within a leaf; identify rows across the combined CSV by `condition`/`repeat`/`image_file` (or `patch_file`).
+- `progress_callback(completed, total, leaf)` is called before each leaf and once more at the end (`leaf=None`), e.g. to drive a progress bar.
 
 ### Deterministic reconstruction
 

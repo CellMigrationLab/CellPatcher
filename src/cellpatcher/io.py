@@ -10,6 +10,10 @@ SUPPORTED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".gif"
 # as "this condition has exactly one repeat" rather than an error.
 SINGLE_REPEAT_LABEL = "single"
 
+# Condition label stamped when the root folder itself holds the images, with
+# no condition subfolders: the whole dataset is one condition and one repeat.
+SINGLE_CONDITION_LABEL = "single"
+
 
 def list_supported_files(folder_path, supported_extensions=None) -> list[Path]:
     folder = Path(folder_path).expanduser()
@@ -40,14 +44,21 @@ class ConditionRepeatFolder:
     mask_folder: Path | None = None
 
 
+def _split_folder_entries(folder: Path, exts: set[str]) -> tuple[list[Path], list[Path]]:
+    # Hidden folders (e.g. Jupyter's .ipynb_checkpoints) are never
+    # conditions or repeats, so they must not make a flat folder look mixed.
+    entries = list(folder.iterdir())
+    loose_images = [p for p in entries if p.is_file() and p.suffix.lower() in exts]
+    subdirs = [p for p in entries if p.is_dir() and not p.name.startswith(".")]
+    return loose_images, subdirs
+
+
 def _classify_condition_subfolders(condition_dir: Path, exts: set[str]) -> list[tuple[str, Path]]:
     # A condition folder is either "flat" (images directly inside it, no
     # repeat concept) or "nested" (one subfolder per repeat) -- never both,
     # since that would leave no unambiguous way to assign the loose images
     # to a repeat.
-    entries = list(condition_dir.iterdir())
-    loose_images = [p for p in entries if p.is_file() and p.suffix.lower() in exts]
-    subdirs = [p for p in entries if p.is_dir()]
+    loose_images, subdirs = _split_folder_entries(condition_dir, exts)
 
     if loose_images and subdirs:
         raise ValueError(
@@ -80,11 +91,17 @@ def discover_condition_repeat_folders(
       condition folder is treated as a single implicit repeat, labeled
       ``SINGLE_REPEAT_LABEL`` (``"single"``).
 
-    A condition folder mixing loose image files with subfolders is
-    ambiguous and raises ``ValueError``.
+    If *root_path* itself holds the image files and has no subfolders, the
+    whole dataset is one leaf labeled ``SINGLE_CONDITION_LABEL`` /
+    ``SINGLE_REPEAT_LABEL`` (both ``"single"``), with ``image_folder`` set
+    to *root_path*.
+
+    A root or condition folder mixing loose image files with subfolders is
+    ambiguous and raises ``ValueError``. Hidden subfolders (names starting
+    with ``"."``) are ignored.
 
     When *mask_root_path* is given, the same ``<condition>/<repeat>``
-    (or ``<condition>``) path is mirrored under it for each discovered
+    (or ``<condition>``, or root) path is mirrored under it for each discovered
     leaf's ``mask_folder`` — its existence is not checked here; callers
     (e.g. :func:`~cellpatcher.orchestration.run_patching_condition_repeat_tree`)
     decide whether a missing mask folder matters for the mode in use.
@@ -100,9 +117,27 @@ def discover_condition_repeat_folders(
     exts = supported_extensions if supported_extensions is not None else SUPPORTED_EXTENSIONS
     exts = {e.lower() for e in exts}
 
+    root_images, root_subdirs = _split_folder_entries(root, exts)
+    if root_images and root_subdirs:
+        raise ValueError(
+            f"Folder '{root}' mixes image files directly inside it with subfolders. Put all "
+            "images either directly in this folder (treated as a single condition and repeat) "
+            "or entirely inside condition subfolders, not both."
+        )
+    if root_images:
+        # Flat layout: the root folder is the only condition and repeat.
+        return [
+            ConditionRepeatFolder(
+                condition=SINGLE_CONDITION_LABEL,
+                repeat=SINGLE_REPEAT_LABEL,
+                image_folder=root,
+                mask_folder=mask_root,
+            )
+        ]
+
     # Every immediate subfolder of `root` is a condition; sorted for a
     # deterministic discovery order across runs.
-    condition_dirs = sorted((p for p in root.iterdir() if p.is_dir()), key=lambda p: p.name)
+    condition_dirs = sorted(root_subdirs, key=lambda p: p.name)
 
     results: list[ConditionRepeatFolder] = []
     for condition_dir in condition_dirs:

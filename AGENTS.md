@@ -212,9 +212,14 @@ Two ways to point CellPatcher at input data:
   `cellpatcher.SINGLE_REPEAT_LABEL` (`"single"`), consistently through
   input discovery, processing (stamped as `common.repeat` on every patch
   from that condition), and output (its own `<output_dir>/<condition>/single/`
-  subfolder, same as an explicit repeat gets). A condition folder that mixes
-  loose image files with repeat subfolders is ambiguous and raises
-  `ValueError` rather than guessing.
+  subfolder, same as an explicit repeat gets). A root folder holding images
+  directly with **no condition subfolders** is likewise one implicit
+  condition and repeat, labeled `cellpatcher.SINGLE_CONDITION_LABEL`/
+  `SINGLE_REPEAT_LABEL` (both `"single"`), exported to
+  `<output_dir>/single/single/`. A root or condition folder that mixes
+  loose image files with subfolders is ambiguous and raises `ValueError`
+  rather than guessing. Hidden subfolders (e.g. `.ipynb_checkpoints`) are
+  ignored.
 
 ### Outputs this repo produces
 
@@ -226,6 +231,13 @@ Two ways to point CellPatcher at input data:
   row's `config_file` column names it — so a row plus that file fully
   determine how to reproduce the patch (coordinates, strategy parameters
   including `random.seed`, extraction/resize settings, axes).
+- For `run_patching_condition_repeat_tree`, one `patches.csv` +
+  `run_config.json` pair per `<condition>/<repeat>/` output folder by
+  default, or with `combine_metadata=True` a single pair directly in
+  `output_dir` (used by the CellPatcher notebook). In the combined CSV,
+  `patch_file` is the path relative to the CSV
+  (`<condition>/<repeat>/<file>`); in both layouts it is relative to the
+  CSV's folder.
 - Optionally, exported patch arrays as `.npy` or `.tif`/`.tiff` files
   (`save_patch_array`), named by each row's `patch_file` column.
 - Consumed downstream by feature-extraction repos — currently
@@ -240,7 +252,7 @@ repo **must** include these columns with exactly these names:
 
 | Column       | Type   | Required | Notes                                         |
 | ------------ | ------ | -------- | --------------------------------------------- |
-| `condition`  | string | Always   | Experimental group label                      |
+| `condition`  | string | Always   | Experimental group label (`cellpatcher.SINGLE_CONDITION_LABEL`/`"single"` when the root folder holds the images directly — see "Inputs" above) |
 | `repeat`     | string | Always   | Replicate ID (format: `YYYY_MM_DD`, or `cellpatcher.SINGLE_REPEAT_LABEL`/`"single"` for a condition with no repeat subfolder — see "Inputs" above) |
 | `image_file` | string | Always   | Source image filename                         |
 | `mask_file`  | string | If used  | Mask filename; omit column if not applicable  |
@@ -261,7 +273,8 @@ columns: `patch_id`, `image_id`, `mode`, `y0`/`y1`/`x0`/`x1`, `height`/
   `.repeat` explicitly and call `run_patching_pipeline`, or call
   `run_patching_condition_repeat_tree` on a `<condition>/<repeat>/` root and
   let it derive both from the folder path per leaf (single-repeat condition
-  folders get `SINGLE_REPEAT_LABEL`). Never inferred by `run_patching()`
+  folders get `SINGLE_REPEAT_LABEL`; a flat root gets `SINGLE_CONDITION_LABEL`
+  too). Never inferred by `run_patching()`
   itself.
 - `image_file`/`mask_file` — populated automatically by
   `run_patching_pipeline` (and therefore `run_patching_condition_repeat_tree`,
@@ -299,6 +312,8 @@ raw_data/
       <image_file>.tif          # condition with only one repeat --
                                  # CellPatcher then treats the whole
                                  # <condition>/ folder as that one repeat.
+                                 # Omit <condition>/ too for a single-condition
+                                 # experiment: images directly in raw_data/.
 
 masks/                          # optional
   <condition>/
@@ -307,7 +322,7 @@ masks/                          # optional
 ```
 
 CellPatcher's `run_patching_condition_repeat_tree` (§5) walks exactly this
-layout, including the no-repeat-subfolder case.
+layout, including the no-repeat-subfolder and no-condition-subfolder cases.
 
 **Known repos in the ecosystem:**
 
@@ -330,7 +345,7 @@ here as new feature-extraction/analysis repos are created.
 | --------------- | ------------------------------------------------------------------------------------------------- |
 | Condition       | An experimental group (e.g. `treated`, `control`). A `PatchRegion`/CSV column in CellPatcher, set via `CellPatcherConfig.common.condition` or discovered per folder by `run_patching_condition_repeat_tree` (§5) |
 | Repeat          | A biological or technical replicate, identified by date. Same status as Condition above (`common.repeat`); see also Single repeat |
-| Single repeat    | A condition with no repeat subfolder — `<condition>/<image files>` instead of `<condition>/<repeat>/<image files>`. `run_patching_condition_repeat_tree` treats it as one implicit repeat, labeled `cellpatcher.SINGLE_REPEAT_LABEL` (`"single"`) (§5, §6) |
+| Single repeat    | A condition with no repeat subfolder — `<condition>/<image files>` instead of `<condition>/<repeat>/<image files>`. `run_patching_condition_repeat_tree` treats it as one implicit repeat, labeled `cellpatcher.SINGLE_REPEAT_LABEL` (`"single"`) (§5, §6). Likewise, images directly in the root folder are one condition labeled `cellpatcher.SINGLE_CONDITION_LABEL` (`"single"`) with a single repeat |
 | Patch           | A sub-region cropped from a microscopy image                                                      |
 | Mask            | Binary/label image marking regions of interest (e.g. cell outlines), used in `cell` mode           |
 | Feature         | A numeric descriptor extracted from a patch or image (produced downstream, e.g. by fiberfeatures)  |

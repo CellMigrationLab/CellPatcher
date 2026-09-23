@@ -24,7 +24,8 @@ from cellpatcher.io import (
     read_array,
     validate_image_and_mask_folders,
 )
-from cellpatcher.pipeline import PatchingResult, run_patching
+from cellpatcher.export import save_metadata_csv
+from cellpatcher.pipeline import RUN_CONFIG_FILENAME, PatchingResult, run_patching
 
 # Sections always written regardless of mode
 _COMMON_SECTIONS = ("common", "filters", "export", "extraction")
@@ -483,6 +484,8 @@ def run_patching_condition_repeat_tree(
     mask_suffixes=None,
     case_sensitive=None,
     overrides: dict[str, Any] | None = None,
+    combine_metadata: bool = False,
+    progress_callback=None,
 ) -> list[ConditionRepeatResult]:
     """Run :func:`run_patching_pipeline` once per ``<condition>/<repeat>`` leaf.
 
@@ -519,6 +522,21 @@ def run_patching_condition_repeat_tree(
         per leaf).
     strategy, mask_suffixes, case_sensitive, overrides:
         Same as :func:`run_patching_pipeline`, applied to every leaf.
+    combine_metadata:
+        When ``True`` (requires ``config.export.enabled`` and
+        ``config.common.output_dir``), a single ``patches.csv`` and a single
+        ``run_config.json`` are written directly in ``output_dir`` instead
+        of one pair per leaf folder. The patch files themselves still go to
+        ``<output_dir>/<condition>/<repeat>/``, and each row's
+        ``patch_file`` is that file's path relative to ``output_dir``
+        (e.g. ``"treated/2026_01_01/image_0000_grid_00000.tif"``), so it
+        stays relative to the CSV exactly as in the per-leaf layout. Every
+        leaf's ``result.metadata_file`` then points to the combined CSV.
+    progress_callback:
+        Optional ``callable(completed, total, leaf)``, called before each
+        leaf is processed (``leaf`` is the
+        :class:`~cellpatcher.io.ConditionRepeatFolder` about to run) and
+        once more at the end with ``completed == total`` and ``leaf=None``.
 
     Returns
     -------
@@ -541,6 +559,10 @@ def run_patching_condition_repeat_tree(
         raise TypeError("config must be a CellPatcherConfig instance.")
     if overrides:
         config = apply_overrides(config, overrides)
+    if combine_metadata and (not config.export.enabled or config.common.output_dir is None):
+        raise ValueError(
+            "combine_metadata=True requires config.export.enabled=True and config.common.output_dir to be set."
+        )
 
     leaves = discover_condition_repeat_folders(image_root_path, mask_root_path=mask_root_path)
     if not leaves:
@@ -552,14 +574,22 @@ def run_patching_condition_repeat_tree(
     # modes must be ignored rather than passed through.
     masks_allowed = config.mode not in {"grid", "whole_fov"}
 
+    # With combined metadata, the per-leaf CSV and run config are replaced by
+    # one pair written in output_dir after all leaves have run.
+    leaf_export = (
+        replace(config.export, save_metadata_csv=False, save_run_config=False) if combine_metadata else config.export
+    )
+
     results: list[ConditionRepeatResult] = []
-    for leaf in leaves:
+    for index, leaf in enumerate(leaves):
+        if progress_callback is not None:
+            progress_callback(index, len(leaves), leaf)
         # Derive this leaf's config from the shared base: same settings
         # everywhere, but condition/repeat/output_dir specific to this leaf.
         leaf_common = replace(config.common, condition=leaf.condition, repeat=leaf.repeat)
         if base_output_dir is not None:
             leaf_common.output_dir = str(base_output_dir / leaf.condition / leaf.repeat)
-        leaf_config = replace(config, common=leaf_common)
+        leaf_config = replace(config, common=leaf_common, export=leaf_export)
 
         # Only pass a mask folder through if the mode can use one AND it
         # actually exists -- e.g. random mode treats a missing mask folder
@@ -582,4 +612,32 @@ def run_patching_condition_repeat_tree(
                 condition=leaf.condition, repeat=leaf.repeat, image_folder=str(leaf.image_folder), result=result
             )
         )
+
+    if combine_metadata:
+        _write_combined_metadata(config, base_output_dir, results)
+    if progress_callback is not None:
+        progress_callback(len(leaves), len(leaves), None)
     return results
+
+
+def _write_combined_metadata(config: CellPatcherConfig, output_dir: Path, results: list[ConditionRepeatResult]) -> None:
+    """Write one run_config.json and one patches.csv covering every leaf of a tree run."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    with (output_dir / RUN_CONFIG_FILENAME).open("w", encoding="utf-8") as f:
+        json.dump(asdict(config), f, indent=2, default=str)
+
+    all_patches = []
+    for leaf_result in results:
+        for patch in leaf_result.result.patches:
+            # Leaf patch files live in <output_dir>/<condition>/<repeat>/, so
+            # prefix that folder to keep patch_file relative to the CSV.
+            if patch.patch_file:
+                patch.patch_file = (Path(leaf_result.condition) / leaf_result.repeat / patch.patch_file).as_posix()
+            patch.config_file = RUN_CONFIG_FILENAME
+        all_patches.extend(leaf_result.result.patches)
+
+    if config.export.save_metadata_csv:
+        csv_path = output_dir / "patches.csv"
+        save_metadata_csv(all_patches, csv_path)
+        for leaf_result in results:
+            leaf_result.result.metadata_file = str(csv_path)

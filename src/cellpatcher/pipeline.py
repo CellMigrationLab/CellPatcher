@@ -232,11 +232,12 @@ def _build_result(
         # _stamp_image_metadata's docstring for the same ordering concern).
         out_dir = Path(config.common.output_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
-        config_path = out_dir / RUN_CONFIG_FILENAME
-        with config_path.open("w", encoding="utf-8") as f:
-            json.dump(asdict(config), f, indent=2, default=str)
-        for patch in patches:
-            patch.config_file = RUN_CONFIG_FILENAME
+        if config.export.save_run_config:
+            config_path = out_dir / RUN_CONFIG_FILENAME
+            with config_path.open("w", encoding="utf-8") as f:
+                json.dump(asdict(config), f, indent=2, default=str)
+            for patch in patches:
+                patch.config_file = RUN_CONFIG_FILENAME
 
         exported_files = export_patches(
             patches,

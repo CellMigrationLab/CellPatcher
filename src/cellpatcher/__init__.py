@@ -23,6 +23,7 @@ from cellpatcher.config import (
 )
 from cellpatcher.export import export_patches, patch_metadata_to_rows, sanitize_filename, save_metadata_csv, save_patch_array
 from cellpatcher.io import (
+    SINGLE_CONDITION_LABEL,
     SINGLE_REPEAT_LABEL,
     SUPPORTED_EXTENSIONS,
     ConditionRepeatFolder,
@@ -95,6 +96,7 @@ __all__ = [
     "ConditionRepeatResult",
     "ConditionRepeatFolder",
     "discover_condition_repeat_folders",
+    "SINGLE_CONDITION_LABEL",
     "SINGLE_REPEAT_LABEL",
     "sanitize_filename",
     "patch_metadata_to_rows",

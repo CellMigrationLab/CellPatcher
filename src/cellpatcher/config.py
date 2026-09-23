@@ -86,12 +86,18 @@ class ExportConfig:
     enabled: bool = False
     save_metadata_csv: bool = True
     image_format: str = "tif"
+    # Write run_config.json next to the exported patches. Disabled per folder
+    # by run_patching_condition_repeat_tree(combine_metadata=True), which
+    # writes one run_config.json for the whole tree instead.
+    save_run_config: bool = True
 
     def __post_init__(self) -> None:
         if not isinstance(self.enabled, bool):
             raise ValueError("enabled must be a bool.")
         if not isinstance(self.save_metadata_csv, bool):
             raise ValueError("save_metadata_csv must be a bool.")
+        if not isinstance(self.save_run_config, bool):
+            raise ValueError("save_run_config must be a bool.")
         if str(self.image_format).lower() not in {"tif", "tiff", "npy"}:
             raise ValueError("image_format must be one of: 'tif', 'tiff', 'npy'.")
 
