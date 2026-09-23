@@ -109,6 +109,8 @@ class ExtractionConfig:
         if self.pad_mode not in {"clip", "constant"}:
             raise ValueError("pad_mode must be either 'clip' or 'constant'.")
 
+        # output_size accepts three shapes: None (no resize), a single int
+        # (square output), or an explicit (height, width) pair.
         if self.output_size is not None:
             if isinstance(self.output_size, int):
                 if self.output_size <= 0:

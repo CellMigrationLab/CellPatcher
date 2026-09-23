@@ -60,11 +60,16 @@ def _normalize_shape_inputs(image_shapes, labels_list):
     if labels_list is None:
         raise ValueError("labels_list is required.")
 
+    # Accept either a single label array or a list of them.
     if isinstance(labels_list, (list, tuple)):
         label_items = list(labels_list)
     else:
         label_items = [labels_list]
 
+    # image_shapes is ambiguous on its own: a single shape tuple like (H, W)
+    # looks the same as "a list of shapes" once wrapped, so detect the
+    # single-shape case explicitly (a tuple of plain ints) before falling
+    # back to treating it as a list of shape tuples.
     if isinstance(image_shapes, tuple) and all(isinstance(v, int) for v in image_shapes):
         shape_items = [tuple(image_shapes)]
     elif isinstance(image_shapes, (list, tuple)):
@@ -79,6 +84,8 @@ def _normalize_shape_inputs(image_shapes, labels_list):
 
 
 def _prepare_labeled_plane(labels, config: CellConfig, mask_axes: str) -> np.ndarray:
+    # Reuse the cell strategy's own channel-selection logic so scanning sees
+    # exactly the same 2D label plane a real patching run would use.
     strategy = CellSegmentationStrategy(config=config, mask_axes=mask_axes)
     selected = strategy._select_label_plane(labels)
 
@@ -100,6 +107,9 @@ def _prepare_labeled_plane(labels, config: CellConfig, mask_axes: str) -> np.nda
                 "For labeled masks, use an integer dtype."
             )
 
+    # A binary (0/1) mask has no per-object ids yet, so it must first be
+    # turned into a labeled map -- either by connected-component labeling
+    # or by treating the whole foreground as a single object.
     if np.all(np.isin(unique_values, [0, 1, False, True])):
         if config.binary_mask_policy == "connected_components":
             return strategy._label_connected_components(foreground_mask)
@@ -107,6 +117,7 @@ def _prepare_labeled_plane(labels, config: CellConfig, mask_axes: str) -> np.nda
             return foreground_mask.astype(np.int32)
         raise ValueError(f"Unsupported binary_mask_policy: {config.binary_mask_policy}")
 
+    # Already a labeled map (values beyond {0, 1}): use as-is.
     return selected.astype(np.int32)
 
 
@@ -143,6 +154,8 @@ def scan_cell_objects(*, image_shape, labels, image_id=None, config=None, image_
     """
     local_config = config if config is not None else CellConfig()
 
+    # Resolve the image's Y/X spatial extent so per-object border checks
+    # below know where the image edges actually are.
     normalized_image_axes = normalize_axes(image_axes, len(image_shape))
     y_idx, x_idx = require_spatial_axes(normalized_image_axes)
     image_h = int(image_shape[y_idx])
@@ -159,6 +172,9 @@ def scan_cell_objects(*, image_shape, labels, image_id=None, config=None, image_
     records: list[CellObjectRecord] = []
     image_id_value = image_id if image_id is not None else "image_0000"
 
+    # One record per labeled object, regardless of whether it would pass
+    # the size/border filters -- scan_cell_patch_size needs the excluded
+    # objects too, to report why they were skipped.
     for label_id in sorted(object_ids):
         ys, xs = np.where(labeled == label_id)
         if ys.size == 0:
@@ -172,6 +188,9 @@ def scan_cell_objects(*, image_shape, labels, image_id=None, config=None, image_
         square_size = int(max(bbox_height, bbox_width))
         touches_border = y_min == 0 or x_min == 0 or y_max == image_h - 1 or x_max == image_w - 1
 
+        # Border exclusion takes priority over the area check when deciding
+        # why an object is excluded, matching CellSegmentationStrategy's
+        # own precedence.
         included = True
         reason = None
         if local_config.exclude_border and touches_border:
@@ -204,6 +223,8 @@ def scan_cell_patch_size(image_shapes, labels_list, config=None, image_axes="YX"
     local_config = config if config is not None else CellConfig()
     shape_items, label_items = _normalize_shape_inputs(image_shapes, labels_list)
 
+    # Scan every image/label pair independently, then pool all per-object
+    # records together for the dataset-level statistics below.
     all_records: list[CellObjectRecord] = []
     for idx, (shape, labels) in enumerate(zip(shape_items, label_items)):
         image_id = f"image_{idx:04d}"
@@ -222,6 +243,9 @@ def scan_cell_patch_size(image_shapes, labels_list, config=None, image_axes="YX"
     n_skipped_border = sum(1 for r in all_records if r.reason == "border")
     n_skipped_area = sum(1 for r in all_records if r.reason == "area")
 
+    # Size statistics are only meaningful over objects that would actually
+    # be patched; skipped objects (border/area) are excluded here even
+    # though they're still present in `records` for inspection.
     if included:
         bbox_heights = np.asarray([r.bbox_height for r in included], dtype=np.int32)
         bbox_widths = np.asarray([r.bbox_width for r in included], dtype=np.int32)

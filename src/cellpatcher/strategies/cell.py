@@ -29,6 +29,9 @@ class CellSegmentationStrategy(BasePatchStrategy):
             # scipy is not installed; fall back to the built-in BFS implementation below
             pass
 
+        # Manual 4-connected flood fill: scan every pixel in reading order,
+        # and whenever an unlabeled foreground pixel is found, BFS outward
+        # from it assigning the same new label to its whole connected blob.
         h, w = binary.shape
         labeled = np.zeros((h, w), dtype=np.int32)
         current_label = 0
@@ -51,12 +54,14 @@ class CellSegmentationStrategy(BasePatchStrategy):
         return labeled
 
     def _select_label_plane(self, labels):
+        # A plain 2D label array needs no channel handling at all.
         arr = np.asarray(labels)
         if arr.ndim == 2:
             return arr
         if arr.ndim < 2:
             raise ValueError(f"labels must be at least 2D, got ndim={arr.ndim}.")
-        # arr.ndim > 2
+        # arr.ndim > 2: a channel (or other extra) axis must be resolved
+        # down to 2D explicitly -- there's no safe default to guess here.
         if self.config.mask_channel is None:
             raise ValueError(
                 "mask_channel is required for multidimensional labels. "
@@ -117,6 +122,9 @@ class CellSegmentationStrategy(BasePatchStrategy):
                     "For labeled masks, use an integer dtype."
                 )
 
+        # A binary mask has no per-object ids yet and must be labeled first
+        # (see the same logic in cell_scan._prepare_labeled_plane); a mask
+        # that's already multi-valued is assumed to be pre-labeled.
         if np.all(np.isin(unique_values, [0, 1, False, True])):
             if self.config.binary_mask_policy == "connected_components":
                 labeled = self._label_connected_components(foreground_mask)
@@ -130,6 +138,9 @@ class CellSegmentationStrategy(BasePatchStrategy):
         object_ids = [int(v) for v in np.unique(labeled) if int(v) != 0]
         patches: list[PatchRegion] = []
 
+        # One patch per labeled object; objects are skipped (not raised on)
+        # when they fail the size/border criteria below, since a dataset
+        # naturally mixes objects that should and shouldn't be patched.
         for label_id in sorted(object_ids):
             ys, xs = np.where(labeled == label_id)
             if ys.size == 0:
@@ -150,6 +161,9 @@ class CellSegmentationStrategy(BasePatchStrategy):
             if self.config.exclude_border and touches_border:
                 continue
 
+            # 'auto' sizes the patch to just cover the object's own bounding
+            # box (a square large enough for its longer side); otherwise
+            # every object gets the same fixed patch size.
             if self.config.patch_size == "auto":
                 patch_size = int(max(obj_h, obj_w))
             elif isinstance(self.config.patch_size, int):
@@ -168,6 +182,10 @@ class CellSegmentationStrategy(BasePatchStrategy):
             else:
                 raise ValueError(f"Unsupported center_on: {self.config.center_on}")
 
+            # Build a patch_size x patch_size square centered on the object,
+            # then clip it to the image bounds -- this is why a fixed
+            # patch_size can still yield a smaller region near an edge (see
+            # the class-level note above).
             y0 = int(round(center_y - patch_size / 2.0))
             x0 = int(round(center_x - patch_size / 2.0))
             y1 = y0 + patch_size

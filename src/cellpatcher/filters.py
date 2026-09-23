@@ -19,6 +19,9 @@ def compute_threshold(image, threshold):
     if isinstance(threshold, (int, float)):
         return float(threshold)
     if isinstance(threshold, str):
+        # String thresholds are resolved against `image`'s own statistics
+        # rather than being fixed numbers, so the same config works across
+        # images with different intensity ranges.
         t = threshold.strip().lower()
         if t == "mean":
             return float(np.mean(arr))
@@ -63,6 +66,8 @@ def filter_regions(image, regions, config: FilterConfig, *, axes: str = "YX", pa
     - foreground fraction is computed over all values of each extracted patch.
     Users needing channel-specific behavior should pass a projected/selected image.
     """
+    # No filters configured: skip extracting every patch just to keep all of
+    # them.
     if (
         config.min_foreground_fraction is None
         and config.foreground_threshold is None
@@ -75,6 +80,8 @@ def filter_regions(image, regions, config: FilterConfig, *, axes: str = "YX", pa
         if frac < 0 or frac > 1:
             raise ValueError("min_foreground_fraction must be in [0, 1].")
 
+    # Resolve the threshold once against the full image, rather than
+    # per-patch, so every region is judged against the same reference.
     threshold = None
     if config.foreground_threshold is not None:
         threshold = compute_threshold(image, config.foreground_threshold)
@@ -88,6 +95,8 @@ def filter_regions(image, regions, config: FilterConfig, *, axes: str = "YX", pa
                 continue
 
         if config.min_foreground_fraction is not None:
+            # No explicit threshold was given: fall back to the image's own
+            # mean intensity as the foreground/background split point.
             effective_threshold = threshold
             if effective_threshold is None:
                 effective_threshold = float(np.mean(np.asarray(image)))

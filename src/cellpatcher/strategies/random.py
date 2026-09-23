@@ -27,9 +27,14 @@ class RandomPatchStrategy(BasePatchStrategy):
             )
 
         rng = np.random.default_rng(self.config.seed)
+        # The valid range for a top-left corner so the full patch stays
+        # inside the image.
         y_max = height - patch_size
         x_max = width - patch_size
 
+        # An optional mask restricts sampling to only the region(s) it
+        # covers; without one, any position in [0, y_max] x [0, x_max] is
+        # accepted immediately (see the "if mask is not None" check below).
         mask = None
         if labels is not None:
             mask = np.asarray(labels).astype(bool)
@@ -40,6 +45,9 @@ class RandomPatchStrategy(BasePatchStrategy):
 
         patches: list[PatchRegion] = []
         attempts = 0
+        # A sparse mask can make random sampling take many tries per hit;
+        # cap the attempts so a bad mask fails fast with a clear error
+        # instead of looping indefinitely.
         max_attempts = max(1000, n_patches * 50)
 
         while len(patches) < n_patches:
@@ -55,6 +63,8 @@ class RandomPatchStrategy(BasePatchStrategy):
             x1 = x0 + patch_size
 
             attempts += 1
+            # Reject (without counting toward n_patches) any draw that
+            # doesn't overlap the sampling mask at all.
             if mask is not None and not np.any(mask[y0:y1, x0:x1]):
                 continue
 
