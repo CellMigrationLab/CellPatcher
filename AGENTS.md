@@ -21,7 +21,7 @@
 
 Key dependencies: `numpy`, `scipy`, `tifffile`, `imageio` (core, required). Optional extras: `ipywidgets`, `matplotlib`, `pillow`, `tqdm`, `joblib`, `jl-hidecode` (notebook extra); `torch` (optional `cellpatcher.torch_dataset` adapter only — never a core dependency).
 
-Current health snapshot (latest audit): 417 tests passing.
+Current health snapshot (latest audit): 467 tests passing.
 
 ---
 
@@ -39,23 +39,30 @@ These rules override other implementation preferences.
   optional `cellpatcher.torch_dataset` adapter is the one sanctioned
   exception and must stay optional and model-agnostic.
 * **Never rename or repurpose an existing `PatchRegion` field**
-  (`patch_id`, `image_id`, `mode`, `y0/y1/x0/x1`, `z0/z1`, `t`, `c`,
-  `label_id`, `center_y`/`center_x`/`center_z`, `touches_border`,
-  `area_px`, `valid`, `reason`). These are exactly the columns written to
-  the exported metadata CSV (`save_metadata_csv` in
-  `src/cellpatcher/export.py`), and downstream repos may already depend on
-  them.
+  (`patch_id`, `image_id`, `mode`, `condition`, `repeat`, `image_file`,
+  `mask_file`, `y0/y1/x0/x1`, `z0/z1`, `t`, `c`, `label_id`,
+  `center_y`/`center_x`/`center_z`, `touches_border`, `area_px`,
+  `patch_file`, `output_height`/`output_width`, `config_file`, `valid`,
+  `reason`). These are exactly the columns written to the exported metadata
+  CSV (`save_metadata_csv` in `src/cellpatcher/export.py`, plus the
+  computed `height`/`width` convenience columns from `PatchRegion.to_dict()`),
+  and downstream repos may already depend on them. New fields may be
+  *added* (as optional, default-`None` fields) without violating this rule;
+  existing ones may not be renamed or have their meaning changed.
 * **The MorphoBricks-wide `condition`/`repeat`/`image_file`/`mask_file`/
-  `patch_file` CSV contract in §5 is a target convention, not current
-  behavior.** CellPatcher does not implement it yet. Never present it as
-  already implemented in code, docs, or commit messages; treat adopting it
-  as a deliberate, user-approved change (see §8).
+  `patch_file` CSV contract in §5 is now implemented** — `run_patching`/
+  `run_patching_pipeline` populate all five columns (see §5 for exactly how
+  and what still requires explicit caller input). Any further change to
+  these columns' meaning, or to how they're populated, is still a
+  deliberate, user-approved change (see §8), same as any other shared
+  column.
 * **Never hard-code machine-specific paths.** Use config dataclasses
   (`CellPatcherConfig` and friends), function arguments, or environment
   variables.
 * **Never break public interfaces** without explicit user approval:
-  `run_patching`, `run_patching_pipeline`, config dataclasses, `read_array`,
-  `validate_image_and_mask_folders`, `scan_cell_patch_size`,
+  `run_patching`, `run_patching_pipeline`, `run_patching_condition_repeat_tree`,
+  config dataclasses, `read_array`, `validate_image_and_mask_folders`,
+  `discover_condition_repeat_folders`, `scan_cell_patch_size`,
   `prepare_image_for_patching`, `iter_image_planes_for_patching`. Other
   repos (and notebooks) import these.
 * **Keep public pipeline functionality usable from three contexts:** Jupyter
@@ -193,6 +200,11 @@ CellPatcher-specific conventions:
   reference-only), `CellPatcher_v2.ipynb` (staged), `CellPatcher_v3.ipynb`
   (preferred, app-style/tabbed — the default manual-testing path when
   present).
+* Whenever `export.enabled=True`, `pipeline.py` also writes
+  `run_config.json` (filename: `cellpatcher.RUN_CONFIG_FILENAME`) next to
+  `patches.csv` — the full serialized `CellPatcherConfig` for the run, so
+  every exported patch is deterministically reproducible from its CSV row
+  (`config_file` column) plus that file (see §5).
 
 Reusable pipeline logic should live in importable modules rather than only
 in notebooks where practical.
@@ -210,18 +222,38 @@ in notebooks where practical.
 CellPatcher reads image files, and (for `cell` mode) matching label/mask
 files, directly from user-provided folders. Matching is validated via
 `validate_image_and_mask_folders`/`io.py`, using an `exact`,
-`exact_or_suffix` (default), or `substring` strategy. **CellPatcher does not
-currently assume or enforce the `<condition>/<repeat_YYYY_MM_DD>/` folder
-layout described in §6** — that layout is the target MorphoBricks
-convention, not an enforced contract today.
+`exact_or_suffix` (default), or `substring` strategy.
+
+Two ways to point CellPatcher at input data:
+
+- `run_patching_pipeline(image_folder_path, ...)` — a single flat folder of
+  images (optionally with a matching mask folder). `condition`/`repeat`
+  must be set explicitly via `CellPatcherConfig.common.condition`/`.repeat`
+  when using this entry point; they are not parsed from the folder path.
+- `run_patching_condition_repeat_tree(image_root_path, ...)` — the
+  `<condition>/<repeat_YYYY_MM_DD>/` layout from §6, walked automatically
+  via `discover_condition_repeat_folders`/`io.py`. Also accepts a condition
+  folder holding images directly with **no repeat subfolder**; that case is
+  treated as a single implicit repeat, labeled
+  `cellpatcher.SINGLE_REPEAT_LABEL` (`"single"`), consistently through
+  input discovery, processing (stamped as `common.repeat` on every patch
+  from that condition), and output (its own `<output_dir>/<condition>/single/`
+  subfolder, same as an explicit repeat gets). A condition folder that mixes
+  loose image files with repeat subfolders is ambiguous and raises
+  `ValueError` rather than guessing.
 
 ### Outputs this repo produces
 
-- Patch coordinate/region metadata (`PatchRegion` fields) as a CSV
-  (`save_metadata_csv`, default filename `patches.csv`) via
-  `export_patches` / `run_patching_pipeline`.
+- Patch coordinate/region metadata (`PatchRegion` fields, including the
+  shared CSV contract columns below) as a CSV (`save_metadata_csv`, default
+  filename `patches.csv`) via `export_patches` / `run_patching_pipeline`.
+- Whenever export is enabled, a companion `run_config.json`
+  (`cellpatcher.RUN_CONFIG_FILENAME`) with the full run config — every CSV
+  row's `config_file` column names it — so a row plus that file fully
+  determine how to reproduce the patch (coordinates, strategy parameters
+  including `random.seed`, extraction/resize settings, axes).
 - Optionally, exported patch arrays as `.npy` or `.tif`/`.tiff` files
-  (`save_patch_array`).
+  (`save_patch_array`), named by each row's `patch_file` column.
 - Consumed downstream by feature-extraction repos — currently
   [fiberfeatures](https://github.com/CellMigrationLab/fiberfeatures/tree/main)
   (an early starting point, expected to change), and in future by other
@@ -235,23 +267,40 @@ repo **must** include these columns with exactly these names:
 | Column       | Type   | Required | Notes                                         |
 | ------------ | ------ | -------- | --------------------------------------------- |
 | `condition`  | string | Always   | Experimental group label                      |
-| `repeat`     | string | Always   | Replicate ID (format: `YYYY_MM_DD`)           |
+| `repeat`     | string | Always   | Replicate ID (format: `YYYY_MM_DD`, or `cellpatcher.SINGLE_REPEAT_LABEL`/`"single"` for a condition with no repeat subfolder — see "Inputs" above) |
 | `image_file` | string | Always   | Source image filename                         |
 | `mask_file`  | string | If used  | Mask filename; omit column if not applicable  |
 | `patch_file` | string | If used  | Patch filename; omit column if not applicable |
 
 Do not silently change the meaning of an existing shared column.
 
-**Status for this repo: aspirational / target convention, not yet
-implemented.** CellPatcher's current metadata CSV columns are the
-`PatchRegion` dataclass fields instead: `patch_id`, `image_id`, `mode`,
-`y0`/`y1`/`x0`/`x1`, `z0`/`z1`, `t`, `c`, `label_id`,
-`center_y`/`center_x`/`center_z`, `touches_border`, `area_px`, `valid`,
-`reason` (documented in `src/cellpatcher/types.py`). Do not present the
-`condition`/`repeat`/`image_file`/`mask_file`/`patch_file` contract as
-already implemented in this repo; adopting it is a deliberate,
-user-approved migration (see §2, §8), not something to do incidentally
-while working on an unrelated task.
+**Status for this repo: implemented.** All five columns are real
+`PatchRegion` fields (not just present when exporting) and are written to
+`patches.csv` alongside CellPatcher's own richer, reconstruction-oriented
+columns: `patch_id`, `image_id`, `mode`, `y0`/`y1`/`x0`/`x1`, `height`/
+`width`, `z0`/`z1`, `t`, `c`, `label_id`, `center_y`/`center_x`/`center_z`,
+`touches_border`, `area_px`, `output_height`/`output_width`, `config_file`,
+`valid`, `reason` (documented in `src/cellpatcher/types.py` and
+`docs/configuration_reference.md`). How each contract column is populated:
+
+- `condition`/`repeat` — either set `CellPatcherConfig.common.condition`/
+  `.repeat` explicitly and call `run_patching_pipeline`, or call
+  `run_patching_condition_repeat_tree` on a `<condition>/<repeat>/` root and
+  let it derive both from the folder path per leaf (single-repeat condition
+  folders get `SINGLE_REPEAT_LABEL`). Never inferred by `run_patching()`
+  itself.
+- `image_file`/`mask_file` — populated automatically by
+  `run_patching_pipeline` (and therefore `run_patching_condition_repeat_tree`,
+  which calls it per leaf) from the folders it read. `None` for direct
+  `run_patching()` calls unless the caller supplies them via
+  `image_metadata=[{"image_file": ..., "mask_file": ...}, ...]`.
+- `patch_file` — populated automatically by `export_patches`
+  (`export.enabled=True`); `None` when a patch isn't exported to a file.
+
+Mask/patch columns are always present (never omitted) but hold `None`/empty
+when not applicable, rather than the column itself being dropped — simpler
+for CSV consumers than a variable-width schema, and not a violation of "must
+include these columns."
 
 ---
 
@@ -272,8 +321,10 @@ The full pipeline across all repos is:
 ```text
 raw_data/
   <condition>/
-    <repeat_YYYY_MM_DD>/
-      <image_file>.tif
+    <repeat_YYYY_MM_DD>/        # omit this level entirely for a
+      <image_file>.tif          # condition with only one repeat --
+                                 # CellPatcher then treats the whole
+                                 # <condition>/ folder as that one repeat.
 
 masks/                          # optional
   <condition>/
@@ -281,8 +332,8 @@ masks/                          # optional
       <mask_file>.tif
 ```
 
-(This is the target/ecosystem-wide input layout; see §5 for CellPatcher's
-current, less prescriptive input handling.)
+CellPatcher's `run_patching_condition_repeat_tree` (§5) walks exactly this
+layout, including the no-repeat-subfolder case.
 
 **Known repos in the ecosystem:**
 
@@ -303,8 +354,9 @@ here as new feature-extraction/analysis repos are created.
 
 | Term            | Definition                                                                                       |
 | --------------- | ------------------------------------------------------------------------------------------------- |
-| Condition       | An experimental group (e.g. `treated`, `control`) — part of the target MorphoBricks folder/CSV convention (§5, §6), not yet used inside CellPatcher itself |
-| Repeat          | A biological or technical replicate, identified by date — same status as Condition above          |
+| Condition       | An experimental group (e.g. `treated`, `control`). A `PatchRegion`/CSV column in CellPatcher, set via `CellPatcherConfig.common.condition` or discovered per folder by `run_patching_condition_repeat_tree` (§5) |
+| Repeat          | A biological or technical replicate, identified by date. Same status as Condition above (`common.repeat`); see also Single repeat |
+| Single repeat    | A condition with no repeat subfolder — `<condition>/<image files>` instead of `<condition>/<repeat>/<image files>`. `run_patching_condition_repeat_tree` treats it as one implicit repeat, labeled `cellpatcher.SINGLE_REPEAT_LABEL` (`"single"`) (§5, §6) |
 | Patch           | A sub-region cropped from a microscopy image                                                      |
 | Mask            | Binary/label image marking regions of interest (e.g. cell outlines), used in `cell` mode           |
 | Feature         | A numeric descriptor extracted from a patch or image (produced downstream, e.g. by fiberfeatures)  |
@@ -323,8 +375,10 @@ Ask the user before:
 * Adding a new required dependency
 * Changing any output format, file structure, or `PatchRegion`/metadata CSV
   columns
-* Adopting or changing the shared MorphoBricks CSV column contract in §5
-  (e.g. adding `condition`/`repeat`/`image_file`/`mask_file`/`patch_file`)
+* Changing the shared MorphoBricks CSV column contract in §5 (e.g. how
+  `condition`/`repeat`/`image_file`/`mask_file`/`patch_file` are populated
+  or what they mean) — the contract itself is now implemented, but further
+  changes to it still need approval like any other shared column
 * Changing which notebook version (`CellPatcher.ipynb` / `_v2` / `_v3`) is
   presented as the preferred path
 * Modifying anything in `__init__.py` that affects the public API

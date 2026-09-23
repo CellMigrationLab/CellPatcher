@@ -280,6 +280,20 @@ class ExportedPatchTorchDataset(torch.utils.data.Dataset):
                 raise FileNotFoundError(f"Exported patch file not found for patch_id '{patch_id}': {out_path}")
             return out_path
 
+        # A `patch_file` column (written by export_patches on every current
+        # export) records the exact exported filename. Prefer it over
+        # guessing from patch_id, unless the caller asked for a specific
+        # resolution strategy via prefer_format.
+        if self._prefer_format is None:
+            patch_file_value = row.get("patch_file")
+            if patch_file_value and str(patch_file_value).strip() != "":
+                out_path = Path(patch_file_value)
+                if not out_path.is_absolute():
+                    out_path = self._root_dir / out_path
+                if not out_path.exists():
+                    raise FileNotFoundError(f"Exported patch file not found for patch_id '{patch_id}': {out_path}")
+                return out_path
+
         stem = sanitize_filename(patch_id)
         all_formats = ["npy", "tif", "tiff"]
         ordered = (

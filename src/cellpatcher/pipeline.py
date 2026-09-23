@@ -1,5 +1,8 @@
-from dataclasses import dataclass, field, replace
+import json
+from dataclasses import asdict, dataclass, field, replace
+from pathlib import Path
 
+from cellpatcher.axes import normalize_axes, require_spatial_axes
 from cellpatcher.config import CellPatcherConfig
 from cellpatcher.extract import extract_patches
 from cellpatcher.export import export_patches
@@ -11,6 +14,61 @@ from cellpatcher.strategies.grid import GridStrategy
 from cellpatcher.strategies.random import RandomPatchStrategy
 from cellpatcher.strategies.whole_fov import WholeFOVStrategy
 from cellpatcher.types import PatchRegion
+
+# Filename for the full run-config JSON written alongside the metadata CSV;
+# lets a single PatchRegion CSV row (via its `config_file` column) point back
+# to every parameter needed to deterministically reproduce the run.
+RUN_CONFIG_FILENAME = "run_config.json"
+
+
+def _stamp_run_context(config: CellPatcherConfig, patches: list[PatchRegion]) -> None:
+    for patch in patches:
+        patch.condition = config.common.condition
+        patch.repeat = config.common.repeat
+
+
+def _stamp_image_metadata(image_list, image_metadata, patches: list[PatchRegion]) -> None:
+    """Stamp per-image provenance: plane selection and source filenames.
+
+    *image_metadata* is one dict per image. Plane-selection keys (``"t"``,
+    ``"z"``, ``"c"``) match :class:`~cellpatcher.preprocess.PreparedPlane`/
+    ``PreparedPlanePair`` ``.metadata`` directly — this is what closes the
+    gap where that metadata was available on preprocessing helpers but never
+    reached ``PatchRegion``/the export CSV. ``"image_file"``/``"mask_file"``
+    stamp the shared MorphoBricks CSV columns; ``run_patching_pipeline``
+    supplies these automatically from the folders it read.
+    """
+    if image_metadata is None:
+        return
+    if len(image_metadata) != len(image_list):
+        raise ValueError("image_metadata must have exactly one entry per image (or be None).")
+
+    per_image = {f"image_{idx:04d}": meta for idx, meta in enumerate(image_metadata)}
+    for patch in patches:
+        meta = per_image.get(patch.image_id)
+        if not meta:
+            continue
+        if meta.get("t") is not None:
+            patch.t = int(meta["t"])
+        if meta.get("z") is not None:
+            z = int(meta["z"])
+            patch.z0, patch.z1 = z, z + 1
+        if meta.get("c") is not None:
+            patch.c = int(meta["c"])
+        if meta.get("image_file") is not None:
+            patch.image_file = str(meta["image_file"])
+        if meta.get("mask_file") is not None:
+            patch.mask_file = str(meta["mask_file"])
+
+
+def _stamp_output_dimensions(config: CellPatcherConfig, patches: list[PatchRegion], patch_arrays) -> None:
+    if patch_arrays is None or len(patch_arrays) != len(patches):
+        return
+    for patch, array in zip(patches, patch_arrays):
+        axes = normalize_axes(config.common.image_axes, ndim=array.ndim)
+        y_idx, x_idx = require_spatial_axes(axes)
+        patch.output_height = int(array.shape[y_idx])
+        patch.output_width = int(array.shape[x_idx])
 
 
 @dataclass
@@ -140,14 +198,27 @@ def _maybe_extract_arrays(config: CellPatcherConfig, image_list, patches: list[P
     return extracted
 
 
-def _build_result(config: CellPatcherConfig, image_list, patches: list[PatchRegion], masks=None) -> PatchingResult:
+def _build_result(
+    config: CellPatcherConfig, image_list, patches: list[PatchRegion], masks=None, image_metadata=None
+) -> PatchingResult:
+    _stamp_run_context(config, patches)
+    _stamp_image_metadata(image_list, image_metadata, patches)
     patch_arrays_internal = _maybe_extract_arrays(config, image_list, patches, masks=masks)
+    _stamp_output_dimensions(config, patches, patch_arrays_internal)
 
     exported_files: list[str] = []
     metadata_file: str | None = None
     if config.export.enabled:
         if config.common.output_dir is None:
             raise ValueError("common.output_dir is required when export.enabled is True.")
+
+        out_dir = Path(config.common.output_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        config_path = out_dir / RUN_CONFIG_FILENAME
+        with config_path.open("w", encoding="utf-8") as f:
+            json.dump(asdict(config), f, indent=2, default=str)
+        for patch in patches:
+            patch.config_file = RUN_CONFIG_FILENAME
 
         exported_files = export_patches(
             patches,
@@ -158,9 +229,7 @@ def _build_result(config: CellPatcherConfig, image_list, patches: list[PatchRegi
             metadata_filename="patches.csv",
         )
         if config.export.save_metadata_csv:
-            from pathlib import Path
-
-            metadata_file = str(Path(config.common.output_dir) / "patches.csv")
+            metadata_file = str(out_dir / "patches.csv")
 
     patch_arrays_result = patch_arrays_internal if config.common.extract_arrays else None
     return PatchingResult(
@@ -171,7 +240,7 @@ def _build_result(config: CellPatcherConfig, image_list, patches: list[PatchRegi
     )
 
 
-def run_patching(images=None, masks=None, config=None) -> PatchingResult:
+def run_patching(images=None, masks=None, config=None, image_metadata=None) -> PatchingResult:
     """Generate patch regions (and optionally extract arrays) from in-memory images.
 
     This is the low-level entry point.  Use :func:`~cellpatcher.run_patching_pipeline`
@@ -191,6 +260,13 @@ def run_patching(images=None, masks=None, config=None) -> PatchingResult:
         * ``mode='random'`` — **optional**.  When provided, patches are
           restricted to the spatial region covered by the mask.
         * ``mode='grid'`` / ``'whole_fov'`` — not consumed; pass ``None``.
+    image_metadata:
+        Optional list of dicts, one per image, matching
+        :class:`~cellpatcher.preprocess.PreparedPlane`/``PreparedPlanePair``
+        ``.metadata`` (keys ``"t"``, ``"z"``, ``"c"``). When supplied, the
+        selected plane indices are stamped onto every resulting patch's
+        ``t``/``z0``/``z1``/``c`` fields so the exported metadata CSV records
+        exactly which C/Z/T plane each patch came from.
     config:
         A :class:`~cellpatcher.CellPatcherConfig` instance.  Defaults to
         ``CellPatcherConfig()`` (cell mode with all defaults).
@@ -241,7 +317,7 @@ def run_patching(images=None, masks=None, config=None) -> PatchingResult:
                 )
             )
         patches = _apply_filters(config, image_list, patches)
-        return _build_result(config, image_list, patches, masks=None)
+        return _build_result(config, image_list, patches, masks=None, image_metadata=image_metadata)
 
     if config.mode == "grid":
         strategy = GridStrategy(config.grid)
@@ -255,7 +331,7 @@ def run_patching(images=None, masks=None, config=None) -> PatchingResult:
                 )
             )
         patches = _apply_filters(config, image_list, patches)
-        return _build_result(config, image_list, patches, masks=None)
+        return _build_result(config, image_list, patches, masks=None, image_metadata=image_metadata)
 
     if config.mode == "cell":
         if images is None:
@@ -279,7 +355,7 @@ def run_patching(images=None, masks=None, config=None) -> PatchingResult:
                 )
             )
         patches = _apply_filters(config, image_list, patches)
-        return _build_result(config, image_list, patches, masks=mask_list)
+        return _build_result(config, image_list, patches, masks=mask_list, image_metadata=image_metadata)
 
     if config.mode == "random":
         image_list = _normalize_images(images)
@@ -310,4 +386,4 @@ def run_patching(images=None, masks=None, config=None) -> PatchingResult:
                 )
             )
         patches = _apply_filters(config, image_list, patches)
-        return _build_result(config, image_list, patches, masks=mask_list)
+        return _build_result(config, image_list, patches, masks=mask_list, image_metadata=image_metadata)

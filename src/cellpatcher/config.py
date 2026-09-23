@@ -7,6 +7,14 @@ class CommonConfig:
     mask_axes: str = "YX"
     output_dir: str | None = None
     extract_arrays: bool = False
+    # Stamped onto every PatchRegion/metadata-CSV row for this run when set.
+    # These are the MorphoBricks shared-CSV-contract `condition`/`repeat`
+    # columns (see AGENTS.md §5). run_patching()/run_patching_pipeline()
+    # never infer them; set them explicitly, or use
+    # orchestration.run_patching_condition_repeat_tree to derive them per
+    # leaf from a <condition>/<repeat>/ folder tree instead.
+    condition: str | None = None
+    repeat: str | None = None
 
 
 @dataclass

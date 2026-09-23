@@ -336,6 +336,58 @@ def test_exported_patch_torch_dataset_basic_npy_load(tmp_path):
     assert "patch" in sample and "path" in sample
 
 
+def test_exported_patch_torch_dataset_prefers_patch_file_column(tmp_path):
+    from cellpatcher.torch_dataset import ExportedPatchTorchDataset
+
+    # patch_id-derived guess ("p1.npy") deliberately does not exist; only the
+    # patch_file-named file does, proving resolution actually uses that column.
+    np.save(tmp_path / "actual_export_name.npy", np.arange(9, dtype=np.uint8).reshape(3, 3))
+    csv_path = tmp_path / "patches.csv"
+    _write_csv(
+        csv_path,
+        ["patch_id", "image_id", "patch_file"],
+        [{"patch_id": "p1", "image_id": "image_0000", "patch_file": "actual_export_name.npy"}],
+    )
+
+    ds = ExportedPatchTorchDataset(csv_path)
+    sample = ds[0]
+    assert sample["path"].endswith("actual_export_name.npy")
+
+
+def test_exported_patch_torch_dataset_loads_real_export_patches_output(tmp_path):
+    from cellpatcher.torch_dataset import ExportedPatchTorchDataset
+
+    image = np.ones((16, 16), dtype=np.float32)
+    cfg = CellPatcherConfig(mode="whole_fov")
+    cfg.export.enabled = True
+    cfg.export.image_format = "npy"
+    cfg.common.output_dir = str(tmp_path)
+
+    result = run_patching(images=image, config=cfg)
+    ds = ExportedPatchTorchDataset(result.metadata_file)
+    assert len(ds) == 1
+    sample = ds[0]
+    assert sample["path"] == str(tmp_path / result.patches[0].patch_file)
+
+
+def test_exported_patch_torch_dataset_prefer_format_bypasses_patch_file_column(tmp_path):
+    from cellpatcher.torch_dataset import ExportedPatchTorchDataset
+
+    np.save(tmp_path / "p1.npy", np.ones((2, 2), dtype=np.uint8))
+    csv_path = tmp_path / "patches.csv"
+    _write_csv(
+        csv_path,
+        ["patch_id", "patch_file"],
+        [{"patch_id": "p1", "patch_file": "does_not_exist.npy"}],
+    )
+
+    # prefer_format is an explicit resolution strategy; it should win over
+    # an (in this case stale) patch_file column rather than raising.
+    ds = ExportedPatchTorchDataset(csv_path, prefer_format="npy")
+    sample = ds[0]
+    assert sample["path"].endswith("p1.npy")
+
+
 def test_exported_patch_torch_dataset_return_tensor_transform_and_extra_metadata(tmp_path):
     from cellpatcher.torch_dataset import ExportedPatchTorchDataset
 

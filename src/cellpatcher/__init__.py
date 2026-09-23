@@ -1,4 +1,13 @@
-from cellpatcher.orchestration import apply_overrides, default_config, load_config, run_patching_pipeline, save_config_for_mode, save_default_config
+from cellpatcher.orchestration import (
+    ConditionRepeatResult,
+    apply_overrides,
+    default_config,
+    load_config,
+    run_patching_condition_repeat_tree,
+    run_patching_pipeline,
+    save_config_for_mode,
+    save_default_config,
+)
 from cellpatcher.axes import axis_index, axes_dict, mapping_to_axes, move_axes, normalize_axes, require_spatial_axes
 from cellpatcher.cell_scan import CellObjectRecord, CellPatchSizeSummary, scan_cell_objects, scan_cell_patch_size
 from cellpatcher.config import (
@@ -14,7 +23,10 @@ from cellpatcher.config import (
 )
 from cellpatcher.export import export_patches, patch_metadata_to_rows, sanitize_filename, save_metadata_csv, save_patch_array
 from cellpatcher.io import (
+    SINGLE_REPEAT_LABEL,
     SUPPORTED_EXTENSIONS,
+    ConditionRepeatFolder,
+    discover_condition_repeat_folders,
     filter_shared_matches,
     find_candidate_matches,
     list_supported_files,
@@ -25,7 +37,7 @@ from cellpatcher.io import (
     run_patching_from_folders,
 )
 from cellpatcher.filters import compute_threshold, filter_regions, foreground_fraction
-from cellpatcher.pipeline import PatchingResult, run_patching
+from cellpatcher.pipeline import RUN_CONFIG_FILENAME, PatchingResult, run_patching
 from cellpatcher.preprocess import (
     PreparedPlane,
     PreparedPlanePair,
@@ -63,6 +75,7 @@ __all__ = [
     "ExtractionConfig",
     "PatchingResult",
     "run_patching",
+    "RUN_CONFIG_FILENAME",
     "SUPPORTED_EXTENSIONS",
     "list_supported_files",
     "read_array",
@@ -78,6 +91,11 @@ __all__ = [
     "apply_overrides",
     "default_config",
     "run_patching_pipeline",
+    "run_patching_condition_repeat_tree",
+    "ConditionRepeatResult",
+    "ConditionRepeatFolder",
+    "discover_condition_repeat_folders",
+    "SINGLE_REPEAT_LABEL",
     "sanitize_filename",
     "patch_metadata_to_rows",
     "save_metadata_csv",
