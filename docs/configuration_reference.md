@@ -176,6 +176,7 @@ Every generated patch is a `PatchRegion` dataclass. The fields below are populat
 | `mode` | `str \| None` | Patching mode that generated this patch. |
 | `condition` | `str \| None` | From `config.common.condition`. See the shared CSV contract below. |
 | `repeat` | `str \| None` | From `config.common.repeat`. See the shared CSV contract below. |
+| `position_id` | `str \| None` | Optional stable spatial acquisition-position identifier. Use the same value for all Z/C/T planes from one XY position. |
 | `image_file` | `str \| None` | Source image filename. Populated automatically by `run_patching_pipeline`; `None` for direct `run_patching()` calls unless supplied via `image_metadata`. |
 | `mask_file` | `str \| None` | Source mask filename (cell/random mode only, when a mask was loaded). Same population rule as `image_file`. |
 | `y0`, `y1` | `int` | Vertical extent of the patch in pixels (`y0` inclusive, `y1` exclusive). |
@@ -195,7 +196,7 @@ Every generated patch is a `PatchRegion` dataclass. The fields below are populat
 
 ### Shared MorphoBricks CSV contract
 
-`condition`, `repeat`, `image_file`, `mask_file`, and `patch_file` are the columns the MorphoBricks ecosystem's shared CSV contract requires (`AGENTS.md` §5). CellPatcher populates all five:
+`condition`, `repeat`, `position_id` (when needed), `image_file`, `mask_file`, and `patch_file` are the columns the MorphoBricks ecosystem's shared CSV contract requires (`AGENTS.md` §5). CellPatcher populates all five:
 
 - `condition`/`repeat` — either set `config.common.condition`/`config.common.repeat` explicitly and call `run_patching_pipeline` on a single folder, or call `run_patching_condition_repeat_tree(image_root_path, ...)` on a `raw_data/<condition>/<repeat>/` root and let both be derived per leaf from the folder path (see below).
 - `image_file`/`mask_file`/`patch_file` are populated automatically by `run_patching_pipeline` (folder-based runs, including each leaf of `run_patching_condition_repeat_tree`) and `export_patches` respectively.

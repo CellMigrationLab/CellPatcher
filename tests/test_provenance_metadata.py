@@ -186,3 +186,25 @@ def test_run_patching_pipeline_grid_mode_stamps_image_file_only(tmp_path):
     assert len(result.patches) > 0
     assert all(p.image_file == "tile_source.npy" for p in result.patches)
     assert all(p.mask_file is None for p in result.patches)
+
+
+def test_image_metadata_stamps_position_id_across_planes():
+    images = [
+        np.ones((8, 8), dtype=np.float32),
+        np.ones((8, 8), dtype=np.float32),
+    ]
+    image_metadata = [
+        {"position_id": "P1", "z": 0, "image_file": "P1_z000.tif"},
+        {"position_id": "P1", "z": 1, "image_file": "P1_z001.tif"},
+    ]
+    cfg = CellPatcherConfig(mode="whole_fov")
+    result = run_patching(images=images, config=cfg, image_metadata=image_metadata)
+
+    assert [patch.position_id for patch in result.patches] == ["P1", "P1"]
+    assert [patch.z0 for patch in result.patches] == [0, 1]
+    assert [patch.image_file for patch in result.patches] == [
+        "P1_z000.tif",
+        "P1_z001.tif",
+    ]
+    rows = [patch.to_dict() for patch in result.patches]
+    assert [row["position_id"] for row in rows] == ["P1", "P1"]

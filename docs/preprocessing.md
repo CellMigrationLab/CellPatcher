@@ -148,3 +148,26 @@ separately the same way — that one field is not currently mirrored onto `Patch
 plane_id_lookup = {f"image_{i:04d}": p.plane_id for i, p in enumerate(pairs)}
 rows = [{**patch.to_dict(), "plane_id": plane_id_lookup.get(patch.image_id)} for patch in result.patches]
 ```
+
+
+## Spatial position identity for downstream MorphoBricks analysis
+
+When several prepared planes come from the same microscope XY position, they are
+**one spatial FOV**, not one FOV per plane. Add the same `position_id` to every
+plane's metadata before calling `run_patching`:
+
+```python
+image_metadata = [
+    {**p.metadata, "position_id": "P01", "image_file": f"P01_{p.plane_id}.tif"}
+    for p in planes
+]
+result = run_patching(images=images, config=config, image_metadata=image_metadata)
+```
+
+The exported rows then keep both:
+- `position_id`: spatial sampling identity;
+- `z0/z1`, `t`, `c`: within-position acquisition coordinates;
+- `image_file`: source-file provenance.
+
+This distinction is required by MorphoCoverage when asking how many spatial
+positions were sampled.
