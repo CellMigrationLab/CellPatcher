@@ -33,6 +33,8 @@ class PatchRegion:
     exported patch array without re-deriving it from the run's config file.
     - ``condition``, ``repeat``: experimental group / replicate label, from
       ``CellPatcherConfig.common``.
+    - ``position_id``: optional stable spatial acquisition-position identifier.
+      Use the same value for all Z/C/T planes from one XY position.
     - ``image_file``, ``mask_file``: source filenames, from folder-based runs.
     - ``patch_file``: exported patch filename, from ``export_patches``.
     - ``output_height``, ``output_width``: final exported array shape, which
@@ -47,6 +49,7 @@ class PatchRegion:
     mode: str | None = None
     condition: str | None = None
     repeat: str | None = None
+    position_id: str | None = None
     image_file: str | None = None
     mask_file: str | None = None
     y0: int = 0
