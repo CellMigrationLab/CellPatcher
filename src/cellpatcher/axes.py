@@ -7,11 +7,14 @@ def normalize_axes(axes: str, ndim: int | None = None) -> str:
     if not isinstance(axes, str):
         raise ValueError("axes must be a string.")
 
+    # Canonicalize case/whitespace so "yx", "Y X", and "YX" all compare equal.
     normalized = axes.replace(" ", "").upper()
     if any(axis not in _ALLOWED_AXES for axis in normalized):
         raise ValueError("axes may only contain T, C, Z, Y, X.")
     if len(set(normalized)) != len(normalized):
         raise ValueError("axes must not contain duplicate entries.")
+    # When the caller knows the array's ndim, cross-check the axes string
+    # actually has one letter per dimension.
     if ndim is not None and len(normalized) != ndim:
         raise ValueError(f"axes length ({len(normalized)}) must match ndim ({ndim}).")
     return normalized
@@ -24,6 +27,8 @@ def axis_index(axes: str, axis: str) -> int | None:
     axis = axis.upper()
     if axis not in _ALLOWED_AXES:
         raise ValueError("axis must be one of T, C, Z, Y, X.")
+    # None (not -1) signals "axis absent" so callers can distinguish that
+    # from a real position without an extra membership check.
     return normalized.find(axis) if axis in normalized else None
 
 
@@ -48,6 +53,8 @@ def move_axes(array, source_axes: str, target_axes: str):
     if set(src) != set(tgt):
         raise ValueError("source_axes and target_axes must contain the same axes.")
 
+    # For each target position, find where that axis currently lives in
+    # `src`; np.transpose then permutes dimensions into that order.
     order = [src.index(axis) for axis in tgt]
     return np.transpose(array, axes=order)
 
@@ -64,6 +71,9 @@ def mapping_to_axes(mapping, ndim: int | None = None) -> str:
     if not hasattr(mapping, "items"):
         raise ValueError("mapping must be a dict-like object of dimension index to axis label.")
 
+    # First pass: coerce keys to ints and values to upper-case strings (or
+    # None), while tracking the highest index seen so ndim can be inferred
+    # if the caller didn't pass one.
     normalized_mapping: dict[int, str | None] = {}
     max_idx = -1
     for key, value in mapping.items():
@@ -87,6 +97,9 @@ def mapping_to_axes(mapping, ndim: int | None = None) -> str:
         if idx >= ndim:
             raise ValueError(f"Mapping index {idx} is out of range for ndim={ndim}.")
 
+    # Second pass: walk dimensions in order and keep only the ones with a
+    # real axis label, dropping "Other"/unset entries entirely rather than
+    # keeping a placeholder for them.
     labels = []
     for idx in range(ndim):
         label = normalized_mapping.get(idx)

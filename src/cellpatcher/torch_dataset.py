@@ -40,6 +40,10 @@ class PatchTensorConfig:
 
 
 def _squeeze_zt_axes(array: np.ndarray, axes: str, config: PatchTensorConfig) -> tuple[np.ndarray, str]:
+    # Torch tensors built here are always 2D-spatial (+ optional channel);
+    # T/Z axes of size 1 are just dropped, while a real (non-singleton) T/Z
+    # axis means the array wasn't reduced to a single plane upstream and
+    # this function refuses to guess which plane to use.
     out = array
     out_axes = axes
     for axis_name in ("T", "Z"):
@@ -67,7 +71,10 @@ def patch_array_to_tensor(array, *, axes, config=None):
     y_idx, x_idx = require_spatial_axes(ax)
     c_idx = axis_index(ax, "C") if "C" in ax else None
 
+    # Torch's convention is channel-first (C, H, W); get there from
+    # whatever axis order the array is actually in.
     if c_idx is None:
+        # No channel axis at all: add one of size 1.
         chw = arr[np.newaxis, ...]
     else:
         if c_idx == 0 and y_idx == 1 and x_idx == 2 and ax == "CYX":
@@ -82,6 +89,8 @@ def patch_array_to_tensor(array, *, axes, config=None):
 
     channels = int(chw.shape[0])
     if cfg.channel_policy == "repeat_to_rgb":
+        # Grayscale (1-channel) is broadcast to 3 channels for models that
+        # expect RGB input; already-3-channel data passes through unchanged.
         if channels == 1:
             chw = np.repeat(chw, 3, axis=0)
         elif channels != 3:
@@ -92,10 +101,15 @@ def patch_array_to_tensor(array, *, axes, config=None):
 
     if cfg.dtype_policy == "float32":
         chw = chw.astype(np.float32, copy=False)
+        # Integer source data is assumed to span its dtype's full range, so
+        # dividing by that max rescales it into [0, 1] like a normalized
+        # float image; float source data is left as-is.
         if cfg.scale_policy == "auto" and np.issubdtype(arr.dtype, np.integer):
             info = np.iinfo(arr.dtype)
             if info.max > 0:
                 chw = chw / float(info.max)
+    # torch.from_numpy requires a C-contiguous array; the axis moves above
+    # can leave a non-contiguous view.
     chw = np.ascontiguousarray(chw)
     tensor = torch.from_numpy(chw)
     return tensor
@@ -144,6 +158,8 @@ class PatchTorchDataset(torch.utils.data.Dataset):
         else:
             self._mask_lookup = {}
 
+        # Fail fast at construction time (not lazily in __getitem__) if any
+        # patch references an image that wasn't provided.
         for patch in self._patches:
             if patch.image_id is None or patch.image_id not in self._image_lookup:
                 raise ValueError(f"Unknown image_id for dataset patch: {patch.image_id}")
@@ -159,6 +175,10 @@ class PatchTorchDataset(torch.utils.data.Dataset):
         return len(self._patches)
 
     def __getitem__(self, index):
+        # Extraction/masking/resizing happen lazily per __getitem__ call
+        # (rather than eagerly for the whole dataset up front), so this
+        # mirrors _maybe_extract_arrays' three steps but on a single patch
+        # at load time instead of the whole batch at once.
         patch = self._patches[index]
         image = self._image_lookup[patch.image_id]
 
@@ -252,6 +272,9 @@ class ExportedPatchTorchDataset(torch.utils.data.Dataset):
         else:
             self._prefer_format = None
 
+        # Rows are read into memory once at construction time (rather than
+        # streamed per __getitem__ call) so len()/random access both work
+        # without re-reading the CSV.
         with self._metadata_file.open("r", newline="", encoding="utf-8") as f:
             reader = csv.DictReader(f)
             fieldnames = reader.fieldnames or []
@@ -294,6 +317,9 @@ class ExportedPatchTorchDataset(torch.utils.data.Dataset):
                     raise FileNotFoundError(f"Exported patch file not found for patch_id '{patch_id}': {out_path}")
                 return out_path
 
+        # Last resort: neither filename_column nor patch_file resolved a
+        # path, so guess the export filename from patch_id across every
+        # supported extension (prefer_format, if set, is tried first).
         stem = sanitize_filename(patch_id)
         all_formats = ["npy", "tif", "tiff"]
         ordered = (

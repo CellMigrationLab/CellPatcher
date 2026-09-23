@@ -9,6 +9,9 @@ class WholeFOVStrategy(BasePatchStrategy):
         y_size, x_size = _spatial_shape_from_axes(image_shape, axes=axes)
 
         patch_id = f"{image_id}_whole_fov_0" if image_id is not None else "whole_fov_0"
+        # A single region spanning the entire image; touches_border=True
+        # unconditionally since the region's edges are the image's edges by
+        # definition.
         return [
             PatchRegion(
                 patch_id=patch_id,

@@ -11,10 +11,15 @@ def _label_to_2d(label_patch, label_axes: str) -> np.ndarray:
     if label_arr.shape[y_idx] <= 0 or label_arr.shape[x_idx] <= 0:
         raise ValueError("label_patch Y/X dimensions must be positive.")
 
+    # Bring Y/X to the front regardless of their original axis order, so
+    # the rest of this function can assume a simple (Y, X, ...) layout.
     moved = np.moveaxis(label_arr, (y_idx, x_idx), (0, 1))
     if moved.ndim == 2:
         return moved
 
+    # Any remaining (non-spatial) dimensions must be singleton -- e.g. a
+    # label array with a size-1 channel axis -- so they can be dropped
+    # without losing information.
     extra_shape = moved.shape[2:]
     if any(dim != 1 for dim in extra_shape):
         raise ValueError(
@@ -50,6 +55,9 @@ def apply_label_mask_to_patch(
             f"image YX=({img.shape[img_y_idx]}, {img.shape[img_x_idx]}) vs label YX={label_2d.shape}."
         )
 
+    # Build a boolean mask of "this pixel belongs to label_id", then reshape
+    # it to a shape with 1s everywhere except the image's own Y/X axes so it
+    # broadcasts correctly against images with extra axes (e.g. channels).
     mask_2d = label_2d == label_id
     mask_shape = [1] * img.ndim
     mask_shape[img_y_idx] = mask_2d.shape[0]

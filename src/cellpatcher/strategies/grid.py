@@ -11,12 +11,18 @@ class GridStrategy(BasePatchStrategy):
 
     @staticmethod
     def _starts(size: int, tile_size: int, stride: int, include_partial: bool) -> list[int]:
+        # A single tile already covers (or exceeds) the whole dimension.
         if include_partial and tile_size >= size:
             return [0]
 
         if not include_partial:
+            # Only start positions whose full tile fits inside the image;
+            # anything past `size - tile_size` would run off the edge.
             return list(range(0, size - tile_size + 1, stride))
 
+        # include_partial=True: step across the whole dimension, then make
+        # sure the last (possibly partial) tile flush with the far edge is
+        # always included even if the regular stride would skip over it.
         starts = list(range(0, size, stride))
         final_start = max(0, size - tile_size)
         if final_start not in starts:
@@ -30,6 +36,8 @@ class GridStrategy(BasePatchStrategy):
         if tile_size <= 0:
             raise ValueError("tile_size must be > 0.")
 
+        # overlap=0 gives stride == tile_size (tiles touch); overlap closer
+        # to 1 shrinks the stride so consecutive tiles increasingly overlap.
         stride = max(1, round(tile_size * (1 - self.config.overlap)))
 
         if not self.config.include_partial and (tile_size > height or tile_size > width):
@@ -42,6 +50,9 @@ class GridStrategy(BasePatchStrategy):
         idx = 0
         for y0 in y_starts:
             y1 = min(y0 + tile_size, height)
+            # _starts can still produce a start whose tile would be clipped
+            # short by the image edge; skip those explicitly unless partial
+            # tiles were requested.
             if not self.config.include_partial and (y1 - y0) != tile_size:
                 continue
 

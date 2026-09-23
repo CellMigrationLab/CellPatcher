@@ -101,6 +101,8 @@ def _normalize_masks(masks):
 
 
 def _apply_filters(config: CellPatcherConfig, image_list, patches: list[PatchRegion]) -> list[PatchRegion]:
+    # No intensity/foreground filters configured: skip regrouping and
+    # re-extracting patches just to keep every one of them unchanged.
     if (
         config.filters.min_foreground_fraction is None
         and config.filters.foreground_threshold is None
@@ -108,6 +110,8 @@ def _apply_filters(config: CellPatcherConfig, image_list, patches: list[PatchReg
     ):
         return patches
 
+    # filter_regions needs one call per source image (it reads pixel values
+    # from that specific image), so patches are grouped by image_id first.
     image_lookup = {f"image_{idx:04d}": image for idx, image in enumerate(image_list)}
     grouped: dict[str, list[PatchRegion]] = {}
     for patch in patches:
@@ -116,6 +120,7 @@ def _apply_filters(config: CellPatcherConfig, image_list, patches: list[PatchReg
         grouped.setdefault(patch.image_id, []).append(patch)
 
     kept = []
+    # Sorted order keeps output patch order stable/reproducible across runs.
     for image_id in sorted(grouped.keys()):
         image = image_lookup[image_id]
         kept.extend(
@@ -132,6 +137,8 @@ def _apply_filters(config: CellPatcherConfig, image_list, patches: list[PatchReg
 
 
 def _maybe_extract_arrays(config: CellPatcherConfig, image_list, patches: list[PatchRegion], masks=None):
+    # Arrays are only materialized when actually needed: either the caller
+    # asked for them directly, or export needs pixel data to write files.
     need_arrays = config.common.extract_arrays or config.export.enabled
     if not need_arrays:
         return None
@@ -149,6 +156,8 @@ def _maybe_extract_arrays(config: CellPatcherConfig, image_list, patches: list[P
             raise ValueError("Number of images and masks must match when extraction.apply_mask=True.")
         mask_lookup = {f"image_{idx:04d}": mask for idx, mask in enumerate(masks)}
 
+    # Group patches by source image so extract_patches can be called once
+    # per image rather than once per patch.
     grouped: dict[str, list[PatchRegion]] = {}
     for patch in patches:
         if patch.image_id is None or patch.image_id not in image_lookup:
@@ -159,6 +168,7 @@ def _maybe_extract_arrays(config: CellPatcherConfig, image_list, patches: list[P
     for image_id in sorted(grouped.keys()):
         image = image_lookup[image_id]
         image_patches = grouped[image_id]
+        # Step 1: crop each region's pixels out of the source image.
         per_image_arrays = extract_patches(
             image,
             image_patches,
@@ -171,6 +181,9 @@ def _maybe_extract_arrays(config: CellPatcherConfig, image_list, patches: list[P
             if mask_lookup is None or image_id not in mask_lookup:
                 raise ValueError(f"Unknown image_id for mask extraction: {image_id}")
 
+            # Step 2 (cell mode only): crop the matching mask region too,
+            # then zero out pixels that don't belong to the patch's own
+            # label so only the segmented object remains.
             label_patches = extract_patches(
                 mask_lookup[image_id],
                 image_patches,
@@ -187,6 +200,7 @@ def _maybe_extract_arrays(config: CellPatcherConfig, image_list, patches: list[P
                 fill_value=config.extraction.mask_fill_value,
             )
 
+        # Step 3: optionally resize every patch to a uniform output size.
         if config.extraction.output_size is not None:
             per_image_arrays = resize_patches(
                 per_image_arrays,
@@ -212,6 +226,10 @@ def _build_result(
         if config.common.output_dir is None:
             raise ValueError("common.output_dir is required when export.enabled is True.")
 
+        # Write the full run config first and stamp every patch's
+        # config_file before export_patches runs, so the patches.csv it
+        # writes below already includes that column (see
+        # _stamp_image_metadata's docstring for the same ordering concern).
         out_dir = Path(config.common.output_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
         config_path = out_dir / RUN_CONFIG_FILENAME
@@ -372,6 +390,9 @@ def run_patching(images=None, masks=None, config=None, image_metadata=None) -> P
             mask_list = [masks]
 
         patches: list[PatchRegion] = []
+        # Offset the seed by image index so a multi-image batch run is both
+        # deterministic (same seed -> same patches) and non-degenerate
+        # (different images don't get identical sampling patterns).
         for idx, (image, mask) in enumerate(zip(image_list, mask_list)):
             image_id = f"image_{idx:04d}"
             image_random_config = (

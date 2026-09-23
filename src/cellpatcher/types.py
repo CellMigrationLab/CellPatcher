@@ -73,11 +73,16 @@ class PatchRegion:
     reason: str | None = None
 
     def __post_init__(self) -> None:
+        # y0/x0 are always required (defaulted to 0), so their ranges are
+        # validated unconditionally.
         if self.y1 <= self.y0:
             raise ValueError(f"Invalid y coordinates: y1 ({self.y1}) must be greater than y0 ({self.y0}).")
         if self.x1 <= self.x0:
             raise ValueError(f"Invalid x coordinates: x1 ({self.x1}) must be greater than x0 ({self.x0}).")
 
+        # z0/z1 are optional (a patch may not carry Z information at all),
+        # but if either is set both must be, and as a half-open range like
+        # y0/y1 and x0/x1.
         if (self.z0 is None) != (self.z1 is None):
             raise ValueError("z0 and z1 must both be provided together for 3D regions.")
         if self.z0 is not None and self.z1 is not None and self.z1 <= self.z0:

@@ -24,6 +24,9 @@ def save_metadata_csv(patches, csv_path):
     path = Path(csv_path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
+    # The CSV header follows PatchRegion's own field order, with the
+    # computed height/width convenience columns inserted right after the
+    # x1 coordinate they're derived from (rather than tacked on at the end).
     header = [f.name for f in fields(PatchRegion)]
     x1_index = header.index("x1")
     header = header[: x1_index + 1] + ["height", "width"] + header[x1_index + 1 :]
@@ -77,6 +80,10 @@ def export_patches(
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    # Sanitizing patch_id for use as a filename can collapse otherwise
+    # distinct ids into the same string (e.g. differing only by characters
+    # that both get replaced); check for that up front so a collision fails
+    # loudly instead of one patch silently overwriting another's file.
     candidate_filenames = [f"{sanitize_filename(patch.patch_id)}.{fmt}" for patch in patches]
     counts = Counter(candidate_filenames)
     duplicate_filenames = sorted(name for name, count in counts.items() if count > 1)
@@ -90,6 +97,8 @@ def export_patches(
         path = out_dir / filename
         save_patch_array(array, path)
         saved_files.append(str(path))
+        # Stamp patch_file before the metadata CSV is written below, so
+        # that CSV records the exact filename each patch was saved as.
         patch.patch_file = filename
 
     if save_metadata:

@@ -41,6 +41,10 @@ class ConditionRepeatFolder:
 
 
 def _classify_condition_subfolders(condition_dir: Path, exts: set[str]) -> list[tuple[str, Path]]:
+    # A condition folder is either "flat" (images directly inside it, no
+    # repeat concept) or "nested" (one subfolder per repeat) -- never both,
+    # since that would leave no unambiguous way to assign the loose images
+    # to a repeat.
     entries = list(condition_dir.iterdir())
     loose_images = [p for p in entries if p.is_file() and p.suffix.lower() in exts]
     subdirs = [p for p in entries if p.is_dir()]
@@ -52,7 +56,10 @@ def _classify_condition_subfolders(condition_dir: Path, exts: set[str]) -> list[
             "a single implicit repeat) or entirely inside repeat subfolders, not both."
         )
     if loose_images:
+        # Flat layout: the whole condition folder counts as one repeat.
         return [(SINGLE_REPEAT_LABEL, condition_dir)]
+    # Nested layout: each subfolder is its own repeat, sorted for a
+    # deterministic, reproducible discovery order.
     return [(d.name, d) for d in sorted(subdirs, key=lambda p: p.name)]
 
 
@@ -93,12 +100,17 @@ def discover_condition_repeat_folders(
     exts = supported_extensions if supported_extensions is not None else SUPPORTED_EXTENSIONS
     exts = {e.lower() for e in exts}
 
+    # Every immediate subfolder of `root` is a condition; sorted for a
+    # deterministic discovery order across runs.
     condition_dirs = sorted((p for p in root.iterdir() if p.is_dir()), key=lambda p: p.name)
 
     results: list[ConditionRepeatFolder] = []
     for condition_dir in condition_dirs:
         condition = condition_dir.name
         for repeat, image_folder in _classify_condition_subfolders(condition_dir, exts):
+            # Mirror the same condition/(repeat) path under mask_root so
+            # callers can look for a matching mask folder, without this
+            # function needing to know whether the mode in use requires one.
             mask_folder = None
             if mask_root is not None:
                 mask_folder = mask_root / condition if repeat == SINGLE_REPEAT_LABEL else mask_root / condition / repeat
@@ -120,6 +132,9 @@ def read_array(file_path):
         return np.load(path)
 
     if suffix in {".tif", ".tiff"}:
+        # Prefer tifffile (handles multi-page/ImageJ metadata correctly);
+        # fall back to imageio if it isn't installed, since either is an
+        # accepted optional dependency for TIFF support.
         try:
             import tifffile
             return tifffile.imread(path)
@@ -198,10 +213,14 @@ def find_candidate_matches(
     if not isinstance(case_sensitive, bool):
         raise ValueError("case_sensitive must be a bool.")
 
+    # case_sensitive=False compares lower-cased stems; True compares as-is.
     normalize = (lambda value: value) if case_sensitive else (lambda value: value.lower())
     suffixes = tuple(normalize(value) for value in mask_suffixes)
     mask_names = {Path(m): normalize(Path(m).stem) for m in mask_files}
     out = {}
+    # For each image, collect every mask whose stem matches under the
+    # chosen strategy -- possibly more than one, which is exactly what
+    # filter_shared_matches/validate_image_and_mask_folders resolve next.
     for image in image_files:
         image = Path(image)
         key = normalize(image.stem)
@@ -233,9 +252,14 @@ def filter_shared_matches(candidate_matches) -> dict[Path, list[Path]]:
     """
     filtered = {img: list(matches) for img, matches in candidate_matches.items()}
 
+    # Iterate to a fixed point: dropping a shared mask from one image can
+    # make another mask newly exclusive for a different image, which in
+    # turn may let a further shared mask be dropped, and so on.
     changed = True
     while changed:
         changed = False
+        # Build the reverse mapping (mask -> images currently pointing to
+        # it) fresh each pass, since the previous pass may have changed it.
         mask_to_images = {}
         for img, matches in filtered.items():
             for mask in matches:
@@ -244,6 +268,8 @@ def filter_shared_matches(candidate_matches) -> dict[Path, list[Path]]:
         for img, matches in filtered.items():
             if len(matches) <= 1:
                 continue
+            # Keep only this image's exclusive candidates, but only if that
+            # doesn't throw away every candidate it has.
             exclusive = [m for m in matches if len(mask_to_images.get(m, [])) == 1]
             if exclusive and len(exclusive) != len(matches):
                 filtered[img] = exclusive
@@ -276,11 +302,17 @@ def validate_image_and_mask_folders(
     )
     filtered = filter_shared_matches(candidate)
 
+    # After pruning, only images with exactly one candidate are safe to
+    # resolve automatically; zero or multiple candidates are collected
+    # below as validation errors instead of guessing.
     no_match = [img for img, matches in filtered.items() if len(matches) == 0]
     ambiguous = [img for img, matches in filtered.items() if len(matches) > 1]
 
     selected = {img: matches[0] for img, matches in filtered.items() if len(matches) == 1}
 
+    # A mask can still end up selected by more than one image (pruning only
+    # removes shared candidates when an exclusive alternative exists), so
+    # check for that explicitly, along with masks nothing selected at all.
     mask_to_images = {}
     for img, mask in selected.items():
         mask_to_images.setdefault(mask, []).append(img)

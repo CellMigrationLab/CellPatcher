@@ -32,16 +32,21 @@ def percentile_normalize(image, p_low=1.0, p_high=99.8, *, dtype=np.float32):
     if arr.size == 0:
         return out
 
+    # NaN/Inf values would otherwise skew the percentile computation, so
+    # they're excluded from it and forced to 0.0 in the output below.
     finite = np.isfinite(arr)
     if not np.any(finite):
         return out
 
+    # Percentiles (rather than min/max) computed only over finite values
+    # make normalization robust to a small number of outlier pixels.
     finite_vals = arr[finite]
     lo = float(np.percentile(finite_vals, p_low))
     hi = float(np.percentile(finite_vals, p_high))
     if not np.isfinite(lo) or not np.isfinite(hi) or hi <= lo:
         return out
 
+    # Clip to [lo, hi], then linearly rescale that range to [0, 1].
     clipped = np.clip(arr.astype(np.float64, copy=False), lo, hi)
     scaled = (clipped - lo) / (hi - lo)
     scaled = np.where(finite, scaled, 0.0)
@@ -120,14 +125,18 @@ def repeat_to_rgb(image, axes):
 
     c_idx = axis_index(normalized_axes, "C")
     if c_idx is None:
+        # No channel axis at all: treat as single-channel grayscale and add
+        # a new trailing C axis of size 3.
         if normalized_axes != "YX":
             raise ValueError("repeat_to_rgb without a C axis requires axes='YX'.")
         return np.repeat(arr[..., None], 3, axis=2), "YXC"
 
     c_size = arr.shape[c_idx]
     if c_size == 3:
+        # Already RGB-shaped: nothing to do.
         return arr, normalized_axes
     if c_size == 1:
+        # Single-channel with an explicit C axis: repeat it 3x in place.
         return np.repeat(arr, 3, axis=c_idx), normalized_axes
     raise ValueError(
         "repeat_to_rgb only supports grayscale/single-channel or already-3-channel data; "
@@ -147,15 +156,24 @@ def _apply_axis_policy(
     param_name=None,
     index_param_name=None,
 ):
+    # If the array doesn't have this axis at all, there's nothing to
+    # collapse -- return it unchanged rather than erroring.
     idx = axis_index(axes, axis)
     if idx is None:
         return arr, axes
 
+    # Error messages should name the actual caller-facing parameter (e.g.
+    # "channel_policy" instead of the generic axis name) when the caller
+    # supplied one.
     _policy_param = param_name if param_name is not None else f"{axis.lower()}_policy"
     _index_param = index_param_name if index_param_name is not None else f"{axis.lower()}_index"
 
     size = arr.shape[idx]
     if policy == "error":
+        # 'error' is a safety net: a size-1 axis is unambiguous to collapse,
+        # but anything larger means the caller must decide explicitly how
+        # to reduce it (select/project), rather than this silently picking
+        # a plane for them.
         if size > 1:
             raise ValueError(
                 f"{axis} axis has size {size}; explicit selection/projection is required "
@@ -171,6 +189,9 @@ def _apply_axis_policy(
             raise ValueError(f"{_policy_param}='select' requires {_index_param}.")
         return select_axis_index(arr, axes, axis, index)
 
+    # Projection policies (max/mean/sum/...) collapse the whole axis via a
+    # reduction instead of picking one index; which methods are valid
+    # depends on the axis (e.g. labels only ever allow 'max').
     if allowed_project_methods and policy in allowed_project_methods:
         return project_axis(arr, axes, axis, policy)
 
@@ -198,11 +219,16 @@ def prepare_image_for_patching(
     if t_policy == "all" or z_policy == "all":
         raise ValueError("'all' policies are not supported in this function; use iter_image_planes_for_patching for plane expansion.")
 
+    # Collapse T then Z down to single planes (each call is a no-op if the
+    # array has no such axis); patching itself only ever operates on 2D
+    # Y/X (+ optional channel).
     arr, ax = _apply_axis_policy(arr, ax, axis="T", policy=t_policy, index=t_index)
     arr, ax = _apply_axis_policy(
         arr, ax, axis="Z", policy=z_policy, index=z_index, allowed_project_methods={"max", "mean", "sum"}
     )
 
+    # Channel handling is its own policy set (not a generic axis policy)
+    # because 'repeat_to_rgb' has behavior _apply_axis_policy doesn't cover.
     if channel_policy == "keep":
         pass
     elif channel_policy == "repeat_to_rgb":
@@ -222,6 +248,7 @@ def prepare_image_for_patching(
     else:
         raise ValueError(f"Unsupported channel_policy: {channel_policy}")
 
+    # After T/Z/C handling, exactly one Y and one X axis must remain.
     require_spatial_axes(ax)
 
     if normalize is None:
@@ -257,6 +284,9 @@ def prepare_labels_for_cell_patching(
     if t_policy == "all" or z_policy == "all":
         raise ValueError("'all' policies are not supported in this function; use iter_cell_planes_for_patching for plane expansion.")
 
+    # Same T/Z collapsing as prepare_image_for_patching, but Z only allows
+    # 'max' projection for labels (mean/sum would produce meaningless,
+    # non-integer "label" values).
     arr, ax = _apply_axis_policy(arr, ax, axis="T", policy=t_policy, index=t_index, label_context=True)
     arr, ax = _apply_axis_policy(
         arr, ax, axis="Z", policy=z_policy, index=z_index, allowed_project_methods={"max"}, label_context=True
@@ -280,6 +310,9 @@ def prepare_labels_for_cell_patching(
     else:
         raise ValueError(f"Unsupported channel_policy for labels: {channel_policy}")
 
+    # Unlike prepare_image_for_patching, labels must end up as *exactly*
+    # 'YX' (no leftover channel axis), since downstream cell-mode code
+    # expects a plain 2D label map.
     if ax != "YX":
         raise ValueError(f"Prepared labels must resolve to 'YX', got '{ax}'.")
 
@@ -333,12 +366,19 @@ def iter_image_planes_for_patching(
     z_size = _axis_size(arr, ax, "Z")
     t_size = _axis_size(arr, ax, "T")
 
+    # 'all' expands into one iteration per index along that axis; any other
+    # policy is handled once per (T, Z) combination, i.e. a single pass with
+    # a sentinel None value.
     t_values = range(t_size) if t_policy == "all" and t_size is not None else [None]
     z_values = range(z_size) if z_policy == "all" and z_size is not None else [None]
 
     for t_val in t_values:
         for z_val in z_values:
             metadata = {}
+            # When a policy is 'all', re-express this iteration's index as
+            # an explicit 'select' for prepare_image_for_patching (which
+            # doesn't understand 'all' itself), and record it in metadata so
+            # the caller can trace each yielded plane back to its T/Z index.
             eff_t_policy = t_policy
             eff_t_index = t_index
             if t_policy == "all":
@@ -400,6 +440,8 @@ def iter_cell_planes_for_patching(
     img_z, lab_z = _axis_size(img, i_ax, "Z"), _axis_size(lab, l_ax, "Z")
     img_t, lab_t = _axis_size(img, i_ax, "T"), _axis_size(lab, l_ax, "T")
 
+    # 'all' requires the image and its labels to walk the same T/Z indices
+    # in lockstep, so both must actually carry that axis, at matching sizes.
     if z_policy == "all":
         if img_z is None or lab_z is None:
             raise ValueError("z_policy='all' requires both image and labels to contain a Z axis.")
@@ -416,6 +458,9 @@ def iter_cell_planes_for_patching(
 
     for t_val in t_values:
         for z_val in z_values:
+            # Same 'all' -> explicit 'select' re-expression as
+            # iter_image_planes_for_patching, applied to both the image and
+            # its labels so they select the same T/Z plane.
             metadata = {}
             eff_t_policy = t_policy
             eff_t_index = t_index
@@ -456,6 +501,9 @@ def iter_cell_planes_for_patching(
                 channel_index=label_channel_index,
             )
 
+            # Image and label preparation ran independently above; verify
+            # they actually agree on the resulting spatial shape before
+            # yielding the pair as a matched plane.
             p_i_ax = normalize_axes(prepared_image_axes, np.asarray(prepared_image).ndim)
             y_idx, x_idx = require_spatial_axes(p_i_ax)
             if np.asarray(prepared_image).shape[y_idx] != prepared_labels.shape[0] or np.asarray(prepared_image).shape[x_idx] != prepared_labels.shape[1]:

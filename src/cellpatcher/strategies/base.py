@@ -5,6 +5,9 @@ from cellpatcher.types import PatchRegion
 
 
 def _spatial_shape_from_axes(image_shape, axes: str = "YX") -> tuple[int, int]:
+    # Every strategy needs the image's Y/X extent regardless of where those
+    # axes sit in the full shape tuple (e.g. "CYX" vs "YXC"), so this is the
+    # one shared place that resolves it from the axes string.
     if len(image_shape) < 2:
         raise ValueError("image_shape must have at least 2 dimensions.")
     normalized_axes = normalize_axes(axes, ndim=len(image_shape))

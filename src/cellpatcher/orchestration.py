@@ -94,8 +94,12 @@ def apply_overrides(config: CellPatcherConfig, overrides: dict[str, Any]) -> Cel
     ValueError
         If a key refers to an unknown section or field.
     """
+    # Deep-copy so the caller's original config is never mutated, even
+    # though sub-configs are ordinary mutable dataclasses.
     cfg = copy.deepcopy(config)
     for key, value in overrides.items():
+        # A bare key ("mode") sets a top-level field directly; a dotted key
+        # ("grid.tile_size") reaches into the named sub-config section.
         parts = key.split(".", 1)
         if len(parts) == 1:
             if not hasattr(cfg, key):
@@ -244,6 +248,9 @@ def load_config(path) -> CellPatcherConfig:
         A fully reconstructed config instance.
     """
     data = json.loads(Path(path).read_text())
+    # Each section is reconstructed only if present in the file (a
+    # mode-specific save omits irrelevant sections), otherwise it falls
+    # back to that section's own defaults.
     return CellPatcherConfig(
         mode=data.get("mode", "cell"),
         common=CommonConfig(**data["common"]) if "common" in data else CommonConfig(),
@@ -421,8 +428,12 @@ def run_patching_pipeline(
     image_files = list_supported_files(image_folder_path)
     if len(image_files) == 0:
         raise ValueError("No supported image files found in image folder.")
+    # image_files' sorted order fixes the image_0000, image_0001, ...
+    # ids used everywhere downstream (run_patching, filename stamping).
     images = [read_array(path) for path in image_files]
 
+    # Each mode has different mask requirements, so dispatch on mode before
+    # deciding whether/how to load masks at all.
     if config.mode in {"grid", "whole_fov"}:
         if mask_folder_path is not None:
             raise ValueError(
@@ -536,15 +547,24 @@ def run_patching_condition_repeat_tree(
         raise ValueError(f"No condition subfolders with images found under: {image_root_path}")
 
     base_output_dir = Path(config.common.output_dir) if config.common.output_dir is not None else None
+    # grid/whole_fov never accept a mask_folder_path (run_patching_pipeline
+    # raises if given one), so a mask folder existing on disk for those
+    # modes must be ignored rather than passed through.
     masks_allowed = config.mode not in {"grid", "whole_fov"}
 
     results: list[ConditionRepeatResult] = []
     for leaf in leaves:
+        # Derive this leaf's config from the shared base: same settings
+        # everywhere, but condition/repeat/output_dir specific to this leaf.
         leaf_common = replace(config.common, condition=leaf.condition, repeat=leaf.repeat)
         if base_output_dir is not None:
             leaf_common.output_dir = str(base_output_dir / leaf.condition / leaf.repeat)
         leaf_config = replace(config, common=leaf_common)
 
+        # Only pass a mask folder through if the mode can use one AND it
+        # actually exists -- e.g. random mode treats a missing mask folder
+        # as "no mask" rather than an error, same as calling
+        # run_patching_pipeline directly without mask_folder_path.
         leaf_mask_folder = None
         if masks_allowed and leaf.mask_folder is not None and leaf.mask_folder.exists():
             leaf_mask_folder = str(leaf.mask_folder)
