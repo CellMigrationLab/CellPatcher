@@ -242,11 +242,14 @@ repo **must** include these columns with exactly these names:
 | ------------ | ------ | -------- | --------------------------------------------- |
 | `condition`  | string | Always   | Experimental group label                      |
 | `repeat`     | string | Always   | Replicate ID (format: `YYYY_MM_DD`, or `cellpatcher.SINGLE_REPEAT_LABEL`/`"single"` for a condition with no repeat subfolder — see "Inputs" above) |
-| `image_file` | string | Always   | Source image filename                         |
+| `position_id` | string | If needed | Stable spatial acquisition-position ID; all Z/C/T planes from one XY position share it |
+| `image_file` | string | Always   | Source image filename; storage provenance, not necessarily the spatial sampling unit |
 | `mask_file`  | string | If used  | Mask filename; omit column if not applicable  |
 | `patch_file` | string | If used  | Patch filename; omit column if not applicable |
 
 Do not silently change the meaning of an existing shared column.
+
+**Spatial sampling rule:** one FOV means one independently selected XY acquisition position. `position_id` is the shared identifier when one file does not map 1:1 to one position (for example one TIFF per z-plane or a multi-position container). `image_file` remains file provenance. Z/C/T indices describe observations within a position and never create new spatial FOVs.
 
 **Status for this repo: implemented.** All five columns are real
 `PatchRegion` fields (not just present when exporting) and are written to
