@@ -34,8 +34,10 @@ def _stamp_image_metadata(image_list, image_metadata, patches: list[PatchRegion]
     ``"z"``, ``"c"``) match :class:`~cellpatcher.preprocess.PreparedPlane`/
     ``PreparedPlanePair`` ``.metadata`` directly — this is what closes the
     gap where that metadata was available on preprocessing helpers but never
-    reached ``PatchRegion``/the export CSV. ``"image_file"``/``"mask_file"``
-    stamp the shared MorphoBricks CSV columns; ``run_patching_pipeline``
+    reached ``PatchRegion``/the export CSV. ``"position_id"`` optionally
+    identifies the stable XY acquisition position shared by multiple Z/C/T
+    planes. ``"image_file"``/``"mask_file"`` stamp source-file provenance;
+    ``run_patching_pipeline``
     supplies these automatically from the folders it read.
     """
     if image_metadata is None:
@@ -55,6 +57,8 @@ def _stamp_image_metadata(image_list, image_metadata, patches: list[PatchRegion]
             patch.z0, patch.z1 = z, z + 1
         if meta.get("c") is not None:
             patch.c = int(meta["c"])
+        if meta.get("position_id") is not None:
+            patch.position_id = str(meta["position_id"])
         if meta.get("image_file") is not None:
             patch.image_file = str(meta["image_file"])
         if meta.get("mask_file") is not None:
@@ -281,7 +285,8 @@ def run_patching(images=None, masks=None, config=None, image_metadata=None) -> P
     image_metadata:
         Optional list of dicts, one per image, matching
         :class:`~cellpatcher.preprocess.PreparedPlane`/``PreparedPlanePair``
-        ``.metadata`` (keys ``"t"``, ``"z"``, ``"c"``). When supplied, the
+        ``.metadata`` (keys ``"t"``, ``"z"``, ``"c"``), optionally augmented
+        with ``"position_id"`` for the stable spatial acquisition position. When supplied, the
         selected plane indices are stamped onto every resulting patch's
         ``t``/``z0``/``z1``/``c`` fields so the exported metadata CSV records
         exactly which C/Z/T plane each patch came from.
