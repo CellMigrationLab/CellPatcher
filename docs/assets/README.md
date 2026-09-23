@@ -8,7 +8,7 @@ These figures are generated from the bundled real TIFF fixture:
 Regenerate with:
 
 ```bash
-PYTHONPATH=src python scripts/generate_docs_figures.py
+PYTHONPATH=src python .tools/python/generate_docs_figures.py
 ```
 
 Notes:

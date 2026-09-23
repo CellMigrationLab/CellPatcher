@@ -17,7 +17,7 @@
 | Position    | Step 1 of 3 in the MorphoBricks pipeline (image patching)                                                                                                 |
 | Language    | Python 3.11+                                                                                                                                              |
 | Tests       | `PYTHONPATH=src python -m pytest -q` (equivalent to `pytest tests/` once the package is installed editable)                                              |
-| Environment | `python -m pip install -e .` (add extras as needed: `.[test]`, `.[notebook]`, `.[torch]`) or `conda env create -f environment.yml`                       |
+| Environment | `python -m pip install -e .` (add extras as needed: `.[test]`, `.[notebook]`, `.[torch]`) or `conda env create -f environment.yaml`                       |
 
 Key dependencies: `numpy`, `scipy`, `tifffile`, `imageio` (core, required). Optional extras: `ipywidgets`, `matplotlib`, `pillow`, `tqdm`, `joblib`, `jl-hidecode` (notebook extra); `torch` (optional `cellpatcher.torch_dataset` adapter only — never a core dependency).
 
@@ -127,27 +127,10 @@ Design principles:
 src/
   cellpatcher/
     __init__.py
-    config.py              # CellPatcherConfig and related config dataclasses
-    types.py                # PatchRegion and shared types
-    axes.py                  # axis-aware helpers (image_axes / mask_axes)
-    io.py                     # array/file IO, image-mask matching
-    cell_scan.py              # scan_cell_patch_size dataset-level sizing
-    preprocess.py              # multidimensional (C/Z/T) plane prep
-    pipeline.py                 # run_patching / run_patching_pipeline
-    orchestration.py
-    filters.py                   # optional region filtering
-    extract.py                    # array extraction from regions
-    masking.py                     # apply_mask (cell-mode label clearing)
-    resize.py                       # optional resize of extracted arrays
-    export.py                        # patch file + metadata CSV export
-    torch_dataset.py                  # OPTIONAL Torch adapter; not core
-    strategies/
+    module.py
+    submodule/
       __init__.py
-      base.py
-      cell.py                          # cell mode
-      random.py                         # random mode
-      grid.py                            # grid mode
-      whole_fov.py                        # whole_fov mode
+      xxx.py
 
 tests/
   test_*.py             # mirrors src/cellpatcher modules
@@ -163,26 +146,21 @@ notebooks/
   README.md
   notebook_latest_versions.yaml
   CellPatcher/
-    CellPatcher.ipynb                    # legacy; reference/provenance only, not preferred
-    CellPatcher_v2.ipynb                  # package-backed staged workflow
-    CellPatcher_v3.ipynb                   # app-style/tabbed; PREFERRED manual-testing path when present
-    CellPatcher_strategy_examples.ipynb     # Python-API learning examples
-    CellPatcher_torch_colab_validation.ipynb
-    requirements.yaml                        # source of truth for requirements.txt
+    CellPatcher.ipynb         
+    requirements.yaml
     CHANGELOG.md
 
 references/
   legacy_patch_generation/   # reference-only; DO NOT import from here
 
 app/                # Colab / conda-constructor packaging (menuinst, installer scripts) — not pipeline code
-scripts/
-  generate_docs_figures.py
-.tools/               # CI/maintenance tooling (requirements merge, version bump, notebook sync) — not pipeline code
+.tools/               # CI/maintenance tooling (requirements merge, version bump, notebook sync, docs figures) — not pipeline code
+  python/generate_docs_figures.py   # regenerates docs/assets/*.png; run automatically by .github/workflows/update_docs_figures.yml
 
 README.md
 setup.py
 requirements.txt       # GENERATED — do not hand-edit, see .tools/python/merge_requirements.py
-environment.yml / environment.yaml
+environment.yaml
 ```
 
 CellPatcher-specific conventions:
@@ -196,10 +174,6 @@ CellPatcher-specific conventions:
 * Patching itself is strictly 2D Y/X; C/Z/T handling is a separate
   preprocessing step (`preprocess.py`, `docs/preprocessing.md`), not a
   patch mode.
-* Three notebook generations coexist: `CellPatcher.ipynb` (legacy,
-  reference-only), `CellPatcher_v2.ipynb` (staged), `CellPatcher_v3.ipynb`
-  (preferred, app-style/tabbed — the default manual-testing path when
-  present).
 * Whenever `export.enabled=True`, `pipeline.py` also writes
   `run_config.json` (filename: `cellpatcher.RUN_CONFIG_FILENAME`) next to
   `patches.csv` — the full serialized `CellPatcherConfig` for the run, so

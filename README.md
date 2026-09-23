@@ -4,11 +4,10 @@ CellPatcher helps you turn microscopy images into reproducible patch datasets wi
 
 ## Start here
 
-- **Normal user / manual workflow:** open `notebooks/CellPatcher/CellPatcher_v3.ipynb`.
-- **Python learner:** open `notebooks/CellPatcher/CellPatcher_strategy_examples.ipynb`.
+- **Normal user / manual workflow:** open `notebooks/CellPatcher/CellPatcher.ipynb`.
+- **Python learner:** open `notebooks/CellPatcher_Strategy_Examples/CellPatcher_Strategy_Examples.ipynb`.
 - **API copy-paste examples:** read `docs/api_examples.md`.
 - **Multidimensional C/Z/T data:** read `docs/preprocessing.md`.
-- **Legacy notebook:** `notebooks/CellPatcher/CellPatcher.ipynb` is reference only.
 
 - Matches image files and mask/label files with configurable matching strategies.
 - Generates patch regions (`PatchRegion`) for `cell`, `random`, `grid`, and `whole_fov` modes.
@@ -37,14 +36,12 @@ All four modes use the same orchestration function: `run_patching`. The notebook
 
 ## Quick start: notebooks
 
-- **Recommended:** `notebooks/CellPatcher/CellPatcher_v3.ipynb` (app-style workflow and preferred manual testing path)
-- **API learning examples:** `notebooks/CellPatcher/CellPatcher_strategy_examples.ipynb`
-- **Guided fallback:** `notebooks/CellPatcher/CellPatcher_v2.ipynb`
-- **Legacy reference only:** `notebooks/CellPatcher/CellPatcher.ipynb`
+- **Recommended:** `notebooks/CellPatcher/CellPatcher.ipynb` (app-style workflow and preferred manual testing path)
+- **API learning examples:** `notebooks/CellPatcher_Strategy_Examples/CellPatcher_Strategy_Examples.ipynb`
 
-Open the v3 notebook in Colab:
+Open the notebook in Colab:
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/guijacquemet/CellPatcher/blob/main/notebooks/CellPatcher/CellPatcher_v3.ipynb)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/CellMigrationLab/CellPatcher/blob/main/notebooks/CellPatcher/CellPatcher.ipynb)
 
 ## Common user-facing APIs vs advanced helpers
 
@@ -91,11 +88,11 @@ token = userdata.get("GITHUB_TOKEN")
 encoded = quote(token, safe="")
 subprocess.run([
     sys.executable, "-m", "pip", "install", "-q",
-    f"cellpatcher @ git+https://x-access-token:{encoded}@github.com/guijacquemet/CellPatcher.git",
+    f"cellpatcher @ git+https://x-access-token:{encoded}@github.com/CellMigrationLab/CellPatcher.git",
 ], check=True)
 ```
 
-The notebooks (`CellPatcher_v3.ipynb`, `CellPatcher_v2.ipynb`) contain a ready-to-run version of this install cell — run it first when opening in Colab.
+The notebooks `CellPatcher.ipynb` contain a ready-to-run version of this install cell — run it first when opening in Colab.
 
 ## Optional preprocessing for multidimensional data
 

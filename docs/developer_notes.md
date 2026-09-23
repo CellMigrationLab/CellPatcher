@@ -24,7 +24,7 @@ C/Z/T handling is explicit preprocessing (`prepare_*` helpers and iterators). Co
 ## Regenerate docs figures
 
 ```bash
-PYTHONPATH=src python scripts/generate_docs_figures.py
+PYTHONPATH=src python .tools/python/generate_docs_figures.py
 ```
 
 

@@ -1,6 +1,6 @@
 "CellPatcher":
-  "CellPatcher": "0.0.1"
-  "CellPatcher_strategy_examples": "0.0.5"
-  "CellPatcher_torch_colab_validation": "0.0.4"
-  "CellPatcher_v2": "0.0.5"
-  "CellPatcher_v3": "0.0.5"
+  "CellPatcher": "0.0.5"
+"CellPatcher_Strategy_Examples":
+  "CellPatcher_Strategy_Examples": "0.0.5"
+"CellPatcher_Pytorch":
+  "CellPatcher_Pytorch": "0.0.4"

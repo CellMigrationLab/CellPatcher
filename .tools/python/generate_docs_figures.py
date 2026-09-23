@@ -23,7 +23,7 @@ from cellpatcher import (
 )
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 FIXTURE_IMAGE = REPO_ROOT / "tests/fixtures/cellpatcher_demo_image.tif"
 FIXTURE_LABELS = REPO_ROOT / "tests/fixtures/cellpatcher_demo_labels.tif"
 OUTPUT_DIR = REPO_ROOT / "docs/assets"
