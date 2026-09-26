@@ -8,13 +8,16 @@ class CommonConfig:
     output_dir: str | None = None
     extract_arrays: bool = False
     # Stamped onto every PatchRegion/metadata-CSV row for this run when set.
-    # These are the MorphoBricks shared-CSV-contract `condition`/`repeat`
-    # columns (see AGENTS.md §5). run_patching()/run_patching_pipeline()
-    # never infer them; set them explicitly, or use
+    # These are the MorphoBricks shared-CSV-contract `condition`/`repeat`/
+    # `technical_repeat` columns (see AGENTS.md §5). run_patching()/
+    # run_patching_pipeline() never infer them; set them explicitly, or use
     # orchestration.run_patching_condition_repeat_tree to derive them per
-    # leaf from a <condition>/<repeat>/ folder tree instead.
+    # leaf from a <condition>/<repeat>[/<technical_repeat>]/ folder tree.
+    # technical_repeat is the well/dish/coverslip within the biological
+    # repeat; per-image image_metadata["technical_repeat"] overrides it.
     condition: str | None = None
     repeat: str | None = None
+    technical_repeat: str | None = None
 
 
 @dataclass

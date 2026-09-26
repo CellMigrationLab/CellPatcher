@@ -25,6 +25,7 @@ def _stamp_run_context(config: CellPatcherConfig, patches: list[PatchRegion]) ->
     for patch in patches:
         patch.condition = config.common.condition
         patch.repeat = config.common.repeat
+        patch.technical_repeat = config.common.technical_repeat
 
 
 def _stamp_image_metadata(image_list, image_metadata, patches: list[PatchRegion]) -> None:
@@ -36,7 +37,10 @@ def _stamp_image_metadata(image_list, image_metadata, patches: list[PatchRegion]
     gap where that metadata was available on preprocessing helpers but never
     reached ``PatchRegion``/the export CSV. ``"position_id"`` optionally
     identifies the stable XY acquisition position shared by multiple Z/C/T
-    planes. ``"image_file"``/``"mask_file"`` stamp source-file provenance;
+    planes. ``"technical_repeat"`` sets the well/dish of that image,
+    overriding ``config.common.technical_repeat`` (a folder of one
+    repeat can hold images from several wells). ``"image_file"``/
+    ``"mask_file"`` stamp source-file provenance;
     ``run_patching_pipeline``
     supplies these automatically from the folders it read.
     """
@@ -59,6 +63,8 @@ def _stamp_image_metadata(image_list, image_metadata, patches: list[PatchRegion]
             patch.c = int(meta["c"])
         if meta.get("position_id") is not None:
             patch.position_id = str(meta["position_id"])
+        if meta.get("technical_repeat") is not None:
+            patch.technical_repeat = str(meta["technical_repeat"])
         if meta.get("image_file") is not None:
             patch.image_file = str(meta["image_file"])
         if meta.get("mask_file") is not None:

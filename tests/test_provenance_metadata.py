@@ -208,3 +208,23 @@ def test_image_metadata_stamps_position_id_across_planes():
     ]
     rows = [patch.to_dict() for patch in result.patches]
     assert [row["position_id"] for row in rows] == ["P1", "P1"]
+
+
+def test_technical_repeat_from_config_and_per_image_metadata():
+    images = [np.ones((16, 16), dtype=np.float32), np.ones((16, 16), dtype=np.float32)]
+    cfg = CellPatcherConfig(mode="whole_fov")
+    cfg.common.condition, cfg.common.repeat = "control", "2026_02_02"
+    cfg.common.technical_repeat = "dish_1"
+    result = run_patching(images=images, config=cfg)
+    assert {p.technical_repeat for p in result.patches} == {"dish_1"}
+    # Per image, the metadata wins: one repeat folder can hold several wells.
+    result = run_patching(
+        images=images,
+        config=cfg,
+        image_metadata=[{"technical_repeat": "B02"}, {}],
+    )
+    assert [p.technical_repeat for p in result.patches] == ["B02", "dish_1"]
+    # Unset, it stays empty, as condition and repeat do.
+    assert run_patching(images=images[0], config=CellPatcherConfig(mode="whole_fov")).patches[
+        0
+    ].technical_repeat is None

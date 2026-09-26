@@ -21,7 +21,7 @@
 
 Key dependencies: `numpy`, `scipy`, `tifffile`, `imageio` (core, required). Optional extras: `ipywidgets`, `matplotlib`, `pillow`, `tqdm`, `joblib`, `jl-hidecode` (notebook extra); `torch` (optional `cellpatcher.torch_dataset` adapter only — never a core dependency).
 
-Current health snapshot (latest audit): 467 tests passing.
+Current health snapshot (latest audit): 461 tests passing, 1 skipped.
 
 ---
 
@@ -49,9 +49,10 @@ These rules override other implementation preferences.
   and downstream repos may already depend on them. New fields may be
   *added* (as optional, default-`None` fields) without violating this rule;
   existing ones may not be renamed or have their meaning changed.
-* **The MorphoBricks-wide `condition`/`repeat`/`image_file`/`mask_file`/
-  `patch_file` CSV contract in §5 is now implemented** — `run_patching`/
-  `run_patching_pipeline` populate all five columns (see §5 for exactly how
+* **The MorphoBricks-wide `condition`/`repeat`/`technical_repeat`/
+  `image_file`/`mask_file`/`patch_file` CSV contract in §5 is now
+  implemented** — `run_patching`/`run_patching_pipeline` populate these
+  columns (see §5 for exactly how
   and what still requires explicit caller input). Any further change to
   these columns' meaning, or to how they're populated, is still a
   deliberate, user-approved change (see §8), same as any other shared
@@ -232,12 +233,12 @@ Two ways to point CellPatcher at input data:
   determine how to reproduce the patch (coordinates, strategy parameters
   including `random.seed`, extraction/resize settings, axes).
 - For `run_patching_condition_repeat_tree`, one `patches.csv` +
-  `run_config.json` pair per `<condition>/<repeat>/` output folder by
-  default, or with `combine_metadata=True` a single pair directly in
-  `output_dir` (used by the CellPatcher notebook). In the combined CSV,
-  `patch_file` is the path relative to the CSV
-  (`<condition>/<repeat>/<file>`); in both layouts it is relative to the
-  CSV's folder.
+  `run_config.json` pair per `<condition>/<repeat>[/<technical_repeat>]/`
+  output folder by default, or with `combine_metadata=True` a single pair
+  directly in `output_dir` (used by the CellPatcher notebook). In the
+  combined CSV, `patch_file` is the path relative to the CSV
+  (`<condition>/<repeat>[/<technical_repeat>]/<file>`); in both layouts it
+  is relative to the CSV's folder.
 - Optionally, exported patch arrays as `.npy` or `.tif`/`.tiff` files
   (`save_patch_array`), named by each row's `patch_file` column.
 - Consumed downstream by feature-extraction repos — currently
@@ -254,7 +255,7 @@ repo **must** include these columns with exactly these names:
 | ------------ | ------ | -------- | --------------------------------------------- |
 | `condition`  | string | Always   | Experimental group label (`cellpatcher.SINGLE_CONDITION_LABEL`/`"single"` when the root folder holds the images directly — see "Inputs" above) |
 | `repeat`     | string | Always   | Replicate ID (format: `YYYY_MM_DD`, or `cellpatcher.SINGLE_REPEAT_LABEL`/`"single"` for a condition with no repeat subfolder — see "Inputs" above) |
-| `technical_repeat` | string | Optional | Technical repeat within a biological repeat (a well, dish or coverslip); never a biological repeat, which stays in `repeat`. Not yet populated by CellPatcher (no folder level maps to it); downstream repos read it when present |
+| `technical_repeat` | string | Optional | Technical repeat within a biological repeat (a well, dish or coverslip); never a biological repeat, which stays in `repeat`. `SINGLE_TECHNICAL_REPEAT_LABEL`/`"single"` when a repeat has no technical-repeat subfolders. Constant for every row of one source image |
 | `position_id` | string | If needed | Stable spatial acquisition-position ID; all Z/C/T planes from one XY position share it |
 | `image_file` | string | Always   | Source image filename; storage provenance, not necessarily the spatial sampling unit |
 | `mask_file`  | string | If used  | Mask filename; omit column if not applicable  |
@@ -264,7 +265,7 @@ Do not silently change the meaning of an existing shared column.
 
 **Spatial sampling rule:** one FOV means one independently selected XY acquisition position. `position_id` is the shared identifier when one file does not map 1:1 to one position (for example one TIFF per z-plane or a multi-position container). `image_file` remains file provenance. Z/C/T indices describe observations within a position and never create new spatial FOVs.
 
-**Status for this repo: implemented.** All five columns are real
+**Status for this repo: implemented.** All of these columns are real
 `PatchRegion` fields (not just present when exporting) and are written to
 `patches.csv` alongside CellPatcher's own richer, reconstruction-oriented
 columns: `patch_id`, `image_id`, `mode`, `y0`/`y1`/`x0`/`x1`, `height`/
@@ -280,6 +281,17 @@ columns: `patch_id`, `image_id`, `mode`, `y0`/`y1`/`x0`/`x1`, `height`/
   folders get `SINGLE_REPEAT_LABEL`; a flat root gets `SINGLE_CONDITION_LABEL`
   too). Never inferred by `run_patching()`
   itself.
+- `technical_repeat` — the well, dish or coverslip within the repeat.
+  `run_patching_condition_repeat_tree` derives it from an optional
+  `<condition>/<repeat>/<technical_repeat>/` level (a repeat folder that
+  holds only subfolders) and stamps `SINGLE_TECHNICAL_REPEAT_LABEL`
+  (`"single"`) when a repeat folder holds its images directly, so it is
+  never empty in a tree run; each technical repeat gets its own output
+  folder. Otherwise set `CellPatcherConfig.common.technical_repeat`, or per
+  image `image_metadata=[{"technical_repeat": ...}, ...]`. Empty for direct
+  `run_patching()` calls that set neither. MorphoCoverage treats the
+  technical repeat as a sampling unit (it resamples wells before fields),
+  so a well must never be written into `repeat`.
 - `image_file`/`mask_file` — populated automatically by
   `run_patching_pipeline` (and therefore `run_patching_condition_repeat_tree`,
   which calls it per leaf) from the folders it read. `None` for direct
@@ -318,15 +330,20 @@ raw_data/
                                  # <condition>/ folder as that one repeat.
                                  # Omit <condition>/ too for a single-condition
                                  # experiment: images directly in raw_data/.
+      <technical_repeat>/       # optional: one folder per well/dish/coverslip
+        <image_file>.tif        # of this repeat, instead of images directly
+                                 # in the repeat folder (then "single").
 
 masks/                          # optional
   <condition>/
     <repeat_YYYY_MM_DD>/
-      <mask_file>.tif
+      [<technical_repeat>/]
+        <mask_file>.tif
 ```
 
 CellPatcher's `run_patching_condition_repeat_tree` (§5) walks exactly this
-layout, including the no-repeat-subfolder and no-condition-subfolder cases.
+layout, including the no-repeat-subfolder, no-condition-subfolder and
+technical-repeat-subfolder cases.
 
 **Known repos in the ecosystem:**
 
@@ -349,7 +366,7 @@ here as new feature-extraction/analysis repos are created.
 | --------------- | ------------------------------------------------------------------------------------------------- |
 | Condition       | An experimental group (e.g. `treated`, `control`). A `PatchRegion`/CSV column in CellPatcher, set via `CellPatcherConfig.common.condition` or discovered per folder by `run_patching_condition_repeat_tree` (§5) |
 | Repeat          | A biological replicate, identified by date. Same status as Condition above (`common.repeat`); see also Single repeat |
-| Technical repeat | A well, dish or coverslip within a biological repeat: the optional shared column `technical_repeat` of the MorphoBricks contract (§5). CellPatcher does not populate it yet |
+| Technical repeat | A well, dish or coverslip within a biological repeat: the optional shared column `technical_repeat` of the MorphoBricks contract (§5), derived from a `<condition>/<repeat>/<technical_repeat>/` folder level or set via `common.technical_repeat`/`image_metadata`; `"single"` when a repeat has no such level |
 | Single repeat    | A condition with no repeat subfolder — `<condition>/<image files>` instead of `<condition>/<repeat>/<image files>`. `run_patching_condition_repeat_tree` treats it as one implicit repeat, labeled `cellpatcher.SINGLE_REPEAT_LABEL` (`"single"`) (§5, §6). Likewise, images directly in the root folder are one condition labeled `cellpatcher.SINGLE_CONDITION_LABEL` (`"single"`) with a single repeat |
 | Patch           | A sub-region cropped from a microscopy image                                                      |
 | Mask            | Binary/label image marking regions of interest (e.g. cell outlines), used in `cell` mode           |

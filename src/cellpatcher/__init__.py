@@ -25,6 +25,7 @@ from cellpatcher.export import export_patches, patch_metadata_to_rows, sanitize_
 from cellpatcher.io import (
     SINGLE_CONDITION_LABEL,
     SINGLE_REPEAT_LABEL,
+    SINGLE_TECHNICAL_REPEAT_LABEL,
     SUPPORTED_EXTENSIONS,
     ConditionRepeatFolder,
     discover_condition_repeat_folders,
@@ -98,6 +99,7 @@ __all__ = [
     "discover_condition_repeat_folders",
     "SINGLE_CONDITION_LABEL",
     "SINGLE_REPEAT_LABEL",
+    "SINGLE_TECHNICAL_REPEAT_LABEL",
     "sanitize_filename",
     "patch_metadata_to_rows",
     "save_metadata_csv",
