@@ -254,6 +254,7 @@ repo **must** include these columns with exactly these names:
 | ------------ | ------ | -------- | --------------------------------------------- |
 | `condition`  | string | Always   | Experimental group label (`cellpatcher.SINGLE_CONDITION_LABEL`/`"single"` when the root folder holds the images directly — see "Inputs" above) |
 | `repeat`     | string | Always   | Replicate ID (format: `YYYY_MM_DD`, or `cellpatcher.SINGLE_REPEAT_LABEL`/`"single"` for a condition with no repeat subfolder — see "Inputs" above) |
+| `technical_repeat` | string | Optional | Technical repeat within a biological repeat (a well, dish or coverslip); never a biological repeat, which stays in `repeat`. Not yet populated by CellPatcher (no folder level maps to it); downstream repos read it when present |
 | `position_id` | string | If needed | Stable spatial acquisition-position ID; all Z/C/T planes from one XY position share it |
 | `image_file` | string | Always   | Source image filename; storage provenance, not necessarily the spatial sampling unit |
 | `mask_file`  | string | If used  | Mask filename; omit column if not applicable  |
@@ -347,7 +348,8 @@ here as new feature-extraction/analysis repos are created.
 | Term            | Definition                                                                                       |
 | --------------- | ------------------------------------------------------------------------------------------------- |
 | Condition       | An experimental group (e.g. `treated`, `control`). A `PatchRegion`/CSV column in CellPatcher, set via `CellPatcherConfig.common.condition` or discovered per folder by `run_patching_condition_repeat_tree` (§5) |
-| Repeat          | A biological or technical replicate, identified by date. Same status as Condition above (`common.repeat`); see also Single repeat |
+| Repeat          | A biological replicate, identified by date. Same status as Condition above (`common.repeat`); see also Single repeat |
+| Technical repeat | A well, dish or coverslip within a biological repeat: the optional shared column `technical_repeat` of the MorphoBricks contract (§5). CellPatcher does not populate it yet |
 | Single repeat    | A condition with no repeat subfolder — `<condition>/<image files>` instead of `<condition>/<repeat>/<image files>`. `run_patching_condition_repeat_tree` treats it as one implicit repeat, labeled `cellpatcher.SINGLE_REPEAT_LABEL` (`"single"`) (§5, §6). Likewise, images directly in the root folder are one condition labeled `cellpatcher.SINGLE_CONDITION_LABEL` (`"single"`) with a single repeat |
 | Patch           | A sub-region cropped from a microscopy image                                                      |
 | Mask            | Binary/label image marking regions of interest (e.g. cell outlines), used in `cell` mode           |
