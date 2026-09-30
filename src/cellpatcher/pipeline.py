@@ -24,7 +24,7 @@ RUN_CONFIG_FILENAME = "run_config.json"
 def _stamp_run_context(config: CellPatcherConfig, patches: list[PatchRegion]) -> None:
     for patch in patches:
         patch.condition = config.common.condition
-        patch.repeat = config.common.repeat
+        patch.biological_repeat = config.common.biological_repeat
 
 
 def _stamp_image_metadata(image_list, image_metadata, patches: list[PatchRegion]) -> None:

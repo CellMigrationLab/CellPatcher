@@ -24,8 +24,8 @@ Shared settings that apply to every run, regardless of mode.
 | `mask_axes` | `str` | `"YX"` | Axes string for mask arrays. Must include `Y` and `X`. |
 | `output_dir` | `str \| None` | `None` | Output folder path. Required when `export.enabled=True`; keep `None` for in-memory-only runs. |
 | `extract_arrays` | `bool` | `False` | When `True`, extracted patch arrays are returned in `PatchingResult.patch_arrays`. |
-| `condition` | `str \| None` | `None` | Experimental group label, stamped onto every `PatchRegion`/CSV row for this run. Part of the MorphoBricks shared CSV contract (see `AGENTS.md` §5). Set it explicitly for a single-folder `run_patching_pipeline` call, or let `run_patching_condition_repeat_tree` derive it per leaf from a `<condition>/<repeat>/` folder tree (see "Condition/repeat folder trees" below). |
-| `repeat` | `str \| None` | `None` | Replicate identifier (e.g. `"YYYY_MM_DD"`, or `cellpatcher.SINGLE_REPEAT_LABEL`/`"single"` for a repeat-less condition folder), stamped onto every `PatchRegion`/CSV row for this run. Same status as `condition`. |
+| `condition` | `str \| None` | `None` | Experimental group label, stamped onto every `PatchRegion`/CSV row for this run. Part of the MorphoBricks shared CSV contract (see `AGENTS.md` §5). Set it explicitly for a single-folder `run_patching_pipeline` call, or let `run_patching_condition_repeat_tree` derive it per leaf from a `<condition>/<biological_repeat>/` folder tree (see "Condition/biological-repeat folder trees" below). |
+| `biological_repeat` | `str \| None` | `None` | Biological replicate identifier (e.g. `"YYYY_MM_DD"`, or `cellpatcher.SINGLE_BIOLOGICAL_REPEAT_LABEL`/`"single"` for a condition folder with no biological-repeat subfolder), stamped onto every `PatchRegion`/CSV row for this run. Same status as `condition`. Formerly `repeat`, which still works as a deprecated alias (see "Renamed: `repeat` → `biological_repeat`" below). |
 
 **Axes strings** may contain any combination of `T`, `C`, `Z`, `Y`, `X` (in any order). Examples: `"YX"`, `"CYX"`, `"TCYX"`, `"ZYX"`.
 
@@ -175,7 +175,7 @@ Every generated patch is a `PatchRegion` dataclass. The fields below are populat
 | `image_id` | `str \| None` | Identifier of the source image (e.g. `"image_0000"`). |
 | `mode` | `str \| None` | Patching mode that generated this patch. |
 | `condition` | `str \| None` | From `config.common.condition`. See the shared CSV contract below. |
-| `repeat` | `str \| None` | From `config.common.repeat`. See the shared CSV contract below. |
+| `biological_repeat` | `str \| None` | From `config.common.biological_repeat`. See the shared CSV contract below. Formerly `repeat` (deprecated alias). |
 | `position_id` | `str \| None` | Optional stable spatial acquisition-position identifier. Use the same value for all Z/C/T planes from one XY position. |
 | `image_file` | `str \| None` | Source image filename. Populated automatically by `run_patching_pipeline`; `None` for direct `run_patching()` calls unless supplied via `image_metadata`. |
 | `mask_file` | `str \| None` | Source mask filename (cell/random mode only, when a mask was loaded). Same population rule as `image_file`. |
@@ -196,26 +196,39 @@ Every generated patch is a `PatchRegion` dataclass. The fields below are populat
 
 ### Shared MorphoBricks CSV contract
 
-`condition`, `repeat`, `position_id` (when needed), `image_file`, `mask_file`, and `patch_file` are the columns the MorphoBricks ecosystem's shared CSV contract requires (`AGENTS.md` §5). CellPatcher populates all five:
+`condition`, `biological_repeat`, `position_id` (when needed), `image_file`, `mask_file`, and `patch_file` are the columns the MorphoBricks ecosystem's shared CSV contract requires (`AGENTS.md` §5), alongside the 0-based plane indices `z0`/`z1`, `c` and `t` (see the table above). CellPatcher populates them as follows:
 
-- `condition`/`repeat` — either set `config.common.condition`/`config.common.repeat` explicitly and call `run_patching_pipeline` on a single folder, or call `run_patching_condition_repeat_tree(image_root_path, ...)` on a `raw_data/<condition>/<repeat>/` root and let both be derived per leaf from the folder path (see below).
+- `condition`/`biological_repeat` — either set `config.common.condition`/`config.common.biological_repeat` explicitly and call `run_patching_pipeline` on a single folder, or call `run_patching_condition_repeat_tree(image_root_path, ...)` on a `raw_data/<condition>/<biological_repeat>/` root and let both be derived per leaf from the folder path (see below).
 - `image_file`/`mask_file`/`patch_file` are populated automatically by `run_patching_pipeline` (folder-based runs, including each leaf of `run_patching_condition_repeat_tree`) and `export_patches` respectively.
 
-### Condition/repeat folder trees
+### Condition/biological-repeat folder trees
 
-`run_patching_condition_repeat_tree(image_root_path, *, config=None, mask_root_path=None, ...)` (in `cellpatcher.orchestration`) walks a MorphoBricks-style root and calls `run_patching_pipeline` once per discovered leaf, using `discover_condition_repeat_folders` (in `cellpatcher.io`) to find them:
+`run_patching_condition_repeat_tree(image_root_path, *, config=None, mask_root_path=None, ...)` (in `cellpatcher.orchestration`) walks a MorphoBricks-style root and calls `run_patching_pipeline` once per discovered leaf, using `discover_condition_repeat_folders` (in `cellpatcher.io`) to find them. Both functions keep their historical `condition_repeat` names; the level below each condition is the **biological repeat**. The MorphoBricks folder hierarchy is `experiment/condition/biological_repeat/technical_repeat/images`, with levels omitted only from the bottom up (a level's meaning comes from its position); CellPatcher currently reads the `condition` and `biological_repeat` levels:
 
-- `<condition>/<repeat>/<image files>` — one or more repeat subfolders, each its own repeat.
-- `<condition>/<image files>` — **no repeat subfolder.** The whole condition folder is treated as a single implicit repeat, labeled `cellpatcher.SINGLE_REPEAT_LABEL` (`"single"`) — consistently in the discovered `repeat` value, the `condition`/`repeat` stamped on every patch from that folder, and (when exporting) its own `<output_dir>/<condition>/single/` output subfolder, same as an explicit repeat gets.
-- `<image files>` directly in the root — **no condition subfolders.** The whole dataset is treated as one condition and one repeat, labeled `cellpatcher.SINGLE_CONDITION_LABEL`/`cellpatcher.SINGLE_REPEAT_LABEL` (both `"single"`), exported to `<output_dir>/single/single/`.
+- `<condition>/<biological_repeat>/<image files>` — one or more biological-repeat subfolders, each its own biological repeat.
+- `<condition>/<image files>` — **no biological-repeat subfolder.** The whole condition folder is treated as a single implicit biological repeat, labeled `cellpatcher.SINGLE_BIOLOGICAL_REPEAT_LABEL` (`"single"`) — consistently in the discovered `biological_repeat` value, the `condition`/`biological_repeat` stamped on every patch from that folder, and (when exporting) its own `<output_dir>/<condition>/single/` output subfolder, same as an explicit biological repeat gets.
+- `<image files>` directly in the root — **no condition subfolders.** The whole dataset is treated as one condition and one biological repeat, labeled `cellpatcher.SINGLE_CONDITION_LABEL`/`cellpatcher.SINGLE_BIOLOGICAL_REPEAT_LABEL` (both `"single"`), exported to `<output_dir>/single/single/`.
 - A root or condition folder mixing loose image files with subfolders is ambiguous and raises `ValueError`. Hidden subfolders (names starting with `.`, e.g. `.ipynb_checkpoints`) are ignored.
 
 When `mask_root_path` is given, the same structure is mirrored under it per leaf. Mask folder requirements follow the same per-mode rules as `run_patching_pipeline` (required for `mode="cell"`, optional for `mode="random"`, not accepted for `mode="grid"`/`"whole_fov"`), applied independently to each leaf — a leaf missing a required mask folder raises immediately and aborts the whole tree run rather than being silently skipped.
 
-Returns a list of `ConditionRepeatResult(condition, repeat, image_folder, result)`, one per leaf, in the same (condition, then repeat) sorted order `discover_condition_repeat_folders` returns.
+Returns a list of `ConditionRepeatResult(condition, biological_repeat, image_folder, result)`, one per leaf, in the same (condition, then biological repeat) sorted order `discover_condition_repeat_folders` returns (whose `ConditionRepeatFolder` entries likewise carry `biological_repeat`).
 
-- `combine_metadata=True` (requires `export.enabled=True` and `common.output_dir`) writes **one** `patches.csv` and **one** `run_config.json` directly in `output_dir` instead of a pair per leaf folder. Patch files still go to `<output_dir>/<condition>/<repeat>/`, and each row's `patch_file` is the path relative to the CSV, e.g. `treated/2026_01_01/image_0000_grid_00000.tif` — the same "relative to the CSV" meaning as in the per-leaf layout, so `ExportedPatchTorchDataset` reads the combined CSV unchanged. `patch_id`/`image_id` are only unique within a leaf; identify rows across the combined CSV by `condition`/`repeat`/`image_file` (or `patch_file`).
+- `combine_metadata=True` (requires `export.enabled=True` and `common.output_dir`) writes **one** `patches.csv` and **one** `run_config.json` directly in `output_dir` instead of a pair per leaf folder. Patch files still go to `<output_dir>/<condition>/<biological_repeat>/`, and each row's `patch_file` is the path relative to the CSV, e.g. `treated/2026_01_01/image_0000_grid_00000.tif` — the same "relative to the CSV" meaning as in the per-leaf layout, so `ExportedPatchTorchDataset` reads the combined CSV unchanged. `patch_id`/`image_id` are only unique within a leaf; identify rows across the combined CSV by `condition`/`biological_repeat`/`image_file` (or `patch_file`).
 - `progress_callback(completed, total, leaf)` is called before each leaf and once more at the end (`leaf=None`), e.g. to drive a progress bar.
+
+### Renamed: `repeat` → `biological_repeat`
+
+The biological-replicate field was called `repeat` in earlier releases. It is now `biological_repeat` everywhere — the `PatchRegion` field, the `CommonConfig` field, the `patches.csv` column and the `run_config.json` key, and the `ConditionRepeatFolder`/`ConditionRepeatResult` attribute — so it cannot be confused with the MorphoBricks `technical_repeat` column (a well, dish or coverslip within a biological repeat). Nothing else changed: the values, the folder level they come from, the `"single"` label and the output layout are the same.
+
+For a transition period the old name keeps working, and each use emits one `DeprecationWarning` pointing at the calling line:
+
+- `CommonConfig(repeat=...)`, `PatchRegion(repeat=...)`, `ConditionRepeatFolder(repeat=...)`, `ConditionRepeatResult(repeat=...)`: the keyword is mapped onto `biological_repeat`; passing both with different values raises `TypeError`.
+- `config.common.repeat`, `patch.repeat`, `leaf.repeat`: read and write `biological_repeat`.
+- `apply_overrides(..., {"common.repeat": ...})` (and `overrides=` on the run functions), and `load_config()` on an older `run_config.json` whose `common` section has a `repeat` key.
+- `ExportedPatchTorchDataset` reading an older `patches.csv` that has a `repeat` column and no `biological_repeat` column: the column is read as `biological_repeat` (one warning per file).
+
+Output is identical whichever name is used; files are always written with `biological_repeat`. The constant `SINGLE_REPEAT_LABEL` stays available (not deprecated) as the same value as the new `SINGLE_BIOLOGICAL_REPEAT_LABEL`, and the function names `run_patching_condition_repeat_tree`/`discover_condition_repeat_folders` are unchanged.
 
 ### Deterministic reconstruction
 
