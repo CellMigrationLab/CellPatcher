@@ -3,15 +3,23 @@ from pathlib import Path
 
 import numpy as np
 
+from cellpatcher._deprecation import accept_deprecated_repeat
+
 SUPPORTED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".gif", ".npy"}
 
-# Repeat label stamped when a condition folder holds images directly, with
-# no repeat subfolder (see discover_condition_repeat_folders below). Treated
-# as "this condition has exactly one repeat" rather than an error.
-SINGLE_REPEAT_LABEL = "single"
+# Biological-repeat label stamped when a condition folder holds images
+# directly, with no biological-repeat subfolder (see
+# discover_condition_repeat_folders below). Treated as "this condition has
+# exactly one biological repeat" rather than an error.
+SINGLE_BIOLOGICAL_REPEAT_LABEL = "single"
+
+# Name kept from before `repeat` was renamed `biological_repeat`; same value,
+# still public and not deprecated.
+SINGLE_REPEAT_LABEL = SINGLE_BIOLOGICAL_REPEAT_LABEL
 
 # Condition label stamped when the root folder itself holds the images, with
-# no condition subfolders: the whole dataset is one condition and one repeat.
+# no condition subfolders: the whole dataset is one condition and one
+# biological repeat.
 SINGLE_CONDITION_LABEL = "single"
 
 
@@ -29,24 +37,27 @@ def list_supported_files(folder_path, supported_extensions=None) -> list[Path]:
     )
 
 
+@accept_deprecated_repeat
 @dataclass
 class ConditionRepeatFolder:
-    """One discovered ``<condition>/<repeat>`` (or single-repeat ``<condition>``) leaf.
+    """One discovered ``<condition>/<biological_repeat>`` (or single-repeat ``<condition>``) leaf.
 
-    ``repeat`` is ``SINGLE_REPEAT_LABEL`` when *condition_dir* holds image
-    files directly with no repeat subfolder; in that case ``image_folder``
-    is the condition folder itself. See
+    ``biological_repeat`` is ``SINGLE_BIOLOGICAL_REPEAT_LABEL`` when
+    *condition_dir* holds image files directly with no biological-repeat
+    subfolder; in that case ``image_folder`` is the condition folder itself.
+    ``repeat`` is a deprecated alias of ``biological_repeat``. See
     :func:`discover_condition_repeat_folders`.
     """
     condition: str
-    repeat: str
+    biological_repeat: str
     image_folder: Path
     mask_folder: Path | None = None
 
 
 def _split_folder_entries(folder: Path, exts: set[str]) -> tuple[list[Path], list[Path]]:
     # Hidden folders (e.g. Jupyter's .ipynb_checkpoints) are never
-    # conditions or repeats, so they must not make a flat folder look mixed.
+    # conditions or biological repeats, so they must not make a flat folder
+    # look mixed.
     entries = list(folder.iterdir())
     loose_images = [p for p in entries if p.is_file() and p.suffix.lower() in exts]
     subdirs = [p for p in entries if p.is_dir() and not p.name.startswith(".")]
@@ -55,21 +66,22 @@ def _split_folder_entries(folder: Path, exts: set[str]) -> tuple[list[Path], lis
 
 def _classify_condition_subfolders(condition_dir: Path, exts: set[str]) -> list[tuple[str, Path]]:
     # A condition folder is either "flat" (images directly inside it, no
-    # repeat concept) or "nested" (one subfolder per repeat) -- never both,
-    # since that would leave no unambiguous way to assign the loose images
-    # to a repeat.
+    # biological-repeat level) or "nested" (one subfolder per biological
+    # repeat) -- never both, since that would leave no unambiguous way to
+    # assign the loose images to a biological repeat.
     loose_images, subdirs = _split_folder_entries(condition_dir, exts)
 
     if loose_images and subdirs:
         raise ValueError(
             f"Condition folder '{condition_dir}' mixes image files directly inside it with "
             "subfolders. Put all images either directly in the condition folder (treated as "
-            "a single implicit repeat) or entirely inside repeat subfolders, not both."
+            "a single implicit biological repeat) or entirely inside biological-repeat "
+            "subfolders, not both."
         )
     if loose_images:
-        # Flat layout: the whole condition folder counts as one repeat.
-        return [(SINGLE_REPEAT_LABEL, condition_dir)]
-    # Nested layout: each subfolder is its own repeat, sorted for a
+        # Flat layout: the whole condition folder counts as one biological repeat.
+        return [(SINGLE_BIOLOGICAL_REPEAT_LABEL, condition_dir)]
+    # Nested layout: each subfolder is its own biological repeat, sorted for a
     # deterministic, reproducible discovery order.
     return [(d.name, d) for d in sorted(subdirs, key=lambda p: p.name)]
 
@@ -80,27 +92,30 @@ def discover_condition_repeat_folders(
     mask_root_path=None,
     supported_extensions=None,
 ) -> list[ConditionRepeatFolder]:
-    """Discover ``<condition>/<repeat>/`` image folders under *root_path*.
+    """Discover ``<condition>/<biological_repeat>/`` image folders under *root_path*.
+
+    (The function keeps its historical ``condition_repeat`` name; the
+    folder level it reads is the biological repeat.)
 
     Each immediate subfolder of *root_path* is treated as a condition. Within
     a condition folder, two layouts are supported:
 
-    - ``<condition>/<repeat>/<image files>`` — one or more repeat
-      subfolders, each its own repeat.
-    - ``<condition>/<image files>`` — no repeat subfolder. The whole
-      condition folder is treated as a single implicit repeat, labeled
-      ``SINGLE_REPEAT_LABEL`` (``"single"``).
+    - ``<condition>/<biological_repeat>/<image files>`` — one or more
+      biological-repeat subfolders, each its own biological repeat.
+    - ``<condition>/<image files>`` — no biological-repeat subfolder. The
+      whole condition folder is treated as a single implicit biological
+      repeat, labeled ``SINGLE_BIOLOGICAL_REPEAT_LABEL`` (``"single"``).
 
     If *root_path* itself holds the image files and has no subfolders, the
     whole dataset is one leaf labeled ``SINGLE_CONDITION_LABEL`` /
-    ``SINGLE_REPEAT_LABEL`` (both ``"single"``), with ``image_folder`` set
-    to *root_path*.
+    ``SINGLE_BIOLOGICAL_REPEAT_LABEL`` (both ``"single"``), with
+    ``image_folder`` set to *root_path*.
 
     A root or condition folder mixing loose image files with subfolders is
     ambiguous and raises ``ValueError``. Hidden subfolders (names starting
     with ``"."``) are ignored.
 
-    When *mask_root_path* is given, the same ``<condition>/<repeat>``
+    When *mask_root_path* is given, the same ``<condition>/<biological_repeat>``
     (or ``<condition>``, or root) path is mirrored under it for each discovered
     leaf's ``mask_folder`` — its existence is not checked here; callers
     (e.g. :func:`~cellpatcher.orchestration.run_patching_condition_repeat_tree`)
@@ -121,15 +136,15 @@ def discover_condition_repeat_folders(
     if root_images and root_subdirs:
         raise ValueError(
             f"Folder '{root}' mixes image files directly inside it with subfolders. Put all "
-            "images either directly in this folder (treated as a single condition and repeat) "
-            "or entirely inside condition subfolders, not both."
+            "images either directly in this folder (treated as a single condition and biological "
+            "repeat) or entirely inside condition subfolders, not both."
         )
     if root_images:
-        # Flat layout: the root folder is the only condition and repeat.
+        # Flat layout: the root folder is the only condition and biological repeat.
         return [
             ConditionRepeatFolder(
                 condition=SINGLE_CONDITION_LABEL,
-                repeat=SINGLE_REPEAT_LABEL,
+                biological_repeat=SINGLE_BIOLOGICAL_REPEAT_LABEL,
                 image_folder=root,
                 mask_folder=mask_root,
             )
@@ -142,16 +157,24 @@ def discover_condition_repeat_folders(
     results: list[ConditionRepeatFolder] = []
     for condition_dir in condition_dirs:
         condition = condition_dir.name
-        for repeat, image_folder in _classify_condition_subfolders(condition_dir, exts):
-            # Mirror the same condition/(repeat) path under mask_root so
-            # callers can look for a matching mask folder, without this
-            # function needing to know whether the mode in use requires one.
+        for biological_repeat, image_folder in _classify_condition_subfolders(condition_dir, exts):
+            # Mirror the same condition/(biological_repeat) path under
+            # mask_root so callers can look for a matching mask folder,
+            # without this function needing to know whether the mode in use
+            # requires one.
             mask_folder = None
             if mask_root is not None:
-                mask_folder = mask_root / condition if repeat == SINGLE_REPEAT_LABEL else mask_root / condition / repeat
+                mask_folder = (
+                    mask_root / condition
+                    if biological_repeat == SINGLE_BIOLOGICAL_REPEAT_LABEL
+                    else mask_root / condition / biological_repeat
+                )
             results.append(
                 ConditionRepeatFolder(
-                    condition=condition, repeat=repeat, image_folder=image_folder, mask_folder=mask_folder
+                    condition=condition,
+                    biological_repeat=biological_repeat,
+                    image_folder=image_folder,
+                    mask_folder=mask_folder,
                 )
             )
     return results

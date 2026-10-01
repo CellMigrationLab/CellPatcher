@@ -4,6 +4,7 @@ import csv
 
 import numpy as np
 
+from cellpatcher._deprecation import upgrade_legacy_repeat_column
 from cellpatcher.axes import axis_index, normalize_axes, require_spatial_axes
 from cellpatcher.config import ExtractionConfig
 from cellpatcher.extract import extract_patch
@@ -280,7 +281,9 @@ class ExportedPatchTorchDataset(torch.utils.data.Dataset):
             fieldnames = reader.fieldnames or []
             if "patch_id" not in fieldnames:
                 raise ValueError("metadata_file must contain a 'patch_id' column.")
-            self._rows = list(reader)
+            # A patches.csv written before `repeat` was renamed
+            # `biological_repeat` is still readable (with a DeprecationWarning).
+            self._rows = upgrade_legacy_repeat_column(fieldnames, list(reader), str(self._metadata_file))
 
     def __len__(self):
         return len(self._rows)
