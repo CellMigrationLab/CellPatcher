@@ -19,14 +19,20 @@ from cellpatcher.orchestration import run_patching_condition_repeat_tree
 
 SHARED_COLUMNS = (
     "condition",
-    "repeat",
+    "biological_repeat",
     "technical_repeat",
     "position_id",
     "image_file",
     "mask_file",
     "patch_file",
 )
-ALWAYS_FILLED_IN_TREE_RUNS = ("condition", "repeat", "technical_repeat", "image_file", "patch_file")
+ALWAYS_FILLED_IN_TREE_RUNS = (
+    "condition",
+    "biological_repeat",
+    "technical_repeat",
+    "image_file",
+    "patch_file",
+)
 
 
 def _read(csv_path: Path) -> tuple[list[str], list[dict]]:

@@ -6,6 +6,7 @@ from pathlib import Path
 import json
 from typing import Any
 
+from cellpatcher._deprecation import accept_deprecated_repeat
 from cellpatcher.config import (
     CellConfig,
     CellPatcherConfig,
@@ -118,7 +119,10 @@ def apply_overrides(config: CellPatcherConfig, overrides: dict[str, Any]) -> Cel
                     f"Valid sections: {[f.name for f in cfg.__dataclass_fields__.values()]}."  # type: ignore[attr-defined]
                 )
             sub = getattr(cfg, section)
-            if not hasattr(sub, field):
+            # Checked on the class so a deprecated alias property (e.g.
+            # "common.repeat") is recognised without its getter warning; the
+            # setattr below then warns exactly once.
+            if field not in getattr(sub, "__dataclass_fields__", {}) and not hasattr(type(sub), field):
                 raise ValueError(
                     f"Unknown field '{field}' in config section '{section}'."
                 )
@@ -467,17 +471,19 @@ def run_patching_pipeline(
     return run_patching(images=images, masks=masks, config=config, image_metadata=image_metadata)
 
 
+@accept_deprecated_repeat
 @dataclass
 class ConditionRepeatResult:
     """One leaf's outcome from :func:`run_patching_condition_repeat_tree`.
 
     ``technical_repeat`` is the leaf's technical-repeat folder (a well, a
-    dish), or ``SINGLE_TECHNICAL_REPEAT_LABEL`` when the repeat folder held
-    its images directly; ``relative_folder`` is where its outputs go under
-    ``output_dir``.
+    dish), or ``SINGLE_TECHNICAL_REPEAT_LABEL`` when the biological-repeat
+    folder held its images directly; ``relative_folder`` is where its outputs
+    go under ``output_dir``. ``repeat`` is a deprecated alias of
+    ``biological_repeat``.
     """
     condition: str
-    repeat: str
+    biological_repeat: str
     image_folder: str
     result: PatchingResult
     technical_repeat: str = SINGLE_TECHNICAL_REPEAT_LABEL
@@ -496,28 +502,35 @@ def run_patching_condition_repeat_tree(
     combine_metadata: bool = False,
     progress_callback=None,
 ) -> list[ConditionRepeatResult]:
-    """Run :func:`run_patching_pipeline` once per ``<condition>/<repeat>[/<technical_repeat>]`` leaf.
+    """Run :func:`run_patching_pipeline` once per
+    ``<condition>/<biological_repeat>[/<technical_repeat>]`` leaf.
+
+    (The function keeps its historical ``condition_repeat`` name; the
+    folder level it reads below each condition is the biological repeat.)
 
     Walks *image_root_path* with
     :func:`~cellpatcher.io.discover_condition_repeat_folders`, which accepts
-    both the full MorphoBricks layout (``<condition>/<repeat_YYYY_MM_DD>/``)
-    and a condition folder holding images directly with no repeat subfolder
-    — the latter is treated as a single implicit repeat, labeled
-    ``cellpatcher.io.SINGLE_REPEAT_LABEL`` (``"single"``), consistently
-    across input discovery, processing (the ``config.common.repeat`` value
-    stamped on every patch from that condition), and output (its own output
-    subfolder, same as an explicit repeat would get). A repeat folder may
-    in turn hold one subfolder per technical repeat (a well, a dish):
-    ``<condition>/<repeat>/<technical_repeat>/``; a repeat folder holding
-    its images directly is one technical repeat, labeled
-    ``cellpatcher.io.SINGLE_TECHNICAL_REPEAT_LABEL`` (``"single"``).
+    both the full MorphoBricks layout
+    (``<condition>/<biological_repeat_YYYY_MM_DD>/``) and a condition folder
+    holding images directly with no biological-repeat subfolder — the latter
+    is treated as a single implicit biological repeat, labeled
+    ``cellpatcher.io.SINGLE_BIOLOGICAL_REPEAT_LABEL`` (``"single"``),
+    consistently across input discovery, processing (the
+    ``config.common.biological_repeat`` value stamped on every patch from
+    that condition), and output (its own output subfolder, same as an
+    explicit biological repeat would get). A biological-repeat folder may in
+    turn hold one subfolder per technical repeat (a well, a dish):
+    ``<condition>/<biological_repeat>/<technical_repeat>/``; a
+    biological-repeat folder holding its images directly is one technical
+    repeat, labeled ``cellpatcher.io.SINGLE_TECHNICAL_REPEAT_LABEL``
+    (``"single"``).
 
     For each discovered leaf, a copy of *config* is made with
-    ``common.condition``/``common.repeat``/``common.technical_repeat`` set
-    to the values discovered from the folder path. When
+    ``common.condition``/``common.biological_repeat``/``common.technical_repeat``
+    set to the values discovered from the folder path. When
     ``config.export.enabled`` and ``config.common.output_dir`` are set, each
-    leaf's ``output_dir`` becomes ``<output_dir>/<condition>/<repeat>``, or
-    ``<output_dir>/<condition>/<repeat>/<technical_repeat>`` for a
+    leaf's ``output_dir`` becomes ``<output_dir>/<condition>/<biological_repeat>``,
+    or ``<output_dir>/<condition>/<biological_repeat>/<technical_repeat>`` for a
     technical-repeat subfolder, mirroring the input layout (patch ids
     restart at ``image_0000`` in every leaf, so leaves never share a folder).
 
@@ -527,11 +540,11 @@ def run_patching_condition_repeat_tree(
         Root folder containing one subfolder per condition.
     config:
         Base :class:`~cellpatcher.CellPatcherConfig`, applied to every leaf
-        (with ``common.condition``/``.repeat``/``.output_dir`` overridden
+        (with ``common.condition``/``.biological_repeat``/``.output_dir`` overridden
         per leaf as described above). Defaults to ``CellPatcherConfig()``.
     mask_root_path:
-        Root folder mirroring *image_root_path*'s ``<condition>/<repeat>``
-        (or ``<condition>``, or ``<condition>/<repeat>/<technical_repeat>``)
+        Root folder mirroring *image_root_path*'s ``<condition>/<biological_repeat>``
+        (or ``<condition>``, or ``<condition>/<biological_repeat>/<technical_repeat>``)
         structure for masks. Required for
         ``mode='cell'`` (each leaf's mask subfolder must exist); optional
         for ``mode='random'``; must not be provided for ``'grid'``/
@@ -544,7 +557,7 @@ def run_patching_condition_repeat_tree(
         ``config.common.output_dir``), a single ``patches.csv`` and a single
         ``run_config.json`` are written directly in ``output_dir`` instead
         of one pair per leaf folder. The patch files themselves still go to
-        each leaf's ``<output_dir>/<condition>/<repeat>[/<technical_repeat>]/``,
+        each leaf's ``<output_dir>/<condition>/<biological_repeat>[/<technical_repeat>]/``,
         and each row's ``patch_file`` is that file's path relative to
         ``output_dir`` (e.g. ``"treated/2026_01_01/image_0000_grid_00000.tif"``,
         or ``"treated/2026_01_01/B02/image_0000_grid_00000.tif"``), so it
@@ -561,8 +574,8 @@ def run_patching_condition_repeat_tree(
     list[ConditionRepeatResult]
         One entry per discovered leaf, in the order
         :func:`~cellpatcher.io.discover_condition_repeat_folders` returns
-        them (conditions, then repeats, then technical repeats, each sorted
-        by name).
+        them (conditions, then biological repeats, then technical repeats,
+        each sorted by name).
 
     Raises
     ------
@@ -604,12 +617,12 @@ def run_patching_condition_repeat_tree(
         if progress_callback is not None:
             progress_callback(index, len(leaves), leaf)
         # Derive this leaf's config from the shared base: same settings
-        # everywhere, but condition/repeat/technical_repeat/output_dir
-        # specific to this leaf.
+        # everywhere, but condition/biological_repeat/technical_repeat/
+        # output_dir specific to this leaf.
         leaf_common = replace(
             config.common,
             condition=leaf.condition,
-            repeat=leaf.repeat,
+            biological_repeat=leaf.biological_repeat,
             technical_repeat=leaf.technical_repeat,
         )
         if base_output_dir is not None:
@@ -635,7 +648,7 @@ def run_patching_condition_repeat_tree(
         results.append(
             ConditionRepeatResult(
                 condition=leaf.condition,
-                repeat=leaf.repeat,
+                biological_repeat=leaf.biological_repeat,
                 image_folder=str(leaf.image_folder),
                 result=result,
                 technical_repeat=leaf.technical_repeat,
@@ -659,7 +672,8 @@ def _write_combined_metadata(config: CellPatcherConfig, output_dir: Path, result
     all_patches = []
     for leaf_result in results:
         for patch in leaf_result.result.patches:
-            # Leaf patch files live in <output_dir>/<condition>/<repeat>[/<technical_repeat>]/,
+            # Leaf patch files live in
+            # <output_dir>/<condition>/<biological_repeat>[/<technical_repeat>]/,
             # so prefix that folder to keep patch_file relative to the CSV.
             if patch.patch_file:
                 patch.patch_file = (Path(leaf_result.relative_folder) / patch.patch_file).as_posix()

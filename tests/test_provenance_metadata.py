@@ -23,19 +23,19 @@ def test_condition_and_repeat_stamped_on_every_patch():
     image = np.ones((16, 16), dtype=np.float32)
     cfg = CellPatcherConfig(mode="whole_fov")
     cfg.common.condition = "treated"
-    cfg.common.repeat = "2026_01_01"
+    cfg.common.biological_repeat = "2026_01_01"
 
     result = run_patching(images=image, config=cfg)
     assert len(result.patches) == 1
     assert result.patches[0].condition == "treated"
-    assert result.patches[0].repeat == "2026_01_01"
+    assert result.patches[0].biological_repeat == "2026_01_01"
 
 
 def test_condition_and_repeat_default_to_none():
     image = np.ones((16, 16), dtype=np.float32)
     result = run_patching(images=image, config=CellPatcherConfig(mode="whole_fov"))
     assert result.patches[0].condition is None
-    assert result.patches[0].repeat is None
+    assert result.patches[0].biological_repeat is None
 
 
 def test_output_height_width_reflect_resize_not_raw_bbox():
@@ -111,7 +111,7 @@ def test_exported_csv_includes_new_provenance_columns(tmp_path):
     image = np.ones((16, 16), dtype=np.float32)
     cfg = CellPatcherConfig(mode="whole_fov")
     cfg.common.condition = "control"
-    cfg.common.repeat = "2026_02_02"
+    cfg.common.biological_repeat = "2026_02_02"
     cfg.export.enabled = True
     cfg.export.image_format = "npy"
     cfg.common.output_dir = str(tmp_path)
@@ -120,10 +120,10 @@ def test_exported_csv_includes_new_provenance_columns(tmp_path):
     with (tmp_path / "patches.csv").open("r", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
     row = rows[0]
-    for col in ("condition", "repeat", "image_file", "mask_file", "patch_file", "config_file", "height", "width"):
+    for col in ("condition", "biological_repeat", "image_file", "mask_file", "patch_file", "config_file", "height", "width"):
         assert col in row
     assert row["condition"] == "control"
-    assert row["repeat"] == "2026_02_02"
+    assert row["biological_repeat"] == "2026_02_02"
     assert row["patch_file"]
     assert row["config_file"] == RUN_CONFIG_FILENAME
 
@@ -213,18 +213,18 @@ def test_image_metadata_stamps_position_id_across_planes():
 def test_technical_repeat_from_config_and_per_image_metadata():
     images = [np.ones((16, 16), dtype=np.float32), np.ones((16, 16), dtype=np.float32)]
     cfg = CellPatcherConfig(mode="whole_fov")
-    cfg.common.condition, cfg.common.repeat = "control", "2026_02_02"
+    cfg.common.condition, cfg.common.biological_repeat = "control", "2026_02_02"
     cfg.common.technical_repeat = "dish_1"
     result = run_patching(images=images, config=cfg)
     assert {p.technical_repeat for p in result.patches} == {"dish_1"}
-    # Per image, the metadata wins: one repeat folder can hold several wells.
+    # Per image, the metadata wins: one biological-repeat folder can hold several wells.
     result = run_patching(
         images=images,
         config=cfg,
         image_metadata=[{"technical_repeat": "B02"}, {}],
     )
     assert [p.technical_repeat for p in result.patches] == ["B02", "dish_1"]
-    # Unset, it stays empty, as condition and repeat do.
+    # Unset, it stays empty, as condition and biological_repeat do.
     assert run_patching(images=images[0], config=CellPatcherConfig(mode="whole_fov")).patches[
         0
     ].technical_repeat is None
