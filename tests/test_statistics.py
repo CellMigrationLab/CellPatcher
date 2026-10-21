@@ -5,6 +5,7 @@ The fixtures are simulated experiments whose ``plane_histograms.csv`` and
 package. Tests needing it skip when the ``preprocessing`` extra is not installed.
 """
 
+import csv
 import importlib.util
 import json
 import os
@@ -192,13 +193,13 @@ def test_load_rejects_another_table_version(stack_experiment):
 
     _, output = stack_experiment
     csv_path = output / mbp.OUTPUT_FILENAME
-    text = csv_path.read_text(encoding="utf-8").splitlines()
-    header = text[0].split(",")
-    version_column = header.index("schema_version")
-    rows = [line.split(",") for line in text[1:]]
+    # plane_id holds commas, so the rows are edited with the csv module.
+    with open(csv_path, newline="", encoding="utf-8") as f:
+        header, *rows = list(csv.reader(f))
     for row in rows:
-        row[version_column] = "2"
-    csv_path.write_text("\n".join([text[0], *(",".join(row) for row in rows)]) + "\n", encoding="utf-8")
+        row[header.index("schema_version")] = "1"
+    with open(csv_path, "w", newline="", encoding="utf-8") as f:
+        csv.writer(f).writerows([header, *rows])
 
     with pytest.raises(PreprocessingCheckError, match="schema version") as error_info:
         load_plane_statistics(csv_path, manifest=None)
@@ -312,7 +313,7 @@ def test_check_planes_links_every_z_plane_to_its_row(stack_experiment):
 
     records = check_planes(statistics, _stack_planes(root))
     assert [record.plane_id for record in records] == [
-        f"{path}::z={z}" for path in STACK_IMAGES for z in range(Z_PLANES)
+        f"{path}::z={z},c=0,t=0" for path in STACK_IMAGES for z in range(Z_PLANES)
     ]
 
 
@@ -330,7 +331,7 @@ def test_check_planes_detects_changed_pixels_without_a_manifest(stack_experiment
     with pytest.raises(PreprocessingCheckError, match="the images changed") as error_info:
         check_planes(statistics, [(plane, stack[1])])
     (issue,) = error_info.value.issues
-    assert (issue.code, issue.paths) == ("pixel_values_changed", (f"{path}::z=1",))
+    assert (issue.code, issue.paths) == ("pixel_values_changed", (f"{path}::z=1,c=0,t=0",))
 
 
 @needs_preprocessing
@@ -353,9 +354,9 @@ def test_check_planes_compares_dtype_size_and_labels(stack_experiment):
         ])
     issues = {issue.code: issue.paths for issue in error_info.value.issues}
     assert issues == {
-        "label_mismatch": (f"{path}::z=2 (CellPatcher treated/single/single, table control/single/single)",),
-        "dtype_mismatch": (f"{path}::z=0 (CellPatcher float32, table uint16)",),
-        "pixel_count_mismatch": (f"{path}::z=1 (CellPatcher 240 pixels, table 480)",),
+        "label_mismatch": (f"{path}::z=2,c=0,t=0 (CellPatcher treated/single/single, table control/single/single)",),
+        "dtype_mismatch": (f"{path}::z=0,c=0,t=0 (CellPatcher float32, table uint16)",),
+        "pixel_count_mismatch": (f"{path}::z=1,c=0,t=0 (CellPatcher 240 pixels, table 480)",),
     }
 
 
@@ -379,18 +380,13 @@ def test_check_planes_reports_planes_without_rows(stack_experiment):
 
 
 @needs_preprocessing
-def test_length_one_axis_matches_with_or_without_a_coordinate():
-    # Every axis here has length 1 (C and T are absent), so each may or may
-    # not have a coordinate in the table: 2 × 2 × 2 candidates.
-    plane = SourcePlane("a.tif", "c", "b", "t", z=0, axis_lengths={"Z": 1})
-    candidates = set(plane.candidate_plane_ids())
-    assert len(candidates) == 8
-    assert {"a.tif", "a.tif::z=0", "a.tif::c=0", "a.tif::z=0,c=0,t=0"} <= candidates
+def test_plane_id_always_has_all_three_coordinates():
+    # Absent or length-1 axes are coordinate 0, given as None or 0.
+    assert SourcePlane("a.tif", "c", "b", "t").plane_id == "a.tif::z=0,c=0,t=0"
+    assert SourcePlane("a.tif", "c", "b", "t", z=0, axis_lengths={"Z": 1}).plane_id == "a.tif::z=0,c=0,t=0"
 
-    stack_plane = SourcePlane("a.tif", "c", "b", "t", z=0, c=1, axis_lengths={"Z": 3, "C": 2})
-    # Z and C are longer than 1, so only the absent T axis varies.
-    assert stack_plane.candidate_plane_ids() == ["a.tif::z=0,c=1", "a.tif::z=0,c=1,t=0"]
-    assert stack_plane.plane_id == "a.tif::z=0,c=1"
+    stack_plane = SourcePlane("a.tif", "c", "b", "t", z=2, c=1, axis_lengths={"Z": 3, "C": 2})
+    assert stack_plane.plane_id == "a.tif::z=2,c=1,t=0"
 
 
 def test_source_plane_reads_missing_labels_as_single():
@@ -408,7 +404,7 @@ def test_source_plane_needs_a_coordinate_for_longer_axes():
 
 
 @needs_preprocessing
-def test_two_dimensional_rows_match_planes_with_a_zero_coordinate(tmp_path):
+def test_two_dimensional_images_match_with_or_without_a_z_axis(tmp_path):
     import morphobricks_preprocessing as mbp
 
     root = tmp_path / "experiment"
@@ -417,10 +413,12 @@ def test_two_dimensional_rows_match_planes_with_a_zero_coordinate(tmp_path):
     output = _preprocess(root, tmp_path / "preprocessing", "YX")
     statistics = load_plane_statistics(output / mbp.OUTPUT_FILENAME)
 
-    # CellPatcher read the image with a length-1 Z axis; the table has no z.
-    plane = SourcePlane("control/a.tif", "control", "single", "single", z=0, axis_lengths={"Z": 1})
-    (record,) = check_planes(statistics, [(plane, image)])
-    assert record.plane_id == "control/a.tif"
+    # CellPatcher may read the image as YX or with a length-1 Z axis; the
+    # table has the image without a Z axis. Both are the same plane.
+    as_2d = SourcePlane("control/a.tif", "control", "single", "single")
+    with_z = SourcePlane("control/a.tif", "control", "single", "single", z=0, axis_lengths={"Z": 1})
+    records = check_planes(statistics, [(as_2d, image), (with_z, image)])
+    assert [record.plane_id for record in records] == ["control/a.tif::z=0,c=0,t=0"] * 2
 
 
 # ---------------------------------------------------------------------------
@@ -459,4 +457,4 @@ def test_cellpatcher_patches_link_to_the_preprocessing_rows(tmp_path):
         assert (record.condition, record.biological_repeat, record.technical_repeat) == (
             patch.condition, patch.biological_repeat, patch.technical_repeat,
         )
-    assert {record.plane_id for record in records} == paths
+    assert {record.plane_id for record in records} == {f"{path}::z=0,c=0,t=0" for path in paths}
