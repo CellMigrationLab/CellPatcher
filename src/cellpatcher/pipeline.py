@@ -389,6 +389,9 @@ def _build_result(
     _stamp_run_context(config, patches)
     _stamp_image_metadata(image_list, image_metadata, patches)
     normalizations = _normalize(config, image_list, masks, image_metadata, patches)
+    if normalizations is not None:
+        # Patches that cannot be normalized from their own pixels are discarded (decision D8).
+        patches = [patch for patch in patches if id(patch) in normalizations]
     _check_eager_memory(config, image_list, patches)
     patch_arrays_internal = _maybe_extract_arrays(
         config, image_list, patches, masks=masks, normalizations=normalizations

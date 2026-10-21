@@ -188,10 +188,11 @@ plane before resizing:
 - Padding pixels (`pad_mode="constant"`) are never used.
 - The histogram uses `compute_plane_histogram` with its default bin count, so 8- and 16-bit
   images give exact parameters and float images approximations within half a bin.
-- **Zero spread (decision D8 open):** a patch whose parameters have zero scale (for example an
+- **Zero spread (decision D8):** a patch whose parameters have zero scale (for example an
   empty background tile, or for robust z-score a patch where more than half the pixels share
-  one value) stops the run with a message listing the patches and suggesting another method,
-  region or scope. A patch without finite pixels in the region stops the run too.
+  one value), or whose region has no finite pixels, is discarded: it is dropped before
+  extraction and never exported or delivered, and one warning lists every discarded patch and
+  suggests another method, region or scope.
 
 ## 9. Pipeline order
 
@@ -274,8 +275,8 @@ and suggests an action, in the preprocessing brick's style. Technical details go
 
 | Severity | Situations |
 |---|---|
-| Error (run blocked) | Extra not installed; CSV missing for a group or image scope; unsupported CSV or manifest version; explicitly given manifest missing; any check of §5 failing; image without CSV rows at a group or image scope; projection, merged channels or `repeat_to_rgb` under normalization (§3); plane over the memory limit; `"ngff_labels"` on a TIFF image, a missing or ambiguous label name, or a label image whose dimensions do not fit (§4); `"mask"`/`"bbox"` region outside `cell` mode; zero or non-finite scale, or no finite pixels, for a group or patch; deprecated normalization arguments combined with normalization (§15); eager delivery over the memory limit; OME-Zarr input without `zarr` |
-| Warning (run continues) | Approximate parameters; group statistics include background pixels (once per run); per-condition or per-repeat scope (removes intensity differences between groups); use of a deprecated normalization argument |
+| Error (run blocked) | Extra not installed; CSV missing for a group or image scope; unsupported CSV or manifest version; explicitly given manifest missing; any check of §5 failing; image without CSV rows at a group or image scope; projection, merged channels or `repeat_to_rgb` under normalization (§3); plane over the memory limit; `"ngff_labels"` on a TIFF image, a missing or ambiguous label name, or a label image whose dimensions do not fit (§4); `"mask"`/`"bbox"` region outside `cell` mode; zero or non-finite scale, or no finite pixels, for a group; deprecated normalization arguments combined with normalization (§15); eager delivery over the memory limit; OME-Zarr input without `zarr` |
+| Warning (run continues) | Patches discarded without spread or finite pixels (§8, D8); approximate parameters; group statistics include background pixels (once per run); per-condition or per-repeat scope (removes intensity differences between groups); use of a deprecated normalization argument |
 
 ## 15. Deprecations
 

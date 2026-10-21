@@ -18,7 +18,8 @@ Implements ``docs/normalization_contract.md`` §6–§9 for ``config.normalizati
 Histograms, pooling and parameters all come from ``morphobricks_preprocessing``
 (the ``preprocessing`` extra); this module chooses the pixels and applies the
 result. A group or patch with no finite pixels or zero spread stops the run
-(the open decision D8 keeps patches strict until decided).
+(contract §7), and a patch whose own pixels have no finite values or zero spread
+is discarded and reported (decision D8).
 """
 
 from __future__ import annotations
@@ -285,6 +286,10 @@ class Normalizer:
     def normalize(self, images, image_axes, masks, mask_axes, metadata, labels, patches) -> dict[int, PatchNormalization]:
         """Compute and record every patch's normalization; return it keyed by ``id(patch)``.
 
+        A patch missing from the result was discarded: at the patch scope, its
+        own pixels have no finite values or zero spread (decision D8), which a
+        :class:`NormalizationWarning` reports.
+
         Parameters
         ----------
         images, masks
@@ -320,7 +325,8 @@ class Normalizer:
         else:
             normalizations = self._patch_normalizations(channel_planes, masks, mask_axes, by_image)
         for patch in patches:
-            normalizations[id(patch)].stamp(patch)
+            if id(patch) in normalizations:  # patches discarded under decision D8 are absent
+                normalizations[id(patch)].stamp(patch)
         if not all(normalization.exact for normalization in normalizations.values()):
             warnings.warn(
                 "Some normalization parameters are histogram approximations (always for float images, "
@@ -420,7 +426,7 @@ class Normalizer:
     # Patch scope -------------------------------------------------------------------------
 
     def _patch_normalizations(self, channel_planes, masks, mask_axes, by_image) -> dict[int, PatchNormalization]:
-        failures, normalizations = [], {}
+        failures, discarded, normalizations = [], [], {}
         for index, image_patches in by_image.items():
             channels = channel_planes[index]
             labels_2d = None
@@ -447,18 +453,26 @@ class Normalizer:
                         break
                     exact = exact and pooled.max_representative_error == 0
                 if problem:
-                    failures.append(f"{_describe(patch)}: {problem}")
+                    discarded.append(f"{_describe(patch)}: {problem}")
                     continue
                 normalizations[id(patch)] = PatchNormalization(
                     parameters[0].method, "patch", None, tuple(parameters), exact
                 )
         if failures:
-            # Decision D8 (patches without spread) is open: stop until it is decided.
             raise ValueError(
-                f"{len(failures)} patch(es) cannot be normalized from their own pixels "
-                f"(patch_region={self.region!r}):\n" + "\n".join(f"  - {f}" for f in failures[:20])
-                + ("\n  ..." if len(failures) > 20 else "")
-                + "\nUse another method, patch_region or scope (for example scope='image')."
+                f"{len(failures)} patch(es) have no pixels for patch_region={self.region!r}:\n"
+                + "\n".join(f"  - {f}" for f in failures[:20]) + ("\n  ..." if len(failures) > 20 else "")
+            )
+        if discarded:
+            # Decision D8 (October 2026): a patch that cannot be normalized from
+            # its own pixels is discarded, never kept unnormalized, and reported.
+            warnings.warn(
+                f"{len(discarded)} patch(es) were discarded because they cannot be normalized from their own "
+                f"pixels (patch_region={self.region!r}, method={self.settings.method!r}):\n"
+                + "\n".join(f"  - {d}" for d in discarded[:20]) + ("\n  ..." if len(discarded) > 20 else "")
+                + "\nUse another method, patch_region or scope (for example scope='image') to keep them.",
+                NormalizationWarning,
+                stacklevel=3,
             )
         return normalizations
 
