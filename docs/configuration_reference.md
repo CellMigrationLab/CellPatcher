@@ -26,6 +26,7 @@ Shared settings that apply to every run, regardless of mode.
 | `extract_arrays` | `bool` | `False` | When `True`, extracted patch arrays are returned in `PatchingResult.patch_arrays`. |
 | `condition` | `str \| None` | `None` | Experimental group label, stamped onto every `PatchRegion`/CSV row for this run. Part of the MorphoBricks shared CSV contract (see `AGENTS.md` §5). Set it explicitly for a single-folder `run_patching_pipeline` call, or let `run_patching_condition_repeat_tree` derive it per leaf from a `<condition>/<biological_repeat>/` folder tree (see "Condition/biological-repeat folder trees" below). |
 | `biological_repeat` | `str \| None` | `None` | Biological replicate identifier (e.g. `"YYYY_MM_DD"`, or `cellpatcher.SINGLE_BIOLOGICAL_REPEAT_LABEL`/`"single"` for a condition folder with no biological-repeat subfolder), stamped onto every `PatchRegion`/CSV row for this run. Same status as `condition`. Formerly `repeat`, which still works as a deprecated alias (see "Renamed: `repeat` → `biological_repeat`" below). |
+| `technical_repeat` | `str \| None` | `None` | Technical replicate within the biological repeat: a well, a dish or a coverslip, never a biological repeat. Stamped onto every `PatchRegion`/CSV row for this run; a per-image `image_metadata=[{"technical_repeat": ...}]` entry overrides it for that image. `run_patching_condition_repeat_tree` derives it per leaf from an optional `<condition>/<biological_repeat>/<technical_repeat>/` level, and stamps `cellpatcher.SINGLE_TECHNICAL_REPEAT_LABEL` (`"single"`) when a biological-repeat folder holds its images directly. |
 
 **Axes strings** may contain any combination of `T`, `C`, `Z`, `Y`, `X` (in any order). Examples: `"YX"`, `"CYX"`, `"TCYX"`, `"ZYX"`.
 
@@ -106,7 +107,7 @@ Controls how patch arrays are extracted from images and optionally resized.
 | `resize_order` | `int` | `1` | Spline interpolation order for resizing (0 = nearest, 1 = bilinear, 3 = bicubic). Must be `>= 0`. |
 | `apply_mask` | `bool` | `False` | **Cell mode only.** When `True`, pixels outside the selected cell label are set to `mask_fill_value` before resize/export. |
 | `mask_fill_value` | `float` | `0.0` | Fill value for pixels outside the selected label when `apply_mask=True`. |
-| `split_channels` | `bool` | `False` | When `True`, every region becomes one single-channel patch per channel of its image instead of one multichannel patch (requires a `C` axis in `common.image_axes`). Channel patches keep the region's coordinates, get `c` = channel index and a `_c<index>` suffix on `patch_id`, and share one `position_id`: the one supplied via `image_metadata`, or by default `<condition>/<repeat>/<image file stem>` (parts that are not set are left out; `image_id` replaces the stem when no `image_file` is known). Filters are evaluated on the whole multichannel region before splitting; masking and resizing are applied before splitting too. Without `split_channels`, `position_id` is only set when supplied. |
+| `split_channels` | `bool` | `False` | When `True`, every region becomes one single-channel patch per channel of its image instead of one multichannel patch (requires a `C` axis in `common.image_axes`). Channel patches keep the region's coordinates, get `c` = channel index and a `_c<index>` suffix on `patch_id`, and share one `position_id`: the one supplied via `image_metadata`, or by default `<condition>/<biological_repeat>/<image file stem>` (parts that are not set are left out; `image_id` replaces the stem when no `image_file` is known). Filters are evaluated on the whole multichannel region before splitting; masking and resizing are applied before splitting too. Without `split_channels`, `position_id` is only set when supplied. |
 
 > `apply_mask=True` is only supported in `mode="cell"` and requires masks to be provided.
 
@@ -176,13 +177,9 @@ Every generated patch is a `PatchRegion` dataclass. The fields below are populat
 | `image_id` | `str \| None` | Identifier of the source image (e.g. `"image_0000"`). |
 | `mode` | `str \| None` | Patching mode that generated this patch. |
 | `condition` | `str \| None` | From `config.common.condition`. See the shared CSV contract below. |
-<<<<<<< HEAD
-| `repeat` | `str \| None` | From `config.common.repeat`. See the shared CSV contract below. |
-| `position_id` | `str \| None` | Optional stable spatial acquisition-position identifier. Use the same value for all Z/C/T planes from one XY position. Filled automatically for channel patches when `extraction.split_channels=True` (see above). |
-=======
 | `biological_repeat` | `str \| None` | From `config.common.biological_repeat`. See the shared CSV contract below. Formerly `repeat` (deprecated alias). |
-| `position_id` | `str \| None` | Optional stable spatial acquisition-position identifier. Use the same value for all Z/C/T planes from one XY position. |
->>>>>>> 783d8a1af257d724de83c60d35687f2b7b5dfa5c
+| `technical_repeat` | `str \| None` | From `config.common.technical_repeat`, or per image from `image_metadata`. See the shared CSV contract below. |
+| `position_id` | `str \| None` | Optional stable spatial acquisition-position identifier. Use the same value for all Z/C/T planes from one XY position. Filled automatically for channel patches when `extraction.split_channels=True` (see above). |
 | `image_file` | `str \| None` | Source image filename. Populated automatically by `run_patching_pipeline`; `None` for direct `run_patching()` calls unless supplied via `image_metadata`. |
 | `mask_file` | `str \| None` | Source mask filename (cell/random mode only, when a mask was loaded). Same population rule as `image_file`. |
 | `y0`, `y1` | `int` | Vertical extent of the patch in pixels (`y0` inclusive, `y1` exclusive). |
@@ -202,9 +199,10 @@ Every generated patch is a `PatchRegion` dataclass. The fields below are populat
 
 ### Shared MorphoBricks CSV contract
 
-`condition`, `biological_repeat`, `position_id` (when needed), `image_file`, `mask_file`, and `patch_file` are the columns the MorphoBricks ecosystem's shared CSV contract requires (`AGENTS.md` §5), alongside the 0-based plane indices `z0`/`z1`, `c` and `t` (see the table above). CellPatcher populates them as follows:
+`condition`, `biological_repeat`, `technical_repeat` (optional), `position_id` (when needed), `image_file`, `mask_file`, and `patch_file` are the columns of the MorphoBricks ecosystem's shared CSV contract (`AGENTS.md` §5), alongside the 0-based plane indices `z0`/`z1`, `c` and `t` (see the table above). CellPatcher populates them as follows:
 
 - `condition`/`biological_repeat` — either set `config.common.condition`/`config.common.biological_repeat` explicitly and call `run_patching_pipeline` on a single folder, or call `run_patching_condition_repeat_tree(image_root_path, ...)` on a `raw_data/<condition>/<biological_repeat>/` root and let both be derived per leaf from the folder path (see below).
+- `technical_repeat` — the well, dish or coverslip within the biological repeat. Tree runs derive it from an optional `<condition>/<biological_repeat>/<technical_repeat>/` level and write `"single"` when a biological-repeat folder holds its images directly, so the column is never empty in a tree run. For a single folder set `config.common.technical_repeat`; when one folder holds several wells, pass `image_metadata=[{"technical_repeat": ...}, ...]` to `run_patching`.
 - `image_file`/`mask_file`/`patch_file` are populated automatically by `run_patching_pipeline` (folder-based runs, including each leaf of `run_patching_condition_repeat_tree`) and `export_patches` respectively.
 
 ### Condition/biological-repeat folder trees
@@ -214,13 +212,14 @@ Every generated patch is a `PatchRegion` dataclass. The fields below are populat
 - `<condition>/<biological_repeat>/<image files>` — one or more biological-repeat subfolders, each its own biological repeat.
 - `<condition>/<image files>` — **no biological-repeat subfolder.** The whole condition folder is treated as a single implicit biological repeat, labeled `cellpatcher.SINGLE_BIOLOGICAL_REPEAT_LABEL` (`"single"`) — consistently in the discovered `biological_repeat` value, the `condition`/`biological_repeat` stamped on every patch from that folder, and (when exporting) its own `<output_dir>/<condition>/single/` output subfolder, same as an explicit biological repeat gets.
 - `<image files>` directly in the root — **no condition subfolders.** The whole dataset is treated as one condition and one biological repeat, labeled `cellpatcher.SINGLE_CONDITION_LABEL`/`cellpatcher.SINGLE_BIOLOGICAL_REPEAT_LABEL` (both `"single"`), exported to `<output_dir>/single/single/`.
-- A root or condition folder mixing loose image files with subfolders is ambiguous and raises `ValueError`. Hidden subfolders (names starting with `.`, e.g. `.ipynb_checkpoints`) are ignored.
+- `<condition>/<biological_repeat>/<technical_repeat>/<image files>` — **technical repeats.** A biological-repeat folder holding only subfolders has one subfolder per technical repeat (a well, a dish, a coverslip), each its own leaf, stamped with the subfolder name and exported to `<output_dir>/<condition>/<biological_repeat>/<technical_repeat>/`. A biological-repeat folder holding its images directly is one technical repeat, stamped `cellpatcher.SINGLE_TECHNICAL_REPEAT_LABEL` (`"single"`), and keeps the two-level output folder. The technical level needs the biological-repeat level above it: in `<condition>/<well>/<images>` the wells are read as biological repeats, so put them under a dated (or `single`) biological-repeat folder.
+- A root, condition or biological-repeat folder mixing loose image files with subfolders is ambiguous and raises `ValueError`. Hidden subfolders (names starting with `.`, e.g. `.ipynb_checkpoints`) are ignored.
 
 When `mask_root_path` is given, the same structure is mirrored under it per leaf. Mask folder requirements follow the same per-mode rules as `run_patching_pipeline` (required for `mode="cell"`, optional for `mode="random"`, not accepted for `mode="grid"`/`"whole_fov"`), applied independently to each leaf — a leaf missing a required mask folder raises immediately and aborts the whole tree run rather than being silently skipped.
 
-Returns a list of `ConditionRepeatResult(condition, biological_repeat, image_folder, result)`, one per leaf, in the same (condition, then biological repeat) sorted order `discover_condition_repeat_folders` returns (whose `ConditionRepeatFolder` entries likewise carry `biological_repeat`).
+Returns a list of `ConditionRepeatResult(condition, biological_repeat, image_folder, result, technical_repeat, relative_folder)`, one per leaf, in the same (condition, then biological repeat, then technical repeat) sorted order `discover_condition_repeat_folders` returns (whose `ConditionRepeatFolder` entries likewise carry `biological_repeat` and `technical_repeat`).
 
-- `combine_metadata=True` (requires `export.enabled=True` and `common.output_dir`) writes **one** `patches.csv` and **one** `run_config.json` directly in `output_dir` instead of a pair per leaf folder. Patch files still go to `<output_dir>/<condition>/<biological_repeat>/`, and each row's `patch_file` is the path relative to the CSV, e.g. `treated/2026_01_01/image_0000_grid_00000.tif` — the same "relative to the CSV" meaning as in the per-leaf layout, so `ExportedPatchTorchDataset` reads the combined CSV unchanged. `patch_id`/`image_id` are only unique within a leaf; identify rows across the combined CSV by `condition`/`biological_repeat`/`image_file` (or `patch_file`).
+- `combine_metadata=True` (requires `export.enabled=True` and `common.output_dir`) writes **one** `patches.csv` and **one** `run_config.json` directly in `output_dir` instead of a pair per leaf folder. Patch files still go to each leaf's `<output_dir>/<condition>/<biological_repeat>[/<technical_repeat>]/`, and each row's `patch_file` is the path relative to the CSV, e.g. `treated/2026_01_01/image_0000_grid_00000.tif` or `treated/2026_01_01/B02/image_0000_grid_00000.tif` — the same "relative to the CSV" meaning as in the per-leaf layout, so `ExportedPatchTorchDataset` reads the combined CSV unchanged. `patch_id`/`image_id` are only unique within a leaf; identify rows across the combined CSV by `condition`/`biological_repeat`/`technical_repeat`/`image_file` (or `patch_file`).
 - `progress_callback(completed, total, leaf)` is called before each leaf and once more at the end (`leaf=None`), e.g. to drive a progress bar.
 
 ### Renamed: `repeat` → `biological_repeat`

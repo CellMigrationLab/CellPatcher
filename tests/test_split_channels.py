@@ -58,7 +58,7 @@ def test_split_channels_resizes_before_splitting():
 
 def test_split_channel_patches_share_a_default_position_id():
     config = _grid_config()
-    config.common.condition, config.common.repeat = "treated", "2026_01_01"
+    config.common.condition, config.common.biological_repeat = "treated", "2026_01_01"
     result = run_patching(
         images=[_channel_image(), _channel_image()],
         config=config,

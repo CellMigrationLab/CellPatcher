@@ -7,6 +7,7 @@ from cellpatcher.config import CellPatcherConfig, GridConfig
 from cellpatcher.io import (
     SINGLE_BIOLOGICAL_REPEAT_LABEL,
     SINGLE_CONDITION_LABEL,
+    SINGLE_TECHNICAL_REPEAT_LABEL,
     discover_condition_repeat_folders,
     write_array,
 )
@@ -367,3 +368,114 @@ def test_save_run_config_false_skips_run_config_json(tmp_path):
     assert not (tmp_path / RUN_CONFIG_FILENAME).exists()
     assert (tmp_path / "patches.csv").exists()
     assert result.patches[0].config_file is None
+
+
+# ---------------------------------------------------------------------------
+# technical repeats: <condition>/<repeat>/<technical_repeat>/
+# ---------------------------------------------------------------------------
+
+
+def test_discover_technical_repeat_subfolders_inside_a_repeat(tmp_path):
+    root = tmp_path / "raw_data"
+    _write_image(root / "treated" / "2026_01_01" / "B02" / "a.npy")
+    _write_image(root / "treated" / "2026_01_01" / "B03" / "b.npy")
+    _write_image(root / "treated" / "2026_01_02" / "c.npy")  # a repeat without wells
+    _write_image(root / "control" / "d.npy")  # a condition without repeats
+
+    leaves = discover_condition_repeat_folders(root, mask_root_path=tmp_path)
+    found = [(leaf.condition, leaf.biological_repeat, leaf.technical_repeat) for leaf in leaves]
+    assert found == [
+        ("control", SINGLE_BIOLOGICAL_REPEAT_LABEL, SINGLE_TECHNICAL_REPEAT_LABEL),
+        ("treated", "2026_01_01", "B02"),
+        ("treated", "2026_01_01", "B03"),
+        ("treated", "2026_01_02", SINGLE_TECHNICAL_REPEAT_LABEL),
+    ]
+    by_well = {leaf.technical_repeat: leaf for leaf in leaves if leaf.biological_repeat == "2026_01_01"}
+    assert by_well["B02"].image_folder == root / "treated" / "2026_01_01" / "B02"
+    assert by_well["B02"].mask_folder == tmp_path / "treated" / "2026_01_01" / "B02"
+    assert by_well["B02"].relative_folder.as_posix() == "treated/2026_01_01/B02"
+    # Without a technical level the output path keeps the two-level layout.
+    single = [leaf for leaf in leaves if leaf.biological_repeat == "2026_01_02"][0]
+    assert single.relative_folder.as_posix() == "treated/2026_01_02"
+
+
+def test_discover_repeat_mixing_images_and_technical_subfolders_raises(tmp_path):
+    root = tmp_path / "raw_data"
+    _write_image(root / "treated" / "2026_01_01" / "loose.npy")
+    _write_image(root / "treated" / "2026_01_01" / "B02" / "a.npy")
+    with pytest.raises(ValueError, match="Biological-repeat folder .* mixes image files"):
+        discover_condition_repeat_folders(root)
+
+
+def test_tree_stamps_technical_repeat_and_mirrors_it_in_the_output(tmp_path):
+    image_root = tmp_path / "raw_data"
+    for well in ("B02", "B03"):
+        _write_image(image_root / "treated" / "2026_01_01" / well / "a.npy")
+    _write_image(image_root / "control" / "2026_01_01" / "a.npy")
+
+    cfg = CellPatcherConfig(mode="whole_fov")
+    cfg.export.enabled = True
+    cfg.export.image_format = "npy"
+    cfg.common.output_dir = str(tmp_path / "out")
+
+    results = run_patching_condition_repeat_tree(image_root, config=cfg)
+    stamped = {
+        (r.condition, r.biological_repeat, r.technical_repeat): {p.technical_repeat for p in r.result.patches}
+        for r in results
+    }
+    assert stamped == {
+        ("control", "2026_01_01", SINGLE_TECHNICAL_REPEAT_LABEL): {SINGLE_TECHNICAL_REPEAT_LABEL},
+        ("treated", "2026_01_01", "B02"): {"B02"},
+        ("treated", "2026_01_01", "B03"): {"B03"},
+    }
+    out = tmp_path / "out"
+    # Same image name in two wells: each leaf keeps its own folder, no overwrite.
+    assert (out / "treated" / "2026_01_01" / "B02" / "patches.csv").exists()
+    assert (out / "treated" / "2026_01_01" / "B03" / "patches.csv").exists()
+    assert (out / "control" / "2026_01_01" / "patches.csv").exists()
+    assert cfg.common.technical_repeat is None  # the base config is not mutated
+
+
+def test_tree_combined_csv_keeps_technical_repeats_apart(tmp_path):
+    image_root = tmp_path / "raw_data"
+    for well in ("B02", "B03"):
+        _write_image(image_root / "treated" / "2026_01_01" / well / "a.npy")
+    _write_image(image_root / "control" / "c.npy")
+    out = tmp_path / "out"
+
+    results = run_patching_condition_repeat_tree(
+        image_root, config=_combined_tree_config(tmp_path), combine_metadata=True
+    )
+    with (out / "patches.csv").open("r", encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
+    assert len(rows) == sum(len(r.result.patches) for r in results)
+    assert {(row["condition"], row["biological_repeat"], row["technical_repeat"]) for row in rows} == {
+        ("treated", "2026_01_01", "B02"),
+        ("treated", "2026_01_01", "B03"),
+        ("control", SINGLE_BIOLOGICAL_REPEAT_LABEL, SINGLE_TECHNICAL_REPEAT_LABEL),
+    }
+    # Both wells hold a.npy, so patch ids repeat; the folder keeps the files distinct.
+    assert len({row["patch_file"] for row in rows}) == len(rows)
+    for row in rows:
+        assert (out / row["patch_file"]).exists()
+        if row["technical_repeat"] != SINGLE_TECHNICAL_REPEAT_LABEL:
+            assert row["patch_file"].startswith(
+                f"{row['condition']}/{row['biological_repeat']}/{row['technical_repeat']}/"
+            )
+
+
+def test_tree_cell_mode_finds_masks_in_mirrored_technical_repeat_folders(tmp_path):
+    image, labels, _ = make_synthetic_cell_image_and_labels(seed=5)
+    image_root, mask_root = tmp_path / "raw_data", tmp_path / "masks"
+    for well in ("B02", "B03"):
+        write_array(image_root / "treated" / "2026_01_01" / well / "img.npy", image)
+        write_array(mask_root / "treated" / "2026_01_01" / well / "img_mask.npy", labels)
+
+    cfg = CellPatcherConfig(mode="cell")
+    cfg.cell.patch_size = 16
+    results = run_patching_condition_repeat_tree(image_root, config=cfg, mask_root_path=mask_root)
+    assert [r.technical_repeat for r in results] == ["B02", "B03"]
+    for r in results:
+        assert r.result.patches
+        assert {p.mask_file for p in r.result.patches} == {"img_mask.npy"}
+        assert {p.technical_repeat for p in r.result.patches} == {r.technical_repeat}

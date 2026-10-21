@@ -27,6 +27,7 @@ def _stamp_run_context(config: CellPatcherConfig, patches: list[PatchRegion]) ->
     for patch in patches:
         patch.condition = config.common.condition
         patch.biological_repeat = config.common.biological_repeat
+        patch.technical_repeat = config.common.technical_repeat
 
 
 def _stamp_image_metadata(image_list, image_metadata, patches: list[PatchRegion]) -> None:
@@ -38,7 +39,10 @@ def _stamp_image_metadata(image_list, image_metadata, patches: list[PatchRegion]
     gap where that metadata was available on preprocessing helpers but never
     reached ``PatchRegion``/the export CSV. ``"position_id"`` optionally
     identifies the stable XY acquisition position shared by multiple Z/C/T
-    planes. ``"image_file"``/``"mask_file"`` stamp source-file provenance;
+    planes. ``"technical_repeat"`` sets the well/dish of that image,
+    overriding ``config.common.technical_repeat`` (a folder of one
+    repeat can hold images from several wells). ``"image_file"``/
+    ``"mask_file"`` stamp source-file provenance;
     ``run_patching_pipeline``
     supplies these automatically from the folders it read.
     """
@@ -61,6 +65,8 @@ def _stamp_image_metadata(image_list, image_metadata, patches: list[PatchRegion]
             patch.c = int(meta["c"])
         if meta.get("position_id") is not None:
             patch.position_id = str(meta["position_id"])
+        if meta.get("technical_repeat") is not None:
+            patch.technical_repeat = str(meta["technical_repeat"])
         if meta.get("image_file") is not None:
             patch.image_file = str(meta["image_file"])
         if meta.get("mask_file") is not None:
@@ -75,9 +81,9 @@ def _patch_array_axes(config: CellPatcherConfig) -> str:
 
 def _default_position_id(patch: PatchRegion) -> str:
     # One source image is one XY acquisition position, so all of its channel
-    # patches share this ID. condition/repeat keep it unique across a tree run.
+    # patches share this ID. Condition and biological repeat keep it unique across a tree run.
     source = Path(patch.image_file).stem if patch.image_file else patch.image_id
-    return "/".join(str(part) for part in (patch.condition, patch.repeat, source) if part)
+    return "/".join(str(part) for part in (patch.condition, patch.biological_repeat, source) if part)
 
 
 def _split_channel_patches(config: CellPatcherConfig, image_list, patches: list[PatchRegion], patch_arrays):
@@ -86,7 +92,7 @@ def _split_channel_patches(config: CellPatcherConfig, image_list, patches: list[
     Every channel patch keeps the parent's coordinates and provenance, gets
     ``c`` set to its channel index and ``_c<index>`` appended to its
     ``patch_id``, and shares one ``position_id`` (the supplied one, or a
-    default derived from condition/repeat/image file).
+    default derived from condition/biological repeat/image file).
     """
     axes = normalize_axes(config.common.image_axes)
     if "C" not in axes:
