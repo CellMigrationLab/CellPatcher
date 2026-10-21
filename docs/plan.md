@@ -3,7 +3,7 @@
 > See also: [Docs map](README.md) · [Preprocessing](preprocessing.md) · [Config reference](configuration_reference.md) · [Developer notes](developer_notes.md)
 
 **Status:** design brief; decisions D1–D16 were reviewed in October 2026 and are recorded in
-§13. Only **[D8]** (patches without intensity spread) is still open. The exact rules are
+§13; **[D8]** (patches without intensity spread) was decided with Milestone 5. The exact rules are
 fixed in the [normalization contract](normalization_contract.md) (Milestone 0); where this
 plan and the contract differ in detail, the contract applies.
 **Scope:** use the outputs of the MorphoBricks preprocessing brick
@@ -248,8 +248,9 @@ regions **[D6]**:
 - Padding pixels (`pad_mode="constant"`) are never used.
 - A patch with zero intensity spread cannot be normalized (for example an empty background
   tile, or for robust z-score any patch where more than half the pixels share one value,
-  which makes the MAD zero). How to handle it is still open **[D8]**; until decided, the run
-  stops with a message listing the patches and suggesting another method or scope.
+  which makes the MAD zero). Such a patch, and one whose region has no finite pixels, is
+  discarded and reported in one warning listing the patches and suggesting another method,
+  region or scope **[D8]**.
 
 ### 6.4 Background pixels in group statistics
 
@@ -373,8 +374,8 @@ Block the run for:
 - A patched plane without a CSV row, or whose dtype, pixel count, extrema or finite pixel
   count differ from its row; with a manifest, a changed image, CSV or axis mapping (§3.4).
 - An image not in the CSV at a group or image scope.
-- A group or patch with zero or non-finite spread (contract §7; [D8] for patches), or with
-  no finite pixels.
+- A group with zero or non-finite spread, or with no finite pixels (contract §7). Patches
+  without spread or finite pixels are discarded and reported instead **[D8]**.
 - A Z projection, merged channels or `channel_policy="repeat_to_rgb"` in the preparation
   helpers while normalization is enabled (§3.2).
 - A deprecated normalization argument combined with the new normalization.
@@ -442,7 +443,7 @@ from GitHub at a pinned version) **[D1]**.
   CSV and optional manifest, method, scope and patch region; table of parameters per group;
   before/after preview of a few patches with their histograms; warnings), plus user
   documentation.
-- **Later:** [D8]; reading only patch windows for planes too large to hold in memory (the
+- **Later:** reading only patch windows for planes too large to hold in memory (the
   preprocessing brick now computes statistics for those planes in blocks, but patching still
   needs the whole plane); reading the preprocessing OME-Zarr copies; reference parameters
   (one group's parameters applied to all patches) if needed.
@@ -499,8 +500,11 @@ Reviewed in October 2026.
    bounding box (`bbox`) and the whole patch (`patch`).
 7. **[D7] Masked group statistics.** *Decided:* no; the preprocessing statistics stay
    unmasked, with a note about background.
-8. **[D8] Patches without intensity spread.** *Open, to decide later:* drop and report, stop
-   the run, or keep unnormalized. Until decided, the run stops with a clear message (§6.3).
+8. **[D8] Patches without intensity spread.** *Decided (October 2026, Milestone 5):*
+   discard them. A patch whose own pixels (patch scope) have zero spread, or no finite
+   pixels, is dropped before extraction, never kept unnormalized, and every dropped patch is
+   listed in one warning suggesting another method, region or scope. A group without spread
+   still stops the run (contract §7).
 9. **[D9] Pipeline order.** *Decided:* extract → normalize → mask → resize; update AGENTS.md.
 10. **[D10] Clipping and dtype.** *Decided:* no clipping; float32 output.
 11. **[D11] Z projections.** *Decided:* no projections under normalization; each Z slice is an

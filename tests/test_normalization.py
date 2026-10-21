@@ -260,10 +260,30 @@ def test_patch_scope_never_uses_padding():
     np.testing.assert_array_equal(np.sort(plane[_region_selection(patch, "mask", labels, plane.shape)]), [0, 1, 2, 10, 11, 12])
 
 
-def test_patches_without_spread_stop_the_run_with_a_list():
+def test_patches_without_spread_are_discarded_and_reported(tmp_path):
+    # Decision D8: the two constant tiles cannot be normalized from their own pixels.
+    image = np.full((16, 16), 7, np.uint8)
+    image[:8] = np.arange(128).reshape(8, 16)
     config = _config(None, image_axes="YX", scope="patch")
-    with pytest.raises(ValueError, match="(?s)4 patch\\(es\\) cannot be normalized.*zero intensity spread"):
-        run_patching(images=np.full((16, 16), 7, np.uint8), config=config)
+    config.export.enabled, config.common.output_dir = True, str(tmp_path / "out")
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        result = run_patching(images=image, config=config)
+    assert [(p.y0, p.x0) for p in result.patches] == [(0, 0), (0, 8)]
+    assert len(result.patch_arrays) == len(result.exported_files) == 2
+    (report,) = [w for w in caught if "discarded" in str(w.message)]
+    assert "2 patch(es) were discarded" in str(report.message)
+    assert "y=8:16, x=0:8" in str(report.message) and "zero intensity spread" in str(report.message)
+    _, rows = _read_csv(tmp_path / "out" / "patches.csv")
+    assert len(rows) == 2
+
+
+def test_patches_without_finite_pixels_are_discarded_too():
+    image = np.arange(256, dtype=np.float32).reshape(16, 16)
+    image[8:, 8:] = np.nan
+    result = run_patching(images=image, config=_config(None, image_axes="YX", scope="patch"))
+    assert (8, 8) not in [(p.y0, p.x0) for p in result.patches] and len(result.patches) == 3
 
 
 # ---------------------------------------------------------------------------
