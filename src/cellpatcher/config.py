@@ -183,6 +183,80 @@ class ExtractionConfig:
             raise ValueError("split_channels must be a bool.")
 
 
+NORMALIZATION_METHODS = ("minmax", "percentile", "zscore", "robust_zscore")
+NORMALIZATION_SCOPES = ("condition", "biological_repeat", "technical_repeat", "image", "patch")
+PATCH_REGIONS = ("mask", "bbox", "patch")
+
+
+@dataclass
+class NormalizationConfig:
+    """Normalization with the statistics of the preprocessing brick (``docs/normalization_contract.md``).
+
+    Off by default, which keeps patching exactly as before. When enabled,
+    each patch is normalized after extraction, before masking and resizing,
+    as ``(pixels - offset) / scale`` per channel, in float32 and without
+    clipping; the parameters are written to ``patches.csv``.
+
+    Attributes
+    ----------
+    enabled
+        Normalize the patches.
+    plane_histograms
+        Path of the preprocessing brick's ``plane_histograms.csv``; needed for
+        every scope except ``"patch"``.
+    manifest
+        Path of its ``run_manifest.json``, for extra checks; None uses the one
+        next to the CSV when there is one.
+    method
+        ``"minmax"``, ``"percentile"`` (default), ``"zscore"`` or
+        ``"robust_zscore"`` (MAD x 1.4826).
+    percentile
+        Low and high percentile of ``"percentile"``, ``0 <= low < high <= 100``.
+    scope
+        Pixels the parameters come from: ``"condition"``,
+        ``"biological_repeat"``, ``"technical_repeat"``, ``"image"`` (default:
+        all Z and T planes of the source image) or ``"patch"`` (the patch's
+        own pixels). Always per channel.
+    per_time_point
+        Normalize each time point separately (adds ``t`` to the group).
+    patch_region
+        For ``scope="patch"``: ``"mask"`` (the patch's own label), ``"bbox"``
+        (the label's bounding box) or ``"patch"`` (all patch pixels); None
+        means ``"mask"`` in ``cell`` mode and ``"patch"`` otherwise.
+    """
+
+    enabled: bool = False
+    plane_histograms: str | None = None
+    manifest: str | None = None
+    method: str = "percentile"
+    percentile: tuple[float, float] = (1.0, 99.8)
+    scope: str = "image"
+    per_time_point: bool = False
+    patch_region: str | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.enabled, bool):
+            raise ValueError("normalization.enabled must be a bool.")
+        if self.method not in NORMALIZATION_METHODS:
+            raise ValueError(f"normalization.method must be one of {list(NORMALIZATION_METHODS)}; got {self.method!r}.")
+        if self.scope not in NORMALIZATION_SCOPES:
+            raise ValueError(f"normalization.scope must be one of {list(NORMALIZATION_SCOPES)}; got {self.scope!r}.")
+        if self.patch_region is not None and self.patch_region not in PATCH_REGIONS:
+            raise ValueError(
+                f"normalization.patch_region must be one of {list(PATCH_REGIONS)} or None; got {self.patch_region!r}."
+            )
+        if not isinstance(self.per_time_point, bool):
+            raise ValueError("normalization.per_time_point must be a bool.")
+        # A JSON round trip turns the tuple into a list.
+        try:
+            low, high = (float(value) for value in self.percentile)
+        except (TypeError, ValueError):
+            raise ValueError("normalization.percentile must be two numbers (low, high).") from None
+        if not 0 <= low < high <= 100:
+            raise ValueError(f"normalization.percentile must satisfy 0 <= low < high <= 100; got ({low}, {high}).")
+        self.percentile = (low, high)
+
+
 @dataclass
 class MatchConfig:
     """Preferred image↔mask filename matching options.
@@ -258,6 +332,9 @@ class CellPatcherConfig:
         Image↔mask filename matching strategy, used by
         :func:`~cellpatcher.run_patching_pipeline` and
         :func:`~cellpatcher.validate_image_and_mask_folders`.
+    normalization:
+        Normalization with the preprocessing brick's statistics; off by
+        default (:class:`NormalizationConfig`).
     """
 
     mode: str = "cell"
@@ -269,6 +346,7 @@ class CellPatcherConfig:
     export: ExportConfig = field(default_factory=ExportConfig)
     extraction: ExtractionConfig = field(default_factory=ExtractionConfig)
     matching: MatchConfig = field(default_factory=MatchConfig)
+    normalization: NormalizationConfig = field(default_factory=NormalizationConfig)
 
     def __post_init__(self) -> None:
         valid_modes = {"cell", "random", "whole_fov", "grid"}

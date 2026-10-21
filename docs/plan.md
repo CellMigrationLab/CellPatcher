@@ -423,6 +423,12 @@ from GitHub at a pinned version) **[D1]**.
   the extra only the chosen TIFF/OME-Zarr planes, within the preprocessing memory limit).
 - **Milestone 3 — Normalization engine:** the scopes of §6.2 per channel and optionally per
   time point; patch regions; the pipeline step and the AGENTS.md §2 update; deprecations.
+  *Decided (October 2026):* the `patches.csv` columns and `run_config.json` records (§8)
+  move into Milestone 3, so every normalized export is reproducible from the start;
+  `export_values` and `memory_limit` arrive with the delivery modes in Milestone 4. For
+  in-memory `run_patching`, the CSV scopes take each image's `source_relative_path` from
+  `image_metadata`, and the manifest's file checks run in folder and tree runs. Padding
+  added by `pad_mode="constant"` is normalized like the raw value `constant_values`.
 - **Milestone 4 — Delivery:** the `patches.csv` columns and `run_config.json` keys; the three
   delivery modes; normalization on load for raw files; the NumPy iterator and torch
   adapters.

@@ -44,7 +44,8 @@ def _read_csv(path):
 
 def test_field_is_appended_after_all_existing_fields():
     names = [f.name for f in fields(PatchRegion)]
-    assert names[-1] == "source_relative_path"
+    # The normalization fields of Milestone 3 come after it.
+    assert names[names.index("reason") + 1] == "source_relative_path"
     assert PatchRegion(patch_id="p", y1=1, x1=1).source_relative_path is None
 
 
@@ -53,7 +54,7 @@ def test_csv_appends_the_column_and_keeps_earlier_columns(tmp_path):
     run_patching_pipeline(tmp_path / "images", config=_grid_config(tmp_path / "out"))
 
     header, rows = _read_csv(tmp_path / "out" / "patches.csv")
-    assert header == [*_EARLIER_HEADER, "source_relative_path"]
+    assert header[: len(_EARLIER_HEADER) + 1] == [*_EARLIER_HEADER, "source_relative_path"]
     assert {row["source_relative_path"] for row in rows} == {"a.tif"}
 
 

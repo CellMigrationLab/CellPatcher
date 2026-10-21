@@ -31,9 +31,10 @@ These rules override other implementation preferences.
 
 * **Keep the core package coordinate-first.** The pipeline is: (1) generate
   patch regions (`PatchRegion` coordinates + metadata) via a strategy, (2)
-  optionally filter regions, (3) optionally extract arrays, (4) optionally
-  apply the label mask (cell mode only), (5) optionally resize, (6)
-  optionally export. Strategies (`src/cellpatcher/strategies/`) only
+  optionally filter regions (on raw values), (3) optionally extract arrays,
+  (4) optionally normalize them (`config.normalization`, decision D9 of
+  `docs/plan.md`), (5) optionally apply the label mask (cell mode only), (6)
+  optionally resize, (7) optionally export. Strategies (`src/cellpatcher/strategies/`) only
   generate coordinates; extraction/export is handled by the pipeline.
 * **Keep Torch/DINO/GPU/model-specific logic out of the core package.** The
   optional `cellpatcher.torch_dataset` adapter is the one sanctioned
@@ -272,7 +273,7 @@ Two ways to point CellPatcher at input data:
 
 ### Planned: normalization with the preprocessing brick
 
-**Status: specified; Milestone 1 implemented.** The rules are fixed in
+**Status: specified; Milestones 1–3 implemented.** The rules are fixed in
 `docs/normalization_contract.md` (decisions in `docs/plan.md`) and land over
 Milestones 1–5. Implemented so far (Milestone 1): the optional
 `preprocessing` extra (pinned commit in `setup.py`), the
@@ -282,7 +283,11 @@ root), and `cellpatcher.statistics`, which loads `plane_histograms.csv` and
 the optional `run_manifest.json` and runs the checks of contract §5 — not
 yet called by the pipeline. Milestone 2 adds plane splitting
 (`common.z_policy`/`t_policy`), OME-Zarr images and OME-NGFF label masks
-(`common.mask_source`) (see "Inputs" above).
+(`common.mask_source`) (see "Inputs" above). Milestone 3 adds
+`config.normalization` (`cellpatcher.normalization`): the pipeline normalizes
+patches per channel at a condition, repeat, image or patch scope, and records
+the parameters in six `normalization_*` columns after `source_relative_path`
+and in `run_config.json` (`normalization` section, `normalization_inputs`).
 Until each later part is merged, the inputs and
 outputs above are the whole interface. In summary:
 
