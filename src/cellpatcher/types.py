@@ -53,6 +53,12 @@ class PatchRegion:
     - ``config_file``: path to the full run config JSON saved alongside the
       metadata CSV, capturing every parameter (strategy, seed, extraction,
       matching) needed to reproduce this run's coordinates deterministically.
+    - ``source_relative_path``: the source image's path relative to the
+      experiment root, with ``/`` separators, from its real location
+      (``control/img.tif`` for an image directly in ``control/``; never the
+      ``single`` output folders). Links the patch to the preprocessing
+      brick's ``plane_id``. Filled by folder and tree runs, or per image from
+      ``image_metadata``; ``None`` otherwise.
     """
     patch_id: str
     image_id: str | None = None
@@ -85,6 +91,9 @@ class PatchRegion:
     # Reserved for future rejected-patch reporting (e.g. background suppression reason).
     valid: bool = True
     reason: str | None = None
+    # Appended after every earlier field so existing CSV columns keep their
+    # order (docs/normalization_contract.md §10).
+    source_relative_path: str | None = None
 
     def __post_init__(self) -> None:
         # y0/x0 are always required (defaulted to 0), so their ranges are

@@ -161,7 +161,11 @@ Controls how image files are paired with mask files when reading from folders.
 Planned fields (contract §13): `enabled`, `plane_histograms`, `manifest`, `method`,
 `percentile`, `scope`, `per_time_point`, `patch_region`, `export_values` and `memory_limit`;
 plus `common.mask_source` and `common.mask_label_name` for OME-Zarr label masks (contract §4).
-`patches.csv` gains `source_relative_path` and six `normalization_*` columns (contract §10).
+`patches.csv` gains six `normalization_*` columns (contract §10); its `source_relative_path`
+column already exists (Milestone 1). The optional `preprocessing` extra
+(`pip install "cellpatcher[preprocessing]"`) and `cellpatcher.statistics`, which loads
+`plane_histograms.csv`/`run_manifest.json` and runs the checks of contract §5, are also
+available from Milestone 1.
 
 ---
 
@@ -209,6 +213,7 @@ Every generated patch is a `PatchRegion` dataclass. The fields below are populat
 | `output_height`, `output_width` | `int \| None` | Final exported array shape. Differs from `y1 - y0`/`x1 - x0` when `extraction.output_size` resizes the patch. `None` unless arrays were extracted (`extract_arrays=True` or `export.enabled=True`). |
 | `config_file` | `str \| None` | Filename of the full run-config JSON saved alongside `patches.csv` (see below). `None` unless `export.enabled=True`. |
 | `valid`, `reason` | `bool`, `str \| None` | Reserved for future rejected-patch reporting; not yet populated (`valid` is always `True`). |
+| `source_relative_path` | `str \| None` | The source image's path relative to the experiment root, with `/` separators, from its real location (`control/img.tif` for an image directly in `control/`, never the `single` output folders). Links the patch to the preprocessing brick's `plane_id` ([normalization contract](normalization_contract.md) §2). Tree runs make it relative to `image_root_path`; `run_patching_pipeline` to the image folder (the file name); direct `run_patching()` calls take it from `image_metadata`, else `None`. Last column of `patches.csv`. |
 
 ### Shared MorphoBricks CSV contract
 

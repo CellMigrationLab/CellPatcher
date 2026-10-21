@@ -8,6 +8,12 @@ on:
 jobs:
   pytest:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Without and with the optional preprocessing extra, whose tests
+        # skip when it is not installed.
+        extras: ['test', 'test,preprocessing']
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -20,7 +26,7 @@ jobs:
       - name: Install package + test extras
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e .[test]
+          python -m pip install -e ".[${{ matrix.extras }}]"
 
       - name: Run tests
         run: python -m pytest -q

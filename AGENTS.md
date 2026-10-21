@@ -19,7 +19,7 @@
 | Tests       | `PYTHONPATH=src python -m pytest -q` (equivalent to `pytest tests/` once the package is installed editable)                                              |
 | Environment | `python -m pip install -e .` (add extras as needed: `.[test]`, `.[notebook]`, `.[torch]`) or `conda env create -f environment.yaml`                       |
 
-Key dependencies: `numpy`, `scipy`, `tifffile`, `imageio` (core, required). Optional extras: `ipywidgets`, `matplotlib`, `pillow`, `tqdm`, `joblib`, `jl-hidecode` (notebook extra); `torch` (optional `cellpatcher.torch_dataset` adapter only — never a core dependency).
+Key dependencies: `numpy`, `scipy`, `tifffile`, `imageio` (core, required). Optional extras: `ipywidgets`, `matplotlib`, `pillow`, `tqdm`, `joblib`, `jl-hidecode` (notebook extra); `torch` (optional `cellpatcher.torch_dataset` adapter only — never a core dependency); `morphobricks-preprocessing[zarr]` from GitHub at a pinned commit (`preprocessing` extra, for `cellpatcher.statistics` and the planned normalization — never a core dependency).
 
 Current health snapshot (latest audit): 461 tests passing, 1 skipped.
 
@@ -43,7 +43,7 @@ These rules override other implementation preferences.
   `mask_file`, `y0/y1/x0/x1`, `z0/z1`, `t`, `c`, `label_id`,
   `center_y`/`center_x`/`center_z`, `touches_border`, `area_px`,
   `patch_file`, `output_height`/`output_width`, `config_file`, `valid`,
-  `reason`). These are exactly the columns written to the exported metadata
+  `reason`, `source_relative_path`). These are exactly the columns written to the exported metadata
   CSV (`save_metadata_csv` in `src/cellpatcher/export.py`, plus the
   computed `height`/`width` convenience columns from `PatchRegion.to_dict()`),
   and downstream repos may already depend on them. New fields may be
@@ -260,10 +260,16 @@ Two ways to point CellPatcher at input data:
 
 ### Planned: normalization with the preprocessing brick
 
-**Status: specified, not yet implemented.** The rules are fixed in
+**Status: specified; Milestone 1 implemented.** The rules are fixed in
 `docs/normalization_contract.md` (decisions in `docs/plan.md`) and land over
-Milestones 1–5. Until each part is merged, the inputs and outputs above are
-the whole interface. In summary:
+Milestones 1–5. Implemented so far (Milestone 1): the optional
+`preprocessing` extra (pinned commit in `setup.py`), the
+`source_relative_path` `PatchRegion` field/`patches.csv` column (last
+column; filled by folder and tree runs from each image's real path under the
+root), and `cellpatcher.statistics`, which loads `plane_histograms.csv` and
+the optional `run_manifest.json` and runs the checks of contract §5 — not
+yet called by the pipeline. Until each later part is merged, the inputs and
+outputs above are the whole interface. In summary:
 
 - **Inputs:** with the optional `preprocessing` extra, CellPatcher reads
   `plane_histograms.csv` from

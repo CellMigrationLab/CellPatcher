@@ -405,7 +405,8 @@ from GitHub at a pinned version) **[D1]**.
   `configuration_reference.md` and AGENTS.md §4–§6. The configuration reference describes
   the new fields as planned until they are implemented.
 - **Milestone 1 — Preprocessing link:** the optional extra; read the CSV and optional
-  manifest; `source_relative_path` on every patch; the checks of §3.4.
+  manifest; `source_relative_path` on every patch; the checks of §3.4. *Done (October
+  2026):* `setup.py` extra, `PatchRegion.source_relative_path`, `cellpatcher.statistics`.
 - **Milestone 2 — Images and masks:** OME-Zarr images; OME-Zarr labels (added to the
   preprocessing reader if needed); plane-by-plane TIFF reading; the splitting rules of §3.2
   with projections blocked under normalization.
