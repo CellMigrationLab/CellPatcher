@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.0.6] - 2026-10-21
+
+### Changed
+- Version updated from 0.0.5 to 0.0.6
+
+**Commit Details:**
+- Hash: [`968c9670`](https://github.com/CellMigrationLab/CellPatcher/commit/968c96705949e3c8f753c4338693391ecb734a5f)
+- Author: Iván Hidalgo
+- Date: 2026-10-21 15:14:47 +0300
+- Message: Merge pull request #24 from CellMigrationLab/feature/m5-notebook-normalization
+
+Normalization, plane and OME-Zarr options in the notebook; user guide (Milestone 5)
+
+---
 ## [0.0.5] - 2026-05-17
 
 ### Changed
