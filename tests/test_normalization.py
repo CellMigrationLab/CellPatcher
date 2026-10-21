@@ -98,6 +98,9 @@ def _patches_by_image(results):
 
 
 def test_config_defaults_and_validation():
+    import cellpatcher
+
+    assert cellpatcher.NormalizationConfig is NormalizationConfig
     settings = NormalizationConfig()
     assert (settings.enabled, settings.method, settings.scope, settings.percentile) == (False, "percentile", "image", (1.0, 99.8))
     with pytest.raises(ValueError, match="method must be one of"):
