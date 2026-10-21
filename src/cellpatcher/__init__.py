@@ -55,6 +55,16 @@ from cellpatcher.preprocess import (
     select_axis_index,
 )
 from cellpatcher.resize import normalize_output_size, resize_patch, resize_patches
+from cellpatcher.statistics import (
+    PlaneStatistics,
+    PreprocessingCheckError,
+    PreprocessingUnavailableError,
+    SourcePlane,
+    check_images,
+    check_planes,
+    load_plane_statistics,
+    require_preprocessing,
+)
 from cellpatcher.strategies import (
     CellSegmentationStrategy,
     GridStrategy,
@@ -138,4 +148,12 @@ __all__ = [
     "PreparedPlanePair",
     "iter_image_planes_for_patching",
     "iter_cell_planes_for_patching",
+    "PlaneStatistics",
+    "PreprocessingCheckError",
+    "PreprocessingUnavailableError",
+    "SourcePlane",
+    "check_images",
+    "check_planes",
+    "load_plane_statistics",
+    "require_preprocessing",
 ]

@@ -9,6 +9,11 @@ from cellpatcher.config import CellPatcherConfig
 from cellpatcher.extract import extract_patches
 from cellpatcher.export import export_patches
 from cellpatcher.filters import filter_regions
+from cellpatcher.io import (
+    SINGLE_BIOLOGICAL_REPEAT_LABEL,
+    SINGLE_CONDITION_LABEL,
+    SINGLE_TECHNICAL_REPEAT_LABEL,
+)
 from cellpatcher.masking import apply_label_masks_to_patches
 from cellpatcher.resize import resize_patches
 from cellpatcher.strategies.cell import CellSegmentationStrategy
@@ -24,10 +29,18 @@ RUN_CONFIG_FILENAME = "run_config.json"
 
 
 def _stamp_run_context(config: CellPatcherConfig, patches: list[PatchRegion]) -> None:
+    # A missing label is "single", as for a missing folder level (AGENTS.md
+    # §5), also when a config or an older run_config.json sets it to None.
+    common = config.common
+    condition = SINGLE_CONDITION_LABEL if common.condition is None else common.condition
+    biological_repeat = (
+        SINGLE_BIOLOGICAL_REPEAT_LABEL if common.biological_repeat is None else common.biological_repeat
+    )
+    technical_repeat = SINGLE_TECHNICAL_REPEAT_LABEL if common.technical_repeat is None else common.technical_repeat
     for patch in patches:
-        patch.condition = config.common.condition
-        patch.biological_repeat = config.common.biological_repeat
-        patch.technical_repeat = config.common.technical_repeat
+        patch.condition = condition
+        patch.biological_repeat = biological_repeat
+        patch.technical_repeat = technical_repeat
 
 
 def _stamp_image_metadata(image_list, image_metadata, patches: list[PatchRegion]) -> None:
@@ -42,8 +55,9 @@ def _stamp_image_metadata(image_list, image_metadata, patches: list[PatchRegion]
     planes. ``"technical_repeat"`` sets the well/dish of that image,
     overriding ``config.common.technical_repeat`` (a folder of one
     repeat can hold images from several wells). ``"image_file"``/
-    ``"mask_file"`` stamp source-file provenance;
-    ``run_patching_pipeline``
+    ``"mask_file"`` stamp source-file provenance, and
+    ``"source_relative_path"`` the image's path relative to the experiment
+    root; ``run_patching_pipeline``
     supplies these automatically from the folders it read.
     """
     if image_metadata is None:
@@ -71,6 +85,8 @@ def _stamp_image_metadata(image_list, image_metadata, patches: list[PatchRegion]
             patch.image_file = str(meta["image_file"])
         if meta.get("mask_file") is not None:
             patch.mask_file = str(meta["mask_file"])
+        if meta.get("source_relative_path") is not None:
+            patch.source_relative_path = str(meta["source_relative_path"])
 
 
 def _patch_array_axes(config: CellPatcherConfig) -> str:
@@ -348,7 +364,10 @@ def run_patching(images=None, masks=None, config=None, image_metadata=None) -> P
         with ``"position_id"`` for the stable spatial acquisition position. When supplied, the
         selected plane indices are stamped onto every resulting patch's
         ``t``/``z0``/``z1``/``c`` fields so the exported metadata CSV records
-        exactly which C/Z/T plane each patch came from.
+        exactly which C/Z/T plane each patch came from. The provenance
+        keys ``"technical_repeat"``, ``"image_file"``, ``"mask_file"`` and
+        ``"source_relative_path"`` are stamped onto the ``PatchRegion``
+        fields of the same name.
     config:
         A :class:`~cellpatcher.CellPatcherConfig` instance.  Defaults to
         ``CellPatcherConfig()`` (cell mode with all defaults).

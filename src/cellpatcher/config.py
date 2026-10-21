@@ -1,6 +1,11 @@
 from dataclasses import dataclass, field
 
 from cellpatcher._deprecation import accept_deprecated_repeat
+from cellpatcher.io import (
+    SINGLE_BIOLOGICAL_REPEAT_LABEL,
+    SINGLE_CONDITION_LABEL,
+    SINGLE_TECHNICAL_REPEAT_LABEL,
+)
 
 
 @accept_deprecated_repeat
@@ -10,20 +15,21 @@ class CommonConfig:
     mask_axes: str = "YX"
     output_dir: str | None = None
     extract_arrays: bool = False
-    # Stamped onto every PatchRegion/metadata-CSV row for this run when set.
-    # These are the MorphoBricks shared-CSV-contract `condition`/
-    # `biological_repeat`/`technical_repeat` columns (see AGENTS.md §5).
-    # run_patching()/run_patching_pipeline() never infer them; set them
-    # explicitly, or use orchestration.run_patching_condition_repeat_tree to
-    # derive them per leaf from a
-    # <condition>/<biological_repeat>[/<technical_repeat>]/ folder tree.
-    # technical_repeat is the well/dish/coverslip within the biological
-    # repeat; per-image image_metadata["technical_repeat"] overrides it.
-    # `repeat` stays accepted as a deprecated alias of biological_repeat
-    # (DeprecationWarning).
-    condition: str | None = None
-    biological_repeat: str | None = None
-    technical_repeat: str | None = None
+    # Stamped onto every PatchRegion/metadata-CSV row for this run. These are
+    # the MorphoBricks shared-CSV-contract `condition`/`biological_repeat`/
+    # `technical_repeat` columns (see AGENTS.md §5). A label that is not
+    # given is "single", as for a missing folder level; None is stamped as
+    # "single" too. run_patching()/run_patching_pipeline() never infer them
+    # from paths; set them explicitly, or use
+    # orchestration.run_patching_condition_repeat_tree to derive them per
+    # leaf from a <condition>/<biological_repeat>[/<technical_repeat>]/
+    # folder tree. technical_repeat is the well/dish/coverslip within the
+    # biological repeat; per-image image_metadata["technical_repeat"]
+    # overrides it. `repeat` stays accepted as a deprecated alias of
+    # biological_repeat (DeprecationWarning).
+    condition: str | None = SINGLE_CONDITION_LABEL
+    biological_repeat: str | None = SINGLE_BIOLOGICAL_REPEAT_LABEL
+    technical_repeat: str | None = SINGLE_TECHNICAL_REPEAT_LABEL
 
 
 @dataclass

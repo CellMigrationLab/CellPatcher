@@ -309,20 +309,41 @@ def _load_matched_masks(image_folder_path, mask_folder_path, image_files, config
     return [read_array(path) for path in mask_paths], mask_paths
 
 
-def _image_metadata_for_filenames(image_files, mask_paths=None) -> list[dict]:
+def _source_relative_path(image_path: Path, experiment_root) -> str:
+    """Path of *image_path* relative to *experiment_root*, with ``/`` separators.
+
+    Built from the image's real location, so it matches the preprocessing
+    brick's ``source_relative_path`` (``control/img.tif`` for an image
+    directly in ``control/``), unlike ``ConditionRepeatFolder.relative_folder``,
+    which inserts ``single`` for missing levels.
+    """
+    root = Path(experiment_root).expanduser().resolve()
+    try:
+        return Path(image_path).expanduser().resolve().relative_to(root).as_posix()
+    except ValueError as exc:
+        raise ValueError(f"Image '{image_path}' is not inside the experiment root '{root}'.") from exc
+
+
+def _image_metadata_for_filenames(image_files, mask_paths=None, experiment_root=None) -> list[dict]:
     """Build the per-image ``run_patching(image_metadata=...)`` payload.
 
-    Carries source filenames through so they land on every ``PatchRegion``
+    Carries source filenames (and, with *experiment_root*, each image's
+    ``source_relative_path``) through so they land on every ``PatchRegion``
     (and the exported metadata CSV) *before* ``export_patches`` writes it —
     passing this into ``run_patching`` rather than stamping the result
     afterwards is what makes that ordering guarantee hold.
     """
     if mask_paths is None:
-        return [{"image_file": path.name} for path in image_files]
-    return [
-        {"image_file": image_path.name, "mask_file": mask_path.name}
-        for image_path, mask_path in zip(image_files, mask_paths)
-    ]
+        mask_paths = [None] * len(image_files)
+    metadata = []
+    for image_path, mask_path in zip(image_files, mask_paths):
+        meta = {"image_file": image_path.name}
+        if mask_path is not None:
+            meta["mask_file"] = mask_path.name
+        if experiment_root is not None:
+            meta["source_relative_path"] = _source_relative_path(image_path, experiment_root)
+        metadata.append(meta)
+    return metadata
 
 
 def run_patching_pipeline(
@@ -422,7 +443,9 @@ def run_patching_pipeline(
     Returns
     -------
     PatchingResult
-        Regions, optional patch arrays, and exported file paths.
+        Regions, optional patch arrays, and exported file paths. Each
+        patch's ``source_relative_path`` is its image's file name: the image
+        folder is the experiment root of this run.
     """
     if config is None:
         config = CellPatcherConfig()
@@ -430,7 +453,33 @@ def run_patching_pipeline(
         raise TypeError("config must be a CellPatcherConfig instance.")
     if overrides:
         config = apply_overrides(config, overrides)
+    return _run_folder_patching(
+        image_folder_path,
+        config=config,
+        mask_folder_path=mask_folder_path,
+        strategy=strategy,
+        mask_suffixes=mask_suffixes,
+        case_sensitive=case_sensitive,
+        experiment_root=image_folder_path,
+    )
 
+
+def _run_folder_patching(
+    image_folder_path,
+    *,
+    config: CellPatcherConfig,
+    mask_folder_path,
+    strategy,
+    mask_suffixes,
+    case_sensitive,
+    experiment_root,
+) -> PatchingResult:
+    """Body of :func:`run_patching_pipeline` for one image folder.
+
+    *experiment_root* is the folder each image's ``source_relative_path`` is
+    relative to: the image folder itself for a flat run, the tree root for
+    :func:`run_patching_condition_repeat_tree`.
+    """
     image_files = list_supported_files(image_folder_path)
     if len(image_files) == 0:
         raise ValueError("No supported image files found in image folder.")
@@ -446,7 +495,7 @@ def run_patching_pipeline(
                 f"mask_folder_path is not supported for mode='{config.mode}'. "
                 "Remove it, or switch to 'cell' or 'random' mode."
             )
-        image_metadata = _image_metadata_for_filenames(image_files)
+        image_metadata = _image_metadata_for_filenames(image_files, experiment_root=experiment_root)
         return run_patching(images=images, masks=None, config=config, image_metadata=image_metadata)
 
     if config.mode == "cell":
@@ -456,7 +505,7 @@ def run_patching_pipeline(
             image_folder_path, mask_folder_path, image_files, config,
             strategy, mask_suffixes, case_sensitive,
         )
-        image_metadata = _image_metadata_for_filenames(image_files, mask_paths)
+        image_metadata = _image_metadata_for_filenames(image_files, mask_paths, experiment_root)
         return run_patching(images=images, masks=masks, config=config, image_metadata=image_metadata)
 
     # random mode: masks are optional (restrict patch placement region)
@@ -467,7 +516,7 @@ def run_patching_pipeline(
             image_folder_path, mask_folder_path, image_files, config,
             strategy, mask_suffixes, case_sensitive,
         )
-    image_metadata = _image_metadata_for_filenames(image_files, mask_paths)
+    image_metadata = _image_metadata_for_filenames(image_files, mask_paths, experiment_root)
     return run_patching(images=images, masks=masks, config=config, image_metadata=image_metadata)
 
 
@@ -637,13 +686,16 @@ def run_patching_condition_repeat_tree(
         if masks_allowed and leaf.mask_folder is not None and leaf.mask_folder.exists():
             leaf_mask_folder = str(leaf.mask_folder)
 
-        result = run_patching_pipeline(
+        # source_relative_path is relative to the tree root, as in the
+        # preprocessing brick, not to the leaf folder.
+        result = _run_folder_patching(
             str(leaf.image_folder),
             config=leaf_config,
             mask_folder_path=leaf_mask_folder,
             strategy=strategy,
             mask_suffixes=mask_suffixes,
             case_sensitive=case_sensitive,
+            experiment_root=image_root_path,
         )
         results.append(
             ConditionRepeatResult(

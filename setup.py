@@ -27,5 +27,12 @@ setup(
         "torch": [
             "torch",
         ],
+        # Plane statistics of the MorphoBricks preprocessing brick, used for
+        # normalization (docs/normalization_contract.md §1). Pinned to a
+        # commit and raised deliberately.
+        "preprocessing": [
+            "morphobricks-preprocessing[zarr] @ git+https://github.com/CellMigrationLab/"
+            "morphobricks-preprocessing@7dfd4b8a73e9371492def2617e908a2375d25e2d",
+        ],
     },
 )

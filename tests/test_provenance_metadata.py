@@ -31,11 +31,17 @@ def test_condition_and_repeat_stamped_on_every_patch():
     assert result.patches[0].biological_repeat == "2026_01_01"
 
 
-def test_condition_and_repeat_default_to_none():
+def test_missing_labels_default_to_single():
     image = np.ones((16, 16), dtype=np.float32)
     result = run_patching(images=image, config=CellPatcherConfig(mode="whole_fov"))
-    assert result.patches[0].condition is None
-    assert result.patches[0].biological_repeat is None
+    patch = result.patches[0]
+    assert (patch.condition, patch.biological_repeat, patch.technical_repeat) == ("single", "single", "single")
+
+    # A label set to None (or null in an older run_config.json) is "single" too.
+    cfg = CellPatcherConfig(mode="whole_fov")
+    cfg.common.condition, cfg.common.technical_repeat = "treated", None
+    patch = run_patching(images=image, config=cfg).patches[0]
+    assert (patch.condition, patch.biological_repeat, patch.technical_repeat) == ("treated", "single", "single")
 
 
 def test_output_height_width_reflect_resize_not_raw_bbox():
@@ -224,7 +230,7 @@ def test_technical_repeat_from_config_and_per_image_metadata():
         image_metadata=[{"technical_repeat": "B02"}, {}],
     )
     assert [p.technical_repeat for p in result.patches] == ["B02", "dish_1"]
-    # Unset, it stays empty, as condition and biological_repeat do.
+    # Unset, it is "single", as condition and biological_repeat are.
     assert run_patching(images=images[0], config=CellPatcherConfig(mode="whole_fov")).patches[
         0
-    ].technical_repeat is None
+    ].technical_repeat == "single"
