@@ -20,7 +20,6 @@ raises :class:`PreprocessingUnavailableError` when the extra is missing.
 
 from __future__ import annotations
 
-import itertools
 from collections import defaultdict
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
@@ -40,7 +39,8 @@ INSTALL_COMMAND = 'pip install "cellpatcher[preprocessing]"'
 
 # Versions of plane_histograms.csv and run_manifest.json this CellPatcher reads
 # (contract §1). The installed preprocessing package must read the same ones.
-SUPPORTED_SCHEMA_VERSION = "1"
+# Table version 2 always writes z, c and t, so plane_id matches exactly.
+SUPPORTED_SCHEMA_VERSION = "2"
 SUPPORTED_MANIFEST_VERSION = "1"
 
 _PLANE_ROLES = ("Z", "C", "T")
@@ -108,9 +108,10 @@ class SourcePlane:
     condition, biological_repeat, technical_repeat
         CellPatcher's labels for the image; None is read as ``"single"``.
     z, c, t
-        Zero-based plane coordinates (CellPatcher's ``z0`` as ``z``); None
-        when the image has no such axis. A patch that keeps several channels
-        is one ``SourcePlane`` per channel.
+        Zero-based plane coordinates (CellPatcher's ``z0`` as ``z``). An axis
+        the image does not have, or has with length 1, has coordinate 0; None
+        is stored as 0, as in the preprocessing table (contract §3). A patch
+        that keeps several channels is one ``SourcePlane`` per channel.
     axis_lengths
         Length of each Z, C and T axis the image has, e.g. ``{"Z": 5}``. An
         axis left out has length 1.
@@ -126,6 +127,7 @@ class SourcePlane:
     condition: str | None
     biological_repeat: str | None
     technical_repeat: str | None
+    # None means "not given": allowed only for an axis of length 1, then stored as 0.
     z: int | None = None
     c: int | None = None
     t: int | None = None
@@ -151,8 +153,10 @@ class SourcePlane:
                     f"{self.source_relative_path}: {role.lower()}={value} is outside the image, "
                     f"which has {length} planes along {role}."
                 )
+            if value is None:
+                object.__setattr__(self, role.lower(), 0)
 
-    def coordinate(self, role: str) -> int | None:
+    def coordinate(self, role: str) -> int:
         """The coordinate along ``role`` (``"Z"``, ``"C"`` or ``"T"``)."""
         return {"Z": self.z, "C": self.c, "T": self.t}[role]
 
@@ -167,26 +171,8 @@ class SourcePlane:
 
     @property
     def plane_id(self) -> str:
-        """The preprocessing ``plane_id`` of these coordinates."""
+        """The preprocessing ``plane_id`` of this plane, e.g. ``"control/img.tif::z=0,c=0,t=0"``."""
         return require_preprocessing().make_plane_id(self.source_relative_path, z=self.z, c=self.c, t=self.t)
-
-    def candidate_plane_ids(self) -> list[str]:
-        """Every ``plane_id`` the preprocessing brick may have written for this plane.
-
-        For an axis of length 1, a coordinate of 0 and an absent coordinate
-        identify the same plane (contract §3): the preprocessing brick leaves
-        the coordinate blank for a length-1 axis without a role, and writes 0
-        for an axis a file lacks but the experiment has.
-        """
-        make_plane_id = require_preprocessing().make_plane_id
-        options = [
-            (None, 0) if self.axis_length(role) == 1 else (self.coordinate(role),)
-            for role in _PLANE_ROLES
-        ]
-        return [
-            make_plane_id(self.source_relative_path, z=z, c=c, t=t)
-            for z, c, t in itertools.product(*options)
-        ]
 
 
 @dataclass(frozen=True, eq=False)
@@ -226,13 +212,9 @@ class PlaneStatistics:
         """All rows of one image, in table order."""
         return tuple(r for r in self.records if r.source_relative_path == source_relative_path)
 
-    def matching_records(self, plane: SourcePlane) -> list[PlaneRecord]:
-        """The rows whose ``plane_id`` identifies ``plane`` (normally exactly one)."""
-        return [
-            self._by_plane_id[plane_id]
-            for plane_id in plane.candidate_plane_ids()
-            if plane_id in self._by_plane_id
-        ]
+    def find_record(self, plane: SourcePlane) -> PlaneRecord | None:
+        """The row with ``plane``'s ``plane_id``, or None if the table has none."""
+        return self._by_plane_id.get(plane.plane_id)
 
 
 def load_plane_statistics(plane_histograms, manifest=None) -> PlaneStatistics:
@@ -364,7 +346,7 @@ def check_images(
     PreprocessingCheckError
         If any check fails; the message lists every failure.
     """
-    require_preprocessing()
+    mbp = require_preprocessing()
     from morphobricks_preprocessing.manifest import source_fingerprint
     from morphobricks_preprocessing.validation import error, plural
 
@@ -398,7 +380,14 @@ def check_images(
                 continue
             if source_fingerprint(root / path) != (entry.size, entry.mtime_ns):
                 changed.append(path)
-            file_mapping = manifest.mapping.for_axes(entry.axes)
+            # The preprocessing brick's own resolution of the experiment
+            # mapping for this image (OME-Zarr images may store another axis
+            # order); reads the header only.
+            file_mapping = mbp.file_mapping_for(
+                mbp.inspect_image(root / path, path),
+                manifest.mapping,
+                missing_as_singleton=manifest.settings.missing_as_singleton,
+            )
             if not _axes_agree(normalize_axes(axes), file_mapping):
                 preprocessing_roles = "none fit" if file_mapping is None else file_mapping.roles_string
                 axes_differ.append(f"{path} (CellPatcher {normalize_axes(axes)}, preprocessing {preprocessing_roles})")
@@ -475,11 +464,10 @@ def check_planes(
             raise ValueError(
                 f"{plane.plane_id}: a plane must be a 2D (Y, X) array; got shape {pixels.shape}."
             )
-        records = statistics.matching_records(plane)
-        if len(records) != 1:
-            failures["missing_plane_rows" if not records else "ambiguous_plane_rows"].append(plane.plane_id)
+        record = statistics.find_record(plane)
+        if record is None:
+            failures["missing_plane_rows"].append(plane.plane_id)
             continue
-        record = records[0]
         matched.append(record)
         histogram = record.histogram
         record_labels = (record.condition, record.biological_repeat, record.technical_repeat)
@@ -555,8 +543,8 @@ def _axes_agree(image_axes: str, mapping: AxisMapping | None) -> bool:
     """Whether CellPatcher's axes give every dimension the manifest's role.
 
     A dimension without a role in the manifest has length 1 (preprocessing
-    contract §2), and a length-1 axis identifies the same planes with or
-    without a coordinate (contract §3), so any CellPatcher role fits it.
+    contract §2), so its planes have coordinate 0 whichever role CellPatcher
+    gives it (contract §3), and any role fits it.
     """
     if mapping is None or len(mapping.roles) != len(image_axes):
         return False
@@ -577,10 +565,6 @@ def _plane_issues(csv_name: str, failures: Mapping[str, list[str]]) -> list[Vali
             "Set common.image_axes to the roles confirmed in the preprocessing brick, or run the "
             "preprocessing brick again.",
         ),
-        "ambiguous_plane_rows": (
-            "{match} more than one row in {csv}, with and without a coordinate for a length-1 axis.",
-            "Use the table the preprocessing brick wrote, without combining or editing it.",
-        ),
         "label_mismatch": (
             "{have} other condition, biological repeat or technical repeat labels than their rows "
             "in {csv}.",
@@ -600,6 +584,6 @@ def _plane_issues(csv_name: str, failures: Mapping[str, list[str]]) -> list[Vali
         if failures.get(code):
             planes = failures[code]
             one = len(planes) == 1
-            text = message.format(csv=csv_name, have="has" if one else "have", match="matches" if one else "match")
+            text = message.format(csv=csv_name, have="has" if one else "have")
             issues.append(error(code, f"{plural(len(planes), 'plane')} {text}", planes, action))
     return issues

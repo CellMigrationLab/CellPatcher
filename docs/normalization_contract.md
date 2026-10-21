@@ -43,7 +43,7 @@ brick's
 |---|---|
 | Extra | `pip install "cellpatcher[preprocessing]"` installs `morphobricks-preprocessing[zarr]`. It is never a core dependency. |
 | Version | Installed from GitHub at a pinned commit or tag, recorded in `setup.py` and raised deliberately. |
-| Formats | Reads `plane_histograms.csv` schema version `1` and `run_manifest.json` manifest version `1`; any other version is an error. |
+| Formats | Reads `plane_histograms.csv` schema version `2` (every row has `z`, `c` and `t`) and `run_manifest.json` manifest version `1`; any other version is an error. |
 | Needed for | Normalization (every scope), OME-Zarr images and labels, and plane-by-plane image reading. |
 | Without it | Patching works exactly as today; enabling normalization or giving OME-Zarr input stops the run with an install instruction. |
 | Imported | `read_plane_histograms`, `read_manifest`, `manifest.source_fingerprint`, `make_plane_id`, `group_records`, `compute_plane_histogram`, `PooledHistogram`, `min_max`, `percentile_range`, `z_score`, `robust_z_score`, `NormalizationParameters`, the OME-Zarr reader (`zarr_input`) and the plane readers (`planes`). |
@@ -76,10 +76,10 @@ Repeating a normalized grayscale patch to RGB stays available in the torch adapt
 
 **Plane identity.** A plane is identified by
 `make_plane_id(source_relative_path, z=..., c=..., t=...)`, with CellPatcher's `z0` as `z`.
-A coordinate is present when the axis is in the image axes and absent otherwise. For an axis
-of length 1, a coordinate of `0` and an absent coordinate identify the same plane, because
-the preprocessing brick writes a blank for a length-1 axis without a role. A patch that keeps
-several channels belongs to one plane per channel, `c = 0 … C−1`.
+Both bricks always write all three coordinates: an axis the image does not have, or has with
+length 1, has coordinate 0 (`control/img.tif::z=0,c=0,t=0` for a 2D image), so the same plane
+has the same `plane_id` whether or not its file or CellPatcher's axes include the axis. A
+patch that keeps several channels belongs to one plane per channel, `c = 0 … C−1`.
 
 **Memory.** CellPatcher needs each plane whole in memory to patch it. A plane larger than the
 memory limit is an error, even if the preprocessing brick read it in blocks.

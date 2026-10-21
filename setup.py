@@ -32,7 +32,7 @@ setup(
         # commit and raised deliberately.
         "preprocessing": [
             "morphobricks-preprocessing[zarr] @ git+https://github.com/CellMigrationLab/"
-            "morphobricks-preprocessing@7dfd4b8a73e9371492def2617e908a2375d25e2d",
+            "morphobricks-preprocessing@52a0635f6c965b1d5a4bde40b5835272dffd1cca",
         ],
     },
 )
