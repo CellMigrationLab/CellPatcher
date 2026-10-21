@@ -442,7 +442,10 @@ from GitHub at a pinned version) **[D1]**.
 - **Milestone 5 — Notebook and docs:** a normalization step in `CellPatcher.ipynb` (choose the
   CSV and optional manifest, method, scope and patch region; table of parameters per group;
   before/after preview of a few patches with their histograms; warnings), plus user
-  documentation.
+  documentation. *Done (October 2026):* D8 decided (discard and report); the notebook (v0.0.6)
+  gains a mask source choice (OME-Zarr labels), plane policies, the normalization section with
+  `normalization.group_parameters`, readiness checks of the preprocessing inputs, and the
+  before/after preview; user guide [normalization.md](normalization.md).
 - **Later:** reading only patch windows for planes too large to hold in memory (the
   preprocessing brick now computes statistics for those planes in blocks, but patching still
   needs the whole plane); reading the preprocessing OME-Zarr copies; reference parameters

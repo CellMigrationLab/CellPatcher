@@ -7,7 +7,7 @@ preprocessing brick. It is the reference for Milestones 1–5 of the [plan](plan
 records why each rule was chosen (decisions D1–D16). Changing a rule after it is implemented
 needs owner approval (AGENTS.md §8).
 
-**Status: specified; Milestones 1–4 implemented.** Nothing here is available in the
+**Status: implemented (Milestones 1–5).** Nothing here is available in the
 package until the milestone named in each section is merged; until then `CellPatcherConfig`
 has no `normalization` section and `patches.csv` has no normalization columns. Milestone 1
 added the `preprocessing` extra (§1), the `source_relative_path` field and column (§2, §10),
@@ -18,6 +18,8 @@ need `NormalizationConfig` from Milestone 3), and OME-NGFF label masks (§4). Mi
 normalization step (§6–§9, §14, the §3 blocks), and, by owner decision, the `patches.csv`
 columns and `run_config.json` records of §10–§11. Milestone 4 added `export_values`,
 `memory_limit` and the delivery modes of §12 (`cellpatcher.delivery`, the torch adapters).
+Milestone 5 decided D8 (§8), added the normalization step to `CellPatcher.ipynb` and the user
+guide [normalization.md](normalization.md).
 
 | Section | Implemented in |
 |---|---|

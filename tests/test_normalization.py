@@ -201,6 +201,21 @@ def test_per_time_point_gives_each_time_point_its_own_parameters(tmp_path):
     assert by_t[1].normalization_group == "control/a.tif::t=1"
 
 
+def test_group_parameters_lists_every_group_for_review(experiment):
+    from cellpatcher.normalization import group_parameters
+
+    _, stacks, csv_path = experiment
+    rows = group_parameters(_config(csv_path, scope="condition", method="minmax"))
+    assert [(row["group"], row["channel"]) for row in rows] == [
+        ("control", 0), ("control", 1), ("treated", 0), ("treated", 1)
+    ]
+    control = np.stack([stacks["control/bio1/a.tif"], stacks["control/bio1/b.tif"]])
+    assert rows[1]["offset"] == float(control[:, :, 1].min()) and rows[1]["planes"] == 4
+    assert rows[1]["exact"] is True
+    with pytest.raises(ValueError, match="condition, repeat and image scopes"):
+        group_parameters(_config(None, image_axes="YX", scope="patch"))
+
+
 def test_split_channels_keep_their_own_parameters(experiment):
     root, _, csv_path = experiment
     config = _config(csv_path)

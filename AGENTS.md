@@ -142,6 +142,7 @@ tests/
 
 docs/
   README.md               # documentation map / entry point
+  normalization.md        # user guide: normalizing patches with the preprocessing statistics
   quick_start.md, patching_modes.md, api_examples.md,
   preprocessing.md, configuration_reference.md, developer_notes.md
   plan.md                  # normalization design brief and decisions D1–D16
@@ -282,7 +283,7 @@ Two ways to point CellPatcher at input data:
 
 ### Planned: normalization with the preprocessing brick
 
-**Status: specified; Milestones 1–4 implemented.** The rules are fixed in
+**Status: implemented (Milestones 1–5; user guide `docs/normalization.md`).** The rules are fixed in
 `docs/normalization_contract.md` (decisions in `docs/plan.md`) and land over
 Milestones 1–5. Implemented so far (Milestone 1): the optional
 `preprocessing` extra (pinned commit in `setup.py`), the

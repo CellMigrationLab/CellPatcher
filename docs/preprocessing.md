@@ -10,7 +10,8 @@ CellPatcher generates 2D Y/X patch regions. If your image has Z or T axes, choos
 
 - Core patching modes (`cell`, `random`, `grid`, `whole_fov`) are 2D Y/X region generators.
 - Preprocessing is explicit and optional.
-- CellPatcher does **not** silently project Z/T, merge channels, or normalize intensities.
+- CellPatcher does **not** silently project Z/T, merge channels, or normalize intensities. To normalize
+  patches, enable `config.normalization` (see [Normalization](normalization.md)).
 
 ## Quick policy matrix
 

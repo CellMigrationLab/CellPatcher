@@ -219,6 +219,44 @@ class PatchNormalization:
         return out
 
 
+def group_parameters(config) -> list[dict]:
+    """The normalization parameters of every group in ``plane_histograms.csv``, for review before a run.
+
+    For a CSV scope (``condition``, ``biological_repeat``, ``technical_repeat``
+    or ``image``), one entry per group and channel (and time point with
+    ``per_time_point``), in sorted order: ``group`` (as in
+    ``normalization_group``), ``channel``, ``t``, ``planes`` (CSV rows
+    pooled), ``offset``, ``scale`` and ``exact``, or ``problem`` when the
+    group has no finite pixels or zero spread (which stops a run).
+
+    Raises
+    ------
+    ValueError
+        For the patch scope, whose parameters come from each patch.
+    """
+    normalizer = Normalizer.for_config(config)
+    if normalizer is None or normalizer.statistics is None:
+        raise ValueError("Per-group parameters exist for the condition, repeat and image scopes only.")
+    normalizer._ensure_index()
+    rows = []
+    for key in sorted(normalizer._index, key=lambda k: (k[0], k[1] if k[1] is not None else -1, k[2] or 0)):
+        records = normalizer._index[key]
+        result = normalizer._group_parameters(key)
+        row = {
+            "group": _group_text(records[0], normalizer.settings.scope, normalizer.settings.per_time_point),
+            "channel": key[1],
+            "t": key[2],
+            "planes": len(records),
+        }
+        if isinstance(result, str):
+            row["problem"] = result.split(": ", 1)[-1]
+        else:
+            parameters, exact = result
+            row.update(offset=parameters.offset, scale=parameters.scale, exact=exact)
+        rows.append(row)
+    return rows
+
+
 def finish_patch_groups(patches, per_time_point: bool) -> None:
     """Set the patch-scope ``normalization_group``, ``<source_relative_path>::<patch_id>``, once ids are final."""
     for patch in patches:
@@ -404,16 +442,20 @@ class Normalizer:
             )
         return normalizations
 
+    def _ensure_index(self) -> None:
+        """Group every CSV row by its key (the scope's labels, channel and optional t), once."""
+        if self._index is None:
+            self._index = defaultdict(list)
+            for record in self.statistics.records:
+                self._index[self._group_key(record)].append(record)
+
     def _group_key(self, record) -> tuple:
         t = record.t if self.settings.per_time_point else None
         return (record.group_key(self.settings.scope), record.c, t)
 
     def _group_parameters(self, key):
         """``(NormalizationParameters, exact)`` of a group, or a failure description."""
-        if self._index is None:
-            self._index = defaultdict(list)
-            for record in self.statistics.records:
-                self._index[self._group_key(record)].append(record)
+        self._ensure_index()
         name = "/".join(key[0]) + f" (channel {key[1]}" + ("" if key[2] is None else f", t={key[2]}") + ")"
         try:
             pooled = self._mbp.PooledHistogram(self._index[key])
