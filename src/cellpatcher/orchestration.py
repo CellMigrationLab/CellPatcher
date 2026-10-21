@@ -23,7 +23,7 @@ from cellpatcher.io import (
     ConditionRepeatFolder,
     discover_condition_repeat_folders,
     list_supported_files,
-    read_array,
+    read_image,
     validate_image_and_mask_folders,
 )
 from cellpatcher.export import save_metadata_csv
@@ -306,7 +306,7 @@ def _load_matched_masks(image_folder_path, mask_folder_path, image_files, config
         case_sensitive=matching.case_sensitive if case_sensitive is None else case_sensitive,
     )
     mask_paths = [selected[path] for path in image_files]
-    return [read_array(path) for path in mask_paths], mask_paths
+    return [read_image(path, config.common.mask_axes) for path in mask_paths], mask_paths
 
 
 def _source_relative_path(image_path: Path, experiment_root) -> str:
@@ -485,7 +485,8 @@ def _run_folder_patching(
         raise ValueError("No supported image files found in image folder.")
     # image_files' sorted order fixes the image_0000, image_0001, ...
     # ids used everywhere downstream (run_patching, filename stamping).
-    images = [read_array(path) for path in image_files]
+    # OME-Zarr images are put into common.image_axes by role (read_image).
+    images = [read_image(path, config.common.image_axes) for path in image_files]
 
     # Each mode has different mask requirements, so dispatch on mode before
     # deciding whether/how to load masks at all.
