@@ -8,12 +8,15 @@ CellPatcher helps you turn microscopy images into reproducible patch datasets wi
 - **Python learner:** open `notebooks/CellPatcher_Strategy_Examples/CellPatcher_Strategy_Examples.ipynb`.
 - **API copy-paste examples:** read `docs/api_examples.md`.
 - **Multidimensional C/Z/T data:** read `docs/preprocessing.md`.
+- **Normalizing intensities** with the MorphoBricks preprocessing statistics: read `docs/normalization.md`.
 
 - Matches image files and mask/label files with configurable matching strategies.
 - Generates patch regions (`PatchRegion`) for `cell`, `random`, `grid`, and `whole_fov` modes.
 - Optionally filters regions, extracts arrays, resizes outputs, and exports patch files.
 - Optionally clears pixels outside the selected segmented object in cell mode (`apply_mask=True`).
 - Writes patch metadata (CSV) alongside exported patch files when enabled.
+- Reads TIFF and OME-Zarr images, patches Z-stacks and time series plane by plane, and optionally normalizes
+  patches with the MorphoBricks preprocessing statistics (`config.normalization`, see `docs/normalization.md`).
 
 ## Patching modes at a glance
 
@@ -73,6 +76,7 @@ Open the notebook in Colab:
   - tests: `python -m pip install -e .[test]`
   - notebooks: `python -m pip install -e .[notebook]`
   - optional Torch adapter: `python -m pip install -e .[torch]`
+  - normalization and OME-Zarr images (MorphoBricks preprocessing): `python -m pip install -e .[preprocessing]`
 - `requirements.txt` remains a pinned notebook/tooling environment snapshot.
 
 **Google Colab (private repo):**
@@ -88,7 +92,7 @@ token = userdata.get("GITHUB_TOKEN")
 encoded = quote(token, safe="")
 subprocess.run([
     sys.executable, "-m", "pip", "install", "-q",
-    f"cellpatcher @ git+https://x-access-token:{encoded}@github.com/CellMigrationLab/CellPatcher.git",
+    f"cellpatcher[preprocessing] @ git+https://x-access-token:{encoded}@github.com/CellMigrationLab/CellPatcher.git",
 ], check=True)
 ```
 
@@ -96,7 +100,8 @@ The notebooks `CellPatcher.ipynb` contain a ready-to-run version of this install
 
 ## Optional preprocessing for multidimensional data
 
-Patching modes are 2D Y/X; for C/Z/T data, see `docs/preprocessing.md`.
+Patching modes are 2D Y/X; for C/Z/T data, see `docs/preprocessing.md`. Folder and tree runs split Z and T with
+`config.common.z_policy`/`t_policy`.
 
 Note: plane iterator `metadata` (the `t`/`z` indices) reaches `PatchRegion` rows and the export CSV when passed through as `run_patching(..., image_metadata=...)`; the `plane_id` string itself is not mirrored onto `PatchRegion` and still needs an explicit join if you need it. See `docs/preprocessing.md`.
 
@@ -113,6 +118,7 @@ Note: plane iterator `metadata` (the `t`/`z` indices) reaches `PatchRegion` rows
 - [Patching mode guide](docs/patching_modes.md)
 - [API examples](docs/api_examples.md)
 - [Preprocessing guide](docs/preprocessing.md)
+- [Normalization guide](docs/normalization.md)
 - [Configuration reference](docs/configuration_reference.md)
 - [Developer notes](docs/developer_notes.md)
 - [Notebook guide](notebooks/README.md)
