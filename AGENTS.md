@@ -203,7 +203,12 @@ in notebooks where practical.
 ### Inputs this repo consumes
 
 CellPatcher reads image files, and (for `cell` mode) matching label/mask
-files, directly from user-provided folders. Matching is validated via
+files, directly from user-provided folders. Images are TIFF/PNG/JPEG/BMP/GIF/
+NPY files and, with the `preprocessing` extra, OME-Zarr images: folders ending
+in `.zarr`, read from level 0 of their only image, with their axes from the
+OME-NGFF metadata put into `common.image_axes` by role (`io.read_image`);
+discovery never enters them, and `img.ome.zarr` matches masks named like
+`img.tif`. Matching is validated via
 `validate_image_and_mask_folders`/`io.py`, using an `exact`,
 `exact_or_suffix` (default), or `substring` strategy.
 
@@ -272,7 +277,9 @@ Milestones 1–5. Implemented so far (Milestone 1): the optional
 column; filled by folder and tree runs from each image's real path under the
 root), and `cellpatcher.statistics`, which loads `plane_histograms.csv` and
 the optional `run_manifest.json` and runs the checks of contract §5 — not
-yet called by the pipeline. Until each later part is merged, the inputs and
+yet called by the pipeline. Milestone 2 adds plane splitting
+(`common.z_policy`/`t_policy`) and OME-Zarr images (see "Inputs" above).
+Until each later part is merged, the inputs and
 outputs above are the whole interface. In summary:
 
 - **Inputs:** with the optional `preprocessing` extra, CellPatcher reads

@@ -4,8 +4,12 @@ from pathlib import Path
 import numpy as np
 
 from cellpatcher._deprecation import accept_deprecated_repeat
+from cellpatcher.axes import normalize_axes
 
-SUPPORTED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".gif", ".npy"}
+# ".zarr" is an OME-Zarr image: a folder, read with the preprocessing extra
+# (docs/normalization_contract.md §2); every other extension is a file.
+ZARR_SUFFIX = ".zarr"
+SUPPORTED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".gif", ".npy", ZARR_SUFFIX}
 
 # Biological-repeat label stamped when a condition folder holds images
 # directly, with no biological-repeat subfolder (see
@@ -37,10 +41,34 @@ def list_supported_files(folder_path, supported_extensions=None) -> list[Path]:
     exts = supported_extensions if supported_extensions is not None else SUPPORTED_EXTENSIONS
     exts = {e.lower() for e in exts}
 
-    return sorted(
-        p for p in folder.iterdir()
-        if p.is_file() and p.suffix.lower() in exts
-    )
+    return sorted(p for p in folder.iterdir() if _is_image(p, exts))
+
+
+def is_ome_zarr(path) -> bool:
+    """True if *path* names an OME-Zarr image (a folder ending in ``.zarr``, any case)."""
+    return Path(path).suffix.lower() == ZARR_SUFFIX
+
+
+def image_stem(path) -> str:
+    """File name without its extension, used to match images and masks.
+
+    For an OME-Zarr image the whole ``.ome.zarr``/``.zarr`` ending is
+    removed (``img.ome.zarr`` -> ``img``), so it matches ``img.tif`` or
+    ``img_mask.tif``; for every other file it is ``Path.stem``.
+    """
+    path = Path(path)
+    if not is_ome_zarr(path):
+        return path.stem
+    stem = path.stem
+    return stem[: -len(".ome")] if stem.lower().endswith(".ome") else stem
+
+
+def _is_image(path: Path, exts: set[str]) -> bool:
+    # An OME-Zarr image is a folder; discovery lists it and never enters it.
+    suffix = path.suffix.lower()
+    if suffix not in exts:
+        return False
+    return path.is_dir() if suffix == ZARR_SUFFIX else path.is_file()
 
 
 @accept_deprecated_repeat
@@ -82,8 +110,8 @@ def _split_folder_entries(folder: Path, exts: set[str]) -> tuple[list[Path], lis
     # conditions or biological repeats, so they must not make a flat folder
     # look mixed.
     entries = list(folder.iterdir())
-    loose_images = [p for p in entries if p.is_file() and p.suffix.lower() in exts]
-    subdirs = [p for p in entries if p.is_dir() and not p.name.startswith(".")]
+    loose_images = [p for p in entries if _is_image(p, exts)]
+    subdirs = [p for p in entries if p.is_dir() and not p.name.startswith(".") and p not in loose_images]
     return loose_images, subdirs
 
 
@@ -236,7 +264,14 @@ def discover_condition_repeat_folders(
 
 
 def read_array(file_path):
+    """Read an image or mask file into a NumPy array.
+
+    An OME-Zarr image (a ``.zarr`` folder) is read from level 0 of its only
+    image, in its stored axis order; see :func:`read_ome_zarr` for its axes.
+    """
     path = Path(file_path).expanduser()
+    if is_ome_zarr(path):
+        return read_ome_zarr(path)[0]
     if not path.exists() or not path.is_file():
         raise ValueError(f"File does not exist: {path}")
 
@@ -270,6 +305,8 @@ def read_array(file_path):
 
 def write_array(file_path, array):
     path = Path(file_path).expanduser()
+    if is_ome_zarr(path):
+        raise ValueError(f"Writing OME-Zarr images is not supported: {path}")
     path.parent.mkdir(parents=True, exist_ok=True)
     suffix = path.suffix.lower()
 
@@ -294,6 +331,99 @@ def write_array(file_path, array):
         return
 
     raise ValueError(f"Unsupported file extension: {suffix}")
+
+
+def read_ome_zarr(path) -> tuple[np.ndarray, str]:
+    """Read level 0 of an OME-Zarr image with the preprocessing brick's reader.
+
+    Returns
+    -------
+    tuple
+        The pixels in their stored order, and one axis letter per dimension
+        from the OME-NGFF metadata (``T``, ``C``, ``Z``, ``Y``, ``X``, or ``Q``
+        for an axis without a known role).
+
+    Raises
+    ------
+    cellpatcher.statistics.PreprocessingUnavailableError
+        If the ``preprocessing`` extra (with ``zarr``) is not installed.
+    ValueError
+        If the folder is not an OME-Zarr image that can be read, or holds
+        more than one image (several positions, series or wells), which is
+        an error as in the preprocessing brick.
+    """
+    from cellpatcher.statistics import INSTALL_COMMAND, PreprocessingUnavailableError, require_preprocessing
+
+    mbp = require_preprocessing()
+    path = Path(path).expanduser()
+    if not path.is_dir():
+        raise ValueError(f"OME-Zarr image does not exist: {path}")
+    try:
+        image = mbp.open_ngff(path)
+    except mbp.ZarrUnavailableError as exc:
+        raise PreprocessingUnavailableError(
+            f"Reading the OME-Zarr image {path.name} needs the zarr package. Install it with: {INSTALL_COMMAND}"
+        ) from exc
+    except mbp.NgffError as exc:
+        raise ValueError(f"{path} cannot be read as an OME-Zarr image: {exc}.") from exc
+    if image.image_count > 1:
+        raise ValueError(
+            f"{path} holds {image.image_count} images (several positions, series or wells). "
+            "CellPatcher reads one image per OME-Zarr folder; save each image in its own folder."
+        )
+    pixels = mbp.zarr_input.read_selection(image.array, (slice(None),) * len(image.shape))
+    return pixels, image.axes
+
+
+def conform_axes(array, array_axes: str, target_axes: str, *, name="the image") -> np.ndarray:
+    """Rearrange *array* (with axes *array_axes*) into *target_axes*, matching axes by role.
+
+    Used for OME-Zarr images, whose axes come from their metadata. A
+    dimension of length 1 that *target_axes* lacks (including an axis
+    without a role, ``Q``) is dropped; a target axis the array lacks is added
+    with length 1; then the dimensions are put in the target order.
+
+    Raises
+    ------
+    ValueError
+        If the array has a dimension longer than 1 that *target_axes* does
+        not have, or the same role twice.
+    """
+    target = normalize_axes(target_axes)
+    array = np.asarray(array)
+    if len(array_axes) != array.ndim:
+        raise ValueError(f"{name}: {len(array_axes)} axes ({array_axes!r}) for {array.ndim} dimensions.")
+    kept, kept_axes = [], ""
+    for dim, (axis, length) in enumerate(zip(array_axes, array.shape)):
+        if axis in target and axis not in kept_axes:
+            kept.append(dim)
+            kept_axes += axis
+        elif length != 1:
+            role = "an axis without a known role" if axis not in target else f"a second {axis} axis"
+            raise ValueError(
+                f"{name} has {role} ({axis!r}, length {length}) that the axes {target!r} do not have; "
+                f"its axes are {array_axes!r}. Set the axes (common.image_axes or common.mask_axes) to "
+                "include every axis longer than 1."
+            )
+    squeezed = array.reshape([array.shape[dim] for dim in kept])
+    for axis in target:
+        if axis not in kept_axes:
+            squeezed = squeezed[..., np.newaxis]
+            kept_axes += axis
+    return np.transpose(squeezed, [kept_axes.index(axis) for axis in target])
+
+
+def read_image(file_path, axes: str):
+    """Read an image or mask for patching with *axes* (``common.image_axes``/``mask_axes``).
+
+    The same as :func:`read_array`, except that an OME-Zarr image is put
+    into *axes* by role with :func:`conform_axes`, since its own axes come
+    from its metadata rather than from the configuration.
+    """
+    if not is_ome_zarr(file_path):
+        return read_array(file_path)
+    pixels, stored_axes = read_ome_zarr(file_path)
+    return conform_axes(pixels, stored_axes, axes, name=Path(file_path).name)
 
 
 def read_array_shape(file_path) -> tuple[int, ...]:
@@ -329,14 +459,14 @@ def find_candidate_matches(
     # case_sensitive=False compares lower-cased stems; True compares as-is.
     normalize = (lambda value: value) if case_sensitive else (lambda value: value.lower())
     suffixes = tuple(normalize(value) for value in mask_suffixes)
-    mask_names = {Path(m): normalize(Path(m).stem) for m in mask_files}
+    mask_names = {Path(m): normalize(image_stem(m)) for m in mask_files}
     out = {}
     # For each image, collect every mask whose stem matches under the
     # chosen strategy -- possibly more than one, which is exactly what
     # filter_shared_matches/validate_image_and_mask_folders resolve next.
     for image in image_files:
         image = Path(image)
-        key = normalize(image.stem)
+        key = normalize(image_stem(image))
         matches: list[Path] = []
         for mask_path, mask_name in mask_names.items():
             if strategy == "exact":
