@@ -23,36 +23,12 @@ from cellpatcher.io import (
 )
 from cellpatcher.orchestration import run_patching_condition_repeat_tree
 from cellpatcher.statistics import PreprocessingUnavailableError
+from tests.helpers import write_ngff
 
 needs_zarr = pytest.mark.skipif(
     importlib.util.find_spec("morphobricks_preprocessing") is None or importlib.util.find_spec("zarr") is None,
     reason="needs the 'preprocessing' extra with zarr",
 )
-
-AXIS_TYPES = {"t": "time", "c": "channel", "z": "space", "y": "space", "x": "space"}
-
-
-def write_ngff(path, data, axes="zyx", *, images=1):
-    """Write *data* as a one-level OME-NGFF 0.4 image; *images* > 1 repeats its multiscales entry."""
-    import zarr
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    data = np.asarray(data)
-    if int(zarr.__version__.split(".")[0]) >= 3:
-        group = zarr.open_group(str(path), mode="w", zarr_format=2)
-        array = group.create_array("0", shape=data.shape, chunks=data.shape, dtype=data.dtype)
-    else:
-        group = zarr.open_group(str(path), mode="w")
-        array = group.create_dataset("0", shape=data.shape, chunks=data.shape, dtype=data.dtype)
-    array[...] = data
-    multiscale = {
-        "version": "0.4",
-        "axes": [{"name": a, "type": AXIS_TYPES.get(a, "other")} for a in axes],
-        "datasets": [{"path": "0", "coordinateTransformations": [{"type": "scale", "scale": [1.0] * data.ndim}]}],
-    }
-    group.attrs.update({"multiscales": [multiscale] * images})
-    return path
-
 
 def _fake_store(path):
     """A folder that is named like an OME-Zarr image (enough for discovery)."""

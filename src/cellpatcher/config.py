@@ -8,6 +8,8 @@ from cellpatcher.io import (
 )
 from cellpatcher.planes import validate_plane_policies
 
+MASK_SOURCES = ("tiff_tree", "ngff_labels")
+
 
 @accept_deprecated_repeat
 @dataclass
@@ -41,9 +43,20 @@ class CommonConfig:
     z_index: int | None = None
     t_policy: str = "keep"
     t_index: int | None = None
+    # Where folder and tree runs read masks (docs/normalization_contract.md
+    # §4): "tiff_tree", a mask folder (tree) mirroring the images and matched
+    # by file name with `matching`; or "ngff_labels", the label image named
+    # mask_label_name in each OME-Zarr image's own labels group (the name may
+    # be left None when every image has exactly one).
+    mask_source: str = "tiff_tree"
+    mask_label_name: str | None = None
 
     def __post_init__(self) -> None:
         validate_plane_policies(self)
+        if self.mask_source not in MASK_SOURCES:
+            raise ValueError(f"mask_source must be one of {list(MASK_SOURCES)}; got {self.mask_source!r}.")
+        if self.mask_label_name is not None and not isinstance(self.mask_label_name, str):
+            raise ValueError("mask_label_name must be a string or None.")
 
 
 @dataclass

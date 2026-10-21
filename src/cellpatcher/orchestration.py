@@ -23,7 +23,9 @@ from cellpatcher.io import (
     ConditionRepeatFolder,
     discover_condition_repeat_folders,
     list_supported_files,
+    is_ome_zarr,
     read_image,
+    read_ngff_mask,
     validate_image_and_mask_folders,
 )
 from cellpatcher.export import save_metadata_csv
@@ -324,6 +326,31 @@ def _source_relative_path(image_path: Path, experiment_root) -> str:
         raise ValueError(f"Image '{image_path}' is not inside the experiment root '{root}'.") from exc
 
 
+def _load_ngff_masks(image_files, config, mask_folder_path):
+    """Read each OME-Zarr image's label image as its mask (``common.mask_source='ngff_labels'``).
+
+    Returns ``(masks, mask names)`` in the order of *image_files*.
+    """
+    if mask_folder_path is not None:
+        raise ValueError(
+            "common.mask_source='ngff_labels' reads the masks from the OME-Zarr images' own labels; "
+            "remove mask_folder_path (or mask_root_path), or use common.mask_source='tiff_tree'."
+        )
+    not_zarr = [path.name for path in image_files if not is_ome_zarr(path)]
+    if not_zarr:
+        raise ValueError(
+            "common.mask_source='ngff_labels' needs OME-Zarr images, which hold their labels, but "
+            f"{len(not_zarr)} image(s) are not OME-Zarr: {', '.join(not_zarr[:10])}. Use "
+            "common.mask_source='tiff_tree' with a mask folder for them."
+        )
+    masks, names = [], []
+    for path in image_files:
+        mask, name = read_ngff_mask(path, config.common.mask_label_name, config.common.mask_axes)
+        masks.append(mask)
+        names.append(name)
+    return masks, names
+
+
 def _image_metadata_for_filenames(image_files, mask_paths=None, experiment_root=None) -> list[dict]:
     """Build the per-image ``run_patching(image_metadata=...)`` payload.
 
@@ -339,7 +366,9 @@ def _image_metadata_for_filenames(image_files, mask_paths=None, experiment_root=
     for image_path, mask_path in zip(image_files, mask_paths):
         meta = {"image_file": image_path.name}
         if mask_path is not None:
-            meta["mask_file"] = mask_path.name
+            # A label image of an OME-Zarr image is named by a string
+            # (<image>/labels/<name>), a mask file by its path.
+            meta["mask_file"] = mask_path if isinstance(mask_path, str) else mask_path.name
         if experiment_root is not None:
             meta["source_relative_path"] = _source_relative_path(image_path, experiment_root)
         metadata.append(meta)
@@ -423,7 +452,10 @@ def run_patching_pipeline(
     mask_folder_path:
         Path to the folder containing mask files.
 
-        * **Required** when ``config.mode='cell'``.
+        * **Required** when ``config.mode='cell'``, unless
+          ``config.common.mask_source='ngff_labels'``, which reads each
+          OME-Zarr image's own label image instead (then it must not be
+          given).
         * **Optional** when ``config.mode='random'`` — masks restrict the
           spatial region from which patches are sampled.
         * **Must not be provided** for ``'grid'`` or ``'whole_fov'`` modes
@@ -500,19 +532,24 @@ def _run_folder_patching(
         return run_patching(images=images, masks=None, config=config, image_metadata=image_metadata)
 
     if config.mode == "cell":
-        if mask_folder_path is None:
+        if config.common.mask_source == "ngff_labels":
+            masks, mask_paths = _load_ngff_masks(image_files, config, mask_folder_path)
+        elif mask_folder_path is None:
             raise ValueError("mask_folder_path is required when config.mode='cell'.")
-        masks, mask_paths = _load_matched_masks(
-            image_folder_path, mask_folder_path, image_files, config,
-            strategy, mask_suffixes, case_sensitive,
-        )
+        else:
+            masks, mask_paths = _load_matched_masks(
+                image_folder_path, mask_folder_path, image_files, config,
+                strategy, mask_suffixes, case_sensitive,
+            )
         image_metadata = _image_metadata_for_filenames(image_files, mask_paths, experiment_root)
         return run_patching(images=images, masks=masks, config=config, image_metadata=image_metadata)
 
     # random mode: masks are optional (restrict patch placement region)
     masks = None
     mask_paths = None
-    if mask_folder_path is not None:
+    if config.common.mask_source == "ngff_labels":
+        masks, mask_paths = _load_ngff_masks(image_files, config, mask_folder_path)
+    elif mask_folder_path is not None:
         masks, mask_paths = _load_matched_masks(
             image_folder_path, mask_folder_path, image_files, config,
             strategy, mask_suffixes, case_sensitive,
@@ -644,6 +681,12 @@ def run_patching_condition_repeat_tree(
     if combine_metadata and (not config.export.enabled or config.common.output_dir is None):
         raise ValueError(
             "combine_metadata=True requires config.export.enabled=True and config.common.output_dir to be set."
+        )
+
+    if config.common.mask_source == "ngff_labels" and mask_root_path is not None:
+        raise ValueError(
+            "common.mask_source='ngff_labels' reads the masks from the OME-Zarr images' own labels; "
+            "remove mask_root_path, or use common.mask_source='tiff_tree'."
         )
 
     leaves = discover_condition_repeat_folders(image_root_path, mask_root_path=mask_root_path)

@@ -32,6 +32,8 @@ Shared settings that apply to every run, regardless of mode.
 | `z_index` | `int \| None` | `None` | Z plane for `z_policy="select"`. |
 | `t_policy` | `str` | `"keep"` | As `z_policy` for a T axis: `"keep"`, `"all"` (sets `t`, appends `_t<NNN>`), `"first"` or `"select"`; no projections. With both split, planes come in T-then-Z order (`..._t001_z002`). |
 | `t_index` | `int \| None` | `None` | Time point for `t_policy="select"`. |
+| `mask_source` | `str` | `"tiff_tree"` | Where folder and tree runs read masks. `"tiff_tree"`: a mask folder (or tree) mirroring the images, matched by file name with `config.matching`. `"ngff_labels"`: the label image of each OME-Zarr image's own `labels` group (no mask folder; every image must be OME-Zarr). See "OME-Zarr images" below. |
+| `mask_label_name` | `str \| None` | `None` | With `mask_source="ngff_labels"`, the label image to use (e.g. `"cells"`); may stay `None` when every image has exactly one. |
 
 **Masks with split planes:** a mask's Z or T axis with the image's length follows the image's planes (one label plane per image plane); a mask without that axis, or with length 1, is shared by every plane. Any other length is an error, and so is a Z projection with masks that follow the Z planes. Image ids stay one per source image; with `extraction.split_channels`, every plane and channel patch of an image shares one `position_id`.
 
@@ -166,8 +168,9 @@ Controls how image files are paired with mask files when reading from folders.
 > [plan](plan.md). Until then, `CellPatcherConfig` has no `normalization` section.
 
 Planned fields (contract §13): `enabled`, `plane_histograms`, `manifest`, `method`,
-`percentile`, `scope`, `per_time_point`, `patch_region`, `export_values` and `memory_limit`;
-plus `common.mask_source` and `common.mask_label_name` for OME-Zarr label masks (contract §4).
+`percentile`, `scope`, `per_time_point`, `patch_region`, `export_values` and `memory_limit`.
+The `common.mask_source` and `common.mask_label_name` fields for OME-Zarr label masks (contract §4)
+exist since Milestone 2.
 `patches.csv` gains six `normalization_*` columns (contract §10); its `source_relative_path`
 column already exists (Milestone 1). The optional `preprocessing` extra
 (`pip install "cellpatcher[preprocessing]"`) and `cellpatcher.statistics`, which loads
@@ -233,6 +236,8 @@ Every generated patch is a `PatchRegion` dataclass. The fields below are populat
 ### OME-Zarr images
 
 With the `preprocessing` extra (`pip install "cellpatcher[preprocessing]"`), folders whose names end in `.zarr` (usually `.ome.zarr`) are images, in folder runs, tree runs and `read_array`. CellPatcher reads level 0 of the store's only image with the preprocessing brick's reader; a store with several images (positions, series or plate wells) is an error. The axes come from the OME-NGFF metadata and are matched to `common.image_axes` (or `mask_axes`) by role: a length-1 axis that the configured axes lack is dropped, a configured axis the store lacks is added with length 1, and the dimensions are reordered; any other mismatch is an error. Discovery never enters a store, and `img.ome.zarr` matches masks named like `img.tif` or `img_mask.tif`. Without the extra, reading a store stops with the install command. OME-Zarr copies written by the preprocessing brick are not read: CellPatcher reads the source images.
+
+**Masks from OME-NGFF labels:** with `common.mask_source="ngff_labels"`, each OME-Zarr image's mask is its label image `common.mask_label_name` (from its `labels` group, OME-NGFF 0.4 and 0.5; the name may stay `None` when there is only one). Level 0 is read; its values must be integers, each dimension must equal the image's or have length 1, and a channel dimension must have length 1. It is then put into `common.mask_axes` by role, so a label Z or T axis with the image's length follows the image's planes and one of length 1 is shared (`z_policy`/`t_policy`). `mask_file` is written as `<image>.ome.zarr/labels/<name>`. A mask folder, or an image that is not OME-Zarr, is an error with this source.
 
 ### Condition/biological-repeat folder trees
 
