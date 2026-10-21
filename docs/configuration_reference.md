@@ -37,6 +37,8 @@ Shared settings that apply to every run, regardless of mode.
 
 **Masks with split planes:** a mask's Z or T axis with the image's length follows the image's planes (one label plane per image plane); a mask without that axis, or with length 1, is shared by every plane. Any other length is an error, and so is a Z projection with masks that follow the Z planes. Image ids stay one per source image; with `extraction.split_channels`, every plane and channel patch of an image shares one `position_id`.
 
+**Reading planes:** folder and tree runs that split or select planes (`"all"`, `"first"`, `"select"`) handle one image at a time. With the `preprocessing` extra, TIFF and OME-Zarr images are then read one 2D plane at a time with the preprocessing brick's reader, so only the chosen planes are decoded (channels and kept axes are read plane by plane and stacked back); a plane that cannot be read whole within the brick's memory limit (1 GiB) stops the run, because CellPatcher needs each plane whole to patch it. `"keep"`, projections and other formats read the whole image, as before. The patches are the same either way, and the same as `run_patching` on the whole arrays.
+
 **Axes strings** may contain any combination of `T`, `C`, `Z`, `Y`, `X` (in any order). Examples: `"YX"`, `"CYX"`, `"TCYX"`, `"ZYX"`.
 
 ---

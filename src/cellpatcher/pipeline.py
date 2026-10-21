@@ -352,27 +352,46 @@ def _finish_result(config: CellPatcherConfig, patches: list[PatchRegion], patch_
 
 
 def _run_patching_by_plane(images, masks, config: CellPatcherConfig, image_metadata) -> PatchingResult:
-    """:func:`run_patching` when ``z_policy``/``t_policy`` turn a Z or T axis into planes.
-
-    Every chosen plane (with its mask plane) is patched as an image of its
-    own; the patches then get back their source image's ``image_id``, with
-    the plane recorded in ``z0``/``z1``/``t`` and, for a split axis, appended
-    to ``patch_id`` (``image_0000_grid_00003_z002``, before a split channel's
-    ``_c<n>``). Export runs once, with the final ids.
-    """
+    """:func:`run_patching` when ``z_policy``/``t_policy`` turn a Z or T axis into planes."""
     image_list = _normalize_images(images)
     mask_list = [None] * len(image_list) if masks is None else _normalize_masks(masks)
     if len(mask_list) != len(image_list):
         raise ValueError(f"Number of images and masks must match for mode '{config.mode}'.")
     if image_metadata is not None and len(image_metadata) != len(image_list):
         raise ValueError("image_metadata must have exactly one entry per image (or be None).")
+    common = config.common
+    sources = (
+        (
+            image_metadata[index] if image_metadata is not None else None,
+            iter_image_planes(image, common.image_axes, mask, common.mask_axes, common),
+        )
+        for index, (image, mask) in enumerate(zip(image_list, mask_list))
+    )
+    return _patch_planes(config, sources)
 
+
+def _patch_planes(config: CellPatcherConfig, sources) -> PatchingResult:
+    """Patch the planes of each image, one image at a time, and export once.
+
+    *sources* yields ``(image metadata or None, iterable of ImagePlane)`` per
+    image, in image order. Every plane (with its mask plane) is patched as an
+    image of its own; the patches then get back their source image's
+    ``image_id``, with the plane recorded in ``z0``/``z1``/``t`` and, for a
+    split axis, appended to ``patch_id`` (``image_0000_grid_00003_z002``,
+    before a split channel's ``_c<n>``). Only one image's planes are held at
+    a time. Random seeds continue across images (plane *k* of the run gets
+    ``seed + k``), so the result does not depend on how the planes arrive.
+    """
     condition, biological_repeat, _ = _run_labels(config)
-    plane_images, plane_masks, plane_metadata, origins = [], [], [], []
-    plane_axes, plane_mask_axes = config.common.image_axes, config.common.mask_axes
-    for index, (image, mask) in enumerate(zip(image_list, mask_list)):
-        meta = dict(image_metadata[index] or {}) if image_metadata is not None else {}
-        for plane in iter_image_planes(image, config.common.image_axes, mask, config.common.mask_axes, config.common):
+    need_arrays = config.common.extract_arrays or config.export.enabled
+    patches: list[PatchRegion] = []
+    patch_arrays = [] if need_arrays else None
+    planes_done = 0
+    for index, (image_meta, planes) in enumerate(sources):
+        meta = dict(image_meta or {})
+        planes = list(planes)
+        plane_metadata = []
+        for plane in planes:
             for axis, value in (("z", plane.z), ("t", plane.t)):
                 if value is not None and meta.get(axis) is not None:
                     raise ValueError(
@@ -391,46 +410,50 @@ def _run_patching_by_plane(images, masks, config: CellPatcherConfig, image_metad
                 plane_meta["position_id"] = _position_id(
                     condition, biological_repeat, meta.get("image_file"), f"image_{index:04d}"
                 )
-            plane_images.append(plane.image)
-            plane_masks.append(plane.mask)
             plane_metadata.append(plane_meta)
-            origins.append((index, plane.suffix))
-            plane_axes = plane.image_axes
-            plane_mask_axes = plane.mask_axes or plane_mask_axes
 
-    need_arrays = config.common.extract_arrays or config.export.enabled
-    plane_config = replace(
-        config,
-        common=replace(
-            config.common,
-            image_axes=plane_axes,
-            mask_axes=plane_mask_axes,
-            extract_arrays=need_arrays,
-            z_policy="keep",
-            z_index=None,
-            t_policy="keep",
-            t_index=None,
-        ),
-        export=replace(config.export, enabled=False),
-    )
-    plane_result = run_patching(
-        images=plane_images,
-        masks=None if all(mask is None for mask in plane_masks) else plane_masks,
-        config=plane_config,
-        image_metadata=plane_metadata,
-    )
+        plane_masks = [plane.mask for plane in planes]
+        mask_axes = next((plane.mask_axes for plane in planes if plane.mask is not None), config.common.mask_axes)
+        random = config.random
+        if random.seed is not None:
+            random = replace(random, seed=int(random.seed) + planes_done)
+        plane_config = replace(
+            config,
+            common=replace(
+                config.common,
+                image_axes=planes[0].image_axes,
+                mask_axes=mask_axes,
+                extract_arrays=need_arrays,
+                z_policy="keep",
+                z_index=None,
+                t_policy="keep",
+                t_index=None,
+            ),
+            random=random,
+            export=replace(config.export, enabled=False),
+        )
+        result = run_patching(
+            images=[plane.image for plane in planes],
+            masks=None if all(mask is None for mask in plane_masks) else plane_masks,
+            config=plane_config,
+            image_metadata=plane_metadata,
+        )
 
-    for patch in plane_result.patches:
-        plane_id = patch.image_id
-        index, suffix = origins[int(plane_id.rsplit("_", 1)[1])]
         image_id = f"image_{index:04d}"
-        rest = patch.patch_id[len(plane_id):]
-        channel = f"_c{patch.c}" if config.extraction.split_channels else ""
-        if channel:
-            rest = rest[: -len(channel)]
-        patch.patch_id = f"{image_id}{rest}{suffix}{channel}"
-        patch.image_id = image_id
-    return _finish_result(config, plane_result.patches, plane_result.patch_arrays)
+        for patch in result.patches:
+            plane_id = patch.image_id
+            suffix = planes[int(plane_id.rsplit("_", 1)[1])].suffix
+            rest = patch.patch_id[len(plane_id):]
+            channel = f"_c{patch.c}" if config.extraction.split_channels else ""
+            if channel:
+                rest = rest[: -len(channel)]
+            patch.patch_id = f"{image_id}{rest}{suffix}{channel}"
+            patch.image_id = image_id
+        patches.extend(result.patches)
+        if patch_arrays is not None:
+            patch_arrays.extend(result.patch_arrays)
+        planes_done += len(planes)
+    return _finish_result(config, patches, patch_arrays)
 
 
 def run_patching(images=None, masks=None, config=None, image_metadata=None) -> PatchingResult:
