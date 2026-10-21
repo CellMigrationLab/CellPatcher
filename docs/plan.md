@@ -54,8 +54,13 @@ Already implemented in this repository:
   extract → apply mask (cell mode) → resize → export (`pipeline.py`).
 - `patches.csv` with the shared MorphoBricks columns and `run_config.json`
   (`export.py`, `orchestration.py`).
-- Folder discovery for `<condition>/<biological_repeat>/` trees
-  (`discover_condition_repeat_folders`), with `single` for missing levels.
+- Folder discovery for `<condition>/<biological_repeat>[/<technical_repeat>]/` trees
+  (`discover_condition_repeat_folders`), with `single` for missing levels, and mask trees
+  that mirror the same levels.
+- The `technical_repeat` field and column (PR #9): derived from the folder level in tree
+  runs (`SINGLE_TECHNICAL_REPEAT_LABEL` when a biological repeat holds its images
+  directly), or set with `CommonConfig.technical_repeat` or per image with
+  `image_metadata`. Each technical repeat is exported to its own output folder.
 - Per-image normalization helpers: `percentile_normalize` and `minmax_normalize`, used by
   `prepare_image_for_patching(normalize=...)` (`preprocess.py`).
 - A lazy `PatchTorchDataset` and an `ExportedPatchTorchDataset`; their
@@ -75,11 +80,14 @@ Gaps this plan closes:
 
 - `read_array` only reads `.npy`, TIFF and imageio formats, and loads whole files with
   `tifffile.imread`; there is no OME-Zarr reader and no plane-by-plane reading.
-- Discovery reads only the condition and biological-repeat levels, not technical repeat.
-  A folder mixing images and subfolders is a `ValueError` here but a warning in
-  preprocessing.
-- `PatchRegion` has `image_file` and `z0/z1`, but not `source_relative_path` or
-  `technical_repeat`, so a patch cannot be matched to its histogram row unambiguously.
+- Both bricks read the same three folder levels, but a root, condition or
+  biological-repeat folder mixing images and subfolders is a `ValueError` here and only a
+  warning in preprocessing (whose images outside leaf folders are skipped). Preprocessing
+  also lets the user exclude files, and CellPatcher's discovery does not know about those
+  exclusions.
+- `PatchRegion` has `image_file`, the three labels and `z0/z1`, but not
+  `source_relative_path`, so a patch cannot be matched to its histogram row unambiguously:
+  two technical repeats can both hold `field_001.tif`.
 - There is no way to choose a normalization scope or record the parameters used.
 
 ## 3. Inputs
@@ -90,10 +98,12 @@ Gaps this plan closes:
   given by the user. Only the image, plane and patch scopes are available, because there are
   no stored statistics; their parameters are computed directly from pixels.
 - **With preprocessing:** the user points CellPatcher at the preprocessing output folder.
-  The manifest provides the experiment root, the analysed files, their labels (including
-  `technical_repeat`), the confirmed axis mapping, exclusions and the OME-Zarr copy paths.
-  CellPatcher does not ask for axes again and does not walk the folders again
-  **[D2]**. All scopes are available.
+  The manifest provides the experiment root, the analysed files, their three labels, the
+  confirmed axis mapping, exclusions and the OME-Zarr copy paths. CellPatcher does not ask
+  for axes again and does not walk the folders again **[D2]**; the manifest's labels fill the
+  existing `condition`, `biological_repeat` and `technical_repeat` fields through
+  `image_metadata`, so a patch always carries the same labels as its histogram rows. All
+  scopes are available.
 
 ### 3.2 Images
 
@@ -107,9 +117,9 @@ Gaps this plan closes:
 
 ### 3.3 Masks
 
-Cell mode keeps using a separate mask tree that mirrors the image tree
-(`masks/<condition>/<biological_repeat>/<technical_repeat>/`), matched by file name with the
-existing strategies. Masks for OME-Zarr images may be TIFF files matched to the image's name
+Cell mode keeps using the existing separate mask tree that mirrors the image tree
+(`masks/<condition>/<biological_repeat>[/<technical_repeat>]/`), matched by file name with
+the existing strategies. Masks for OME-Zarr images may be TIFF files matched to the image's name
 without `.ome.zarr`, or the image's NGFF `labels/` group **[D3]**.
 
 ### 3.4 Staleness
@@ -124,13 +134,12 @@ normalized at a group scope.
 
 Each 2D plane CellPatcher patches is identified by the preprocessing `plane_id`:
 `source_relative_path` plus `::z=…,c=…,t=…` for the coordinates present. To build it,
-CellPatcher adds two optional `PatchRegion` fields (default `None`, so existing outputs are
-unchanged):
-
-| New field | Meaning |
-|---|---|
-| `source_relative_path` | Path relative to the experiment root, `/`-separated, as in preprocessing |
-| `technical_repeat` | Folder label, `single` when absent; the shared contract column CellPatcher does not yet populate |
+CellPatcher adds one optional `PatchRegion` field, `source_relative_path` (default `None`, so
+existing outputs are unchanged): the image's path relative to the experiment root,
+`/`-separated, exactly as in preprocessing. It is taken from the manifest, or, in a tree run
+without preprocessing, from the image's real location under the root. It must not be built
+from `ConditionRepeatFolder.relative_folder`, which names the output folder and inserts
+`single` for missing levels (`control/single/` for images directly in `control/`).
 
 The preprocessing CSV writes `z`; CellPatcher writes `z0/z1` one plane thick, so the join uses
 `z = z0`. A multichannel patch (`image_axes` with `C`) links to one row per channel. With
@@ -259,7 +268,8 @@ All additions are optional and empty when normalization is off. Each needs owner
 under AGENTS.md §8.
 
 **New `PatchRegion` fields / `patches.csv` columns:** `source_relative_path`,
-`technical_repeat`, `normalization_method`, `normalization_scope`, `normalization_group`.
+`normalization_method`, `normalization_scope`, `normalization_group`. The shared label
+columns, including `technical_repeat`, are unchanged.
 
 **New `normalization_parameters.csv`** next to `patches.csv`, one row per group and channel
 **[D14]**:
@@ -281,8 +291,8 @@ instead be written as Parquet or JSON per patch **[D14]**.
 `csv_sha256`, `schema_version` and the preprocessing package version. Loading an older
 `run_config.json` without these keys means normalization off.
 
-**AGENTS.md §5** is updated: inputs (preprocessing output, OME-Zarr), outputs (new columns
-and table), and `technical_repeat` now populated.
+**AGENTS.md §5** is updated: inputs (preprocessing output, OME-Zarr) and outputs (new
+columns and table).
 
 ## 9. Configuration
 
@@ -332,7 +342,8 @@ OME-Zarr and plane-by-plane TIFF in `io.py`. The pooling and parameter code is i
 - **Milestone 0 — Contract:** decide §13, document scopes, columns and the parameters table
   in `configuration_reference.md` and AGENTS.md §5.
 - **Milestone 1 — Preprocessing outputs:** read the manifest and CSV, staleness checks,
-  manifest-driven discovery, `source_relative_path` and `technical_repeat` on every patch.
+  manifest-driven discovery with the manifest's labels, and `source_relative_path` on every
+  patch.
 - **Milestone 2 — Image reading:** OME-Zarr input and plane-by-plane TIFF reading, reusing
   the preprocessing readers; OME-Zarr copies.
 - **Milestone 3 — Normalization engine:** group, image, plane and patch parameters; per
@@ -368,6 +379,9 @@ Use simulated images and preprocessing outputs generated in the tests; the
 - Stale manifests, missing rows, projections and double normalization are blocked with
   the messages of §10.
 - Labels such as `NA`, `001` and `single` survive the round trip through both CSVs.
+- On a three-level tree that both bricks accept, the labels CellPatcher's tree discovery
+  assigns equal the manifest's labels, and two technical repeats holding the same file name
+  get different `source_relative_path` and `plane_id` values.
 
 ## 13. Open decisions
 
@@ -380,8 +394,9 @@ Each has a recommended default; replace *Pending* with the decision.
    *Pending.*
 2. **[D2] Discovery with preprocessing.** When `statistics_dir` is given, use the manifest
    as the only source of files, labels and axes, ignoring folder walking and `image_axes`?
-   *Recommended:* yes; it removes the differences between the two bricks' folder rules.
-   *Pending.*
+   *Recommended:* yes. Both bricks now read the same three levels, but they still treat
+   mixed folders and excluded files differently (§2), and only the manifest matches the
+   histogram rows exactly. *Pending.*
 3. **[D3] Masks for OME-Zarr images.** TIFF masks in a mirrored tree, NGFF `labels/`, or
    both? *Recommended:* mirrored TIFF tree only for this milestone. *Pending.*
 4. **[D4] Channels and time.** Always per channel; time pooled by default with an option per
