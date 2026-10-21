@@ -77,8 +77,9 @@ def test_split_channels_keeps_a_supplied_position_id():
 
 
 def test_split_channels_position_id_falls_back_to_image_id():
+    # Labels that are not given are "single".
     result = run_patching(images=[_channel_image()], config=_grid_config())
-    assert {patch.position_id for patch in result.patches} == {"image_0000"}
+    assert {patch.position_id for patch in result.patches} == {"single/single/image_0000"}
 
 
 def test_without_split_channels_position_id_stays_empty_and_patches_stay_multichannel():
@@ -139,7 +140,7 @@ def test_split_channels_export_writes_one_file_and_row_per_channel(tmp_path):
     with (tmp_path / "patches.csv").open("r", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
     assert len(rows) == 12
-    assert {row["position_id"] for row in rows} == {"img0"}
+    assert {row["position_id"] for row in rows} == {"single/single/img0"}
     assert sorted({row["c"] for row in rows}) == ["0", "1", "2"]
     for row in rows:
         array = np.load(tmp_path / row["patch_file"])

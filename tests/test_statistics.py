@@ -108,7 +108,10 @@ def test_module_imports_without_the_extra():
     # runs when the extra is missing; importing cellpatcher must never need it.
     import cellpatcher
 
-    assert cellpatcher.PatchRegion is not None
+    assert cellpatcher.load_plane_statistics is load_plane_statistics
+    assert cellpatcher.check_images is check_images
+    assert cellpatcher.check_planes is check_planes
+    assert cellpatcher.SourcePlane is SourcePlane
 
 
 # ---------------------------------------------------------------------------
@@ -388,6 +391,11 @@ def test_length_one_axis_matches_with_or_without_a_coordinate():
     # Z and C are longer than 1, so only the absent T axis varies.
     assert stack_plane.candidate_plane_ids() == ["a.tif::z=0,c=1", "a.tif::z=0,c=1,t=0"]
     assert stack_plane.plane_id == "a.tif::z=0,c=1"
+
+
+def test_source_plane_reads_missing_labels_as_single():
+    plane = SourcePlane("a.tif", None, None, "B02")
+    assert plane.labels == ("single", "single", "B02")
 
 
 def test_source_plane_needs_a_coordinate_for_longer_axes():

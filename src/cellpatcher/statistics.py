@@ -31,6 +31,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from cellpatcher.axes import normalize_axes
+from cellpatcher.io import SINGLE_CONDITION_LABEL as SINGLE_LABEL
 
 if TYPE_CHECKING:
     from morphobricks_preprocessing import AxisMapping, PlaneRecord, RunManifest, ValidationIssue
@@ -105,7 +106,7 @@ class SourcePlane:
         The image's path relative to the experiment root, with ``/``
         separators (``PatchRegion.source_relative_path``).
     condition, biological_repeat, technical_repeat
-        CellPatcher's labels for the image.
+        CellPatcher's labels for the image; None is read as ``"single"``.
     z, c, t
         Zero-based plane coordinates (CellPatcher's ``z0`` as ``z``); None
         when the image has no such axis. A patch that keeps several channels
@@ -131,6 +132,10 @@ class SourcePlane:
     axis_lengths: Mapping[str, int] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        # A missing label is "single", as everywhere else in CellPatcher.
+        for name in ("condition", "biological_repeat", "technical_repeat"):
+            if getattr(self, name) is None:
+                object.__setattr__(self, name, SINGLE_LABEL)
         unknown = set(self.axis_lengths) - set(_PLANE_ROLES)
         if unknown:
             raise ValueError(f"axis_lengths may only name the axes {_PLANE_ROLES}; got {sorted(unknown)}.")

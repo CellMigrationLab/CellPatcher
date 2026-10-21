@@ -9,6 +9,11 @@ from cellpatcher.config import CellPatcherConfig
 from cellpatcher.extract import extract_patches
 from cellpatcher.export import export_patches
 from cellpatcher.filters import filter_regions
+from cellpatcher.io import (
+    SINGLE_BIOLOGICAL_REPEAT_LABEL,
+    SINGLE_CONDITION_LABEL,
+    SINGLE_TECHNICAL_REPEAT_LABEL,
+)
 from cellpatcher.masking import apply_label_masks_to_patches
 from cellpatcher.resize import resize_patches
 from cellpatcher.strategies.cell import CellSegmentationStrategy
@@ -24,10 +29,18 @@ RUN_CONFIG_FILENAME = "run_config.json"
 
 
 def _stamp_run_context(config: CellPatcherConfig, patches: list[PatchRegion]) -> None:
+    # A missing label is "single", as for a missing folder level (AGENTS.md
+    # §5), also when a config or an older run_config.json sets it to None.
+    common = config.common
+    condition = SINGLE_CONDITION_LABEL if common.condition is None else common.condition
+    biological_repeat = (
+        SINGLE_BIOLOGICAL_REPEAT_LABEL if common.biological_repeat is None else common.biological_repeat
+    )
+    technical_repeat = SINGLE_TECHNICAL_REPEAT_LABEL if common.technical_repeat is None else common.technical_repeat
     for patch in patches:
-        patch.condition = config.common.condition
-        patch.biological_repeat = config.common.biological_repeat
-        patch.technical_repeat = config.common.technical_repeat
+        patch.condition = condition
+        patch.biological_repeat = biological_repeat
+        patch.technical_repeat = technical_repeat
 
 
 def _stamp_image_metadata(image_list, image_metadata, patches: list[PatchRegion]) -> None:

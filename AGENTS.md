@@ -342,8 +342,10 @@ columns: `patch_id`, `image_id`, `mode`, `y0`/`y1`/`x0`/`x1`, `height`/
   on a `<condition>/<biological_repeat>/` root and let it derive both from
   the folder path per leaf (condition folders without a biological-repeat
   subfolder get `SINGLE_BIOLOGICAL_REPEAT_LABEL`; a flat root gets
-  `SINGLE_CONDITION_LABEL` too). Never inferred by `run_patching()`
-  itself.
+  `SINGLE_CONDITION_LABEL` too). Never inferred from paths by
+  `run_patching()` itself; a label not given (or `None`) is `"single"`
+  in every entry point, as for a missing folder level, so these columns
+  are never empty.
 - `technical_repeat` — the well, dish or coverslip within the biological
   repeat. `run_patching_condition_repeat_tree` derives it from an optional
   `<condition>/<biological_repeat>/<technical_repeat>/` level (a
@@ -352,8 +354,8 @@ columns: `patch_id`, `image_id`, `mode`, `y0`/`y1`/`x0`/`x1`, `height`/
   folder holds its images directly, so it is
   never empty in a tree run; each technical repeat gets its own output
   folder. Otherwise set `CellPatcherConfig.common.technical_repeat`, or per
-  image `image_metadata=[{"technical_repeat": ...}, ...]`. Empty for direct
-  `run_patching()` calls that set neither. MorphoCoverage treats the
+  image `image_metadata=[{"technical_repeat": ...}, ...]`. `"single"`
+  when neither is set. MorphoCoverage treats the
   technical repeat as a sampling unit (it resamples wells before fields),
   so a well must never be written into `biological_repeat`.
 - `image_file`/`mask_file` — populated automatically by
@@ -366,7 +368,8 @@ columns: `patch_id`, `image_id`, `mode`, `y0`/`y1`/`x0`/`x1`, `height`/
 - `position_id` — taken from `image_metadata` when supplied. Only when
   `ExtractionConfig.split_channels=True` (one single-channel patch per
   channel, `c` = channel index) is it filled automatically for images
-  without one, as `<condition>/<repeat>/<image file stem>`, so every
+  without one, as `<condition>/<biological_repeat>/<image file stem>`
+  (`single/single/<stem>` when no labels are given), so every
   channel patch of one image shares it. Otherwise it stays `None` unless
   supplied.
 

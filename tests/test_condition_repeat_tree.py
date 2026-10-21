@@ -173,7 +173,7 @@ def test_tree_whole_fov_stamps_condition_repeat_and_mirrors_output(tmp_path):
     assert (tmp_path / "out" / "control" / SINGLE_BIOLOGICAL_REPEAT_LABEL / "patches.csv").exists()
 
     # original config passed in must not be mutated
-    assert cfg.common.condition is None
+    assert cfg.common.condition == SINGLE_CONDITION_LABEL
     assert cfg.common.output_dir == str(tmp_path / "out")
 
 
@@ -433,7 +433,7 @@ def test_tree_stamps_technical_repeat_and_mirrors_it_in_the_output(tmp_path):
     assert (out / "treated" / "2026_01_01" / "B02" / "patches.csv").exists()
     assert (out / "treated" / "2026_01_01" / "B03" / "patches.csv").exists()
     assert (out / "control" / "2026_01_01" / "patches.csv").exists()
-    assert cfg.common.technical_repeat is None  # the base config is not mutated
+    assert cfg.common.technical_repeat == SINGLE_TECHNICAL_REPEAT_LABEL  # the base config is not mutated
 
 
 def test_tree_combined_csv_keeps_technical_repeats_apart(tmp_path):
