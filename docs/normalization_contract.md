@@ -7,12 +7,14 @@ preprocessing brick. It is the reference for Milestones 1–5 of the [plan](plan
 records why each rule was chosen (decisions D1–D16). Changing a rule after it is implemented
 needs owner approval (AGENTS.md §8).
 
-**Status: specified; Milestone 1 implemented.** Nothing here is available in the package until
-the milestone named in each section is merged; until then `CellPatcherConfig` has no
-`normalization` section and `patches.csv` has no normalization columns. Milestone 1 added the
-`preprocessing` extra (§1), the `source_relative_path` field and column (§2, §10), and
-`cellpatcher.statistics`, which loads the preprocessing outputs and runs the checks of §5;
-the pipeline uses them from Milestone 3.
+**Status: specified; Milestones 1 and 2 implemented.** Nothing here is available in the
+package until the milestone named in each section is merged; until then `CellPatcherConfig`
+has no `normalization` section and `patches.csv` has no normalization columns. Milestone 1
+added the `preprocessing` extra (§1), the `source_relative_path` field and column (§2, §10),
+and `cellpatcher.statistics`, which loads the preprocessing outputs and runs the checks of
+§5; the pipeline uses them from Milestone 3. Milestone 2 added OME-Zarr images (§2), the Z/T
+plane policies with plane-by-plane reading (§3, except the blocks under normalization, which
+need `NormalizationConfig` from Milestone 3), and OME-NGFF label masks (§4).
 
 | Section | Implemented in |
 |---|---|

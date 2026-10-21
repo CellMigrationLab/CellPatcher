@@ -418,7 +418,9 @@ from GitHub at a pinned version) **[D1]**.
   one `image_id` per source image and appends the plane to `patch_id`
   (`image_0000_grid_00003_z002`, before `_c<n>`). Blocking projections under normalization
   needs `NormalizationConfig`, so it lands with Milestone 3. Delivered in steps: plane
-  splitting, OME-Zarr images, OME-NGFF labels, plane-by-plane reading.
+  splitting, OME-Zarr images, OME-NGFF labels (with `ngff_label_names`/`open_ngff_labels`
+  added to the preprocessing package), plane-by-plane reading (one image at a time, and with
+  the extra only the chosen TIFF/OME-Zarr planes, within the preprocessing memory limit).
 - **Milestone 3 — Normalization engine:** the scopes of §6.2 per channel and optionally per
   time point; patch regions; the pipeline step and the AGENTS.md §2 update; deprecations.
 - **Milestone 4 — Delivery:** the `patches.csv` columns and `run_config.json` keys; the three
