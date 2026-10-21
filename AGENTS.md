@@ -334,6 +334,12 @@ columns: `patch_id`, `image_id`, `mode`, `y0`/`y1`/`x0`/`x1`, `height`/
   `image_metadata=[{"image_file": ..., "mask_file": ...}, ...]`.
 - `patch_file` — populated automatically by `export_patches`
   (`export.enabled=True`); `None` when a patch isn't exported to a file.
+- `position_id` — taken from `image_metadata` when supplied. Only when
+  `ExtractionConfig.split_channels=True` (one single-channel patch per
+  channel, `c` = channel index) is it filled automatically for images
+  without one, as `<condition>/<repeat>/<image file stem>`, so every
+  channel patch of one image shares it. Otherwise it stays `None` unless
+  supplied.
 
 Mask/patch columns are always present (never omitted) but hold `None`/empty
 when not applicable, rather than the column itself being dropped — simpler

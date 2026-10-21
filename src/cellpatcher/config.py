@@ -119,6 +119,9 @@ class ExtractionConfig:
     resize_order: int = 1
     apply_mask: bool = False
     mask_fill_value: float = 0.0
+    # Export one single-channel patch per channel of each region instead of
+    # one multichannel patch (requires a "C" axis in common.image_axes).
+    split_channels: bool = False
 
     def __post_init__(self) -> None:
         if self.pad_mode not in {"clip", "constant"}:
@@ -143,6 +146,8 @@ class ExtractionConfig:
             raise ValueError("apply_mask must be a bool.")
         if not isinstance(self.mask_fill_value, (int, float)):
             raise ValueError("mask_fill_value must be a scalar number.")
+        if not isinstance(self.split_channels, bool):
+            raise ValueError("split_channels must be a bool.")
 
 
 @dataclass

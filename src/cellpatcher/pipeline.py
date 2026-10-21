@@ -2,6 +2,8 @@ import json
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 
+import numpy as np
+
 from cellpatcher.axes import normalize_axes, require_spatial_axes
 from cellpatcher.config import CellPatcherConfig
 from cellpatcher.extract import extract_patches
@@ -71,11 +73,57 @@ def _stamp_image_metadata(image_list, image_metadata, patches: list[PatchRegion]
             patch.mask_file = str(meta["mask_file"])
 
 
+def _patch_array_axes(config: CellPatcherConfig) -> str:
+    """Axis order of the final patch arrays (split channel patches have no C axis)."""
+    axes = normalize_axes(config.common.image_axes)
+    return axes.replace("C", "") if config.extraction.split_channels else axes
+
+
+def _default_position_id(patch: PatchRegion) -> str:
+    # One source image is one XY acquisition position, so all of its channel
+    # patches share this ID. Condition and biological repeat keep it unique across a tree run.
+    source = Path(patch.image_file).stem if patch.image_file else patch.image_id
+    return "/".join(str(part) for part in (patch.condition, patch.biological_repeat, source) if part)
+
+
+def _split_channel_patches(config: CellPatcherConfig, image_list, patches: list[PatchRegion], patch_arrays):
+    """Replace each region by one region (and array) per channel of its source image.
+
+    Every channel patch keeps the parent's coordinates and provenance, gets
+    ``c`` set to its channel index and ``_c<index>`` appended to its
+    ``patch_id``, and shares one ``position_id`` (the supplied one, or a
+    default derived from condition/biological repeat/image file).
+    """
+    axes = normalize_axes(config.common.image_axes)
+    if "C" not in axes:
+        raise ValueError(
+            f"extraction.split_channels=True needs a 'C' axis in common.image_axes (got '{axes}')."
+        )
+    channel_axis = axes.index("C")
+    image_lookup = {f"image_{idx:04d}": image for idx, image in enumerate(image_list)}
+
+    split_patches: list[PatchRegion] = []
+    split_arrays = [] if patch_arrays is not None else None
+    for index, patch in enumerate(patches):
+        image_shape = image_lookup[patch.image_id].shape
+        normalize_axes(axes, ndim=len(image_shape))
+        position_id = patch.position_id or _default_position_id(patch)
+        for channel in range(int(image_shape[channel_axis])):
+            split_patches.append(
+                replace(patch, patch_id=f"{patch.patch_id}_c{channel}", c=channel, position_id=position_id)
+            )
+            if split_arrays is not None:
+                # Extraction, masking and resizing keep the image's axis
+                # order, so the channel axis is at the same position here.
+                split_arrays.append(np.take(patch_arrays[index], channel, axis=channel_axis))
+    return split_patches, split_arrays
+
+
 def _stamp_output_dimensions(config: CellPatcherConfig, patches: list[PatchRegion], patch_arrays) -> None:
     if patch_arrays is None or len(patch_arrays) != len(patches):
         return
     for patch, array in zip(patches, patch_arrays):
-        axes = normalize_axes(config.common.image_axes, ndim=array.ndim)
+        axes = normalize_axes(_patch_array_axes(config), ndim=array.ndim)
         y_idx, x_idx = require_spatial_axes(axes)
         patch.output_height = int(array.shape[y_idx])
         patch.output_width = int(array.shape[x_idx])
@@ -228,6 +276,10 @@ def _build_result(
     _stamp_run_context(config, patches)
     _stamp_image_metadata(image_list, image_metadata, patches)
     patch_arrays_internal = _maybe_extract_arrays(config, image_list, patches, masks=masks)
+    if config.extraction.split_channels:
+        # Split after extraction/masking/resizing so each region is only
+        # cropped once; filters were already applied to the whole region.
+        patches, patch_arrays_internal = _split_channel_patches(config, image_list, patches, patch_arrays_internal)
     _stamp_output_dimensions(config, patches, patch_arrays_internal)
 
     exported_files: list[str] = []

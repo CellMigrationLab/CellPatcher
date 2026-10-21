@@ -107,6 +107,7 @@ Controls how patch arrays are extracted from images and optionally resized.
 | `resize_order` | `int` | `1` | Spline interpolation order for resizing (0 = nearest, 1 = bilinear, 3 = bicubic). Must be `>= 0`. |
 | `apply_mask` | `bool` | `False` | **Cell mode only.** When `True`, pixels outside the selected cell label are set to `mask_fill_value` before resize/export. |
 | `mask_fill_value` | `float` | `0.0` | Fill value for pixels outside the selected label when `apply_mask=True`. |
+| `split_channels` | `bool` | `False` | When `True`, every region becomes one single-channel patch per channel of its image instead of one multichannel patch (requires a `C` axis in `common.image_axes`). Channel patches keep the region's coordinates, get `c` = channel index and a `_c<index>` suffix on `patch_id`, and share one `position_id`: the one supplied via `image_metadata`, or by default `<condition>/<biological_repeat>/<image file stem>` (parts that are not set are left out; `image_id` replaces the stem when no `image_file` is known). Filters are evaluated on the whole multichannel region before splitting; masking and resizing are applied before splitting too. Without `split_channels`, `position_id` is only set when supplied. |
 
 > `apply_mask=True` is only supported in `mode="cell"` and requires masks to be provided.
 
@@ -178,7 +179,7 @@ Every generated patch is a `PatchRegion` dataclass. The fields below are populat
 | `condition` | `str \| None` | From `config.common.condition`. See the shared CSV contract below. |
 | `biological_repeat` | `str \| None` | From `config.common.biological_repeat`. See the shared CSV contract below. Formerly `repeat` (deprecated alias). |
 | `technical_repeat` | `str \| None` | From `config.common.technical_repeat`, or per image from `image_metadata`. See the shared CSV contract below. |
-| `position_id` | `str \| None` | Optional stable spatial acquisition-position identifier. Use the same value for all Z/C/T planes from one XY position. |
+| `position_id` | `str \| None` | Optional stable spatial acquisition-position identifier. Use the same value for all Z/C/T planes from one XY position. Filled automatically for channel patches when `extraction.split_channels=True` (see above). |
 | `image_file` | `str \| None` | Source image filename. Populated automatically by `run_patching_pipeline`; `None` for direct `run_patching()` calls unless supplied via `image_metadata`. |
 | `mask_file` | `str \| None` | Source mask filename (cell/random mode only, when a mask was loaded). Same population rule as `image_file`. |
 | `y0`, `y1` | `int` | Vertical extent of the patch in pixels (`y0` inclusive, `y1` exclusive). |
