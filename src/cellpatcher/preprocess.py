@@ -1,3 +1,4 @@
+import warnings
 from dataclasses import dataclass
 
 import numpy as np
@@ -23,7 +24,30 @@ class PreparedPlanePair:
     plane_id: str
 
 
+_REPLACEMENT = (
+    "normalize patches with config.normalization (cellpatcher.config.NormalizationConfig), which uses "
+    "the preprocessing brick's statistics at a chosen scope and records the parameters in patches.csv"
+)
+
+
+def _warn_deprecated(what: str, stacklevel: int = 3) -> None:
+    """Warn that an old normalization is deprecated (docs/normalization_contract.md §15)."""
+    warnings.warn(f"{what} is deprecated; {_REPLACEMENT}.", DeprecationWarning, stacklevel=stacklevel)
+
+
 def percentile_normalize(image, p_low=1.0, p_high=99.8, *, dtype=np.float32):
+    """Rescale the image's own percentiles to 0–1, clipped (deprecated: use ``config.normalization``)."""
+    _warn_deprecated("percentile_normalize")
+    return _percentile_normalize(image, p_low, p_high, dtype=dtype)
+
+
+def minmax_normalize(image, *, dtype=np.float32):
+    """Rescale the image's own minimum and maximum to 0–1 (deprecated: use ``config.normalization``)."""
+    _warn_deprecated("minmax_normalize")
+    return _minmax_normalize(image, dtype=dtype)
+
+
+def _percentile_normalize(image, p_low=1.0, p_high=99.8, *, dtype=np.float32):
     if not (0 <= float(p_low) < float(p_high) <= 100):
         raise ValueError("Percentiles must satisfy 0 <= p_low < p_high <= 100.")
 
@@ -53,7 +77,7 @@ def percentile_normalize(image, p_low=1.0, p_high=99.8, *, dtype=np.float32):
     return scaled.astype(dtype, copy=False)
 
 
-def minmax_normalize(image, *, dtype=np.float32):
+def _minmax_normalize(image, *, dtype=np.float32):
     arr = np.asarray(image)
     out = np.zeros(arr.shape, dtype=dtype)
     if arr.size == 0:
@@ -213,6 +237,31 @@ def prepare_image_for_patching(
     normalize=None,
     percentile=(1.0, 99.8),
 ):
+    """Resolve the T, Z and C axes of an image to one 2D (optionally multichannel) plane.
+
+    ``normalize``/``percentile`` are deprecated: use ``config.normalization``.
+    """
+    if normalize is not None:
+        _warn_deprecated("prepare_image_for_patching(normalize=...)")
+    return _prepare_image(
+        image, axes, z_policy=z_policy, z_index=z_index, t_policy=t_policy, t_index=t_index,
+        channel_policy=channel_policy, channel_index=channel_index, normalize=normalize, percentile=percentile,
+    )
+
+
+def _prepare_image(
+    image,
+    axes,
+    *,
+    z_policy,
+    z_index,
+    t_policy,
+    t_index,
+    channel_policy,
+    channel_index,
+    normalize,
+    percentile,
+):
     arr = np.asarray(image)
     ax = normalize_axes(axes, arr.ndim)
 
@@ -255,9 +304,9 @@ def prepare_image_for_patching(
         return arr, ax
     if normalize == "percentile":
         p_low, p_high = percentile
-        return percentile_normalize(arr, p_low=p_low, p_high=p_high), ax
+        return _percentile_normalize(arr, p_low=p_low, p_high=p_high), ax
     if normalize == "minmax":
-        return minmax_normalize(arr), ax
+        return _minmax_normalize(arr), ax
     raise ValueError(f"Unsupported normalize policy: {normalize}")
 
 
@@ -353,6 +402,8 @@ def iter_image_planes_for_patching(
     normalize=None,
     percentile=(1.0, 99.8),
 ):
+    if normalize is not None:
+        _warn_deprecated("iter_image_planes_for_patching(normalize=...)")
     arr = np.asarray(image)
     ax = normalize_axes(axes, arr.ndim)
 
@@ -393,7 +444,7 @@ def iter_image_planes_for_patching(
                 eff_z_index = z_val
                 metadata["z"] = int(z_val)
 
-            out_arr, out_axes = prepare_image_for_patching(
+            out_arr, out_axes = _prepare_image(
                 arr,
                 ax,
                 z_policy=eff_z_policy,
@@ -425,6 +476,8 @@ def iter_cell_planes_for_patching(
     normalize=None,
     percentile=(1.0, 99.8),
 ):
+    if normalize is not None:
+        _warn_deprecated("iter_cell_planes_for_patching(normalize=...)")
     img = np.asarray(image)
     lab = np.asarray(labels)
     i_ax = normalize_axes(image_axes, img.ndim)
@@ -478,7 +531,7 @@ def iter_cell_planes_for_patching(
                 eff_z_index = z_val
                 metadata["z"] = int(z_val)
 
-            prepared_image, prepared_image_axes = prepare_image_for_patching(
+            prepared_image, prepared_image_axes = _prepare_image(
                 img,
                 i_ax,
                 z_policy=eff_z_policy_img,

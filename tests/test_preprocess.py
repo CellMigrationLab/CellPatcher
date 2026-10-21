@@ -2,6 +2,9 @@ import numpy as np
 import pytest
 
 from cellpatcher import CellConfig, CellPatcherConfig, CommonConfig, run_patching
+
+# These tests keep covering the deprecated normalizations (docs/normalization_contract.md §15).
+pytestmark = pytest.mark.filterwarnings("ignore:.*config.normalization:DeprecationWarning")
 from cellpatcher.preprocess import (
     PreparedPlane,
     PreparedPlanePair,
