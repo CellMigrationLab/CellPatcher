@@ -29,8 +29,8 @@ class PatchRegion:
     Ecosystem/provenance fields (populated by ``run_patching_pipeline``/
     ``export_patches`` when the corresponding information is available;
     ``None`` when a caller uses the low-level ``run_patching`` directly
-    without supplying it). ``condition``/``biological_repeat``/``image_file``/
-    ``mask_file``/``patch_file`` are the shared MorphoBricks CSV columns
+    without supplying it). ``condition``/``biological_repeat``/``technical_repeat``/
+    ``image_file``/``mask_file``/``patch_file`` are the shared MorphoBricks CSV columns
     (see AGENTS.md §5); ``output_height``/``output_width``/``config_file``
     exist so a single CSV row is enough to deterministically reconstruct the
     exported patch array without re-deriving it from the run's config file.
@@ -38,6 +38,11 @@ class PatchRegion:
       replicate label, from ``CellPatcherConfig.common``. ``repeat`` is a
       deprecated alias of ``biological_repeat`` (constructor keyword and
       attribute; each use emits a ``DeprecationWarning``).
+    - ``technical_repeat``: technical replicate within the biological repeat
+      (a well, a dish, a coverslip), from ``CellPatcherConfig.common`` or
+      per image from ``image_metadata``; never a biological repeat. Tree runs
+      stamp ``SINGLE_TECHNICAL_REPEAT_LABEL`` (``"single"``) when a biological
+      repeat folder holds its images directly.
     - ``position_id``: optional stable spatial acquisition-position identifier.
       Use the same value for all Z/C/T planes from one XY position.
     - ``image_file``, ``mask_file``: source filenames, from folder-based runs.
@@ -54,6 +59,7 @@ class PatchRegion:
     mode: str | None = None
     condition: str | None = None
     biological_repeat: str | None = None
+    technical_repeat: str | None = None
     position_id: str | None = None
     image_file: str | None = None
     mask_file: str | None = None

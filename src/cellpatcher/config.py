@@ -12,13 +12,18 @@ class CommonConfig:
     extract_arrays: bool = False
     # Stamped onto every PatchRegion/metadata-CSV row for this run when set.
     # These are the MorphoBricks shared-CSV-contract `condition`/
-    # `biological_repeat` columns (see AGENTS.md §5). run_patching()/
-    # run_patching_pipeline() never infer them; set them explicitly, or use
-    # orchestration.run_patching_condition_repeat_tree to derive them per
-    # leaf from a <condition>/<biological_repeat>/ folder tree instead.
-    # `repeat` stays accepted as a deprecated alias (DeprecationWarning).
+    # `biological_repeat`/`technical_repeat` columns (see AGENTS.md §5).
+    # run_patching()/run_patching_pipeline() never infer them; set them
+    # explicitly, or use orchestration.run_patching_condition_repeat_tree to
+    # derive them per leaf from a
+    # <condition>/<biological_repeat>[/<technical_repeat>]/ folder tree.
+    # technical_repeat is the well/dish/coverslip within the biological
+    # repeat; per-image image_metadata["technical_repeat"] overrides it.
+    # `repeat` stays accepted as a deprecated alias of biological_repeat
+    # (DeprecationWarning).
     condition: str | None = None
     biological_repeat: str | None = None
+    technical_repeat: str | None = None
 
 
 @dataclass
