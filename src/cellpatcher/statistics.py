@@ -114,7 +114,9 @@ class SourcePlane:
         that keeps several channels is one ``SourcePlane`` per channel.
     axis_lengths
         Length of each Z, C and T axis the image has, e.g. ``{"Z": 5}``. An
-        axis left out has length 1.
+        axis left out has length 1. None when the lengths are not known (for
+        a plane already split from its image): the coordinates are then
+        taken as given, None as 0.
 
     Raises
     ------
@@ -131,18 +133,25 @@ class SourcePlane:
     z: int | None = None
     c: int | None = None
     t: int | None = None
-    axis_lengths: Mapping[str, int] = field(default_factory=dict)
+    axis_lengths: Mapping[str, int] | None = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         # A missing label is "single", as everywhere else in CellPatcher.
         for name in ("condition", "biological_repeat", "technical_repeat"):
             if getattr(self, name) is None:
                 object.__setattr__(self, name, SINGLE_LABEL)
-        unknown = set(self.axis_lengths) - set(_PLANE_ROLES)
+        unknown = set(self.axis_lengths or {}) - set(_PLANE_ROLES)
         if unknown:
             raise ValueError(f"axis_lengths may only name the axes {_PLANE_ROLES}; got {sorted(unknown)}.")
         for role in _PLANE_ROLES:
-            value, length = self.coordinate(role), self.axis_length(role)
+            value = self.coordinate(role)
+            if self.axis_lengths is None:
+                if value is None:
+                    object.__setattr__(self, role.lower(), 0)
+                elif value < 0:
+                    raise ValueError(f"{self.source_relative_path}: {role.lower()}={value} is negative.")
+                continue
+            length = self.axis_length(role)
             if value is None and length != 1:
                 raise ValueError(
                     f"{self.source_relative_path}: a {role.lower()} coordinate is needed, because "
@@ -162,7 +171,7 @@ class SourcePlane:
 
     def axis_length(self, role: str) -> int:
         """The image's length along ``role``; 1 for an axis it does not have."""
-        return int(self.axis_lengths.get(role, 1))
+        return int((self.axis_lengths or {}).get(role, 1))
 
     @property
     def labels(self) -> tuple[str | None, str | None, str | None]:
@@ -383,6 +392,10 @@ def check_images(
             # The preprocessing brick's own resolution of the experiment
             # mapping for this image (OME-Zarr images may store another axis
             # order); reads the header only.
+            if path.lower().endswith(".zarr"):
+                # CellPatcher takes an OME-Zarr image's axes by role from the
+                # same metadata the preprocessing brick read (io.read_image).
+                continue
             file_mapping = mbp.file_mapping_for(
                 mbp.inspect_image(root / path, path),
                 manifest.mapping,

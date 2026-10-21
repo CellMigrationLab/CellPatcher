@@ -15,7 +15,14 @@ from cellpatcher.io import (
     SINGLE_TECHNICAL_REPEAT_LABEL,
 )
 from cellpatcher.masking import apply_label_masks_to_patches
-from cellpatcher.planes import iter_image_planes, splits_planes
+from cellpatcher.normalization import (
+    Normalizer,
+    finish_patch_groups,
+    run_inputs,
+    split_channel_normalization,
+    validate_normalization,
+)
+from cellpatcher.planes import iter_image_planes, plane_choices, splits_planes
 from cellpatcher.resize import resize_patches
 from cellpatcher.strategies.cell import CellSegmentationStrategy
 from cellpatcher.strategies.grid import GridStrategy
@@ -135,9 +142,9 @@ def _split_channel_patches(config: CellPatcherConfig, image_list, patches: list[
         normalize_axes(axes, ndim=len(image_shape))
         position_id = patch.position_id or _default_position_id(patch)
         for channel in range(int(image_shape[channel_axis])):
-            split_patches.append(
-                replace(patch, patch_id=f"{patch.patch_id}_c{channel}", c=channel, position_id=position_id)
-            )
+            channel_patch = replace(patch, patch_id=f"{patch.patch_id}_c{channel}", c=channel, position_id=position_id)
+            split_channel_normalization(channel_patch, channel)
+            split_patches.append(channel_patch)
             if split_arrays is not None:
                 # Extraction, masking and resizing keep the image's axis
                 # order, so the channel axis is at the same position here.
@@ -220,7 +227,9 @@ def _apply_filters(config: CellPatcherConfig, image_list, patches: list[PatchReg
     return kept
 
 
-def _maybe_extract_arrays(config: CellPatcherConfig, image_list, patches: list[PatchRegion], masks=None):
+def _maybe_extract_arrays(
+    config: CellPatcherConfig, image_list, patches: list[PatchRegion], masks=None, normalizations=None
+):
     # Arrays are only materialized when actually needed: either the caller
     # asked for them directly, or export needs pixel data to write files.
     need_arrays = config.common.extract_arrays or config.export.enabled
@@ -260,6 +269,14 @@ def _maybe_extract_arrays(config: CellPatcherConfig, image_list, patches: list[P
             pad_mode=config.extraction.pad_mode,
             constant_values=config.extraction.constant_values,
         )
+        if normalizations is not None:
+            # Step 1b: normalize the raw crop per channel (float32), so the
+            # mask fill value below and resizing work in normalized units
+            # (docs/normalization_contract.md §9).
+            per_image_arrays = [
+                normalizations[id(patch)].apply(array, config.common.image_axes)
+                for patch, array in zip(image_patches, per_image_arrays)
+            ]
 
         if config.extraction.apply_mask:
             if mask_lookup is None or image_id not in mask_lookup:
@@ -296,12 +313,40 @@ def _maybe_extract_arrays(config: CellPatcherConfig, image_list, patches: list[P
     return extracted
 
 
+def _normalize(config: CellPatcherConfig, image_list, masks, image_metadata, patches):
+    """Compute and record every patch's normalization; None when normalization is off."""
+    normalizer = Normalizer.for_config(config)
+    if normalizer is None:
+        return None
+    condition, biological_repeat, technical_repeat = _run_labels(config)
+    metadata = [dict(meta or {}) for meta in image_metadata] if image_metadata is not None else [{} for _ in image_list]
+    labels = [
+        (condition, biological_repeat, str(meta.get("technical_repeat") or technical_repeat)) for meta in metadata
+    ]
+    mask_list = masks if masks is not None else [None] * len(image_list)
+    return normalizer.normalize(
+        image_list, config.common.image_axes, mask_list, config.common.mask_axes, metadata, labels, patches
+    )
+
+
+def run_config_data(config: CellPatcherConfig) -> dict:
+    """The ``run_config.json`` content: the config, plus ``normalization_inputs`` when a CSV is used."""
+    data = asdict(config)
+    inputs = run_inputs(config)
+    if inputs is not None:
+        data["normalization_inputs"] = inputs
+    return data
+
+
 def _build_result(
     config: CellPatcherConfig, image_list, patches: list[PatchRegion], masks=None, image_metadata=None
 ) -> PatchingResult:
     _stamp_run_context(config, patches)
     _stamp_image_metadata(image_list, image_metadata, patches)
-    patch_arrays_internal = _maybe_extract_arrays(config, image_list, patches, masks=masks)
+    normalizations = _normalize(config, image_list, masks, image_metadata, patches)
+    patch_arrays_internal = _maybe_extract_arrays(
+        config, image_list, patches, masks=masks, normalizations=normalizations
+    )
     if config.extraction.split_channels:
         # Split after extraction/masking/resizing so each region is only
         # cropped once; filters were already applied to the whole region.
@@ -312,6 +357,8 @@ def _build_result(
 
 def _finish_result(config: CellPatcherConfig, patches: list[PatchRegion], patch_arrays_internal) -> PatchingResult:
     """Export the patches (when enabled) and build the result."""
+    if config.normalization.enabled:
+        finish_patch_groups(patches, config.normalization.per_time_point)
     exported_files: list[str] = []
     metadata_file: str | None = None
     if config.export.enabled:
@@ -327,7 +374,7 @@ def _finish_result(config: CellPatcherConfig, patches: list[PatchRegion], patch_
         if config.export.save_run_config:
             config_path = out_dir / RUN_CONFIG_FILENAME
             with config_path.open("w", encoding="utf-8") as f:
-                json.dump(asdict(config), f, indent=2, default=str)
+                json.dump(run_config_data(config), f, indent=2, default=str)
             for patch in patches:
                 patch.config_file = RUN_CONFIG_FILENAME
 
@@ -363,7 +410,10 @@ def _run_patching_by_plane(images, masks, config: CellPatcherConfig, image_metad
     sources = (
         (
             image_metadata[index] if image_metadata is not None else None,
-            iter_image_planes(image, common.image_axes, mask, common.mask_axes, common),
+            iter_image_planes(
+                image, common.image_axes, mask, common.mask_axes, common,
+                single_planes=config.normalization.enabled,
+            ),
         )
         for index, (image, mask) in enumerate(zip(image_list, mask_list))
     )
@@ -412,6 +462,8 @@ def _patch_planes(config: CellPatcherConfig, sources) -> PatchingResult:
                 )
             plane_metadata.append(plane_meta)
 
+        if not planes:
+            continue
         plane_masks = [plane.mask for plane in planes]
         mask_axes = next((plane.mask_axes for plane in planes if plane.mask is not None), config.common.mask_axes)
         random = config.random
@@ -521,6 +573,13 @@ def run_patching(images=None, masks=None, config=None, image_metadata=None) -> P
         config = CellPatcherConfig()
     if not isinstance(config, CellPatcherConfig):
         raise TypeError("config must be a CellPatcherConfig instance.")
+    if config.normalization.enabled:
+        validate_normalization(config)
+        if not splits_planes(config.common) and images is not None:
+            # "keep" (the default) along a Z or T axis longer than 1 is refused
+            # under normalization; plane_choices says why.
+            for image in _normalize_images(images):
+                plane_choices(image.shape, config.common.image_axes, None, None, config.common, single_planes=True)
     if splits_planes(config.common):
         if images is None:
             raise ValueError(f"images is required for mode '{config.mode}'.")

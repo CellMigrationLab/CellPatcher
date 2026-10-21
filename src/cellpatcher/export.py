@@ -36,6 +36,9 @@ def save_metadata_csv(patches, csv_path):
         writer = csv.DictWriter(f, fieldnames=header)
         writer.writeheader()
         for row in rows:
+            # normalization_exact is written true/false (contract §10).
+            if isinstance(row.get("normalization_exact"), bool):
+                row["normalization_exact"] = "true" if row["normalization_exact"] else "false"
             writer.writerow({k: row.get(k) for k in header})
 
 

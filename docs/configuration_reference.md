@@ -163,21 +163,38 @@ Controls how image files are paired with mask files when reading from folders.
 
 ---
 
-## Planned: `config.normalization` (`NormalizationConfig`)
+## `config.normalization` (`NormalizationConfig`)
 
-> **Not yet available.** This section is specified in the
-> [normalization contract](normalization_contract.md) and is added over Milestones 1–4 of the
-> [plan](plan.md). Until then, `CellPatcherConfig` has no `normalization` section.
+Normalization with the statistics of the preprocessing brick, following the [normalization contract](normalization_contract.md) (decisions in the [plan](plan.md)). Needs the `preprocessing` extra (`pip install "cellpatcher[preprocessing]"`). Off by default: with `enabled=False`, patch arrays and every existing `patches.csv` column are exactly as before, and the `normalization_*` columns stay empty.
 
-Planned fields (contract §13): `enabled`, `plane_histograms`, `manifest`, `method`,
-`percentile`, `scope`, `per_time_point`, `patch_region`, `export_values` and `memory_limit`.
-The `common.mask_source` and `common.mask_label_name` fields for OME-Zarr label masks (contract §4)
-exist since Milestone 2.
-`patches.csv` gains six `normalization_*` columns (contract §10); its `source_relative_path`
-column already exists (Milestone 1). The optional `preprocessing` extra
-(`pip install "cellpatcher[preprocessing]"`) and `cellpatcher.statistics`, which loads
-`plane_histograms.csv`/`run_manifest.json` and runs the checks of contract §5, are also
-available from Milestone 1.
+| Field | Type | Default | Notes |
+|---|---|---|---|
+| `enabled` | `bool` | `False` | Normalize every patch. |
+| `plane_histograms` | `str \| None` | `None` | Path of the preprocessing brick's `plane_histograms.csv` (schema version 2); required for every scope except `"patch"`. Give CellPatcher the same experiment root as the preprocessing brick. |
+| `manifest` | `str \| None` | `None` | Path of its `run_manifest.json` for extra checks (file sizes and times, CSV hash, axis roles); `None` uses the one next to the CSV when there is one. |
+| `method` | `str` | `"percentile"` | `"minmax"`, `"percentile"`, `"zscore"` or `"robust_zscore"` (MAD × 1.4826). |
+| `percentile` | `(float, float)` | `(1.0, 99.8)` | Low and high percentile for `"percentile"`, `0 ≤ low < high ≤ 100`. |
+| `scope` | `str` | `"image"` | Pixels the parameters come from: `"condition"`, `"biological_repeat"`, `"technical_repeat"`, `"image"` (all Z and T planes of the source image) or `"patch"` (the patch's own pixels). Always per channel. |
+| `per_time_point` | `bool` | `False` | Normalize each time point separately (`t` joins the group). |
+| `patch_region` | `str \| None` | `None` | For `scope="patch"`: `"mask"` (the patch's own label), `"bbox"` (the label's whole bounding box, whatever the patch size) or `"patch"`; `None` means `"mask"` in `cell` mode and `"patch"` otherwise. Padding is never used. |
+
+`export_values` and `memory_limit` (contract §12–§13) come with the delivery milestone (Milestone 4).
+
+**What happens** (contract §6–§9):
+
+- The pipeline becomes generate → filter → extract → **normalize** → apply mask → resize → export. Filters see raw values; `extraction.mask_fill_value` is in normalized units (`NaN` allowed); resizing works on the float32 values. Padding added by `pad_mode="constant"` is normalized like the raw value `constant_values`.
+- Each patch becomes `(pixels - offset) / scale` per channel, float32, without clipping.
+- Group and image scopes pool the CSV rows of the patch's group (same condition / biological repeat / technical repeat / image, same channel, and same `t` with `per_time_point`), including planes that were not patched.
+- Before anything is normalized, every patched plane must have its CSV row with the same labels, dtype, size, exact finite extrema and finite pixel count; with the manifest, each image's size, modification time and axes must match too. Every image without rows is listed in one message.
+- Normalization needs one plane per patch: `common.z_policy`/`t_policy` `"keep"` or a projection along an axis longer than 1 stops the run.
+- A group or patch with no finite pixels or zero spread stops the run with the list of groups or patches (decision D8 is open).
+- Warnings (`cellpatcher.normalization.NormalizationWarning`): approximate parameters (float images); group and image statistics include background; per-condition and per-repeat scopes remove real differences between groups.
+
+**Recorded:** six `PatchRegion` fields, written after `source_relative_path` in `patches.csv`: `normalization_method` (e.g. `percentile 1-99.8`), `normalization_scope`, `normalization_group` (`<condition>`, `<condition>/<biological_repeat>`, `<condition>/<biological_repeat>/<technical_repeat>`, `<source_relative_path>`, or `<source_relative_path>::<patch_id>` for the patch scope; `::t=<t>` with `per_time_point`), `normalization_offset` and `normalization_scale` (one full-precision number per channel of the patch, `;`-separated; one value for a split channel) and `normalization_exact` (`true`/`false`). `run_config.json` gains the `normalization` section and a top-level `normalization_inputs` object (`plane_histograms_sha256`, `schema_version`, `manifest_used`, `manifest_version`, `preprocessing_version`); a `run_config.json` without `normalization` loads with normalization off.
+
+**In-memory runs:** `run_patching` normalizes too; for the CSV scopes each image needs `image_metadata=[{"source_relative_path": ...}]` and the right `common` labels (folder and tree runs fill both). The manifest's file checks run in folder and tree runs.
+
+The `common.mask_source` and `common.mask_label_name` fields for OME-Zarr label masks (contract §4) exist since Milestone 2, and `cellpatcher.statistics` (loading `plane_histograms.csv`/`run_manifest.json`, contract §5 checks) since Milestone 1.
 
 ---
 

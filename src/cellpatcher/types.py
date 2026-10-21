@@ -59,6 +59,11 @@ class PatchRegion:
       ``single`` output folders). Links the patch to the preprocessing
       brick's ``plane_id``. Filled by folder and tree runs, or per image from
       ``image_metadata``; ``None`` otherwise.
+    - ``normalization_method``, ``normalization_scope``, ``normalization_group``,
+      ``normalization_offset``, ``normalization_scale``, ``normalization_exact``:
+      the normalization applied to the patch (``config.normalization``):
+      ``(pixels - offset) / scale`` per channel; offsets and scales are
+      ``;``-separated per channel. ``None`` when normalization is off.
     """
     patch_id: str
     image_id: str | None = None
@@ -94,6 +99,15 @@ class PatchRegion:
     # Appended after every earlier field so existing CSV columns keep their
     # order (docs/normalization_contract.md §10).
     source_relative_path: str | None = None
+    # How the patch was normalized (docs/normalization_contract.md §10); all
+    # None when normalization is off. Offsets and scales are one value per
+    # channel of the patch, in channel order, joined by ";" (full precision).
+    normalization_method: str | None = None
+    normalization_scope: str | None = None
+    normalization_group: str | None = None
+    normalization_offset: str | None = None
+    normalization_scale: str | None = None
+    normalization_exact: bool | None = None
 
     def __post_init__(self) -> None:
         # y0/x0 are always required (defaulted to 0), so their ranges are

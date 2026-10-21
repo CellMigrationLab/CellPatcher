@@ -17,6 +17,7 @@ from cellpatcher.config import (
     FilterConfig,
     GridConfig,
     MatchConfig,
+    NormalizationConfig,
     RandomConfig,
 )
 from cellpatcher.io import (
@@ -30,11 +31,13 @@ from cellpatcher.io import (
     validate_image_and_mask_folders,
 )
 from cellpatcher.export import save_metadata_csv
-from cellpatcher.pipeline import RUN_CONFIG_FILENAME, PatchingResult, _patch_planes, run_patching
+from cellpatcher.normalization import CSV_SCOPES, cached_statistics, validate_normalization
+from cellpatcher.pipeline import RUN_CONFIG_FILENAME, PatchingResult, _patch_planes, run_config_data, run_patching
+from cellpatcher.statistics import check_images
 from cellpatcher.planes import iter_file_planes, splits_planes
 
 # Sections always written regardless of mode
-_COMMON_SECTIONS = ("common", "filters", "export", "extraction")
+_COMMON_SECTIONS = ("common", "filters", "export", "extraction", "normalization")
 
 # Mode-specific sections (beyond the common ones above)
 _MODE_SECTIONS: dict[str, tuple[str, ...]] = {
@@ -271,6 +274,10 @@ def load_config(path) -> CellPatcherConfig:
         export=ExportConfig(**data["export"]) if "export" in data else ExportConfig(),
         extraction=ExtractionConfig(**data["extraction"]) if "extraction" in data else ExtractionConfig(),
         matching=MatchConfig(**data["matching"]) if "matching" in data else MatchConfig(),
+        # A run_config.json written before normalization existed means it was off.
+        normalization=(
+            NormalizationConfig(**data["normalization"]) if "normalization" in data else NormalizationConfig()
+        ),
     )
 
 
@@ -331,6 +338,23 @@ def _mask_loaders(image_folder_path, mask_folder_path, image_files, config, stra
 
 def _read_mask_file(path: Path, axes: str):
     return read_image(path, axes), path.name
+
+
+def _check_preprocessing_inputs(config: CellPatcherConfig, experiment_root, image_files) -> None:
+    """Check the images against the preprocessing outputs before any patching (contract §5).
+
+    Only with normalization at a CSV scope: every image must have rows in
+    ``plane_histograms.csv`` (all images without rows in one message) and,
+    with a manifest, the size, modification time and axes recorded for it.
+    The planes themselves are checked as they are patched.
+    """
+    settings = config.normalization
+    if not settings.enabled or settings.scope not in CSV_SCOPES:
+        return
+    validate_normalization(config)
+    statistics = cached_statistics(settings.plane_histograms, settings.manifest)
+    image_axes = {_source_relative_path(path, experiment_root): config.common.image_axes for path in image_files}
+    check_images(statistics, image_axes, experiment_root=Path(experiment_root).expanduser())
 
 
 def _source_relative_path(image_path: Path, experiment_root) -> str:
@@ -475,6 +499,7 @@ def run_patching_pipeline(
         raise TypeError("config must be a CellPatcherConfig instance.")
     if overrides:
         config = apply_overrides(config, overrides)
+    _check_preprocessing_inputs(config, image_folder_path, list_supported_files(image_folder_path))
     return _run_folder_patching(
         image_folder_path,
         config=config,
@@ -520,7 +545,10 @@ def _run_folder_patching(
                 mask, mask_file = loaders[index]() if loaders is not None else (None, None)
                 yield (
                     _image_metadata(image_path, mask_file, experiment_root),
-                    iter_file_planes(image_path, common.image_axes, mask, common.mask_axes, common),
+                    iter_file_planes(
+                        image_path, common.image_axes, mask, common.mask_axes, common,
+                        single_planes=config.normalization.enabled,
+                    ),
                 )
 
         return _patch_planes(config, sources())
@@ -670,6 +698,10 @@ def run_patching_condition_repeat_tree(
     leaves = discover_condition_repeat_folders(image_root_path, mask_root_path=mask_root_path)
     if not leaves:
         raise ValueError(f"No condition subfolders with images found under: {image_root_path}")
+    # Checked once for the whole tree, so every image without rows is listed together.
+    _check_preprocessing_inputs(
+        config, image_root_path, [path for leaf in leaves for path in list_supported_files(leaf.image_folder)]
+    )
 
     base_output_dir = Path(config.common.output_dir) if config.common.output_dir is not None else None
     # grid/whole_fov never accept a mask_folder_path (run_patching_pipeline
@@ -741,7 +773,7 @@ def _write_combined_metadata(config: CellPatcherConfig, output_dir: Path, result
     """Write one run_config.json and one patches.csv covering every leaf of a tree run."""
     output_dir.mkdir(parents=True, exist_ok=True)
     with (output_dir / RUN_CONFIG_FILENAME).open("w", encoding="utf-8") as f:
-        json.dump(asdict(config), f, indent=2, default=str)
+        json.dump(run_config_data(config), f, indent=2, default=str)
 
     all_patches = []
     for leaf_result in results:

@@ -108,15 +108,19 @@ class PlaneChoice:
         return value if isinstance(value, int) else None
 
 
-def plane_choices(image_shape, image_axes, mask_shape, mask_axes, common) -> list[PlaneChoice]:
+def plane_choices(image_shape, image_axes, mask_shape, mask_axes, common, *, single_planes=False) -> list[PlaneChoice]:
     """The planes of an image of *image_shape* chosen by the policies, in T-then-Z order.
+
+    With *single_planes* (normalization is enabled), every Z or T axis longer
+    than 1 must end as one index per plane (``docs/normalization_contract.md``
+    §3): ``"keep"`` and projections are refused.
 
     Raises
     ------
     ValueError
         If an index is outside the image, a mask's Z or T length is neither
-        the image's nor 1, or a Z projection meets a mask that follows the
-        image's Z planes.
+        the image's nor 1, a Z projection meets a mask that follows the
+        image's Z planes, or *single_planes* refuses a policy.
     """
     validate_plane_policies(common)
     image_axes = normalize_axes(image_axes, len(image_shape))
@@ -126,14 +130,16 @@ def plane_choices(image_shape, image_axes, mask_shape, mask_axes, common) -> lis
     for axis in ("T", "Z"):
         policy = getattr(common, f"{axis.lower()}_policy")
         index = getattr(common, f"{axis.lower()}_index")
-        choices.append(_axis_choices(image_shape, image_axes, mask_shape, mask_axes, axis, policy, index))
+        choices.append(
+            _axis_choices(image_shape, image_axes, mask_shape, mask_axes, axis, policy, index, single_planes)
+        )
     return [
         PlaneChoice(t=t, z=z, suffix=t_label + z_label)
         for (t, t_label), (z, z_label) in itertools.product(*choices)
     ]
 
 
-def iter_image_planes(image, image_axes, mask, mask_axes, common) -> Iterator[ImagePlane]:
+def iter_image_planes(image, image_axes, mask, mask_axes, common, *, single_planes=False) -> Iterator[ImagePlane]:
     """Yield the planes of one in-memory image chosen by ``common.z_policy`` and ``common.t_policy``.
 
     Planes come in T-then-Z order. An image without a Z or T axis is not
@@ -145,7 +151,7 @@ def iter_image_planes(image, image_axes, mask, mask_axes, common) -> Iterator[Im
         mask = np.asarray(mask)
         mask_axes = normalize_axes(mask_axes, mask.ndim)
     mask_shape = None if mask is None else mask.shape
-    for choice in plane_choices(image.shape, image_axes, mask_shape, mask_axes, common):
+    for choice in plane_choices(image.shape, image_axes, mask_shape, mask_axes, common, single_planes=single_planes):
         plane, plane_axes = image, image_axes
         for axis in ("T", "Z"):
             value = choice.value(axis)
@@ -173,7 +179,7 @@ def select_mask_plane(mask, mask_axes, choice: PlaneChoice):
     return mask, mask_axes
 
 
-def iter_file_planes(path, image_axes, mask, mask_axes, common) -> Iterator[ImagePlane]:
+def iter_file_planes(path, image_axes, mask, mask_axes, common, *, single_planes=False) -> Iterator[ImagePlane]:
     """Yield the planes of an image file chosen by the policies, reading only those planes when possible.
 
     With the ``preprocessing`` extra, a TIFF or OME-Zarr image whose planes
@@ -194,7 +200,8 @@ def iter_file_planes(path, image_axes, mask, mask_axes, common) -> Iterator[Imag
 
     mbp = _plane_reader(path, common)
     if mbp is None:
-        yield from iter_image_planes(read_image(path, image_axes), image_axes, mask, mask_axes, common)
+        image = read_image(path, image_axes)
+        yield from iter_image_planes(image, image_axes, mask, mask_axes, common, single_planes=single_planes)
         return
 
     path = Path(path).expanduser()
@@ -204,7 +211,7 @@ def iter_file_planes(path, image_axes, mask, mask_axes, common) -> Iterator[Imag
         mask = np.asarray(mask)
         mask_axes = normalize_axes(mask_axes, mask.ndim)
     mask_shape = None if mask is None else mask.shape
-    for choice in plane_choices(shape, target, mask_shape, mask_axes, common):
+    for choice in plane_choices(shape, target, mask_shape, mask_axes, common, single_planes=single_planes):
         plane_axes = "".join(axis for axis in target if choice.value(axis) is None)
         pixels = np.empty([shape[target.index(axis)] for axis in plane_axes], dtype=dtype)
         # Axes kept in the plane (channels, or a "keep" axis) are read one
@@ -279,12 +286,21 @@ def _read_plane(mbp, path: Path, mapping, coordinates) -> np.ndarray:
         ) from exc
 
 
-def _axis_choices(image_shape, image_axes, mask_shape, mask_axes, axis, policy, index) -> list[tuple]:
+def _axis_choices(image_shape, image_axes, mask_shape, mask_axes, axis, policy, index, single_planes) -> list[tuple]:
     """``(value, id label)`` per plane along ``axis``: an index, a projection name, or None (unchanged)."""
     position = axis_index(image_axes, axis)
-    if position is None or policy == "keep":
+    if position is None:
         return [(None, "")]
     length = int(image_shape[position])
+    if single_planes and length > 1 and (policy == "keep" or policy in _PROJECTIONS):
+        effect = "keeps all" if policy == "keep" else "projects the"
+        raise ValueError(
+            f"Normalization needs one plane per patch, but {axis.lower()}_policy={policy!r} {effect} "
+            f"{length} planes along {axis} (the preprocessing statistics describe single planes). Set "
+            f"common.{axis.lower()}_policy to 'all', 'first' or 'select'."
+        )
+    if policy == "keep":
+        return [(None, "")]
     if mask_shape is not None and axis_index(mask_axes, axis) is not None:
         mask_length = int(mask_shape[axis_index(mask_axes, axis)])
         if mask_length not in (length, 1):
