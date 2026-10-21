@@ -178,7 +178,26 @@ Normalization with the statistics of the preprocessing brick, following the [nor
 | `per_time_point` | `bool` | `False` | Normalize each time point separately (`t` joins the group). |
 | `patch_region` | `str \| None` | `None` | For `scope="patch"`: `"mask"` (the patch's own label), `"bbox"` (the label's whole bounding box, whatever the patch size) or `"patch"`; `None` means `"mask"` in `cell` mode and `"patch"` otherwise. Padding is never used. |
 
-`export_values` and `memory_limit` (contract §12–§13) come with the delivery milestone (Milestone 4).
+| `export_values` | `str` | `"normalized"` | What exported files hold: `"normalized"` (float32) or `"raw"` (the source values; `patches.csv` holds the parameters and the loaders normalize on load). A raw patch that is resized or masked is stored as float32 raw values. |
+| `memory_limit` | `int` | `4 * 1024**3` | Bytes allowed for the normalized patches of eager delivery (`common.extract_arrays=True`); above it the run stops before extracting and suggests `iter_patch_arrays`. |
+
+**Delivery** (contract §12) — all modes give the same arrays for the same configuration (raw files of resized or masked patches up to float32 rounding):
+
+| Mode | How | Values |
+|---|---|---|
+| Normalized files (default) | `export.enabled=True` | float32 `.tif`/`.npy` |
+| Raw files plus parameters | `export.enabled=True`, `normalization.export_values="raw"`; read back with `cellpatcher.iter_exported_patches(csv)`/`load_exported_patch` or `ExportedPatchTorchDataset`, which normalize on load with each row's `normalization_offset`/`normalization_scale` (never recomputed) | Source dtype when the patch is only cropped; float32 raw values when resized or masked |
+| In memory, eager | `common.extract_arrays=True` | float32 arrays in `PatchingResult.patch_arrays`, within `memory_limit` |
+| In memory, lazy | Run with `extract_arrays=False` (the patches still record their normalization), then `cellpatcher.iter_patch_arrays(patches, images, config, masks=...)` or `patch_array(...)`; `PatchTorchDataset(images, patches, config=config)` is built on them | float32, one patch at a time |
+
+```python
+from cellpatcher import iter_patch_arrays, list_supported_files, run_patching_condition_repeat_tree
+
+for leaf in run_patching_condition_repeat_tree(root, config=config):  # extract_arrays=False
+    images = list_supported_files(leaf.image_folder)  # paths: read one plane at a time
+    for patch, array in iter_patch_arrays(leaf.result.patches, images, config):
+        ...  # one normalized patch at a time
+```
 
 **What happens** (contract §6–§9):
 

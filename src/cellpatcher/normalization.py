@@ -156,6 +156,40 @@ class PatchNormalization:
     parameters: tuple
     exact: bool
 
+    @classmethod
+    def from_patch(cls, patch) -> PatchNormalization | None:
+        """The normalization recorded in a patch's ``normalization_*`` fields, or None when there is none.
+
+        The offsets and scales are read back exactly (they are written with
+        ``repr``), so the result applies the same parameters; nothing is
+        recomputed.
+        """
+        if not patch.normalization_offset:
+            return None
+        mbp = require_preprocessing()
+        offsets = [float(value) for value in str(patch.normalization_offset).split(";")]
+        scales = [float(value) for value in str(patch.normalization_scale).split(";")]
+        if len(offsets) != len(scales):
+            raise ValueError(f"{patch.patch_id}: {len(offsets)} normalization offsets but {len(scales)} scales.")
+        method = patch.normalization_method or ""
+        parameters = tuple(mbp.NormalizationParameters(method, o, s) for o, s in zip(offsets, scales))
+        exact = patch.normalization_exact in (True, "true", "True")
+        return cls(method, patch.normalization_scope or "", patch.normalization_group, parameters, exact)
+
+    def unapply(self, array, axes: str) -> np.ndarray:
+        """Map normalized values back to raw units per channel, as float32: ``values * scale + offset``."""
+        array = np.asarray(array)
+        axes = normalize_axes(axes, array.ndim)
+        if "C" not in axes:
+            only = self.parameters[0]
+            return (array.astype(np.float64) * only.scale + only.offset).astype(np.float32)
+        channel_axis = axes.index("C")
+        out = np.empty(array.shape, dtype=np.float32)
+        for channel, parameters in enumerate(self.parameters):
+            index = (slice(None),) * channel_axis + (channel,)
+            out[index] = array[index].astype(np.float64) * parameters.scale + parameters.offset
+        return out
+
     def stamp(self, patch) -> None:
         """Record the normalization in the patch's ``normalization_*`` fields."""
         patch.normalization_method = self.method

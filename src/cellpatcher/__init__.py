@@ -22,6 +22,7 @@ from cellpatcher.config import (
     NormalizationConfig,
     RandomConfig,
 )
+from cellpatcher.delivery import iter_exported_patches, iter_patch_arrays, load_exported_patch, patch_array
 from cellpatcher.export import export_patches, patch_metadata_to_rows, sanitize_filename, save_metadata_csv, save_patch_array
 from cellpatcher.io import (
     SINGLE_BIOLOGICAL_REPEAT_LABEL,
@@ -119,6 +120,10 @@ __all__ = [
     "save_metadata_csv",
     "save_patch_array",
     "export_patches",
+    "iter_patch_arrays",
+    "patch_array",
+    "iter_exported_patches",
+    "load_exported_patch",
     "compute_threshold",
     "foreground_fraction",
     "filter_regions",

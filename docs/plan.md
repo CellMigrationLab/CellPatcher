@@ -431,7 +431,13 @@ from GitHub at a pinned version) **[D1]**.
   added by `pad_mode="constant"` is normalized like the raw value `constant_values`.
 - **Milestone 4 — Delivery:** the `patches.csv` columns and `run_config.json` keys; the three
   delivery modes; normalization on load for raw files; the NumPy iterator and torch
-  adapters.
+  adapters. *Decided (October 2026):* raw files keep the source dtype when a patch is only
+  cropped and hold float32 raw values when it is resized or masked (a NaN mask fill
+  survives), so loading always gives the delivered patch, up to float32 rounding;
+  `iter_patch_arrays`, `patch_array`, `iter_exported_patches` and `load_exported_patch` are
+  exported from the package. `PatchTorchDataset` accepts the run's config to cut each patch
+  from its `z0`/`t` plane. The columns and `run_config.json` records were delivered with
+  Milestone 3.
 - **Milestone 5 — Notebook and docs:** a normalization step in `CellPatcher.ipynb` (choose the
   CSV and optional manifest, method, scope and patch region; table of parameters per group;
   before/after preview of a few patches with their histograms; warnings), plus user

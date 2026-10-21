@@ -260,7 +260,11 @@ def load_config(path) -> CellPatcherConfig:
     CellPatcherConfig
         A fully reconstructed config instance.
     """
-    data = json.loads(Path(path).read_text())
+    return _config_from_dict(json.loads(Path(path).read_text()))
+
+
+def _config_from_dict(data: dict) -> CellPatcherConfig:
+    """Build a config from the data of a config or ``run_config.json`` file (extra keys are ignored)."""
     # Each section is reconstructed only if present in the file (a
     # mode-specific save omits irrelevant sections), otherwise it falls
     # back to that section's own defaults.
