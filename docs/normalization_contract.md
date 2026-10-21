@@ -67,8 +67,8 @@ index per plane:
 
 | Axis | Allowed | Blocked under normalization |
 |---|---|---|
-| Z | `z_policy="all"` (each slice its own plane), `"select"`, `"first"` | `"max"`, `"mean"`, `"sum"` projections |
-| T | `t_policy="all"`, `"select"`, `"first"` | — |
+| Z | `z_policy="all"` (each slice its own plane), `"select"`, `"first"` | `"keep"` (all slices in one patch, the default) and `"max"`, `"mean"`, `"sum"` projections |
+| T | `t_policy="all"`, `"select"`, `"first"` | `"keep"` (all time points in one patch, the default) |
 | C | `split_channels=True` (one patch per channel), `channel_policy="select"`/`"first"`, or channels kept together in one patch | `channel_policy="max"`/`"mean"` (merged channels) and `"repeat_to_rgb"` in the preparation helpers |
 
 Repeating a normalized grayscale patch to RGB stays available in the torch adapters
@@ -257,7 +257,10 @@ several channels, the patch's `c` stays empty and the list order is the channel 
 | `memory_limit` | `int` | `4 * 1024**3` | Bytes, for eager delivery (§12) |
 
 `config.common` gains `mask_source` (`"tiff_tree"` or `"ngff_labels"`, default `"tiff_tree"`)
-and `mask_label_name` (`str | None`, default `None`) (§4).
+and `mask_label_name` (`str | None`, default `None`) (§4), and `z_policy`/`t_policy`
+(`"keep"` by default, or `"all"`, `"first"`, `"select"`; Z also `"max"`, `"mean"`, `"sum"`)
+with `z_index`/`t_index` (`int | None`), which split Z and T in folder, tree and
+`run_patching` runs (§3; Milestone 2, decided October 2026).
 
 ## 14. Validation
 

@@ -15,6 +15,7 @@ from cellpatcher.io import (
     SINGLE_TECHNICAL_REPEAT_LABEL,
 )
 from cellpatcher.masking import apply_label_masks_to_patches
+from cellpatcher.planes import iter_image_planes, splits_planes
 from cellpatcher.resize import resize_patches
 from cellpatcher.strategies.cell import CellSegmentationStrategy
 from cellpatcher.strategies.grid import GridStrategy
@@ -28,7 +29,7 @@ from cellpatcher.types import PatchRegion
 RUN_CONFIG_FILENAME = "run_config.json"
 
 
-def _stamp_run_context(config: CellPatcherConfig, patches: list[PatchRegion]) -> None:
+def _run_labels(config: CellPatcherConfig) -> tuple[str, str, str]:
     # A missing label is "single", as for a missing folder level (AGENTS.md
     # §5), also when a config or an older run_config.json sets it to None.
     common = config.common
@@ -37,6 +38,11 @@ def _stamp_run_context(config: CellPatcherConfig, patches: list[PatchRegion]) ->
         SINGLE_BIOLOGICAL_REPEAT_LABEL if common.biological_repeat is None else common.biological_repeat
     )
     technical_repeat = SINGLE_TECHNICAL_REPEAT_LABEL if common.technical_repeat is None else common.technical_repeat
+    return condition, biological_repeat, technical_repeat
+
+
+def _stamp_run_context(config: CellPatcherConfig, patches: list[PatchRegion]) -> None:
+    condition, biological_repeat, technical_repeat = _run_labels(config)
     for patch in patches:
         patch.condition = condition
         patch.biological_repeat = biological_repeat
@@ -96,10 +102,14 @@ def _patch_array_axes(config: CellPatcherConfig) -> str:
 
 
 def _default_position_id(patch: PatchRegion) -> str:
+    return _position_id(patch.condition, patch.biological_repeat, patch.image_file, patch.image_id)
+
+
+def _position_id(condition, biological_repeat, image_file, image_id) -> str:
     # One source image is one XY acquisition position, so all of its channel
     # patches share this ID. Condition and biological repeat keep it unique across a tree run.
-    source = Path(patch.image_file).stem if patch.image_file else patch.image_id
-    return "/".join(str(part) for part in (patch.condition, patch.biological_repeat, source) if part)
+    source = Path(image_file).stem if image_file else image_id
+    return "/".join(str(part) for part in (condition, biological_repeat, source) if part)
 
 
 def _split_channel_patches(config: CellPatcherConfig, image_list, patches: list[PatchRegion], patch_arrays):
@@ -297,7 +307,11 @@ def _build_result(
         # cropped once; filters were already applied to the whole region.
         patches, patch_arrays_internal = _split_channel_patches(config, image_list, patches, patch_arrays_internal)
     _stamp_output_dimensions(config, patches, patch_arrays_internal)
+    return _finish_result(config, patches, patch_arrays_internal)
 
+
+def _finish_result(config: CellPatcherConfig, patches: list[PatchRegion], patch_arrays_internal) -> PatchingResult:
+    """Export the patches (when enabled) and build the result."""
     exported_files: list[str] = []
     metadata_file: str | None = None
     if config.export.enabled:
@@ -335,6 +349,88 @@ def _build_result(
         exported_files=exported_files,
         metadata_file=metadata_file,
     )
+
+
+def _run_patching_by_plane(images, masks, config: CellPatcherConfig, image_metadata) -> PatchingResult:
+    """:func:`run_patching` when ``z_policy``/``t_policy`` turn a Z or T axis into planes.
+
+    Every chosen plane (with its mask plane) is patched as an image of its
+    own; the patches then get back their source image's ``image_id``, with
+    the plane recorded in ``z0``/``z1``/``t`` and, for a split axis, appended
+    to ``patch_id`` (``image_0000_grid_00003_z002``, before a split channel's
+    ``_c<n>``). Export runs once, with the final ids.
+    """
+    image_list = _normalize_images(images)
+    mask_list = [None] * len(image_list) if masks is None else _normalize_masks(masks)
+    if len(mask_list) != len(image_list):
+        raise ValueError(f"Number of images and masks must match for mode '{config.mode}'.")
+    if image_metadata is not None and len(image_metadata) != len(image_list):
+        raise ValueError("image_metadata must have exactly one entry per image (or be None).")
+
+    condition, biological_repeat, _ = _run_labels(config)
+    plane_images, plane_masks, plane_metadata, origins = [], [], [], []
+    plane_axes, plane_mask_axes = config.common.image_axes, config.common.mask_axes
+    for index, (image, mask) in enumerate(zip(image_list, mask_list)):
+        meta = dict(image_metadata[index] or {}) if image_metadata is not None else {}
+        for plane in iter_image_planes(image, config.common.image_axes, mask, config.common.mask_axes, config.common):
+            for axis, value in (("z", plane.z), ("t", plane.t)):
+                if value is not None and meta.get(axis) is not None:
+                    raise ValueError(
+                        f"image_metadata gives {axis}={meta[axis]} for image {index}, but "
+                        f"{axis}_policy={getattr(config.common, f'{axis}_policy')!r} also chooses its planes; "
+                        "use one or the other."
+                    )
+            plane_meta = dict(meta)
+            if plane.z is not None:
+                plane_meta["z"] = plane.z
+            if plane.t is not None:
+                plane_meta["t"] = plane.t
+            if config.extraction.split_channels and plane_meta.get("position_id") is None:
+                # The planes of one image share its position (the default for
+                # split channels, from the source image rather than the plane).
+                plane_meta["position_id"] = _position_id(
+                    condition, biological_repeat, meta.get("image_file"), f"image_{index:04d}"
+                )
+            plane_images.append(plane.image)
+            plane_masks.append(plane.mask)
+            plane_metadata.append(plane_meta)
+            origins.append((index, plane.suffix))
+            plane_axes = plane.image_axes
+            plane_mask_axes = plane.mask_axes or plane_mask_axes
+
+    need_arrays = config.common.extract_arrays or config.export.enabled
+    plane_config = replace(
+        config,
+        common=replace(
+            config.common,
+            image_axes=plane_axes,
+            mask_axes=plane_mask_axes,
+            extract_arrays=need_arrays,
+            z_policy="keep",
+            z_index=None,
+            t_policy="keep",
+            t_index=None,
+        ),
+        export=replace(config.export, enabled=False),
+    )
+    plane_result = run_patching(
+        images=plane_images,
+        masks=None if all(mask is None for mask in plane_masks) else plane_masks,
+        config=plane_config,
+        image_metadata=plane_metadata,
+    )
+
+    for patch in plane_result.patches:
+        plane_id = patch.image_id
+        index, suffix = origins[int(plane_id.rsplit("_", 1)[1])]
+        image_id = f"image_{index:04d}"
+        rest = patch.patch_id[len(plane_id):]
+        channel = f"_c{patch.c}" if config.extraction.split_channels else ""
+        if channel:
+            rest = rest[: -len(channel)]
+        patch.patch_id = f"{image_id}{rest}{suffix}{channel}"
+        patch.image_id = image_id
+    return _finish_result(config, plane_result.patches, plane_result.patch_arrays)
 
 
 def run_patching(images=None, masks=None, config=None, image_metadata=None) -> PatchingResult:
@@ -402,6 +498,10 @@ def run_patching(images=None, masks=None, config=None, image_metadata=None) -> P
         config = CellPatcherConfig()
     if not isinstance(config, CellPatcherConfig):
         raise TypeError("config must be a CellPatcherConfig instance.")
+    if splits_planes(config.common):
+        if images is None:
+            raise ValueError(f"images is required for mode '{config.mode}'.")
+        return _run_patching_by_plane(images, masks, config, image_metadata)
 
     if config.mode in {"whole_fov", "grid", "random"} and images is None:
         raise ValueError("images is required for mode 'whole_fov', 'grid', and 'random'.")

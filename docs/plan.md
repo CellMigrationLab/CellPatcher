@@ -410,7 +410,15 @@ from GitHub at a pinned version) **[D1]**.
   2026):* `setup.py` extra, `PatchRegion.source_relative_path`, `cellpatcher.statistics`.
 - **Milestone 2 — Images and masks:** OME-Zarr images; OME-Zarr labels (added to the
   preprocessing reader if needed); plane-by-plane TIFF reading; the splitting rules of §3.2
-  with projections blocked under normalization.
+  with projections blocked under normalization. *Decided (October 2026):* folder, tree and
+  `run_patching` runs split Z and T with new `common.z_policy`/`z_index`/`t_policy`/`t_index`
+  (the preparation helpers' values plus `"keep"`, the default, which keeps today's behaviour);
+  masks follow the image's planes when their Z/T length equals the image's and are shared
+  when they lack the axis or have length 1 (the §4 rule, for every mask); a split axis keeps
+  one `image_id` per source image and appends the plane to `patch_id`
+  (`image_0000_grid_00003_z002`, before `_c<n>`). Blocking projections under normalization
+  needs `NormalizationConfig`, so it lands with Milestone 3. Delivered in steps: plane
+  splitting, OME-Zarr images, OME-NGFF labels, plane-by-plane reading.
 - **Milestone 3 — Normalization engine:** the scopes of §6.2 per channel and optionally per
   time point; patch regions; the pipeline step and the AGENTS.md §2 update; deprecations.
 - **Milestone 4 — Delivery:** the `patches.csv` columns and `run_config.json` keys; the three

@@ -28,6 +28,13 @@ Shared settings that apply to every run, regardless of mode.
 | `biological_repeat` | `str \| None` | `"single"` | Biological replicate identifier (e.g. `"YYYY_MM_DD"`, or `cellpatcher.SINGLE_BIOLOGICAL_REPEAT_LABEL`/`"single"` for a condition folder with no biological-repeat subfolder), stamped onto every `PatchRegion`/CSV row for this run. Same status as `condition`. Formerly `repeat`, which still works as a deprecated alias (see "Renamed: `repeat` → `biological_repeat`" below). |
 | `technical_repeat` | `str \| None` | `"single"` | Technical replicate within the biological repeat: a well, a dish or a coverslip, never a biological repeat. Stamped onto every `PatchRegion`/CSV row for this run; a per-image `image_metadata=[{"technical_repeat": ...}]` entry overrides it for that image. `run_patching_condition_repeat_tree` derives it per leaf from an optional `<condition>/<biological_repeat>/<technical_repeat>/` level, and stamps `cellpatcher.SINGLE_TECHNICAL_REPEAT_LABEL` (`"single"`) when a biological-repeat folder holds its images directly. |
 
+| `z_policy` | `str` | `"keep"` | How a Z axis of the images becomes 2D planes before patching. `"keep"`: every patch keeps all Z planes (the behaviour before this option). `"all"`: one patch per Z plane, with `z0`/`z1` set and `_z<NNN>` appended to `patch_id` (e.g. `image_0000_grid_00003_z002`, before a split channel's `_c<n>`). `"first"`/`"select"` (with `z_index`): one plane, with `z0`/`z1` set. `"max"`/`"mean"`/`"sum"`: a projection (no `z0`). Images without a Z axis are not affected. |
+| `z_index` | `int \| None` | `None` | Z plane for `z_policy="select"`. |
+| `t_policy` | `str` | `"keep"` | As `z_policy` for a T axis: `"keep"`, `"all"` (sets `t`, appends `_t<NNN>`), `"first"` or `"select"`; no projections. With both split, planes come in T-then-Z order (`..._t001_z002`). |
+| `t_index` | `int \| None` | `None` | Time point for `t_policy="select"`. |
+
+**Masks with split planes:** a mask's Z or T axis with the image's length follows the image's planes (one label plane per image plane); a mask without that axis, or with length 1, is shared by every plane. Any other length is an error, and so is a Z projection with masks that follow the Z planes. Image ids stay one per source image; with `extraction.split_channels`, every plane and channel patch of an image shares one `position_id`.
+
 **Axes strings** may contain any combination of `T`, `C`, `Z`, `Y`, `X` (in any order). Examples: `"YX"`, `"CYX"`, `"TCYX"`, `"ZYX"`.
 
 ---

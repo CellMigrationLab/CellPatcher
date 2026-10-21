@@ -4,6 +4,8 @@
 
 CellPatcher generates 2D Y/X patch regions. If your image has Z or T axes, choose your lane up front: select/project a single 2D plane before patching, or expand the stack into multiple 2D planes and run the same patching mode on each plane.
 
+**In folder and tree runs** (and `run_patching`), set `config.common.z_policy`/`t_policy` instead of preparing the arrays yourself: `"all"` patches every plane, `"first"`/`"select"` one plane, and for Z `"max"`/`"mean"`/`"sum"` a projection; the default `"keep"` keeps every plane in each patch. Masks follow the image's planes or are shared (see the [config reference](configuration_reference.md#commonconfig)). The helpers below stay available for in-memory workflows.
+
 ## Core idea
 
 - Core patching modes (`cell`, `random`, `grid`, `whole_fov`) are 2D Y/X region generators.
