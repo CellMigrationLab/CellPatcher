@@ -2,20 +2,21 @@
 
 > See also: [Docs map](README.md) · [Preprocessing](preprocessing.md) · [Config reference](configuration_reference.md) · [Developer notes](developer_notes.md)
 
-**Status:** design brief for review; open decisions are marked **[D1]**, **[D2]**, … and
-collected in §13 with a recommended default for each.
-**Scope:** read the outputs of the MorphoBricks preprocessing brick
-([morphobricks-preprocessing](https://github.com/CellMigrationLab/morphobricks-preprocessing)),
-read TIFF and OME-Zarr images, normalize patches at a chosen scope with a chosen method,
-and deliver the normalized patches either as files or in memory.
+**Status:** design brief; decisions D1–D16 were reviewed in October 2026 and are recorded in
+§13. Only **[D8]** (patches without intensity spread) is still open.
+**Scope:** use the outputs of the MorphoBricks preprocessing brick
+([morphobricks-preprocessing](https://github.com/CellMigrationLab/morphobricks-preprocessing))
+to normalize patches at a chosen scope with a chosen method; read TIFF and OME-Zarr images
+and masks; deliver the normalized patches either as files or in memory.
 **Out of scope for this milestone:** new patching strategies (the `cell`, `random`, `grid`
 and `whole_fov` modes stay as they are), true 3D patches, spatial corrections (flat-field,
-BaSiC, rolling-ball, CLAHE), and planes larger than the memory limit.
+BaSiC, rolling-ball, CLAHE), and planes too large to hold in memory.
 
 The statistics and normalization formulas are defined by the preprocessing brick's
 [contract](https://github.com/CellMigrationLab/morphobricks-preprocessing/blob/main/docs/contract.md)
-(§4 histograms, §6 group statistics, §7 normalization parameters). This plan does not
-redefine them; it decides how CellPatcher selects, applies and records them.
+(§4 histograms, §6 group statistics, §7 normalization parameters) and implemented in its
+package. This plan does not redefine or reimplement them; it decides how CellPatcher
+selects, applies and records them.
 
 ## Instructions for implementation
 
@@ -25,6 +26,11 @@ field, and keep every feature usable from the notebook, from scripts and as an i
 dependency. Normalization is off by default; with it off, every existing output must stay
 byte-for-byte the same.
 
+Import functionality that `morphobricks_preprocessing` already provides (reading its CSV and
+manifest, histograms, pooling, normalization parameters, OME-Zarr reading, plane reading)
+instead of reimplementing it. If something CellPatcher needs is missing there and belongs
+there, add it to the preprocessing package rather than to CellPatcher.
+
 Never apply an intensity transformation the user did not choose. Never modify source images
 or the preprocessing outputs. Present validation messages in plain language, with the
 affected paths and a suggested action, following the preprocessing brick's style.
@@ -33,18 +39,18 @@ affected paths and a suggested action, following the preprocessing brick's style
 
 CellPatcher must:
 
-1. Accept TIFF images and OME-Zarr images, including the OME-Zarr copies written by the
-   preprocessing brick.
-2. Optionally take the preprocessing output folder (`plane_histograms.csv` and
-   `run_manifest.json`) as the description of the experiment: files, labels, axis mapping
-   and statistics.
-3. Link every patch to the histogram rows of the plane(s) it was cut from.
-4. Normalize patches with min-max, percentile range, z-score or robust z-score, at one of
-   the scopes of §6.2, including a patch-level scope.
-5. Deliver normalized patches in two ways: saved to disk for later use, or kept in memory
-   (eagerly or lazily) for deep learning and feature extraction.
-6. Record in its outputs exactly which normalization was applied, so every patch can be
-   reproduced and, if needed, un-normalized.
+1. Accept TIFF and OME-Zarr images, and masks either as a TIFF mask tree or as OME-Zarr
+   labels inside the image.
+2. Split any Z, C and T axes into 2D planes; never project a Z-stack.
+3. Use `plane_histograms.csv` from the preprocessing brick for group statistics, with
+   `run_manifest.json` as an optional extra for checks.
+4. Link every patch to the histogram rows of the plane(s) it was cut from.
+5. Normalize patches with min-max, percentile range, z-score or robust z-score at the
+   condition, biological-repeat, technical-repeat, image (default) or patch scope.
+6. Deliver normalized patches as files on disk or in memory (eagerly or lazily) for deep
+   learning and feature extraction.
+7. Record in `patches.csv` exactly which normalization was applied to each patch, so it can
+   be reproduced and, if needed, undone.
 
 ## 2. Current state
 
@@ -60,31 +66,34 @@ Already implemented in this repository:
 - The `technical_repeat` field and column (PR #9): derived from the folder level in tree
   runs (`SINGLE_TECHNICAL_REPEAT_LABEL` when a biological repeat holds its images
   directly), or set with `CommonConfig.technical_repeat` or per image with
-  `image_metadata`. Each technical repeat is exported to its own output folder.
-- Per-image normalization helpers: `percentile_normalize` and `minmax_normalize`, used by
-  `prepare_image_for_patching(normalize=...)` (`preprocess.py`).
-- A lazy `PatchTorchDataset` and an `ExportedPatchTorchDataset`; their
-  `PatchTensorConfig.scale_policy="auto"` divides integer patches by the dtype maximum
-  (`torch_dataset.py`).
+  `image_metadata`.
+- Splitting stacks into 2D planes: `z_policy="all"` and `t_policy="all"` in
+  `iter_image_planes_for_patching`/`iter_cell_planes_for_patching`, and
+  `ExtractionConfig.split_channels`. The same helpers can also project Z (`"max"`,
+  `"mean"`, `"sum"`).
+- Per-image normalization: `percentile_normalize` and `minmax_normalize`, used through the
+  `normalize=`/`percentile=` arguments of the preparation helpers (`preprocess.py`), and
+  the torch adapters' `PatchTensorConfig.scale_policy="auto"`, which divides integer patches
+  by the dtype maximum (`torch_dataset.py`). All of these are deprecated by this plan (§6.8).
+- Cell patch sizes: `CellConfig.patch_size="auto"` sizes each patch to its own object's
+  bounding box; a fixed size can be recommended from all masks by `scan_cell_patch_size`
+  (`max`, `median`, `mean`, `p90`, `p95`).
 
-Already implemented in the preprocessing brick and reusable here:
+Already implemented in the preprocessing brick and imported here:
 
-- `read_plane_histograms()` and `read_manifest()` for its two output files.
-- `PooledHistogram`, which pools any set of plane rows into one distribution.
-- `min_max`, `percentile_range`, `z_score`, `robust_z_score`, each returning
-  `NormalizationParameters(method, offset, scale)` with `apply(pixels, clip, dtype)`.
-- Plane-by-plane readers for TIFF and OME-Zarr with the confirmed axis mapping and a
-  memory limit (`planes.iter_planes`, `planes.read_plane`, `zarr_input`).
+- `read_plane_histograms()` (rows as `PlaneRecord`) and `read_manifest()`.
+- `group_records(records, level)` for the levels `condition`, `biological_repeat`,
+  `technical_repeat` and `image`; `make_plane_id()`.
+- `compute_plane_histogram()` for any set of pixels, `PooledHistogram` to pool histograms,
+  and `min_max`, `percentile_range`, `z_score`, `robust_z_score`, each returning
+  `NormalizationParameters(method, offset, scale)` with `apply()`.
+- OME-Zarr reading (`zarr_input.open_ngff`, level 0) and plane-by-plane reading with an axis
+  mapping and a memory limit (`planes`).
 
 Gaps this plan closes:
 
 - `read_array` only reads `.npy`, TIFF and imageio formats, and loads whole files with
-  `tifffile.imread`; there is no OME-Zarr reader and no plane-by-plane reading.
-- Both bricks read the same three folder levels, but a root, condition or
-  biological-repeat folder mixing images and subfolders is a `ValueError` here and only a
-  warning in preprocessing (whose images outside leaf folders are skipped). Preprocessing
-  also lets the user exclude files, and CellPatcher's discovery does not know about those
-  exclusions.
+  `tifffile.imread`; there is no OME-Zarr reader and no OME-Zarr label reader.
 - `PatchRegion` has `image_file`, the three labels and `z0/z1`, but not
   `source_relative_path`, so a patch cannot be matched to its histogram row unambiguously:
   two technical repeats can both hold `field_001.tif`.
@@ -92,171 +101,212 @@ Gaps this plan closes:
 
 ## 3. Inputs
 
-### 3.1 Two ways to describe an experiment
+### 3.1 Images and discovery
 
-- **Without preprocessing** (unchanged): the existing folder entry points, with `image_axes`
-  given by the user. Only the image, plane and patch scopes are available, because there are
-  no stored statistics; their parameters are computed directly from pixels.
-- **With preprocessing:** the user points CellPatcher at the preprocessing output folder.
-  The manifest provides the experiment root, the analysed files, their three labels, the
-  confirmed axis mapping, exclusions and the OME-Zarr copy paths. CellPatcher does not ask
-  for axes again and does not walk the folders again **[D2]**; the manifest's labels fill the
-  existing `condition`, `biological_repeat` and `technical_repeat` fields through
-  `image_metadata`, so a patch always carries the same labels as its histogram rows. All
-  scopes are available.
+CellPatcher always finds and reads the source images itself, with its existing folder
+discovery, whether or not the preprocessing brick was run **[D2]**. The experiment root
+given to CellPatcher must be the same folder that was given to the preprocessing brick, so
+that relative paths match.
 
-### 3.2 Images
+- TIFF images are read as today. With the preprocessing extra installed, they are read
+  plane by plane with its readers instead of as whole files.
+- OME-Zarr images (folders ending in `.zarr`) are read from level 0 with the preprocessing
+  brick's reader, with the axes declared in their metadata. They need the preprocessing
+  extra with `zarr` **[D1]**.
+- OME-Zarr copies written by the preprocessing brick are not used in this milestone;
+  CellPatcher reads the source images, which hold the same values.
 
-- TIFF images are read plane by plane, never as a whole file, using the confirmed axis
-  mapping.
-- OME-Zarr images are read from level 0 only, as in the preprocessing contract §2.
-- When the manifest records an OME-Zarr copy of a TIFF (`ome_zarr_path`), CellPatcher reads
-  the copy by default (faster partial reads) and still keys its rows by the TIFF's
-  `source_relative_path`, matching the histogram rows.
-- OME-Zarr input needs the optional `zarr` dependency, as in preprocessing.
+### 3.2 Splitting into 2D planes
+
+Patching is 2D. Every Z, C and T axis can be split until a 2D plane remains **[D4]**: Z with
+`z_policy="all"`, T with `t_policy="all"`, C with `split_channels=True`, or a single index
+with `"select"`/`"first"`. When normalization is enabled, Z and T must be split or selected:
+Z projections (`"max"`, `"mean"`, `"sum"`) are blocked, because each slice of a Z-stack is
+treated as an individual plane and the preprocessing statistics describe single planes
+**[D11]**. Channels may be split, selected or kept together in one patch; their parameters
+are always per channel (§6.1). For the same reason, merging channels
+(`channel_policy="max"` or `"mean"`) and `channel_policy="repeat_to_rgb"` in the preparation
+helpers are blocked under normalization: the resulting channels no longer match the CSV rows.
+Repeating a normalized grayscale patch to RGB stays available in the torch adapters
+(`PatchTensorConfig.channel_policy`), which run after normalization.
 
 ### 3.3 Masks
 
-Cell mode keeps using the existing separate mask tree that mirrors the image tree
-(`masks/<condition>/<biological_repeat>[/<technical_repeat>]/`), matched by file name with
-the existing strategies. Masks for OME-Zarr images may be TIFF files matched to the image's name
-without `.ome.zarr`, or the image's NGFF `labels/` group **[D3]**.
+Two mask sources, chosen by the user **[D3]**:
 
-### 3.4 Staleness
+- **TIFF mask tree** (existing): `masks/<condition>/<biological_repeat>[/<technical_repeat>]/`
+  mirroring the image tree, matched by file name. Works for TIFF and OME-Zarr images.
+- **OME-Zarr labels**: masks stored inside the image's own `.ome.zarr`, in its `labels/`
+  group, as the OME-NGFF specification defines. The `labels` group lists the available
+  label images (for example `cells`, `nuclei`); the user chooses one by name. Label images
+  hold integer values, have the same dimensions as the image or length 1 where a dimension
+  does not apply (for example the channel axis), and have the same number of resolution
+  levels. CellPatcher reads level 0, and resolves each label image to one 2D plane per image
+  plane with the same Z and T rules as images. Reading label images is added to the
+  preprocessing package's OME-Zarr reader if it cannot already open them, and imported.
 
-Before patching with stored statistics, compare each image's size and modification time
-with its manifest entry, and the CSV's SHA-256 with `csv_sha256`. If anything differs, the
-statistics may not describe the images: block and ask the user to rerun preprocessing
-**[D16]**. A file in the experiment but not in the manifest (excluded or new) cannot be
-normalized at a group scope.
+### 3.4 Preprocessing outputs
+
+To normalize at a group or image scope, the user gives the path of `plane_histograms.csv`.
+`run_manifest.json` is optional **[D2]**: it is used when it is next to the CSV or given by
+the user, and everything still works without it.
+
+Checks, which block the run when they fail **[D16]**:
+
+- **Always:** every plane CellPatcher patches has a row in the CSV (same
+  `source_relative_path`, `z`, `c`, `t`), with the same `dtype` and `total_pixel_count`.
+  CellPatcher holds each plane in memory to patch it, so it also compares the plane's exact
+  finite minimum and maximum and its finite pixel count with the row's `pixel_min`,
+  `pixel_max` and `valid_pixel_count`. This detects changed images without the manifest.
+- **With the manifest:** each image's size and modification time match its manifest entry,
+  the CSV's SHA-256 matches `csv_sha256`, and CellPatcher's axes match the manifest's
+  confirmed axis mapping.
+
+An image found by CellPatcher but absent from the CSV (excluded or skipped in
+preprocessing, or new) blocks group and image scopes, with the list of images; the user can
+remove those images from the run or use the patch scope.
 
 ## 4. Linking patches to plane statistics
 
-Each 2D plane CellPatcher patches is identified by the preprocessing `plane_id`:
-`source_relative_path` plus `::z=…,c=…,t=…` for the coordinates present. To build it,
-CellPatcher adds one optional `PatchRegion` field, `source_relative_path` (default `None`, so
-existing outputs are unchanged): the image's path relative to the experiment root,
-`/`-separated, exactly as in preprocessing. It is taken from the manifest, or, in a tree run
-without preprocessing, from the image's real location under the root. It must not be built
-from `ConditionRepeatFolder.relative_folder`, which names the output folder and inserts
-`single` for missing levels (`control/single/` for images directly in `control/`).
+Each 2D plane is identified by the preprocessing `plane_id`, built with `make_plane_id()`:
+`source_relative_path` plus `::z=…,c=…,t=…` for the coordinates present. CellPatcher adds one
+optional `PatchRegion` field, `source_relative_path` (default `None`, so existing outputs are
+unchanged): the image's path relative to the experiment root, `/`-separated, exactly as in
+preprocessing. It is computed from the image's real location under the root. It must not be
+built from `ConditionRepeatFolder.relative_folder`, which names the output folder and
+inserts `single` for missing levels (`control/single/` for images directly in `control/`).
 
 The preprocessing CSV writes `z`; CellPatcher writes `z0/z1` one plane thick, so the join uses
-`z = z0`. A multichannel patch (`image_axes` with `C`) links to one row per channel. With
-`split_channels=True` each patch links to exactly one row.
+`z = z0`. A patch that keeps several channels links to one row per channel.
 
 ## 5. Normalization methods
 
 The four methods of the preprocessing contract §7: min-max, percentile range (default
 1–99.8), z-score and robust z-score (MAD × 1.4826). Each is an offset and a scale; applying
-it computes `(pixels − offset) / scale` in float64 and returns float32.
+it computes `(pixels − offset) / scale` with `NormalizationParameters.apply()` and returns
+float32, without clipping **[D10]**.
 
-- **Group scopes** take their parameters from pooled histograms (`PooledHistogram`), never
-  from averaged per-plane statistics. They are exact for exact integer histograms and
-  approximate otherwise (always for float images); the output records which.
-- **Image, plane and patch scopes** without preprocessing, and the patch scope always, are
-  computed directly from the pixels with the same definitions: finite pixels only,
-  percentiles with NumPy's `inverted_cdf` method, population standard deviation. The existing
-  `percentile_normalize` uses NumPy's default (linear) method and is not reused for this.
+Normalization needs the preprocessing extra **[D1]**. All parameters come from histograms
+pooled with `PooledHistogram`, so every scope uses the same definitions:
+
+- **Group and image scopes:** the rows of `plane_histograms.csv`. Parameters are exact for
+  exact integer histograms and approximate otherwise (always for float images); the output
+  records which.
+- **Patch scope:** a histogram of the patch's selected pixels (§6.3) from
+  `compute_plane_histogram()`, with the same default bin counts. Exact for 8- and 16-bit
+  images; within half a bin width for floats.
 
 ## 6. Normalization scopes and semantics
 
 ### 6.1 Channels are always separate
 
-Parameters are always computed per channel and applied per channel. Pooling across channels
-is not offered **[D4]**.
+Parameters are always computed and applied per channel; channels are never pooled
+together **[D4]**.
 
 ### 6.2 Scopes
 
-| Scope | Planes pooled (per channel) | Needs preprocessing |
+Each group is normalized with its own parameters **[D5]**:
+
+| Scope | Pixels pooled (per channel) | Source |
 |---|---|---|
-| `experiment` | All planes of the experiment | Yes |
-| `condition` | All planes with the same `condition` | Yes |
-| `biological_repeat` | Same `(condition, biological_repeat)` | Yes |
-| `technical_repeat` | Same `(condition, biological_repeat, technical_repeat)` | Yes |
-| `position` | Same `position_id`; only when every file has one | Yes |
-| `image` | All Z and T planes of one file | No (direct otherwise) |
-| `plane` | The one plane the patch was cut from | No (direct otherwise) |
-| `patch` | The patch's own pixels (§6.4) | No |
+| `condition` | All planes with the same `condition` | CSV |
+| `biological_repeat` | Same `(condition, biological_repeat)` | CSV |
+| `technical_repeat` | Same `(condition, biological_repeat, technical_repeat)` | CSV |
+| `image` (default) | All Z and T planes of one source image | CSV |
+| `patch` | The patch's selected pixels (§6.3) | Patch pixels |
 
-Groups are always identified by the full label path, so `bio_rep1` under two conditions is
-two groups. By default the `image` and coarser scopes pool all time points; an option makes
-`t` part of the group key, so each time point is normalized separately (for example to
-compensate photobleaching) **[D4]**.
+Groups come from `group_records()` with the channel added to the key, so `bio_rep1` under
+two conditions is two groups. Scopes pool all time points by default; `per_time_point=True`
+adds `t` to the key, so each time point is normalized separately (for example to compensate
+photobleaching) **[D4]**.
 
-### 6.3 Per-group or reference parameters
+Normalizing per condition or per repeat puts each group on the same scale, which removes
+real intensity differences between groups. The notebook explains this next to the scope
+choice.
 
-Two ways to use a scope **[D5]**:
+### 6.3 Patch scope
 
-- **Per group** (default): each group is normalized with its own parameters.
-- **Reference:** one set of planes chosen by label (for example the `control` condition, or
-  the training split) provides the parameters, which are applied to every patch.
+Patch-scope parameters come from the patch's own pixels, before resizing, from one of three
+regions **[D6]**:
 
-The notebook must explain that normalizing per condition can remove real intensity
-differences between conditions, and that for deep learning, parameters computed on all data
-include the test data. Reference parameters address both.
+| Region | Pixels used | Modes |
+|---|---|---|
+| `mask` (default in cell mode) | Only the pixels of the patch's own label | `cell` |
+| `bbox` | All pixels of the label's bounding box in the image | `cell` |
+| `patch` | All pixels of the patch | all modes |
 
-### 6.4 Patch scope
+- `bbox` uses the full bounding box from the image: if the patch is larger than the box
+  (for example a fixed size from `scan_cell_patch_size(...).recommended_size("max")`), the
+  extra pixels,
+  which may belong to neighbouring cells, are not used; if the box is larger than the patch,
+  the whole box is still used. A cell's parameters therefore do not depend on the patch
+  size.
+- Padding pixels (`pad_mode="constant"`) are never used.
+- A patch with zero intensity spread cannot be normalized (for example an empty background
+  tile, or for robust z-score any patch where more than half the pixels share one value,
+  which makes the MAD zero). How to handle it is still open **[D8]**; until decided, the run
+  stops with a message listing the patches and suggesting another method or scope.
 
-Parameters come from the patch's own pixels, before resizing:
+### 6.4 Background pixels in group statistics
 
-- Padding pixels (`pad_mode="constant"`) are excluded.
-- With `apply_mask=True`, only the pixels of the patch's own label are used **[D6]**.
-- A patch with zero intensity spread (for example an empty background tile in random or grid
-  mode) cannot be normalized. Default: the patch is dropped and counted in the run report,
-  with the reason **[D8]**.
+Group and image statistics come from whole planes, so in sparse images they are dominated by
+background; percentile and z-score parameters then describe the background more than the
+cells. Masks are not used in the preprocessing statistics **[D7]**; the notebook states this
+once per run. The patch scope with the `mask` region is the alternative when cell-only
+parameters are needed.
 
-### 6.5 Background pixels in group statistics
-
-Group statistics come from whole planes, so in sparse images they are dominated by
-background. Percentile and z-score parameters then describe the background more than the
-cells. This is acceptable for this milestone with a note in the notebook; masked histograms
-would need a change in the preprocessing brick **[D7]**.
-
-### 6.6 Z projections
-
-If a stack is projected (`z_policy="max"`, `"mean"` or `"sum"`), per-plane statistics do not
-describe the projected image. Group, image and plane scopes are blocked for projected images
-with a clear message; the patch scope remains available **[D11]**. Selecting single planes
-(`"select"`, `"first"`, `"all"`) is unaffected.
-
-### 6.7 Order of operations
+### 6.5 Order of operations
 
 The pipeline becomes: generate regions → filter → extract → **normalize** → apply mask →
-resize → export **[D9]**.
+resize → export **[D9]**. AGENTS.md §2 is updated in the milestone that adds the step.
 
 - Filters (`min_mean_intensity`, `foreground_threshold`) keep working on raw values, so
   existing thresholds keep their meaning **[D15]**.
 - Normalizing before masking means `mask_fill_value` is in normalized units (default 0).
   For z-score, 0 is the mean intensity, so a `NaN` fill is offered as well.
-- Normalizing before resizing avoids rounding resized integer values. Resizing is linear in
-  the pixel values, so the order does not change the result apart from clipping.
-- Optional clipping after normalizing, for example `(0, 1)` for min-max or percentile
-  range. Default: no clipping **[D10]**.
+- Normalizing before resizing avoids rounding resized integer values. Without clipping,
+  the order does not change the result, because resizing is linear in the pixel values.
 
-### 6.8 Existing normalizations
+### 6.6 Output values
 
-To prevent double normalization **[D12]**:
+Normalized patches are float32 and never clipped **[D10]**: values outside 0–1 (min-max and
+percentile range) or far from 0 (z-scores) are kept.
 
-- When normalization is enabled, `prepare_image_for_patching(normalize=...)` must be `None`;
-  otherwise the run stops with a message.
-- The torch adapters' `scale_policy="auto"` must not rescale normalized (float) patches. It
-  already leaves float data unchanged; this is made explicit and tested.
+### 6.7 Without preprocessing
+
+Patching without the preprocessing extra or the CSV works exactly as today. Without the CSV,
+only the patch scope is available; choosing another scope stops the run with a message
+suggesting to run the preprocessing brick or to choose the patch scope.
+
+### 6.8 Deprecated normalizations
+
+Everything related to normalization in the current version is deprecated in favour of this
+design **[D12]**:
+
+- The `normalize=` and `percentile=` arguments of `prepare_image_for_patching`,
+  `iter_image_planes_for_patching` and `iter_cell_planes_for_patching`, and the
+  `percentile_normalize` and `minmax_normalize` functions: each use emits a
+  `DeprecationWarning` naming the replacement. Combining them with the new normalization is
+  an error, to prevent normalizing twice.
+- `PatchTensorConfig.scale_policy="auto"` (the default): a `DeprecationWarning` when it
+  actually rescales an integer patch. It never rescales normalized float patches.
+- Removal and the change of the `scale_policy` default happen in a later version, with
+  owner approval (AGENTS.md §8).
 
 ## 7. Delivery
 
 Three modes, all producing identical arrays for the same configuration **[D13]**:
 
-1. **Normalized files:** patches exported as float32 `.tif` or `.npy`, with `patches.csv`,
-   the parameters table (§8) and `run_config.json`. Float32 needs twice the disk space of
-   uint16; the notebook shows an estimate before running.
-2. **Raw files plus parameters:** patches exported in their source dtype with the same
-   parameters table; normalization happens when loading (a NumPy loader in the core, and
-   `ExportedPatchTorchDataset`). Smaller, reversible, and the method can change without
-   re-patching.
+1. **Normalized files** (default): patches exported as float32 `.tif` or `.npy` with
+   `patches.csv` and `run_config.json`. Float32 needs twice the disk space of uint16; the
+   notebook shows an estimate before running.
+2. **Raw files plus parameters:** patches exported in their source dtype, with the
+   parameters in `patches.csv`; normalization happens when loading (a NumPy loader in the
+   core, and `ExportedPatchTorchDataset`). Smaller, reversible, and the method can change
+   without re-patching.
 3. **In memory:**
-   - eager: `run_patching(..., config with extract_arrays=True)` returns normalized arrays.
-     The memory needed is estimated first; above a configurable limit the run stops and
+   - eager: `run_patching(...)` with `extract_arrays=True` returns normalized arrays. The
+     memory needed is estimated first; above a configurable limit the run stops and
      suggests the lazy option, as in preprocessing.
    - lazy (recommended for large data): a NumPy iterator in the core that extracts and
      normalizes one patch at a time, and `PatchTorchDataset` built on it. Torch stays an
@@ -264,169 +314,168 @@ Three modes, all producing identical arrays for the same configuration **[D13]**
 
 ## 8. Output contract changes
 
-All additions are optional and empty when normalization is off. Each needs owner approval
-under AGENTS.md §8.
+All additions are optional and empty when normalization is off. The shared label columns,
+including `technical_repeat`, are unchanged. Owner approval for these additions is recorded
+by the decisions in §13 (AGENTS.md §8).
 
-**New `PatchRegion` fields / `patches.csv` columns:** `source_relative_path`,
-`normalization_method`, `normalization_scope`, `normalization_group`. The shared label
-columns, including `technical_repeat`, are unchanged.
-
-**New `normalization_parameters.csv`** next to `patches.csv`, one row per group and channel
-**[D14]**:
+**New `PatchRegion` fields / `patches.csv` columns** **[D14]**:
 
 | Column | Meaning |
 |---|---|
-| `normalization_group` | Group key, e.g. `control/bio_rep1` or a `patch_id` for patch scope |
-| `c` | Channel index, blank when there is no channel axis |
-| `method`, `offset`, `scale` | As in `NormalizationParameters` |
-| `clip_min`, `clip_max` | Clipping limits, blank when not clipped |
-| `source` | `histogram` or `pixels` |
-| `exact` | Whether the parameters are exact or histogram approximations |
-| `plane_count`, `valid_pixel_count` | What was pooled |
+| `source_relative_path` | Image path relative to the experiment root, `/`-separated (§4) |
+| `normalization_method` | `min-max`, `percentile 1-99.8`, `z-score` or `robust z-score` (the preprocessing method names) |
+| `normalization_scope` | `condition`, `biological_repeat`, `technical_repeat`, `image` or `patch` |
+| `normalization_group` | Group key: the labels joined with `/` (e.g. `control/bio_rep1`), the `source_relative_path` for image scope, or the `patch_id` for patch scope; `::t=<t>` is appended when `per_time_point` is on |
+| `normalization_offset`, `normalization_scale` | One number per channel; for a patch that keeps several channels, numbers separated by `;` in channel order |
+| `normalization_exact` | `true` when every channel's parameters are exact, `false` when any is a histogram approximation |
 
-For patch scope this table has one row per patch and channel, which can be large; it may
-instead be written as Parquet or JSON per patch **[D14]**.
+**`run_config.json`** records the normalization settings, the CSV path given by the user, the
+CSV's SHA-256 and `schema_version`, whether a manifest was used, and the preprocessing
+package version. Loading an older `run_config.json` without these keys means normalization
+off.
 
-**`run_config.json`** records the normalization settings plus the preprocessing CSV's path,
-`csv_sha256`, `schema_version` and the preprocessing package version. Loading an older
-`run_config.json` without these keys means normalization off.
-
-**AGENTS.md §5** is updated: inputs (preprocessing output, OME-Zarr) and outputs (new
-columns and table).
+**AGENTS.md §5** is updated: inputs (OME-Zarr images and labels, the preprocessing CSV and
+optional manifest) and outputs (the new columns).
 
 ## 9. Configuration
 
-A new `NormalizationConfig` in `CellPatcherConfig` (proposal; names to confirm):
+A new `NormalizationConfig` in `CellPatcherConfig` (names to confirm during Milestone 0):
 
 | Field | Default | Meaning |
 |---|---|---|
 | `enabled` | `False` | Normalization off keeps current behaviour |
-| `statistics_dir` | `None` | Preprocessing output folder; required for group scopes |
+| `plane_histograms` | `None` | Path of `plane_histograms.csv`; required except for patch scope |
+| `manifest` | `None` | Path of `run_manifest.json`; found next to the CSV when not given; optional |
 | `method` | `"percentile"` | `minmax`, `percentile`, `zscore`, `robust_zscore` |
 | `percentile` | `(1.0, 99.8)` | Low and high percentiles |
 | `scope` | `"image"` | One of §6.2 |
 | `per_time_point` | `False` | Make `t` part of the group key |
-| `reference` | `None` | Label selection for reference parameters (§6.3) |
-| `clip` | `None` | `(low, high)` or `None` |
-| `zero_spread` | `"drop"` | Patch scope: `drop` or `error` |
+| `patch_region` | `"mask"` in cell mode, else `"patch"` | One of §6.3 |
 | `delivery` | `"normalized_files"` | `normalized_files`, `raw_files_with_parameters`, `memory` |
 | `memory_limit` | 4 GiB | Limit for eager in-memory delivery |
+
+Mask sources get a new `mask_source` setting (`"tiff_tree"`, the default, or
+`"ngff_labels"`) and `label_name` for the OME-Zarr label image.
 
 ## 10. Validation and messages
 
 Block the run for:
 
-- A group scope without `statistics_dir`, or with statistics that are stale (§3.4).
-- A patched plane with no histogram row, or a file not in the manifest at a group scope.
-- A group with zero or non-finite spread (contract §7), or with no finite pixels.
-- Group, image or plane scope on a Z-projected image.
-- Normalization combined with `prepare_image_for_patching(normalize=...)`.
-- `position` scope when any file lacks a `position_id`.
+- Normalization without the preprocessing extra installed.
+- A group or image scope without `plane_histograms.csv`.
+- A patched plane without a CSV row, or whose dtype, pixel count, extrema or finite pixel
+  count differ from its row; with a manifest, a changed image, CSV or axis mapping (§3.4).
+- An image not in the CSV at a group or image scope.
+- A group or patch with zero or non-finite spread (contract §7; [D8] for patches), or with
+  no finite pixels.
+- A Z projection, merged channels or `channel_policy="repeat_to_rgb"` in the preparation
+  helpers while normalization is enabled (§3.2).
+- A deprecated normalization argument combined with the new normalization.
+- An OME-Zarr label name that the image does not have, or a label image whose dimensions do
+  not fit the image.
 - Eager in-memory delivery above `memory_limit`.
-- OME-Zarr input without the `zarr` dependency.
+- OME-Zarr images or labels without the `zarr` dependency.
 
 Warn and continue for:
 
-- Patches dropped for zero spread at patch scope (count and reason).
 - Approximate parameters (float images or reduced-bin histograms).
-- Group statistics dominated by background (§6.5), shown once per run in the notebook.
-- Per-condition scopes, with the explanation of §6.3.
+- Group statistics that include background (§6.4), once per run.
+- Per-condition and per-repeat scopes, with the explanation of §6.2.
+- Use of a deprecated normalization argument (§6.8).
 
 ## 11. Architecture and milestones
 
-New modules, independent of widgets: `statistics.py` (load and check preprocessing outputs,
-link planes), `normalization.py` (scopes, groups, parameters, apply), and image reading for
-OME-Zarr and plane-by-plane TIFF in `io.py`. The pooling and parameter code is imported from
-`morphobricks_preprocessing`, not copied **[D1]**.
+New modules, independent of widgets: `statistics.py` (load the CSV and optional manifest,
+link planes, run the checks of §3.4) and `normalization.py` (scopes, groups, patch regions,
+parameters, apply); OME-Zarr image and label reading in `io.py` through the preprocessing
+package. Histograms, pooling, parameters and readers are imported from
+`morphobricks_preprocessing`, installed with an optional `preprocessing` extra
+(`pip install cellpatcher[preprocessing]`, which installs `morphobricks-preprocessing[zarr]`
+from GitHub at a pinned version) **[D1]**.
 
-- **Milestone 0 — Contract:** decide §13, document scopes, columns and the parameters table
-  in `configuration_reference.md` and AGENTS.md §5.
-- **Milestone 1 — Preprocessing outputs:** read the manifest and CSV, staleness checks,
-  manifest-driven discovery with the manifest's labels, and `source_relative_path` on every
-  patch.
-- **Milestone 2 — Image reading:** OME-Zarr input and plane-by-plane TIFF reading, reusing
-  the preprocessing readers; OME-Zarr copies.
-- **Milestone 3 — Normalization engine:** group, image, plane and patch parameters; per
-  channel; reference parameters; the pipeline step of §6.7; projection guard; double
-  normalization guard.
-- **Milestone 4 — Delivery:** the parameters table and `run_config.json` keys; the three
+- **Milestone 0 — Contract:** document scopes, patch regions, columns and checks in
+  `configuration_reference.md` and AGENTS.md §5; confirm the configuration names.
+- **Milestone 1 — Preprocessing link:** the optional extra; read the CSV and optional
+  manifest; `source_relative_path` on every patch; the checks of §3.4.
+- **Milestone 2 — Images and masks:** OME-Zarr images; OME-Zarr labels (added to the
+  preprocessing reader if needed); plane-by-plane TIFF reading; the splitting rules of §3.2
+  with projections blocked under normalization.
+- **Milestone 3 — Normalization engine:** the scopes of §6.2 per channel and optionally per
+  time point; patch regions; the pipeline step and the AGENTS.md §2 update; deprecations.
+- **Milestone 4 — Delivery:** the `patches.csv` columns and `run_config.json` keys; the three
   delivery modes; normalization on load for raw files; the NumPy iterator and torch
   adapters.
-- **Milestone 5 — Notebook and docs:** a normalization step in `CellPatcher.ipynb` (choose
-  the preprocessing folder, method, scope, reference and clipping; table of parameters per
-  group; before/after preview of a few patches with their histograms; warnings), plus user
+- **Milestone 5 — Notebook and docs:** a normalization step in `CellPatcher.ipynb` (choose the
+  CSV and optional manifest, method, scope and patch region; table of parameters per group;
+  before/after preview of a few patches with their histograms; warnings), plus user
   documentation.
-- **Later:** masked histograms for cell-only group statistics (with preprocessing), reading
-  only patch windows from OME-Zarr for planes above the memory limit.
+- **Later:** [D8]; reading only patch windows for planes too large to hold in memory (the
+  preprocessing brick now computes statistics for those planes in blocks, but patching still
+  needs the whole plane); reading the preprocessing OME-Zarr copies; reference parameters
+  (one group's parameters applied to all patches) if needed.
 
 ## 12. Tests and acceptance criteria
 
-Use simulated images and preprocessing outputs generated in the tests; the
-`morphobricks-preprocessing` package can produce real CSVs and manifests for fixtures.
+Use simulated images, masks and preprocessing outputs generated in the tests; the
+`morphobricks-preprocessing` package produces real CSVs and manifests for fixtures.
 
 - With normalization off, all existing tests pass and outputs are unchanged.
-- A patch normalized at a group scope equals `NormalizationParameters.apply()` on the raw
-  crop, with parameters from `PooledHistogram` over exactly the group's planes.
+- A patch normalized at a group or image scope equals `NormalizationParameters.apply()` on
+  the raw crop, with parameters from `PooledHistogram` over exactly the group's rows.
 - With exact integer histograms, group parameters equal direct calculations on the pooled
   pixels.
-- Patch-scope parameters equal direct NumPy calculations (`inverted_cdf`), excluding padding
-  and, with `apply_mask`, pixels of other labels.
-- Channels never share parameters; `per_time_point` separates time points.
-- Every patch's `normalization_group` and channel resolve to one parameters row, and the
-  row plus `run_config.json` reproduce the normalized patch.
+- Patch-scope parameters use exactly the pixels of the chosen region: only the label for
+  `mask`, the full bounding box for `bbox` (larger or smaller than the patch), the patch for
+  `patch`, never padding.
+- Channels never share parameters; `per_time_point` separates time points; each Z slice is a
+  separate plane, and projections are blocked under normalization.
+- OME-Zarr images and labels give the same patches as the same data stored as TIFF images
+  and a TIFF mask tree.
+- Each row's normalization columns, with `run_config.json`, reproduce the normalized patch,
+  including `;`-separated parameters for multichannel patches.
 - Normalized files, raw files normalized on load, eager and lazy delivery give identical
   arrays.
-- Stale manifests, missing rows, projections and double normalization are blocked with
-  the messages of §10.
+- The checks of §3.4 block changed images both with and without a manifest.
+- Deprecated arguments warn, and combining them with the new normalization is an error.
 - Labels such as `NA`, `001` and `single` survive the round trip through both CSVs.
-- On a three-level tree that both bricks accept, the labels CellPatcher's tree discovery
-  assigns equal the manifest's labels, and two technical repeats holding the same file name
-  get different `source_relative_path` and `plane_id` values.
+- On a three-level tree that both bricks accept, the labels CellPatcher's discovery assigns
+  equal the CSV's labels, and two technical repeats holding the same file name get different
+  `source_relative_path` and `plane_id` values.
 
-## 13. Open decisions
+## 13. Decisions
 
-Each has a recommended default; replace *Pending* with the decision.
+Reviewed in October 2026.
 
-1. **[D1] Dependency on the preprocessing package.** Import `morphobricks_preprocessing` as
-   an optional `cellpatcher[normalization]` extra, installed from GitHub at a pinned tag,
-   or move the shared code (pooling, normalization, readers) into a small shared package?
-   *Recommended:* optional extra now; a shared package only if a third brick needs it.
-   *Pending.*
-2. **[D2] Discovery with preprocessing.** When `statistics_dir` is given, use the manifest
-   as the only source of files, labels and axes, ignoring folder walking and `image_axes`?
-   *Recommended:* yes. Both bricks now read the same three levels, but they still treat
-   mixed folders and excluded files differently (§2), and only the manifest matches the
-   histogram rows exactly. *Pending.*
-3. **[D3] Masks for OME-Zarr images.** TIFF masks in a mirrored tree, NGFF `labels/`, or
-   both? *Recommended:* mirrored TIFF tree only for this milestone. *Pending.*
-4. **[D4] Channels and time.** Always per channel; time pooled by default with an option per
-   time point? *Recommended:* yes to both. *Pending.*
-5. **[D5] Reference parameters.** Offer a reference selection in this milestone, and
-   select it by label only or also by an explicit list of files (for training splits)?
-   *Recommended:* by label now, by file list later. *Pending.*
-6. **[D6] Patch scope with masks.** Only the label's pixels, or the whole patch?
-   *Recommended:* only the label's pixels. *Pending.*
-7. **[D7] Background in group statistics.** Accept with a warning now, and propose masked
-   histograms to the preprocessing brick? *Recommended:* yes. *Pending.*
-8. **[D8] Zero spread at patch scope.** Drop the patch, stop the run, or leave it
-   unnormalized? *Recommended:* drop and report. *Pending.*
-9. **[D9] Normalization step position.** Extract → normalize → mask → resize. This adds a
-   step to the pipeline order fixed in AGENTS.md §2. *Recommended:* yes, and update
-   AGENTS.md. *Pending.*
-10. **[D10] Clipping and output dtype.** No clipping by default; float32 output only?
-    *Recommended:* yes. *Pending.*
-11. **[D11] Projections.** Block stored-statistics scopes for projected images, or compute
-    image-scope parameters from the projection itself? *Recommended:* block, and compute
-    image scope from the projection only when preprocessing is not used. *Pending.*
-12. **[D12] Existing normalizations.** Keep `prepare_image_for_patching(normalize=...)` as is
-    and make the combination an error, or deprecate it in favour of the new image scope?
-    *Recommended:* make the combination an error now; deprecate later. *Pending.*
-13. **[D13] Delivery modes.** All three of §7, with normalized files as the default?
-    *Recommended:* yes; raw files plus parameters as the recommended choice for deep
-    learning. *Pending.*
-14. **[D14] Parameters storage.** A `normalization_parameters.csv` for all scopes, or
-    columns in `patches.csv`, or JSON for patch scope? *Recommended:* the CSV for all scopes.
-    *Pending.*
-15. **[D15] Filters.** Keep filters on raw values? *Recommended:* yes. *Pending.*
-16. **[D16] Stale statistics.** Block, or warn and continue? *Recommended:* block, with an
-    explicit override for advanced users. *Pending.*
+1. **[D1] Dependency on the preprocessing package.** *Decided:* import
+   `morphobricks_preprocessing` as an optional extra and reuse its functionality instead of
+   reimplementing it. Normalization and OME-Zarr input need the extra.
+2. **[D2] Role of the preprocessing outputs.** *Decided:* the preprocessing brick is
+   optional, and CellPatcher discovers and reads the source images the same way whether or
+   not it was run. It does not rely on the manifest: the manifest is used for extra checks
+   when available, and `plane_histograms.csv` is needed only for group and image scopes.
+3. **[D3] Masks for OME-Zarr images.** *Decided:* support both a TIFF mask tree and OME-NGFF
+   labels inside the image.
+4. **[D4] Splitting and channels.** *Decided:* any of Z, C and T can be split until a 2D plane
+   remains; parameters are always per channel; time points are pooled by default, with an
+   option to normalize each separately.
+5. **[D5] Scopes.** *Decided:* condition, biological repeat, technical repeat, image and patch,
+   from the preprocessing CSV (patch scope from the patch's pixels); image is the default.
+   Each group uses its own parameters; reference parameters are not offered in this
+   milestone.
+6. **[D6] Patch-scope pixels.** *Decided:* three regions: the label's pixels (`mask`), its
+   bounding box (`bbox`) and the whole patch (`patch`).
+7. **[D7] Masked group statistics.** *Decided:* no; the preprocessing statistics stay
+   unmasked, with a note about background.
+8. **[D8] Patches without intensity spread.** *Open, to decide later:* drop and report, stop
+   the run, or keep unnormalized. Until decided, the run stops with a clear message (§6.3).
+9. **[D9] Pipeline order.** *Decided:* extract → normalize → mask → resize; update AGENTS.md.
+10. **[D10] Clipping and dtype.** *Decided:* no clipping; float32 output.
+11. **[D11] Z projections.** *Decided:* no projections under normalization; each Z slice is an
+    individual plane.
+12. **[D12] Existing normalizations.** *Decided:* deprecate everything related to
+    normalization in the current version and replace it with this design.
+13. **[D13] Delivery modes.** *Decided:* all three of §7, normalized files by default.
+14. **[D14] Parameters storage.** *Decided:* columns in `patches.csv`, with `;`-separated
+    values per channel for multichannel patches.
+15. **[D15] Filters.** *Decided:* keep filters on raw values.
+16. **[D16] Changed images.** *Decided:* block the run.

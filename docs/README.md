@@ -20,4 +20,4 @@ Use this page as the entry point for package documentation.
 - **preprocessing.md**: explicit 2D-plane prep for multidimensional arrays.
 - **configuration_reference.md**: exhaustive config and field behavior reference.
 - **developer_notes.md**: architecture and maintenance guidance for contributors.
-- **plan.md**: design brief for normalization and preprocessing integration, with open decisions.
+- **plan.md**: design brief for normalization and preprocessing integration, with the recorded design decisions.
