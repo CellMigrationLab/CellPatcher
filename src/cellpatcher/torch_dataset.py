@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from pathlib import Path
 import csv
+import warnings
 
 import numpy as np
 
@@ -108,6 +109,15 @@ def patch_array_to_tensor(array, *, axes, config=None):
         if cfg.scale_policy == "auto" and np.issubdtype(arr.dtype, np.integer):
             info = np.iinfo(arr.dtype)
             if info.max > 0:
+                # Deprecated (docs/normalization_contract.md §15); normalized
+                # patches are float and never rescaled here.
+                warnings.warn(
+                    "PatchTensorConfig(scale_policy='auto') dividing an integer patch by its dtype maximum "
+                    "is deprecated; normalize patches with config.normalization "
+                    "(cellpatcher.config.NormalizationConfig), and set scale_policy='none' to keep the values.",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
                 chw = chw / float(info.max)
     # torch.from_numpy requires a C-contiguous array; the axis moves above
     # can leave a non-contiguous view.

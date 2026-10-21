@@ -243,7 +243,7 @@ Practical guidance:
 - `PatchTensorConfig(channel_policy="repeat_to_rgb")` supports only 1- or 3-channel patches.
 - For >3 channels (for example Cell Painting), implement an explicit 6->3 mapping in your Torch transform.
 - Apply DINO/ImageNet-style normalization in that same transform stage.
-- `scale_policy="auto"` in `PatchTensorConfig` is only dtype-based integer scaling, not model normalization.
+- `scale_policy="auto"` in `PatchTensorConfig` is only dtype-based integer scaling, not model normalization; it is deprecated in favour of `config.normalization` (it warns when it rescales).
 
 Visual QA tip (recommended):
 

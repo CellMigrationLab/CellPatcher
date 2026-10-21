@@ -198,9 +198,10 @@ image_rgb, image_axes = prepare_image_for_patching(
     image,
     "YX",
     channel_policy="repeat_to_rgb",
-    normalize="percentile",
 )
 ```
+
+(`normalize="percentile"` used to normalize here too; it is deprecated in favour of `config.normalization`, which normalizes the patches with the preprocessing brick's statistics and records the parameters.)
 
 This pattern is handy for DINO-style model inputs, while CellPatcher itself still does not run DINO/Torch inference.
 
@@ -272,7 +273,7 @@ Torch integration is optional. CellPatcher does not run DINO/Torch inference in 
 - Import from `cellpatcher.torch_dataset`
 - Dataset returns `C,H,W` tensors
 - Use your own transform for ImageNet/DINO normalization
-- `scale_policy="auto"` scales integer arrays by dtype max; it does not percentile-normalize or ImageNet-normalize data
+- `scale_policy="auto"` scales integer arrays by dtype max; it does not percentile-normalize or ImageNet-normalize data. This rescaling is **deprecated** (it warns when it rescales): normalize patches with `config.normalization` and use `scale_policy="none"`; normalized float patches are never rescaled
 - For non-singleton Z/T, preprocess first with `prepare_image_for_patching(...)`, `iter_image_planes_for_patching(...)`, or `iter_cell_planes_for_patching(...)`
 - Keep `extra_metadata_by_image_id` values DataLoader-collate-friendly (for example strings, numbers, lists, or small dictionaries)
 
