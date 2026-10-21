@@ -6,6 +6,7 @@ from cellpatcher.io import (
     SINGLE_CONDITION_LABEL,
     SINGLE_TECHNICAL_REPEAT_LABEL,
 )
+from cellpatcher.planes import validate_plane_policies
 
 
 @accept_deprecated_repeat
@@ -30,6 +31,19 @@ class CommonConfig:
     condition: str | None = SINGLE_CONDITION_LABEL
     biological_repeat: str | None = SINGLE_BIOLOGICAL_REPEAT_LABEL
     technical_repeat: str | None = SINGLE_TECHNICAL_REPEAT_LABEL
+    # How a Z or T axis of the images becomes 2D planes before patching
+    # (cellpatcher.planes). "keep": every patch keeps all planes along the
+    # axis (the behaviour before these options existed). "all": one patch
+    # per plane; "first"/"select" (with z_index/t_index): one plane; Z only:
+    # "max"/"mean"/"sum" project the stack. Masks follow the image's planes
+    # when they have the same Z/T length and are shared otherwise.
+    z_policy: str = "keep"
+    z_index: int | None = None
+    t_policy: str = "keep"
+    t_index: int | None = None
+
+    def __post_init__(self) -> None:
+        validate_plane_policies(self)
 
 
 @dataclass

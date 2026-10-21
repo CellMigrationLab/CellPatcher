@@ -176,7 +176,11 @@ CellPatcher-specific conventions:
 * `scan_cell_patch_size` computes dataset-level patch-size recommendations.
 * `ExtractionConfig.apply_mask` is cell-mode oriented and clears pixels
   outside selected labels before resize/export.
-* Patching itself is strictly 2D Y/X; C/Z/T handling is a separate
+* Strategies generate strictly 2D Y/X regions. Z/T stacks become planes
+  either with `common.z_policy`/`t_policy` in the pipeline
+  (`cellpatcher.planes`; default `"keep"` keeps all planes in each patch)
+  or, for in-memory workflows, with the preprocessing helpers; C/Z/T
+  handling is otherwise a separate
   preprocessing step (`preprocess.py`, `docs/preprocessing.md`), not a
   patch mode.
 * Whenever `export.enabled=True`, `pipeline.py` also writes
