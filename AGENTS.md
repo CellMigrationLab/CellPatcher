@@ -143,6 +143,8 @@ docs/
   README.md               # documentation map / entry point
   quick_start.md, patching_modes.md, api_examples.md,
   preprocessing.md, configuration_reference.md, developer_notes.md
+  plan.md                  # normalization design brief and decisions D1–D16
+  normalization_contract.md  # normalization rules (specified; implemented over Milestones 1–5)
   assets/                  # doc images
 
 notebooks/
@@ -255,6 +257,27 @@ Two ways to point CellPatcher at input data:
   [fiberfeatures](https://github.com/CellMigrationLab/fiberfeatures/tree/main)
   (an early starting point, expected to change), and in future by other
   MorphoBricks feature-extraction repos.
+
+### Planned: normalization with the preprocessing brick
+
+**Status: specified, not yet implemented.** The rules are fixed in
+`docs/normalization_contract.md` (decisions in `docs/plan.md`) and land over
+Milestones 1–5. Until each part is merged, the inputs and outputs above are
+the whole interface. In summary:
+
+- **Inputs:** with the optional `preprocessing` extra, CellPatcher reads
+  `plane_histograms.csv` from
+  [morphobricks-preprocessing](https://github.com/CellMigrationLab/morphobricks-preprocessing)
+  (needed for the condition, biological-repeat, technical-repeat and image
+  scopes) and, optionally, its `run_manifest.json` for extra checks. It still
+  discovers images with its own folder rules. OME-Zarr images and their
+  OME-NGFF `labels/` masks become readable.
+- **Outputs:** seven optional `PatchRegion` fields appended to
+  `patches.csv` — `source_relative_path` and six `normalization_*` columns —
+  plus a `normalization` config section and a `normalization_inputs` object
+  in `run_config.json`.
+- **Reuse:** histograms, pooling, normalization parameters and image readers
+  are imported from `morphobricks_preprocessing`, never reimplemented here.
 
 ### Shared CSV column contract
 
@@ -394,6 +417,7 @@ and technical-repeat-subfolder cases.
 
 | Step | Repo          | Description                                                          | Link                                                        |
 | ---- | ------------- | --------------------------------------------------------------------- | ------------------------------------------------------------ |
+| 0 (optional) | morphobricks-preprocessing | Folder and metadata validation, per-plane intensity histograms (`plane_histograms.csv`) and normalization methods; used by CellPatcher's planned normalization (§5) | https://github.com/CellMigrationLab/morphobricks-preprocessing |
 | 1    | CellPatcher   | Image patching                                                       | https://github.com/CellMigrationLab/CellPatcher              |
 | 2    | fiberfeatures | Feature extraction (starting point; many more feature-extraction repos expected over time) | https://github.com/CellMigrationLab/fiberfeatures/tree/main  |
 | 3    | BioExplainer  | Downstream analysis / XAI (initial version; not yet updated to follow the standards in this document) | https://github.com/CellMigrationLab/BioExplainer             |

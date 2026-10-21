@@ -152,6 +152,19 @@ Controls how image files are paired with mask files when reading from folders.
 
 ---
 
+## Planned: `config.normalization` (`NormalizationConfig`)
+
+> **Not yet available.** This section is specified in the
+> [normalization contract](normalization_contract.md) and is added over Milestones 1–4 of the
+> [plan](plan.md). Until then, `CellPatcherConfig` has no `normalization` section.
+
+Planned fields (contract §13): `enabled`, `plane_histograms`, `manifest`, `method`,
+`percentile`, `scope`, `per_time_point`, `patch_region`, `export_values` and `memory_limit`;
+plus `common.mask_source` and `common.mask_label_name` for OME-Zarr label masks (contract §4).
+`patches.csv` gains `source_relative_path` and six `normalization_*` columns (contract §10).
+
+---
+
 ## Mode-to-section reference
 
 The table below shows which config sections are written by `save_config_for_mode(mode, path)`. The common sections (`common`, `filters`, `export`, `extraction`) are always included.
@@ -207,7 +220,7 @@ Every generated patch is a `PatchRegion` dataclass. The fields below are populat
 
 ### Condition/biological-repeat folder trees
 
-`run_patching_condition_repeat_tree(image_root_path, *, config=None, mask_root_path=None, ...)` (in `cellpatcher.orchestration`) walks a MorphoBricks-style root and calls `run_patching_pipeline` once per discovered leaf, using `discover_condition_repeat_folders` (in `cellpatcher.io`) to find them. Both functions keep their historical `condition_repeat` names; the level below each condition is the **biological repeat**. The MorphoBricks folder hierarchy is `experiment/condition/biological_repeat/technical_repeat/images`, with levels omitted only from the bottom up (a level's meaning comes from its position); CellPatcher currently reads the `condition` and `biological_repeat` levels:
+`run_patching_condition_repeat_tree(image_root_path, *, config=None, mask_root_path=None, ...)` (in `cellpatcher.orchestration`) walks a MorphoBricks-style root and calls `run_patching_pipeline` once per discovered leaf, using `discover_condition_repeat_folders` (in `cellpatcher.io`) to find them. Both functions keep their historical `condition_repeat` names; the level below each condition is the **biological repeat**. The MorphoBricks folder hierarchy is `experiment/condition/biological_repeat/technical_repeat/images`, with levels omitted only from the bottom up (a level's meaning comes from its position); CellPatcher reads all three levels:
 
 - `<condition>/<biological_repeat>/<image files>` — one or more biological-repeat subfolders, each its own biological repeat.
 - `<condition>/<image files>` — **no biological-repeat subfolder.** The whole condition folder is treated as a single implicit biological repeat, labeled `cellpatcher.SINGLE_BIOLOGICAL_REPEAT_LABEL` (`"single"`) — consistently in the discovered `biological_repeat` value, the `condition`/`biological_repeat` stamped on every patch from that folder, and (when exporting) its own `<output_dir>/<condition>/single/` output subfolder, same as an explicit biological repeat gets.

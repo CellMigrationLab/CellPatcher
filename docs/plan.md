@@ -3,7 +3,9 @@
 > See also: [Docs map](README.md) · [Preprocessing](preprocessing.md) · [Config reference](configuration_reference.md) · [Developer notes](developer_notes.md)
 
 **Status:** design brief; decisions D1–D16 were reviewed in October 2026 and are recorded in
-§13. Only **[D8]** (patches without intensity spread) is still open.
+§13. Only **[D8]** (patches without intensity spread) is still open. The exact rules are
+fixed in the [normalization contract](normalization_contract.md) (Milestone 0); where this
+plan and the contract differ in detail, the contract applies.
 **Scope:** use the outputs of the MorphoBricks preprocessing brick
 ([morphobricks-preprocessing](https://github.com/CellMigrationLab/morphobricks-preprocessing))
 to normalize patches at a chosen scope with a chosen method; read TIFF and OME-Zarr images
@@ -23,8 +25,9 @@ selects, applies and records them.
 Follow [AGENTS.md](../AGENTS.md). In particular: keep the pipeline coordinate-first, keep
 model-specific code out of the core package, never rename or repurpose a `PatchRegion`
 field, and keep every feature usable from the notebook, from scripts and as an imported
-dependency. Normalization is off by default; with it off, every existing output must stay
-byte-for-byte the same.
+dependency. Normalization is off by default; with it off, patch arrays and the values of
+every existing `patches.csv` column must stay the same (the CSV only gains the new columns of
+§8).
 
 Import functionality that `morphobricks_preprocessing` already provides (reading its CSV and
 manifest, histograms, pooling, normalization parameters, OME-Zarr reading, plane reading)
@@ -314,7 +317,8 @@ Three modes, all producing identical arrays for the same configuration **[D13]**
 
 ## 8. Output contract changes
 
-All additions are optional and empty when normalization is off. The shared label columns,
+All additions are optional new `PatchRegion` fields appended after the existing columns;
+the normalization columns are empty when normalization is off. The shared label columns,
 including `technical_repeat`, are unchanged. Owner approval for these additions is recorded
 by the decisions in §13 (AGENTS.md §8).
 
@@ -325,21 +329,21 @@ by the decisions in §13 (AGENTS.md §8).
 | `source_relative_path` | Image path relative to the experiment root, `/`-separated (§4) |
 | `normalization_method` | `min-max`, `percentile 1-99.8`, `z-score` or `robust z-score` (the preprocessing method names) |
 | `normalization_scope` | `condition`, `biological_repeat`, `technical_repeat`, `image` or `patch` |
-| `normalization_group` | Group key: the labels joined with `/` (e.g. `control/bio_rep1`), the `source_relative_path` for image scope, or the `patch_id` for patch scope; `::t=<t>` is appended when `per_time_point` is on |
+| `normalization_group` | Group key: the labels joined with `/` (e.g. `control/bio_rep1`), the `source_relative_path` for image scope, or `<source_relative_path>::<patch_id>` for patch scope (patch ids are only unique within a leaf); `::t=<t>` is appended when `per_time_point` is on |
 | `normalization_offset`, `normalization_scale` | One number per channel; for a patch that keeps several channels, numbers separated by `;` in channel order |
 | `normalization_exact` | `true` when every channel's parameters are exact, `false` when any is a histogram approximation |
 
-**`run_config.json`** records the normalization settings, the CSV path given by the user, the
-CSV's SHA-256 and `schema_version`, whether a manifest was used, and the preprocessing
-package version. Loading an older `run_config.json` without these keys means normalization
-off.
+**`run_config.json`** records the normalization settings and, in a `normalization_inputs`
+object, the CSV's SHA-256 and `schema_version`, whether a manifest was used, and the
+preprocessing package version (no machine-specific paths). Loading an older
+`run_config.json` without these keys means normalization off.
 
 **AGENTS.md §5** is updated: inputs (OME-Zarr images and labels, the preprocessing CSV and
 optional manifest) and outputs (the new columns).
 
 ## 9. Configuration
 
-A new `NormalizationConfig` in `CellPatcherConfig` (names to confirm during Milestone 0):
+A new `NormalizationConfig` in `CellPatcherConfig`; names fixed in Milestone 0 (contract §13):
 
 | Field | Default | Meaning |
 |---|---|---|
@@ -350,12 +354,14 @@ A new `NormalizationConfig` in `CellPatcherConfig` (names to confirm during Mile
 | `percentile` | `(1.0, 99.8)` | Low and high percentiles |
 | `scope` | `"image"` | One of §6.2 |
 | `per_time_point` | `False` | Make `t` part of the group key |
-| `patch_region` | `"mask"` in cell mode, else `"patch"` | One of §6.3 |
-| `delivery` | `"normalized_files"` | `normalized_files`, `raw_files_with_parameters`, `memory` |
+| `patch_region` | `None` | One of §6.3; `None` means `"mask"` in cell mode, else `"patch"` |
+| `export_values` | `"normalized"` | Exported files hold `"normalized"` or `"raw"` values (§7 modes 1 and 2) |
 | `memory_limit` | 4 GiB | Limit for eager in-memory delivery |
 
-Mask sources get a new `mask_source` setting (`"tiff_tree"`, the default, or
-`"ngff_labels"`) and `label_name` for the OME-Zarr label image.
+The delivery modes of §7 reuse the existing switches: `export.enabled` for files (with
+`export_values` choosing normalized or raw), `common.extract_arrays` for eager arrays, and a
+lazy iterator in the API. Mask sources are set with `common.mask_source` (`"tiff_tree"`, the
+default, or `"ngff_labels"`) and `common.mask_label_name` for the OME-Zarr label image.
 
 ## 10. Validation and messages
 
@@ -393,8 +399,11 @@ package. Histograms, pooling, parameters and readers are imported from
 (`pip install cellpatcher[preprocessing]`, which installs `morphobricks-preprocessing[zarr]`
 from GitHub at a pinned version) **[D1]**.
 
-- **Milestone 0 — Contract:** document scopes, patch regions, columns and checks in
-  `configuration_reference.md` and AGENTS.md §5; confirm the configuration names.
+- **Milestone 0 — Contract:** document scopes, patch regions, columns and checks; fix the
+  configuration names. *Done (October 2026):*
+  [normalization_contract.md](normalization_contract.md), with pointers in
+  `configuration_reference.md` and AGENTS.md §4–§6. The configuration reference describes
+  the new fields as planned until they are implemented.
 - **Milestone 1 — Preprocessing link:** the optional extra; read the CSV and optional
   manifest; `source_relative_path` on every patch; the checks of §3.4.
 - **Milestone 2 — Images and masks:** OME-Zarr images; OME-Zarr labels (added to the
