@@ -208,7 +208,10 @@ NPY files and, with the `preprocessing` extra, OME-Zarr images: folders ending
 in `.zarr`, read from level 0 of their only image, with their axes from the
 OME-NGFF metadata put into `common.image_axes` by role (`io.read_image`);
 discovery never enters them, and `img.ome.zarr` matches masks named like
-`img.tif`. Matching is validated via
+`img.tif`. With `common.mask_source="ngff_labels"`, the masks of OME-Zarr
+images are their own OME-NGFF label images (`common.mask_label_name`,
+`io.read_ngff_mask`, contract §4) instead of a mask folder. Matching is
+validated via
 `validate_image_and_mask_folders`/`io.py`, using an `exact`,
 `exact_or_suffix` (default), or `substring` strategy.
 
@@ -278,7 +281,8 @@ column; filled by folder and tree runs from each image's real path under the
 root), and `cellpatcher.statistics`, which loads `plane_histograms.csv` and
 the optional `run_manifest.json` and runs the checks of contract §5 — not
 yet called by the pipeline. Milestone 2 adds plane splitting
-(`common.z_policy`/`t_policy`) and OME-Zarr images (see "Inputs" above).
+(`common.z_policy`/`t_policy`), OME-Zarr images and OME-NGFF label masks
+(`common.mask_source`) (see "Inputs" above).
 Until each later part is merged, the inputs and
 outputs above are the whole interface. In summary:
 

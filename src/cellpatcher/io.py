@@ -375,6 +375,72 @@ def read_ome_zarr(path) -> tuple[np.ndarray, str]:
     return pixels, image.axes
 
 
+def read_ngff_mask(path, label_name: str | None, axes: str) -> tuple[np.ndarray, str]:
+    """Read an OME-Zarr image's label image as its mask, put into *axes* by role.
+
+    Follows ``docs/normalization_contract.md`` §4: the label image comes from
+    the image's ``labels`` group (*label_name* may be None when it has exactly
+    one), level 0 is read, its values must be integers, and each of its
+    dimensions must equal the image's or have length 1 (a channel axis, length
+    1). A label Z or T axis with the image's length then follows the image's
+    planes, and one of length 1 is shared (``common.z_policy``/``t_policy``).
+
+    Returns
+    -------
+    tuple
+        The mask in *axes*, and its ``mask_file`` name,
+        ``<image folder name>/labels/<label name>``.
+
+    Raises
+    ------
+    cellpatcher.statistics.PreprocessingUnavailableError
+        If the ``preprocessing`` extra (with ``zarr``) is not installed.
+    ValueError
+        If the image has no such label image, the name is ambiguous, or the
+        label image does not fit the image.
+    """
+    from cellpatcher.statistics import INSTALL_COMMAND, PreprocessingUnavailableError, require_preprocessing
+
+    mbp = require_preprocessing()
+    path = Path(path).expanduser()
+    try:
+        image = mbp.open_ngff(path)
+        labels = mbp.open_ngff_labels(path, label_name)
+    except mbp.ZarrUnavailableError as exc:
+        raise PreprocessingUnavailableError(
+            f"Reading the OME-Zarr image {path.name} needs the zarr package. Install it with: {INSTALL_COMMAND}"
+        ) from exc
+    except mbp.NgffError as exc:
+        raise ValueError(
+            f"The mask of {path.name} cannot be read from its OME-Zarr labels: {exc}. Set "
+            "common.mask_label_name to one of its label images, or use common.mask_source='tiff_tree'."
+        ) from exc
+    # dataset_path is "[<image prefix>]labels/<name>/<level-0 array>".
+    name = labels.dataset_path.split("/")[-2]
+    if not np.issubdtype(labels.dtype, np.integer):
+        raise ValueError(
+            f"The label image {name!r} of {path.name} holds {labels.dtype} values; OME-NGFF label images "
+            "hold integers."
+        )
+    image_lengths = dict(zip(image.axes, image.shape))
+    problems = []
+    for axis, length in zip(labels.axes, labels.shape):
+        if axis == "C" and length != 1:
+            problems.append(f"its channel axis has length {length} (must be 1)")
+        elif axis in "YX" and length != image_lengths.get(axis):
+            problems.append(f"its {axis} axis has length {length}, the image's {image_lengths.get(axis)}")
+        elif length not in (1, image_lengths.get(axis)):
+            problems.append(f"its {axis} axis has length {length}, neither 1 nor the image's {image_lengths.get(axis)}")
+    if problems:
+        raise ValueError(
+            f"The label image {name!r} of {path.name} (axes {labels.axes!r}, shape {labels.shape}) does not fit "
+            f"the image (axes {image.axes!r}, shape {image.shape}): {'; '.join(problems)}."
+        )
+    pixels = mbp.zarr_input.read_selection(labels.array, (slice(None),) * len(labels.shape))
+    mask = conform_axes(pixels, labels.axes, axes, name=f"The label image {name!r} of {path.name}")
+    return mask, f"{path.name}/labels/{name}"
+
+
 def conform_axes(array, array_axes: str, target_axes: str, *, name="the image") -> np.ndarray:
     """Rearrange *array* (with axes *array_axes*) into *target_axes*, matching axes by role.
 
