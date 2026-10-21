@@ -1,16 +1,15 @@
 from dataclasses import dataclass
 from pathlib import Path
 import csv
+import json
 import warnings
 
 import numpy as np
 
 from cellpatcher._deprecation import upgrade_legacy_repeat_column
 from cellpatcher.axes import axis_index, normalize_axes, require_spatial_axes
-from cellpatcher.config import ExtractionConfig
-from cellpatcher.extract import extract_patch
-from cellpatcher.masking import apply_label_mask_to_patch
-from cellpatcher.resize import resize_patch
+from cellpatcher.config import CellPatcherConfig, CommonConfig, ExtractionConfig
+from cellpatcher.delivery import _normalize_on_load, patch_array, patch_axes
 from cellpatcher.io import read_array
 from cellpatcher.export import sanitize_filename
 
@@ -139,7 +138,17 @@ class PatchTorchDataset(torch.utils.data.Dataset):
         tensor_config=None,
         transform=None,
         extra_metadata_by_image_id=None,
+        config=None,
     ):
+        """Patches cut lazily from in-memory images, one per item.
+
+        Each item is built with :func:`cellpatcher.delivery.patch_array`, so it
+        equals the patch eager delivery gives: normalized with the patch's
+        recorded parameters when it has them (``config.normalization``). Pass
+        the run's *config* to cut each patch from its plane (``z0``/``t`` with
+        ``common.z_policy``/``t_policy``); it then also replaces *image_axes*,
+        *mask_axes* and *extraction*.
+        """
         if isinstance(images, (list, tuple)):
             self._images = list(images)
         else:
@@ -148,9 +157,16 @@ class PatchTorchDataset(torch.utils.data.Dataset):
             raise ValueError("images must contain at least one image.")
 
         self._patches = list(patches)
-        self._image_axes = image_axes
-        self._mask_axes = mask_axes
-        self._extraction = extraction if extraction is not None else ExtractionConfig()
+        if config is None:
+            config = CellPatcherConfig(
+                mode="whole_fov",
+                common=CommonConfig(image_axes=image_axes, mask_axes=mask_axes),
+                extraction=extraction if extraction is not None else ExtractionConfig(),
+            )
+        self._config = config
+        self._image_axes = config.common.image_axes
+        self._mask_axes = config.common.mask_axes
+        self._extraction = config.extraction
         self._tensor_config = tensor_config if tensor_config is not None else PatchTensorConfig()
         self._transform = transform
         self._extra_metadata = extra_metadata_by_image_id or {}
@@ -191,42 +207,11 @@ class PatchTorchDataset(torch.utils.data.Dataset):
         # mirrors _maybe_extract_arrays' three steps but on a single patch
         # at load time instead of the whole batch at once.
         patch = self._patches[index]
-        image = self._image_lookup[patch.image_id]
+        mask = self._mask_lookup.get(patch.image_id) if self._extraction.apply_mask else None
+        array = patch_array(patch, self._image_lookup[patch.image_id], self._config, mask=mask)
+        axes = patch_axes(self._config, patch)
 
-        array = extract_patch(
-            image,
-            patch,
-            axes=self._image_axes,
-            pad_mode=self._extraction.pad_mode,
-            constant_values=self._extraction.constant_values,
-        )
-
-        if self._extraction.apply_mask:
-            label_patch = extract_patch(
-                self._mask_lookup[patch.image_id],
-                patch,
-                axes=self._mask_axes,
-                pad_mode=self._extraction.pad_mode,
-                constant_values=0,
-            )
-            array = apply_label_mask_to_patch(
-                array,
-                label_patch,
-                label_id=patch.label_id,
-                image_axes=self._image_axes,
-                label_axes=self._mask_axes,
-                fill_value=self._extraction.mask_fill_value,
-            )
-
-        if self._extraction.output_size is not None:
-            array = resize_patch(
-                array,
-                axes=self._image_axes,
-                output_size=self._extraction.output_size,
-                order=self._extraction.resize_order,
-            )
-
-        tensor = patch_array_to_tensor(array, axes=self._image_axes, config=self._tensor_config)
+        tensor = patch_array_to_tensor(array, axes=axes, config=self._tensor_config)
         if self._transform is not None:
             tensor = self._transform(tensor)
 
@@ -269,6 +254,7 @@ class ExportedPatchTorchDataset(torch.utils.data.Dataset):
             raise FileNotFoundError(f"metadata_file not found: {self._metadata_file}")
 
         self._root_dir = Path(root_dir) if root_dir is not None else self._metadata_file.parent
+        self._run_configs: dict = {}
         self._axes = axes
         self._tensor_config = tensor_config if tensor_config is not None else PatchTensorConfig()
         self._transform = transform
@@ -297,6 +283,14 @@ class ExportedPatchTorchDataset(torch.utils.data.Dataset):
 
     def __len__(self):
         return len(self._rows)
+
+    def _run_config(self, row):
+        """The run_config.json named by a row's config_file, read once; None without one."""
+        name = row.get("config_file") or ""
+        if name not in self._run_configs:
+            path = self._root_dir / name if name else None
+            self._run_configs[name] = json.loads(path.read_text(encoding="utf-8")) if path and path.is_file() else None
+        return self._run_configs[name]
 
     def _resolve_row_path(self, row: dict) -> Path:
         patch_id = row.get("patch_id")
@@ -361,7 +355,9 @@ class ExportedPatchTorchDataset(torch.utils.data.Dataset):
     def __getitem__(self, index):
         row = self._rows[index]
         path = self._resolve_row_path(row)
-        array = _load_exported_patch(path)
+        # Files exported with normalization.export_values="raw" are
+        # normalized on load with the row's parameters (contract §12).
+        array = _normalize_on_load(row, _load_exported_patch(path), self._run_config(row))
 
         tensor = patch_array_to_tensor(array, axes=self._axes, config=self._tensor_config)
         if self._transform is not None:

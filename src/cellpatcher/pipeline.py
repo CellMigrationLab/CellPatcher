@@ -1,4 +1,5 @@
 import json
+from contextvars import ContextVar
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 
@@ -15,6 +16,7 @@ from cellpatcher.io import (
     SINGLE_TECHNICAL_REPEAT_LABEL,
 )
 from cellpatcher.masking import apply_label_masks_to_patches
+from cellpatcher.delivery import raw_export_array
 from cellpatcher.normalization import (
     Normalizer,
     finish_patch_groups,
@@ -22,8 +24,9 @@ from cellpatcher.normalization import (
     split_channel_normalization,
     validate_normalization,
 )
+from cellpatcher.statistics import require_preprocessing
 from cellpatcher.planes import iter_image_planes, plane_choices, splits_planes
-from cellpatcher.resize import resize_patches
+from cellpatcher.resize import normalize_output_size, resize_patches
 from cellpatcher.strategies.cell import CellSegmentationStrategy
 from cellpatcher.strategies.grid import GridStrategy
 from cellpatcher.strategies.random import RandomPatchStrategy
@@ -313,6 +316,48 @@ def _maybe_extract_arrays(
     return extracted
 
 
+def _raw_export_arrays(config: CellPatcherConfig, image_list, image_axes, patches, patch_arrays):
+    """File contents for ``normalization.export_values="raw"``; None when files hold the delivered arrays."""
+    settings = config.normalization
+    if not (settings.enabled and settings.export_values == "raw" and config.export.enabled) or patch_arrays is None:
+        return None
+    return [
+        raw_export_array(patch, image_list[int(patch.image_id.rsplit("_", 1)[1])], image_axes, array, config)
+        for patch, array in zip(patches, patch_arrays)
+    ]
+
+
+# Bytes of normalized patches already held by the run when it patches one
+# image's planes at a time (_patch_planes), so memory_limit covers the run;
+# None when that run only exports (its per-image runs extract arrays for the
+# files, which are not kept).
+_EAGER_BYTES_HELD: ContextVar[int | None] = ContextVar("eager_bytes_held", default=0)
+
+
+def _check_eager_memory(config: CellPatcherConfig, image_list, patches) -> None:
+    """Stop before extraction when eager delivery would exceed ``normalization.memory_limit`` (contract §12)."""
+    settings = config.normalization
+    if not (settings.enabled and config.common.extract_arrays) or _EAGER_BYTES_HELD.get() is None:
+        return
+    output_size = normalize_output_size(config.extraction.output_size)
+    estimate = 0
+    for patch in patches:
+        image = image_list[int(patch.image_id.rsplit("_", 1)[1])]
+        axes = normalize_axes(config.common.image_axes, len(image.shape))
+        others = int(np.prod([n for axis, n in zip(axes, image.shape) if axis not in "YX"]))
+        height, width = output_size or (patch.y1 - patch.y0, patch.x1 - patch.x0)
+        estimate += others * height * width * np.dtype(np.float32).itemsize
+    held = _EAGER_BYTES_HELD.get()
+    if held + estimate > settings.memory_limit:
+        format_bytes = require_preprocessing().planes.format_bytes
+        raise ValueError(
+            f"Keeping the normalized patches in memory needs about {format_bytes(held + estimate)}, more than "
+            f"normalization.memory_limit ({format_bytes(settings.memory_limit)}). Use "
+            "cellpatcher.iter_patch_arrays to get one patch at a time, export the patches to files instead "
+            "(export.enabled=True with common.extract_arrays=False), or raise normalization.memory_limit."
+        )
+
+
 def _normalize(config: CellPatcherConfig, image_list, masks, image_metadata, patches):
     """Compute and record every patch's normalization; None when normalization is off."""
     normalizer = Normalizer.for_config(config)
@@ -344,6 +389,7 @@ def _build_result(
     _stamp_run_context(config, patches)
     _stamp_image_metadata(image_list, image_metadata, patches)
     normalizations = _normalize(config, image_list, masks, image_metadata, patches)
+    _check_eager_memory(config, image_list, patches)
     patch_arrays_internal = _maybe_extract_arrays(
         config, image_list, patches, masks=masks, normalizations=normalizations
     )
@@ -352,11 +398,18 @@ def _build_result(
         # cropped once; filters were already applied to the whole region.
         patches, patch_arrays_internal = _split_channel_patches(config, image_list, patches, patch_arrays_internal)
     _stamp_output_dimensions(config, patches, patch_arrays_internal)
-    return _finish_result(config, patches, patch_arrays_internal)
+    export_arrays = _raw_export_arrays(config, image_list, config.common.image_axes, patches, patch_arrays_internal)
+    return _finish_result(config, patches, patch_arrays_internal, export_arrays)
 
 
-def _finish_result(config: CellPatcherConfig, patches: list[PatchRegion], patch_arrays_internal) -> PatchingResult:
-    """Export the patches (when enabled) and build the result."""
+def _finish_result(
+    config: CellPatcherConfig, patches: list[PatchRegion], patch_arrays_internal, export_arrays=None
+) -> PatchingResult:
+    """Export the patches (when enabled) and build the result.
+
+    *export_arrays* are the file contents when they differ from the
+    delivered arrays (``normalization.export_values="raw"``).
+    """
     if config.normalization.enabled:
         finish_patch_groups(patches, config.normalization.per_time_point)
     exported_files: list[str] = []
@@ -380,7 +433,7 @@ def _finish_result(config: CellPatcherConfig, patches: list[PatchRegion], patch_
 
         exported_files = export_patches(
             patches,
-            patch_arrays_internal,
+            patch_arrays_internal if export_arrays is None else export_arrays,
             config.common.output_dir,
             image_format=config.export.image_format,
             save_metadata=config.export.save_metadata_csv,
@@ -434,9 +487,12 @@ def _patch_planes(config: CellPatcherConfig, sources) -> PatchingResult:
     """
     condition, biological_repeat, _ = _run_labels(config)
     need_arrays = config.common.extract_arrays or config.export.enabled
+    raw_export = config.normalization.enabled and config.normalization.export_values == "raw" and config.export.enabled
     patches: list[PatchRegion] = []
     patch_arrays = [] if need_arrays else None
+    export_arrays = [] if raw_export else None
     planes_done = 0
+    held = 0
     for index, (image_meta, planes) in enumerate(sources):
         meta = dict(image_meta or {})
         planes = list(planes)
@@ -484,12 +540,30 @@ def _patch_planes(config: CellPatcherConfig, sources) -> PatchingResult:
             random=random,
             export=replace(config.export, enabled=False),
         )
-        result = run_patching(
-            images=[plane.image for plane in planes],
-            masks=None if all(mask is None for mask in plane_masks) else plane_masks,
-            config=plane_config,
-            image_metadata=plane_metadata,
-        )
+        token = _EAGER_BYTES_HELD.set(held if config.common.extract_arrays else None)
+        try:
+            result = run_patching(
+                images=[plane.image for plane in planes],
+                masks=None if all(mask is None for mask in plane_masks) else plane_masks,
+                config=plane_config,
+                image_metadata=plane_metadata,
+            )
+        finally:
+            _EAGER_BYTES_HELD.reset(token)
+        if config.common.extract_arrays:
+            held += sum(array.nbytes for array in result.patch_arrays)
+        if export_arrays is not None:
+            # From the planes, which are not kept beyond this image.
+            export_arrays.extend(
+                raw_export_array(
+                    patch,
+                    planes[int(patch.image_id.rsplit("_", 1)[1])].image,
+                    planes[0].image_axes,
+                    array,
+                    config,
+                )
+                for patch, array in zip(result.patches, result.patch_arrays)
+            )
 
         image_id = f"image_{index:04d}"
         for patch in result.patches:
@@ -505,7 +579,7 @@ def _patch_planes(config: CellPatcherConfig, sources) -> PatchingResult:
         if patch_arrays is not None:
             patch_arrays.extend(result.patch_arrays)
         planes_done += len(planes)
-    return _finish_result(config, patches, patch_arrays)
+    return _finish_result(config, patches, patch_arrays, export_arrays)
 
 
 def run_patching(images=None, masks=None, config=None, image_metadata=None) -> PatchingResult:

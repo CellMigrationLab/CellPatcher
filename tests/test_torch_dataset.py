@@ -245,7 +245,8 @@ def test_patch_torch_dataset_lazy_init_sentinel(monkeypatch):
         calls["n"] += 1
         return extract_patch(*args, **kwargs)
 
-    monkeypatch.setattr("cellpatcher.torch_dataset.extract_patch", wrapped_extract)
+    # Items are built by cellpatcher.delivery (the lazy delivery the dataset shares).
+    monkeypatch.setattr("cellpatcher.delivery.extract_patch", wrapped_extract)
 
     image = np.arange(64, dtype=np.uint16).reshape(8, 8)
     patch = PatchRegion(patch_id="p1", image_id="image_0000", y0=0, y1=4, x0=0, x1=4)

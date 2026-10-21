@@ -265,7 +265,16 @@ Two ways to point CellPatcher at input data:
   (`<condition>/<biological_repeat>[/<technical_repeat>]/<file>`); in both
   layouts it is relative to the CSV's folder.
 - Optionally, exported patch arrays as `.npy` or `.tif`/`.tiff` files
-  (`save_patch_array`), named by each row's `patch_file` column.
+  (`save_patch_array`), named by each row's `patch_file` column. With
+  normalization they are float32 normalized values, or with
+  `normalization.export_values="raw"` the raw values (source dtype, float32
+  when resized or masked) to be normalized on load with the row's
+  `normalization_offset`/`normalization_scale`
+  (`cellpatcher.iter_exported_patches`, `ExportedPatchTorchDataset`).
+- In memory: eager arrays (`common.extract_arrays=True`, within
+  `normalization.memory_limit`) or one patch at a time
+  (`cellpatcher.iter_patch_arrays`, `PatchTorchDataset`); every delivery mode
+  gives the same arrays.
 - Consumed downstream by feature-extraction repos — currently
   [fiberfeatures](https://github.com/CellMigrationLab/fiberfeatures/tree/main)
   (an early starting point, expected to change), and in future by other
@@ -273,7 +282,7 @@ Two ways to point CellPatcher at input data:
 
 ### Planned: normalization with the preprocessing brick
 
-**Status: specified; Milestones 1–3 implemented.** The rules are fixed in
+**Status: specified; Milestones 1–4 implemented.** The rules are fixed in
 `docs/normalization_contract.md` (decisions in `docs/plan.md`) and land over
 Milestones 1–5. Implemented so far (Milestone 1): the optional
 `preprocessing` extra (pinned commit in `setup.py`), the

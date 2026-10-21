@@ -152,17 +152,62 @@ def iter_image_planes(image, image_axes, mask, mask_axes, common, *, single_plan
         mask_axes = normalize_axes(mask_axes, mask.ndim)
     mask_shape = None if mask is None else mask.shape
     for choice in plane_choices(image.shape, image_axes, mask_shape, mask_axes, common, single_planes=single_planes):
-        plane, plane_axes = image, image_axes
-        for axis in ("T", "Z"):
-            value = choice.value(axis)
-            if isinstance(value, str):
-                plane, plane_axes = project_axis(plane, plane_axes, axis, value)
-            elif value is not None:
-                plane, plane_axes = select_axis_index(plane, plane_axes, axis, value)
+        plane, plane_axes = apply_plane_choice(image, image_axes, choice)
         plane_mask, plane_mask_axes = select_mask_plane(mask, mask_axes, choice)
         yield ImagePlane(
             plane, plane_axes, plane_mask, plane_mask_axes, choice.index("Z"), choice.index("T"), choice.suffix
         )
+
+
+def apply_plane_choice(image, image_axes, choice: PlaneChoice):
+    """The plane of an in-memory image for *choice*: ``(pixels, axes)``."""
+    plane, plane_axes = np.asarray(image), normalize_axes(image_axes, np.ndim(image))
+    for axis in ("T", "Z"):
+        value = choice.value(axis)
+        if axis not in plane_axes or value is None:
+            continue
+        if isinstance(value, str):
+            plane, plane_axes = project_axis(plane, plane_axes, axis, value)
+        else:
+            plane, plane_axes = select_axis_index(plane, plane_axes, axis, value)
+    return plane, plane_axes
+
+
+def patch_plane_choice(patch, image_axes, common) -> PlaneChoice:
+    """The plane a patch was cut from: its ``t``/``z0``, or the policy's projection.
+
+    Used to rebuild a patch from its source image (``cellpatcher.delivery``).
+    """
+    values = {}
+    for axis, index in (("T", patch.t), ("Z", patch.z0)):
+        policy = getattr(common, f"{axis.lower()}_policy")
+        if axis not in normalize_axes(image_axes) or policy == "keep":
+            values[axis] = None
+        elif policy in _PROJECTIONS:
+            values[axis] = policy
+        else:
+            values[axis] = index
+    return PlaneChoice(t=values["T"], z=values["Z"], suffix="")
+
+
+def read_file_plane(path, image_axes, choice: PlaneChoice, common):
+    """Read the plane *choice* of an image file: ``(pixels, axes)``.
+
+    With the ``preprocessing`` extra, a TIFF or OME-Zarr plane is read on its
+    own (as :func:`iter_file_planes` does); otherwise the image is read whole
+    and the plane taken from it.
+    """
+    from cellpatcher.io import read_image
+
+    mbp = _plane_reader(path, common)
+    if mbp is None or any(isinstance(choice.value(axis), str) for axis in ("T", "Z")):
+        return apply_plane_choice(read_image(path, image_axes), image_axes, choice)
+    path = Path(path).expanduser()
+    target = normalize_axes(image_axes)
+    mapping, shape, dtype = _file_layout(mbp, path, target)
+    return _read_choice(mbp, path, mapping, shape, dtype, target, choice), "".join(
+        axis for axis in target if choice.value(axis) is None
+    )
 
 
 def select_mask_plane(mask, mask_axes, choice: PlaneChoice):
@@ -213,21 +258,28 @@ def iter_file_planes(path, image_axes, mask, mask_axes, common, *, single_planes
     mask_shape = None if mask is None else mask.shape
     for choice in plane_choices(shape, target, mask_shape, mask_axes, common, single_planes=single_planes):
         plane_axes = "".join(axis for axis in target if choice.value(axis) is None)
-        pixels = np.empty([shape[target.index(axis)] for axis in plane_axes], dtype=dtype)
-        # Axes kept in the plane (channels, or a "keep" axis) are read one
-        # 2D plane at a time and stacked back in place.
-        stacked = [axis for axis in plane_axes if axis not in "YX"]
-        y_before_x = plane_axes.index("Y") < plane_axes.index("X")
-        for position in np.ndindex(*(pixels.shape[plane_axes.index(axis)] for axis in stacked)):
-            coordinates = {"T": choice.index("T"), "Z": choice.index("Z"), "C": None}
-            coordinates.update(zip(stacked, position))
-            plane = _read_plane(mbp, path, mapping, coordinates)
-            where = tuple(position[stacked.index(axis)] if axis in stacked else slice(None) for axis in plane_axes)
-            pixels[where] = plane if y_before_x else plane.T
+        pixels = _read_choice(mbp, path, mapping, shape, dtype, target, choice)
         plane_mask, plane_mask_axes = select_mask_plane(mask, mask_axes, choice)
         yield ImagePlane(
             pixels, plane_axes, plane_mask, plane_mask_axes, choice.index("Z"), choice.index("T"), choice.suffix
         )
+
+
+def _read_choice(mbp, path: Path, mapping, shape, dtype, target: str, choice: PlaneChoice) -> np.ndarray:
+    """Read the plane *choice* of a file, one 2D plane at a time, in *target* order minus resolved axes."""
+    plane_axes = "".join(axis for axis in target if choice.value(axis) is None)
+    pixels = np.empty([shape[target.index(axis)] for axis in plane_axes], dtype=dtype)
+    # Axes kept in the plane (channels, or a "keep" axis) are read one 2D
+    # plane at a time and stacked back in place.
+    stacked = [axis for axis in plane_axes if axis not in "YX"]
+    y_before_x = plane_axes.index("Y") < plane_axes.index("X")
+    for position in np.ndindex(*(pixels.shape[plane_axes.index(axis)] for axis in stacked)):
+        coordinates = {"T": choice.index("T"), "Z": choice.index("Z"), "C": None}
+        coordinates.update(zip(stacked, position))
+        plane = _read_plane(mbp, path, mapping, coordinates)
+        where = tuple(position[stacked.index(axis)] if axis in stacked else slice(None) for axis in plane_axes)
+        pixels[where] = plane if y_before_x else plane.T
+    return pixels
 
 
 def _plane_reader(path, common):

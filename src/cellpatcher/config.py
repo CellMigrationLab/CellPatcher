@@ -186,6 +186,7 @@ class ExtractionConfig:
 NORMALIZATION_METHODS = ("minmax", "percentile", "zscore", "robust_zscore")
 NORMALIZATION_SCOPES = ("condition", "biological_repeat", "technical_repeat", "image", "patch")
 PATCH_REGIONS = ("mask", "bbox", "patch")
+EXPORT_VALUES = ("normalized", "raw")
 
 
 @dataclass
@@ -223,6 +224,15 @@ class NormalizationConfig:
         For ``scope="patch"``: ``"mask"`` (the patch's own label), ``"bbox"``
         (the label's bounding box) or ``"patch"`` (all patch pixels); None
         means ``"mask"`` in ``cell`` mode and ``"patch"`` otherwise.
+    export_values
+        What exported files hold: ``"normalized"`` (default, float32) or
+        ``"raw"``: the source values, with the parameters in ``patches.csv``
+        for normalizing on load (``cellpatcher.iter_exported_patches``). A
+        raw patch that is resized or masked is stored as float32 raw values.
+    memory_limit
+        Bytes allowed for the normalized patches of eager delivery
+        (``common.extract_arrays=True``); above it the run stops and suggests
+        ``cellpatcher.iter_patch_arrays``, which gives one patch at a time.
     """
 
     enabled: bool = False
@@ -233,6 +243,8 @@ class NormalizationConfig:
     scope: str = "image"
     per_time_point: bool = False
     patch_region: str | None = None
+    export_values: str = "normalized"
+    memory_limit: int = 4 * 1024**3
 
     def __post_init__(self) -> None:
         if not isinstance(self.enabled, bool):
@@ -255,6 +267,12 @@ class NormalizationConfig:
         if not 0 <= low < high <= 100:
             raise ValueError(f"normalization.percentile must satisfy 0 <= low < high <= 100; got ({low}, {high}).")
         self.percentile = (low, high)
+        if self.export_values not in EXPORT_VALUES:
+            raise ValueError(
+                f"normalization.export_values must be one of {list(EXPORT_VALUES)}; got {self.export_values!r}."
+            )
+        if isinstance(self.memory_limit, bool) or not isinstance(self.memory_limit, int) or self.memory_limit <= 0:
+            raise ValueError(f"normalization.memory_limit must be a positive int (bytes); got {self.memory_limit!r}.")
 
 
 @dataclass
