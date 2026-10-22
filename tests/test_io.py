@@ -246,6 +246,87 @@ def test_validate_image_and_mask_folders_raises_unmatched_mask(tmp_path):
         validate_image_and_mask_folders(img_dir, mask_dir)
 
 
+def _write_mask_sets(tmp_path, suffixes=("_cells", "_nuclei", "_mito", "_nucleoli")):
+    # A segmentation folder holding several masks of each image (JUMP Cell
+    # Painting style): one per compartment, told apart by their suffix.
+    img_dir = tmp_path / "images"
+    mask_dir = tmp_path / "masks"
+    img_dir.mkdir()
+    mask_dir.mkdir()
+    for name in ("a", "b"):
+        (img_dir / f"{name}.npy").write_bytes(b"x")
+        for suffix in suffixes:
+            (mask_dir / f"{name}{suffix}.npy").write_bytes(b"x")
+    return img_dir, mask_dir
+
+
+def test_masks_with_other_suffixes_are_refused_by_default(tmp_path):
+    # Requesting one suffix does not, by itself, skip the other masks of the
+    # same images; the error says which masks they are and how to skip them.
+    img_dir, mask_dir = _write_mask_sets(tmp_path)
+    with pytest.raises(ValueError, match="Masks with no matching image") as error:
+        validate_image_and_mask_folders(img_dir, mask_dir, mask_suffixes=("_cells",))
+    message = str(error.value)
+    assert "a_nuclei.npy" in message
+    assert "ignore_unrequested_masks=True" in message
+
+
+def test_ignore_unrequested_masks_matches_the_requested_suffix_only(tmp_path):
+    img_dir, mask_dir = _write_mask_sets(tmp_path)
+    out = validate_image_and_mask_folders(
+        img_dir, mask_dir, mask_suffixes=("_cells",), ignore_unrequested_masks=True
+    )
+    assert {image.name: mask.name for image, mask in out.items()} == {"a.npy": "a_cells.npy", "b.npy": "b_cells.npy"}
+
+
+def test_ignore_unrequested_masks_filters_before_matching(tmp_path):
+    # Under substring matching every mask of an image is a candidate, so the
+    # image would be ambiguous if the suffix filter ran only after matching.
+    img_dir, mask_dir = _write_mask_sets(tmp_path)
+    out = validate_image_and_mask_folders(
+        img_dir, mask_dir, strategy="substring", mask_suffixes=("_cells",), ignore_unrequested_masks=True
+    )
+    assert {image.name: mask.name for image, mask in out.items()} == {"a.npy": "a_cells.npy", "b.npy": "b_cells.npy"}
+
+
+def test_ignore_unrequested_masks_follows_case_sensitivity(tmp_path):
+    img_dir, mask_dir = _write_mask_sets(tmp_path, suffixes=("_CELLS", "_nuclei"))
+    out = validate_image_and_mask_folders(
+        img_dir, mask_dir, mask_suffixes=("_cells",), ignore_unrequested_masks=True
+    )
+    assert {mask.name for mask in out.values()} == {"a_CELLS.npy", "b_CELLS.npy"}
+    with pytest.raises(ValueError, match="end in none of"):
+        validate_image_and_mask_folders(
+            img_dir, mask_dir, mask_suffixes=("_cells",), case_sensitive=True, ignore_unrequested_masks=True
+        )
+
+
+def test_ignore_unrequested_masks_still_reports_requested_masks_without_image(tmp_path):
+    # Only masks with another suffix are skipped: a requested mask whose image
+    # is missing, and an image whose requested mask is missing, still fail.
+    img_dir, mask_dir = _write_mask_sets(tmp_path)
+    (mask_dir / "c_cells.npy").write_bytes(b"x")
+    (mask_dir / "b_cells.npy").unlink()
+    with pytest.raises(ValueError) as error:
+        validate_image_and_mask_folders(
+            img_dir, mask_dir, mask_suffixes=("_cells",), ignore_unrequested_masks=True
+        )
+    message = str(error.value)
+    assert "Images with no mask match: b.npy" in message
+    assert "Masks with no matching image: c_cells.npy" in message
+    assert "nuclei" not in message
+
+
+def test_ignore_unrequested_masks_needs_suffixes_that_matching_uses(tmp_path):
+    img_dir, mask_dir = _write_mask_sets(tmp_path)
+    with pytest.raises(ValueError, match="strategy='exact'"):
+        validate_image_and_mask_folders(img_dir, mask_dir, strategy="exact", ignore_unrequested_masks=True)
+    with pytest.raises(ValueError, match="mask_suffixes is empty"):
+        validate_image_and_mask_folders(img_dir, mask_dir, mask_suffixes=(), ignore_unrequested_masks=True)
+    with pytest.raises(ValueError, match="must be a bool"):
+        validate_image_and_mask_folders(img_dir, mask_dir, ignore_unrequested_masks="yes")
+
+
 def test_validate_image_and_mask_folders_empty_image_folder_raises(tmp_path):
     img_dir = tmp_path / "images"
     mask_dir = tmp_path / "masks"

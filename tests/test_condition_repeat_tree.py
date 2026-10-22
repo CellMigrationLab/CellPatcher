@@ -218,6 +218,34 @@ def test_tree_cell_mode_explicit_and_single_repeat_with_mirrored_masks(tmp_path)
             assert patch.mask_file == "img_mask.npy"
 
 
+def test_tree_cell_mode_mask_folder_with_several_masks_per_image(tmp_path):
+    # Each mask folder holds every compartment's mask of each image (JUMP
+    # style); config.matching keeps the requested one and skips the rest.
+    image, labels, _ = make_synthetic_cell_image_and_labels(seed=5)
+    image_root = tmp_path / "raw_data"
+    mask_root = tmp_path / "masks"
+    for leaf in ("treated/2026_01_01", "control/2026_01_01"):
+        write_array(image_root / leaf / "img.npy", image)
+        for suffix in ("_cells", "_nuclei", "_mito", "_nucleoli"):
+            write_array(mask_root / leaf / f"img{suffix}.npy", labels)
+
+    cfg = CellPatcherConfig(mode="cell")
+    cfg.cell.patch_size = 24
+    cfg.matching.mask_suffixes = ("_cells",)
+    with pytest.raises(ValueError, match="ignore_unrequested_masks=True"):
+        run_patching_condition_repeat_tree(image_root, config=cfg, mask_root_path=mask_root)
+
+    cfg.matching.ignore_unrequested_masks = True
+    cfg.export.enabled = True
+    cfg.common.output_dir = str(tmp_path / "out")
+    results = run_patching_condition_repeat_tree(image_root, config=cfg, mask_root_path=mask_root)
+    assert len(results) == 2
+    assert {patch.mask_file for r in results for patch in r.result.patches} == {"img_cells.npy"}
+    # The setting is recorded with the run.
+    restored = load_config(tmp_path / "out" / "control" / "2026_01_01" / RUN_CONFIG_FILENAME)
+    assert restored.matching.ignore_unrequested_masks is True
+
+
 def test_tree_cell_mode_missing_mask_folder_raises_per_leaf(tmp_path):
     image, labels, _ = make_synthetic_cell_image_and_labels(seed=6)
     image_root = tmp_path / "raw_data"
