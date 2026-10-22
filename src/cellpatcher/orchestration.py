@@ -365,14 +365,26 @@ def _check_preprocessing_inputs(config: CellPatcherConfig, experiment_root, imag
 def _source_relative_path(image_path: Path, experiment_root) -> str:
     """Path of *image_path* relative to *experiment_root*, with ``/`` separators.
 
-    Built from the image's real location, so it matches the preprocessing
-    brick's ``source_relative_path`` (``control/img.tif`` for an image
-    directly in ``control/``), unlike ``ConditionRepeatFolder.relative_folder``,
-    which inserts ``single`` for missing levels.
+    Built from where the image sits in the folder tree, so it matches the
+    preprocessing brick's ``source_relative_path`` (``control/img.tif`` for an
+    image directly in ``control/``), unlike
+    ``ConditionRepeatFolder.relative_folder``, which inserts ``single`` for
+    missing levels. Like the brick, which walks the tree following links,
+    a linked image or folder keeps its path under the root (the link's, not
+    its target's), so a tree of links to images stored elsewhere can be
+    patched. A path that is not under the root as written is compared by real
+    locations, as before.
     """
-    root = Path(experiment_root).expanduser().resolve()
+    root = Path(experiment_root).expanduser()
+    image = Path(image_path).expanduser()
     try:
-        return Path(image_path).expanduser().resolve().relative_to(root).as_posix()
+        # Discovery builds every image path from the root, so this holds for
+        # folder and tree runs; resolving would follow links out of the tree.
+        return image.absolute().relative_to(root.absolute()).as_posix()
+    except ValueError:  # e.g. the same folder written through a link
+        pass
+    try:
+        return image.resolve().relative_to(root.resolve()).as_posix()
     except ValueError as exc:
         raise ValueError(f"Image '{image_path}' is not inside the experiment root '{root}'.") from exc
 

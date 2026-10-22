@@ -92,6 +92,26 @@ def _patches_by_image(results):
     return {patch.source_relative_path: patch for leaf in results for patch in leaf.result.patches}
 
 
+def test_a_tree_of_links_matches_the_brick_statistics(experiment, tmp_path):
+    # The same images reached through a tree of links (a file link, a linked
+    # folder): the brick and CellPatcher record the same path for each image,
+    # so every patched plane finds its row, with the manifest's file checks.
+    stored, stacks, _ = experiment
+    linked = tmp_path / "linked"
+    (linked / "control" / "bio1").mkdir(parents=True)
+    for name in ("a.tif", "b.tif"):
+        (linked / "control" / "bio1" / name).symlink_to(stored / "control" / "bio1" / name)
+    (linked / "treated").mkdir()
+    (linked / "treated" / "bio1").symlink_to(stored / "treated" / "bio1", target_is_directory=True)
+    csv_path = _preprocess(linked, tmp_path / "linked_preprocessing", "ZCYX")
+
+    results = run_patching_condition_repeat_tree(linked, config=_config(csv_path))
+
+    patches = [patch for leaf in results for patch in leaf.result.patches]
+    assert {patch.source_relative_path for patch in patches} == set(IMAGES)
+    assert all(patch.normalization_scope == "image" for patch in patches)
+
+
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
