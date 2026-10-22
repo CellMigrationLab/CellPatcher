@@ -54,9 +54,10 @@ class PatchRegion:
       metadata CSV, capturing every parameter (strategy, seed, extraction,
       matching) needed to reproduce this run's coordinates deterministically.
     - ``source_relative_path``: the source image's path relative to the
-      experiment root, with ``/`` separators, from its real location
-      (``control/img.tif`` for an image directly in ``control/``; never the
-      ``single`` output folders). Links the patch to the preprocessing
+      experiment root, with ``/`` separators, from where it sits in the
+      folder tree (``control/img.tif`` for an image directly in ``control/``;
+      never the ``single`` output folders; a linked image or folder keeps the
+      link's path, as in the preprocessing brick). Links the patch to the preprocessing
       brick's ``plane_id``. Filled by folder and tree runs, or per image from
       ``image_metadata``; ``None`` otherwise.
     - ``normalization_method``, ``normalization_scope``, ``normalization_group``,

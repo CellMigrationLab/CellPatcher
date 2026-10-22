@@ -294,8 +294,8 @@ Two ways to point CellPatcher at input data:
 Milestones 1–5. Implemented so far (Milestone 1): the optional
 `preprocessing` extra (pinned commit in `setup.py`), the
 `source_relative_path` `PatchRegion` field/`patches.csv` column (last
-column; filled by folder and tree runs from each image's real path under the
-root), and `cellpatcher.statistics`, which loads `plane_histograms.csv` and
+column; filled by folder and tree runs from each image's path under the
+root, a linked image or folder keeping the link's path as in the brick), and `cellpatcher.statistics`, which loads `plane_histograms.csv` and
 the optional `run_manifest.json` and runs the checks of contract §5 — not
 yet called by the pipeline. Milestone 2 adds plane splitting
 (`common.z_policy`/`t_policy`), OME-Zarr images and OME-NGFF label masks

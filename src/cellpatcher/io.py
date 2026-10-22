@@ -41,7 +41,22 @@ def list_supported_files(folder_path, supported_extensions=None) -> list[Path]:
     exts = supported_extensions if supported_extensions is not None else SUPPORTED_EXTENSIONS
     exts = {e.lower() for e in exts}
 
-    return sorted(p for p in folder.iterdir() if _is_image(p, exts))
+    entries = list(folder.iterdir())
+    _refuse_broken_image_links(entries, exts)
+    return sorted(p for p in entries if _is_image(p, exts))
+
+
+def _refuse_broken_image_links(entries, exts: set[str]) -> None:
+    # Links are followed (a tree of links to images stored elsewhere is a
+    # valid input), so a link whose target is gone is a missing image, not a
+    # file to skip silently.
+    broken = sorted(p.name for p in entries if p.suffix.lower() in exts and p.is_symlink() and not p.exists())
+    if broken:
+        folder = Path(entries[0]).parent
+        raise ValueError(
+            f"Folder '{folder}' holds {len(broken)} image link(s) whose target does not exist: "
+            f"{', '.join(broken[:10])}. Fix or remove the links."
+        )
 
 
 def is_ome_zarr(path) -> bool:
@@ -110,6 +125,7 @@ def _split_folder_entries(folder: Path, exts: set[str]) -> tuple[list[Path], lis
     # conditions or biological repeats, so they must not make a flat folder
     # look mixed.
     entries = list(folder.iterdir())
+    _refuse_broken_image_links(entries, exts)
     loose_images = [p for p in entries if _is_image(p, exts)]
     subdirs = [p for p in entries if p.is_dir() and not p.name.startswith(".") and p not in loose_images]
     return loose_images, subdirs
