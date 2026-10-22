@@ -336,6 +336,7 @@ def _mask_loaders(image_folder_path, mask_folder_path, image_files, config, stra
         strategy=matching.strategy if strategy is None else strategy,
         mask_suffixes=matching.mask_suffixes if mask_suffixes is None else mask_suffixes,
         case_sensitive=matching.case_sensitive if case_sensitive is None else case_sensitive,
+        ignore_unrequested_masks=matching.ignore_unrequested_masks,
     )
     return [functools.partial(_read_mask_file, selected[image], config.common.mask_axes) for image in image_files]
 

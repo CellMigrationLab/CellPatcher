@@ -587,6 +587,43 @@ def filter_shared_matches(candidate_matches) -> dict[Path, list[Path]]:
     return filtered
 
 
+def _ends_with_suffix(path, suffixes, case_sensitive: bool) -> bool:
+    stem = image_stem(path) if case_sensitive else image_stem(path).lower()
+    return any(stem.endswith(suffix if case_sensitive else suffix.lower()) for suffix in suffixes)
+
+
+def select_requested_masks(mask_files, *, strategy, mask_suffixes, case_sensitive) -> list[Path]:
+    """Keep the masks whose stem ends with one of *mask_suffixes*, before any matching.
+
+    Used by ``ignore_unrequested_masks=True``: a mask folder may hold several
+    masks of each image (``img_cells.tif``, ``img_nuclei.tif``, ...), and only
+    the requested ones take part in matching, so the others are neither
+    candidates nor reported as masks without an image. A mask named exactly
+    like its image (no suffix) ends with no suffix and is skipped too.
+
+    Raises
+    ------
+    ValueError
+        If *strategy* is ``"exact"`` (it uses no suffix), *mask_suffixes* is
+        empty, or no mask ends with a requested suffix.
+    """
+    if strategy == "exact":
+        raise ValueError(
+            "ignore_unrequested_masks=True keeps the masks ending with one of mask_suffixes, which "
+            "strategy='exact' does not use; use strategy='exact_or_suffix' (or 'substring')."
+        )
+    if len(mask_suffixes) == 0:
+        raise ValueError("ignore_unrequested_masks=True needs the suffixes to keep, but mask_suffixes is empty.")
+    kept = [Path(mask) for mask in mask_files if _ends_with_suffix(mask, mask_suffixes, case_sensitive)]
+    if not kept:
+        raise ValueError(
+            f"No mask file ends with a requested suffix {tuple(mask_suffixes)} "
+            f"({'case-sensitive' if case_sensitive else 'any case'}); all {len(mask_files)} masks end in none of "
+            "them. Set mask_suffixes to the suffix of the masks to use."
+        )
+    return kept
+
+
 def validate_image_and_mask_folders(
     image_folder_path,
     mask_folder_path,
@@ -594,13 +631,34 @@ def validate_image_and_mask_folders(
     strategy="exact_or_suffix",
     mask_suffixes=("_mask", "_labels", "_label", "_seg", "_segmentation"),
     case_sensitive=False,
+    ignore_unrequested_masks=False,
 ) -> dict[Path, Path]:
+    """Match every image to exactly one mask by file name, or raise listing every problem.
+
+    With *ignore_unrequested_masks* (default False), masks whose stem ends in
+    none of *mask_suffixes* are left out before matching
+    (:func:`select_requested_masks`), so a folder holding several masks per
+    image (``_cells``, ``_nuclei``, ...) can be used with
+    ``mask_suffixes=("_cells",)``. Without it, every mask in the folder must
+    match an image.
+
+    Returns
+    -------
+    dict
+        Each image path mapped to its mask path.
+    """
+    if not isinstance(ignore_unrequested_masks, bool):
+        raise ValueError("ignore_unrequested_masks must be a bool.")
     image_files = list_supported_files(image_folder_path)
     mask_files = list_supported_files(mask_folder_path)
     if len(image_files) == 0:
         raise ValueError("No supported image files found in image folder.")
     if len(mask_files) == 0:
         raise ValueError("No supported mask files found in mask folder.")
+    if ignore_unrequested_masks:
+        mask_files = select_requested_masks(
+            mask_files, strategy=strategy, mask_suffixes=mask_suffixes, case_sensitive=case_sensitive
+        )
 
     candidate = find_candidate_matches(
         image_files,
@@ -637,7 +695,16 @@ def validate_image_and_mask_folders(
     if shared_masks:
         errors.append("Masks linked to multiple images: " + ", ".join(p.name for p in shared_masks[:10]))
     if unmatched_masks:
-        errors.append("Masks with no matching image: " + ", ".join(p.name for p in unmatched_masks[:10]))
+        message = "Masks with no matching image: " + ", ".join(p.name for p in unmatched_masks[:10])
+        other_suffix = [mask for mask in unmatched_masks if not _ends_with_suffix(mask, mask_suffixes, case_sensitive)]
+        if other_suffix and strategy != "exact":
+            # Typically the other masks of each image (_nuclei beside _cells).
+            message += (
+                f" ({len(other_suffix)} of them end in none of mask_suffixes {tuple(mask_suffixes)}; to leave "
+                "such masks out before matching, set ignore_unrequested_masks=True "
+                "(config.matching.ignore_unrequested_masks))"
+            )
+        errors.append(message)
 
     if errors:
         raise ValueError("; ".join(errors))

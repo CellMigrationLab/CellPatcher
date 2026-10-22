@@ -150,6 +150,9 @@ Controls how image files are paired with mask files when reading from folders.
 | `strategy` | `str` | `"exact_or_suffix"` | Filename matching strategy (see table below). |
 | `mask_suffixes` | `tuple[str, ...]` | `("_mask", "_labels", "_label", "_seg", "_segmentation")` | Candidate suffixes used by the `exact_or_suffix` strategy. |
 | `case_sensitive` | `bool` | `False` | When `False`, filenames are compared case-insensitively. |
+| `ignore_unrequested_masks` | `bool` | `False` | When `True`, masks whose stem ends in none of `mask_suffixes` are left out **before** matching: they are neither candidates nor reported as "Masks with no matching image". For a mask folder holding several masks per image (`img_cells.tif`, `img_nuclei.tif`, `img_mito.tif`, ...), set `mask_suffixes=("_cells",)` and `ignore_unrequested_masks=True`. A mask named exactly like its image ends with no suffix and is left out too; an image without a requested mask, or a requested mask without an image, still raises. Needs `exact_or_suffix` or `substring` (`exact` uses no suffix). `validate_image_and_mask_folders(..., ignore_unrequested_masks=True)` is the same option for the standalone helper. |
+
+With `ignore_unrequested_masks=False` (the default), every mask in the folder must match an image, so `mask_suffixes=("_cells",)` alone still refuses a folder that also holds `_nuclei` masks; the error then says how many of the unmatched masks end in none of `mask_suffixes` and names this option.
 
 **Matching strategies:**
 
