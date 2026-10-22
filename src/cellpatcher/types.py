@@ -64,6 +64,22 @@ class PatchRegion:
       the normalization applied to the patch (``config.normalization``):
       ``(pixels - offset) / scale`` per channel; offsets and scales are
       ``;``-separated per channel. ``None`` when normalization is off.
+    - ``image_height``, ``image_width``: the Y/X size of the source image
+      (plane) the rectangle ``y0/y1/x0/x1`` lies in; set by ``run_patching``
+      for every patch, whether or not arrays are extracted.
+    - ``pad_top``, ``pad_bottom``, ``pad_left``, ``pad_right``: rows/columns
+      of ``extraction.constant_values`` added on each side of the patch where
+      its rectangle extends past the image (``extraction.pad_mode="constant"``),
+      before any resizing; 0 when nothing was padded (``"clip"`` never pads).
+    - ``resized``: whether ``extraction.output_size`` changed the patch's Y/X
+      shape (``False`` when no output size is set, or when the patch already
+      had that size and resizing left it unchanged).
+    - ``output_axes``: the axes of the delivered/exported array, in order
+      (e.g. ``"CYX"``; ``"YX"`` for a split channel; a kept Z or T axis stays).
+      Exported TIFF/NPY files carry no axes of their own.
+    The padding, ``resized`` and ``output_axes`` fields, like
+    ``output_height``/``output_width``, are ``None`` unless arrays were
+    extracted (``common.extract_arrays=True`` or ``export.enabled=True``).
     """
     patch_id: str
     image_id: str | None = None
@@ -108,6 +124,18 @@ class PatchRegion:
     normalization_offset: str | None = None
     normalization_scale: str | None = None
     normalization_exact: bool | None = None
+    # Geometry of the source image and of the delivered/exported array, so a
+    # reader of the exported files needs neither the source image nor
+    # CellPatcher's rules to know what each array holds. Appended after every
+    # earlier field so existing CSV columns keep their order.
+    image_height: int | None = None
+    image_width: int | None = None
+    pad_top: int | None = None
+    pad_bottom: int | None = None
+    pad_left: int | None = None
+    pad_right: int | None = None
+    resized: bool | None = None
+    output_axes: str | None = None
 
     def __post_init__(self) -> None:
         # y0/x0 are always required (defaulted to 0), so their ranges are

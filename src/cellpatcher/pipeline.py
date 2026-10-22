@@ -27,6 +27,7 @@ from cellpatcher.normalization import (
 from cellpatcher.statistics import require_preprocessing
 from cellpatcher.planes import iter_image_planes, plane_choices, splits_planes
 from cellpatcher.resize import normalize_output_size, resize_patches
+from cellpatcher.strategies.base import _spatial_shape_from_axes
 from cellpatcher.strategies.cell import CellSegmentationStrategy
 from cellpatcher.strategies.grid import GridStrategy
 from cellpatcher.strategies.random import RandomPatchStrategy
@@ -155,14 +156,57 @@ def _split_channel_patches(config: CellPatcherConfig, image_list, patches: list[
     return split_patches, split_arrays
 
 
+def _stamp_image_size(config: CellPatcherConfig, image_list, patches: list[PatchRegion]) -> None:
+    """Record the Y/X size of each patch's source image (``image_height``/``image_width``)."""
+    sizes = {
+        f"image_{idx:04d}": _spatial_shape_from_axes(image.shape, axes=config.common.image_axes)
+        for idx, image in enumerate(image_list)
+    }
+    for patch in patches:
+        patch.image_height, patch.image_width = sizes[patch.image_id]
+
+
+def _padding(patch: PatchRegion, pad_mode: str) -> tuple[int, int, int, int]:
+    """Rows/columns ``extract_patch`` pads on the top, bottom, left and right of *patch*.
+
+    The same rule as ``extract_patch``: with ``"constant"``, each side is
+    padded by how far the rectangle extends past the image; ``"clip"`` never
+    pads (it returns the part inside the image).
+    """
+    if pad_mode != "constant":
+        return 0, 0, 0, 0
+    return (
+        max(0, -patch.y0),
+        max(0, patch.y1 - patch.image_height),
+        max(0, -patch.x0),
+        max(0, patch.x1 - patch.image_width),
+    )
+
+
+def _cropped_size(patch: PatchRegion, pad_mode: str) -> tuple[int, int]:
+    """Y/X size of the extracted array before any resizing (padding included, clipping applied)."""
+    if pad_mode == "constant":
+        return patch.height, patch.width
+    return (
+        min(patch.y1, patch.image_height) - max(0, patch.y0),
+        min(patch.x1, patch.image_width) - max(0, patch.x0),
+    )
+
+
 def _stamp_output_dimensions(config: CellPatcherConfig, patches: list[PatchRegion], patch_arrays) -> None:
     if patch_arrays is None or len(patch_arrays) != len(patches):
         return
+    pad_mode = config.extraction.pad_mode
     for patch, array in zip(patches, patch_arrays):
         axes = normalize_axes(_patch_array_axes(config), ndim=array.ndim)
         y_idx, x_idx = require_spatial_axes(axes)
         patch.output_height = int(array.shape[y_idx])
         patch.output_width = int(array.shape[x_idx])
+        patch.output_axes = axes
+        patch.pad_top, patch.pad_bottom, patch.pad_left, patch.pad_right = _padding(patch, pad_mode)
+        # Masking and normalization keep the shape, so only resizing can make
+        # the array differ from the extracted crop; a zoom by 1 leaves it as is.
+        patch.resized = (patch.output_height, patch.output_width) != _cropped_size(patch, pad_mode)
 
 
 @dataclass
@@ -388,6 +432,7 @@ def _build_result(
 ) -> PatchingResult:
     _stamp_run_context(config, patches)
     _stamp_image_metadata(image_list, image_metadata, patches)
+    _stamp_image_size(config, image_list, patches)
     normalizations = _normalize(config, image_list, masks, image_metadata, patches)
     if normalizations is not None:
         # Patches that cannot be normalized from their own pixels are discarded (decision D8).

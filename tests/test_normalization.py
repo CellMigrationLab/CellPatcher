@@ -156,7 +156,8 @@ def test_image_scope_pools_every_z_plane_of_the_image_per_channel(experiment, tm
             assert patch.normalization_exact is True
 
     header, rows = _read_csv(tmp_path / "out" / "patches.csv")
-    assert header[-7:] == ["source_relative_path", *NORMALIZATION_COLUMNS]
+    start = header.index("source_relative_path")
+    assert header[start : start + 7] == ["source_relative_path", *NORMALIZATION_COLUMNS]
     assert {row["normalization_exact"] for row in rows} == {"true"}
     saved = json.loads((tmp_path / "out" / RUN_CONFIG_FILENAME).read_text(encoding="utf-8"))
     assert saved["normalization"]["scope"] == "image"
