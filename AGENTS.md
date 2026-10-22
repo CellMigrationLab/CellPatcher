@@ -265,6 +265,12 @@ Two ways to point CellPatcher at input data:
   `patch_file` is the path relative to the CSV
   (`<condition>/<biological_repeat>[/<technical_repeat>]/<file>`); in both
   layouts it is relative to the CSV's folder.
+- Per patch, the geometry a reader of exported arrays needs (appended after
+  every earlier `patches.csv` column): `image_height`/`image_width` (the
+  source image's Y/X size), `pad_top`/`pad_bottom`/`pad_left`/`pad_right`
+  (constant padding per side), `resized` (whether `output_size` changed the
+  shape) and `output_axes` (the array's axes; the files carry none).
+  Documented in `docs/configuration_reference.md`.
 - Optionally, exported patch arrays as `.npy` or `.tif`/`.tiff` files
   (`save_patch_array`), named by each row's `patch_file` column. With
   normalization they are float32 normalized values, or with
