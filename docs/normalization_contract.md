@@ -64,7 +64,7 @@ brick's
 | Experiment root | The folder given to CellPatcher as image root must be the folder given to the preprocessing brick, so relative paths match. |
 | Image types | TIFF files (`.tif`, `.tiff`, any case) and, with the extra, OME-Zarr images: folders whose names end in `.zarr`, read from level 0 of their first image. A store with several images is an error, as in preprocessing. |
 | OME-Zarr copies | Copies written by the preprocessing brick (`<output>/ome_zarr/...`) are not read; CellPatcher reads the source images. |
-| `source_relative_path` | The image's path relative to the experiment root, with `/` separators, from its real location (`control/img.tif` for an image directly in `control/`). Never built from `ConditionRepeatFolder.relative_folder`, which inserts `single` for missing levels. |
+| `source_relative_path` | The image's path relative to the experiment root, with `/` separators, from its real location in the tree (`control/img.tif` for an image directly in `control/`; a linked image or folder keeps the link's path under the root, as the brick records it when it walks the tree). Never built from `ConditionRepeatFolder.relative_folder`, which inserts `single` for missing levels. |
 | Labels | `condition`, `biological_repeat` and `technical_repeat` come from CellPatcher's discovery as today. For images both bricks accept, they equal the CSV's labels; a difference is an error (§5). |
 
 ## 3. Planes

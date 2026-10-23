@@ -1,4 +1,5 @@
 import json
+from collections import Counter
 from contextvars import ContextVar
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
@@ -8,7 +9,7 @@ import numpy as np
 from cellpatcher.axes import normalize_axes, require_spatial_axes
 from cellpatcher.config import CellPatcherConfig
 from cellpatcher.extract import extract_patches
-from cellpatcher.export import export_patches
+from cellpatcher.export import IMAGE_TABLE_FILENAME, export_patches
 from cellpatcher.filters import filter_regions
 from cellpatcher.io import (
     SINGLE_BIOLOGICAL_REPEAT_LABEL,
@@ -27,11 +28,12 @@ from cellpatcher.normalization import (
 from cellpatcher.statistics import require_preprocessing
 from cellpatcher.planes import iter_image_planes, plane_choices, splits_planes
 from cellpatcher.resize import normalize_output_size, resize_patches
+from cellpatcher.strategies.base import _spatial_shape_from_axes
 from cellpatcher.strategies.cell import CellSegmentationStrategy
 from cellpatcher.strategies.grid import GridStrategy
 from cellpatcher.strategies.random import RandomPatchStrategy
 from cellpatcher.strategies.whole_fov import WholeFOVStrategy
-from cellpatcher.types import PatchRegion
+from cellpatcher.types import ImageRecord, PatchRegion
 
 # Filename for the full run-config JSON written alongside the metadata CSV;
 # lets a single PatchRegion CSV row (via its `config_file` column) point back
@@ -105,6 +107,38 @@ def _stamp_image_metadata(image_list, image_metadata, patches: list[PatchRegion]
             patch.source_relative_path = str(meta["source_relative_path"])
 
 
+def _image_record(config: CellPatcherConfig, image_id: str, meta, image_shape=None) -> ImageRecord:
+    """An image's :class:`ImageRecord` with the identity its patches get (no counts yet).
+
+    Labels and provenance follow :func:`_stamp_run_context` and
+    :func:`_stamp_image_metadata`, so the record joins its patches' rows.
+    """
+    meta = meta or {}
+    condition, biological_repeat, technical_repeat = _run_labels(config)
+    if meta.get("technical_repeat") is not None:
+        technical_repeat = str(meta["technical_repeat"])
+    height = width = None
+    if image_shape is not None:
+        height, width = _spatial_shape_from_axes(image_shape, axes=config.common.image_axes)
+    return ImageRecord(
+        image_id=image_id,
+        condition=condition,
+        biological_repeat=biological_repeat,
+        technical_repeat=technical_repeat,
+        image_file=None if meta.get("image_file") is None else str(meta["image_file"]),
+        mask_file=None if meta.get("mask_file") is None else str(meta["mask_file"]),
+        source_relative_path=(
+            None if meta.get("source_relative_path") is None else str(meta["source_relative_path"])
+        ),
+        image_height=height,
+        image_width=width,
+    )
+
+
+def _count_by_image(patches: list[PatchRegion]) -> Counter:
+    return Counter(patch.image_id for patch in patches)
+
+
 def _patch_array_axes(config: CellPatcherConfig) -> str:
     """Axis order of the final patch arrays (split channel patches have no C axis)."""
     axes = normalize_axes(config.common.image_axes)
@@ -155,14 +189,57 @@ def _split_channel_patches(config: CellPatcherConfig, image_list, patches: list[
     return split_patches, split_arrays
 
 
+def _stamp_image_size(config: CellPatcherConfig, image_list, patches: list[PatchRegion]) -> None:
+    """Record the Y/X size of each patch's source image (``image_height``/``image_width``)."""
+    sizes = {
+        f"image_{idx:04d}": _spatial_shape_from_axes(image.shape, axes=config.common.image_axes)
+        for idx, image in enumerate(image_list)
+    }
+    for patch in patches:
+        patch.image_height, patch.image_width = sizes[patch.image_id]
+
+
+def _padding(patch: PatchRegion, pad_mode: str) -> tuple[int, int, int, int]:
+    """Rows/columns ``extract_patch`` pads on the top, bottom, left and right of *patch*.
+
+    The same rule as ``extract_patch``: with ``"constant"``, each side is
+    padded by how far the rectangle extends past the image; ``"clip"`` never
+    pads (it returns the part inside the image).
+    """
+    if pad_mode != "constant":
+        return 0, 0, 0, 0
+    return (
+        max(0, -patch.y0),
+        max(0, patch.y1 - patch.image_height),
+        max(0, -patch.x0),
+        max(0, patch.x1 - patch.image_width),
+    )
+
+
+def _cropped_size(patch: PatchRegion, pad_mode: str) -> tuple[int, int]:
+    """Y/X size of the extracted array before any resizing (padding included, clipping applied)."""
+    if pad_mode == "constant":
+        return patch.height, patch.width
+    return (
+        min(patch.y1, patch.image_height) - max(0, patch.y0),
+        min(patch.x1, patch.image_width) - max(0, patch.x0),
+    )
+
+
 def _stamp_output_dimensions(config: CellPatcherConfig, patches: list[PatchRegion], patch_arrays) -> None:
     if patch_arrays is None or len(patch_arrays) != len(patches):
         return
+    pad_mode = config.extraction.pad_mode
     for patch, array in zip(patches, patch_arrays):
         axes = normalize_axes(_patch_array_axes(config), ndim=array.ndim)
         y_idx, x_idx = require_spatial_axes(axes)
         patch.output_height = int(array.shape[y_idx])
         patch.output_width = int(array.shape[x_idx])
+        patch.output_axes = axes
+        patch.pad_top, patch.pad_bottom, patch.pad_left, patch.pad_right = _padding(patch, pad_mode)
+        # Masking and normalization keep the shape, so only resizing can make
+        # the array differ from the extracted crop; a zoom by 1 leaves it as is.
+        patch.resized = (patch.output_height, patch.output_width) != _cropped_size(patch, pad_mode)
 
 
 @dataclass
@@ -171,6 +248,10 @@ class PatchingResult:
     patch_arrays: list | None = None
     exported_files: list[str] = field(default_factory=list)
     metadata_file: str | None = None
+    # One record per input image, with those that gave no patch; written as
+    # images.csv beside patches.csv (image_table_file) when export is enabled.
+    image_records: list[ImageRecord] = field(default_factory=list)
+    image_table_file: str | None = None
 
 
 def _normalize_images(images):
@@ -386,12 +467,25 @@ def run_config_data(config: CellPatcherConfig) -> dict:
 def _build_result(
     config: CellPatcherConfig, image_list, patches: list[PatchRegion], masks=None, image_metadata=None
 ) -> PatchingResult:
+    """Filter, stamp, normalize, extract and export the regions generated in *image_list*."""
+    if image_metadata is not None and len(image_metadata) != len(image_list):
+        raise ValueError("image_metadata must have exactly one entry per image (or be None).")
+    metadata = image_metadata if image_metadata is not None else [None] * len(image_list)
+    records = [
+        _image_record(config, f"image_{idx:04d}", meta, image.shape)
+        for idx, (image, meta) in enumerate(zip(image_list, metadata))
+    ]
+    n_regions = _count_by_image(patches)
+    patches = _apply_filters(config, image_list, patches)
+    n_kept = _count_by_image(patches)
     _stamp_run_context(config, patches)
     _stamp_image_metadata(image_list, image_metadata, patches)
+    _stamp_image_size(config, image_list, patches)
     normalizations = _normalize(config, image_list, masks, image_metadata, patches)
     if normalizations is not None:
         # Patches that cannot be normalized from their own pixels are discarded (decision D8).
         patches = [patch for patch in patches if id(patch) in normalizations]
+    n_normalized = _count_by_image(patches)
     _check_eager_memory(config, image_list, patches)
     patch_arrays_internal = _maybe_extract_arrays(
         config, image_list, patches, masks=masks, normalizations=normalizations
@@ -401,15 +495,27 @@ def _build_result(
         # cropped once; filters were already applied to the whole region.
         patches, patch_arrays_internal = _split_channel_patches(config, image_list, patches, patch_arrays_internal)
     _stamp_output_dimensions(config, patches, patch_arrays_internal)
+    n_patches = _count_by_image(patches)
+    for record in records:
+        record.n_regions = n_regions[record.image_id]
+        record.n_kept = n_kept[record.image_id]
+        record.n_normalized = n_normalized[record.image_id]
+        record.n_patches = n_patches[record.image_id]
     export_arrays = _raw_export_arrays(config, image_list, config.common.image_axes, patches, patch_arrays_internal)
-    return _finish_result(config, patches, patch_arrays_internal, export_arrays)
+    return _finish_result(config, patches, patch_arrays_internal, records, export_arrays)
 
 
 def _finish_result(
-    config: CellPatcherConfig, patches: list[PatchRegion], patch_arrays_internal, export_arrays=None
+    config: CellPatcherConfig,
+    patches: list[PatchRegion],
+    patch_arrays_internal,
+    image_records: list[ImageRecord],
+    export_arrays=None,
 ) -> PatchingResult:
     """Export the patches (when enabled) and build the result.
 
+    *image_records* has one record per input image; with the metadata CSV
+    it is written as ``images.csv`` beside ``patches.csv``.
     *export_arrays* are the file contents when they differ from the
     delivered arrays (``normalization.export_values="raw"``).
     """
@@ -417,6 +523,7 @@ def _finish_result(
         finish_patch_groups(patches, config.normalization.per_time_point)
     exported_files: list[str] = []
     metadata_file: str | None = None
+    image_table_file: str | None = None
     if config.export.enabled:
         if config.common.output_dir is None:
             raise ValueError("common.output_dir is required when export.enabled is True.")
@@ -441,9 +548,11 @@ def _finish_result(
             image_format=config.export.image_format,
             save_metadata=config.export.save_metadata_csv,
             metadata_filename="patches.csv",
+            image_records=image_records,
         )
         if config.export.save_metadata_csv:
             metadata_file = str(out_dir / "patches.csv")
+            image_table_file = str(out_dir / IMAGE_TABLE_FILENAME)
 
     patch_arrays_result = patch_arrays_internal if config.common.extract_arrays else None
     return PatchingResult(
@@ -451,6 +560,8 @@ def _finish_result(
         patch_arrays=patch_arrays_result,
         exported_files=exported_files,
         metadata_file=metadata_file,
+        image_records=image_records,
+        image_table_file=image_table_file,
     )
 
 
@@ -492,6 +603,7 @@ def _patch_planes(config: CellPatcherConfig, sources) -> PatchingResult:
     need_arrays = config.common.extract_arrays or config.export.enabled
     raw_export = config.normalization.enabled and config.normalization.export_values == "raw" and config.export.enabled
     patches: list[PatchRegion] = []
+    records: list[ImageRecord] = []
     patch_arrays = [] if need_arrays else None
     export_arrays = [] if raw_export else None
     planes_done = 0
@@ -521,7 +633,12 @@ def _patch_planes(config: CellPatcherConfig, sources) -> PatchingResult:
                 )
             plane_metadata.append(plane_meta)
 
+        image_id = f"image_{index:04d}"
         if not planes:
+            # A Z or T axis of length 0 under z_policy/t_policy="all".
+            record = _image_record(config, image_id, meta)
+            record.skip_reason = "the image has no plane to patch along the axes split by z_policy/t_policy"
+            records.append(record)
             continue
         plane_masks = [plane.mask for plane in planes]
         mask_axes = next((plane.mask_axes for plane in planes if plane.mask is not None), config.common.mask_axes)
@@ -568,7 +685,11 @@ def _patch_planes(config: CellPatcherConfig, sources) -> PatchingResult:
                 for patch, array in zip(result.patches, result.patch_arrays)
             )
 
-        image_id = f"image_{index:04d}"
+        # The image's record sums those of its planes.
+        record = replace(result.image_records[0], image_id=image_id)
+        for counter in ("n_regions", "n_kept", "n_normalized", "n_patches"):
+            setattr(record, counter, sum(getattr(plane_record, counter) for plane_record in result.image_records))
+        records.append(record)
         for patch in result.patches:
             plane_id = patch.image_id
             suffix = planes[int(plane_id.rsplit("_", 1)[1])].suffix
@@ -582,7 +703,7 @@ def _patch_planes(config: CellPatcherConfig, sources) -> PatchingResult:
         if patch_arrays is not None:
             patch_arrays.extend(result.patch_arrays)
         planes_done += len(planes)
-    return _finish_result(config, patches, patch_arrays, export_arrays)
+    return _finish_result(config, patches, patch_arrays, records, export_arrays)
 
 
 def run_patching(images=None, masks=None, config=None, image_metadata=None) -> PatchingResult:
@@ -637,6 +758,10 @@ def run_patching(images=None, masks=None, config=None, image_metadata=None) -> P
         * ``exported_files`` — list of written file paths when
           ``config.export.enabled=True``; otherwise an empty list.
         * ``metadata_file`` — path to the metadata CSV, or ``None``.
+        * ``image_records`` — one :class:`~cellpatcher.types.ImageRecord`
+          per input image, including images that gave no patch.
+        * ``image_table_file`` — path to ``images.csv``, the per-image
+          table written beside the metadata CSV, or ``None``.
 
     Raises
     ------
@@ -676,7 +801,6 @@ def run_patching(images=None, masks=None, config=None, image_metadata=None) -> P
                     image_shape=image.shape, labels=None, image_id=image_id, axes=config.common.image_axes
                 )
             )
-        patches = _apply_filters(config, image_list, patches)
         return _build_result(config, image_list, patches, masks=None, image_metadata=image_metadata)
 
     if config.mode == "grid":
@@ -690,7 +814,6 @@ def run_patching(images=None, masks=None, config=None, image_metadata=None) -> P
                     image_shape=image.shape, labels=None, image_id=image_id, axes=config.common.image_axes
                 )
             )
-        patches = _apply_filters(config, image_list, patches)
         return _build_result(config, image_list, patches, masks=None, image_metadata=image_metadata)
 
     if config.mode == "cell":
@@ -714,7 +837,6 @@ def run_patching(images=None, masks=None, config=None, image_metadata=None) -> P
                     image_shape=image.shape, labels=mask, image_id=image_id, axes=config.common.image_axes
                 )
             )
-        patches = _apply_filters(config, image_list, patches)
         return _build_result(config, image_list, patches, masks=mask_list, image_metadata=image_metadata)
 
     if config.mode == "random":
@@ -748,5 +870,4 @@ def run_patching(images=None, masks=None, config=None, image_metadata=None) -> P
                     image_shape=image.shape, labels=mask, image_id=image_id, axes=config.common.image_axes
                 )
             )
-        patches = _apply_filters(config, image_list, patches)
         return _build_result(config, image_list, patches, masks=mask_list, image_metadata=image_metadata)

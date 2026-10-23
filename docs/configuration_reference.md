@@ -131,7 +131,7 @@ Controls whether and how patch arrays are written to disk.
 | Field | Type | Default | Notes |
 |---|---|---|---|
 | `enabled` | `bool` | `False` | Master switch for file export. When `True`, patch arrays are written to `common.output_dir`. |
-| `save_metadata_csv` | `bool` | `True` | When `True`, a `patches.csv` file with per-patch metadata is written alongside the patch files. |
+| `save_metadata_csv` | `bool` | `True` | When `True`, a `patches.csv` file with per-patch metadata is written alongside the patch files, together with the per-image table `images.csv` (see "Per-image table" below). |
 | `image_format` | `str` | `"tif"` | Output file format. One of `"tif"`, `"tiff"` (both write TIFF), or `"npy"` (NumPy binary). |
 | `save_run_config` | `bool` | `True` | When `True`, `run_config.json` (the full serialized config) is written next to the patch files and named in every row's `config_file`. `run_patching_condition_repeat_tree(combine_metadata=True)` turns it off per folder and writes one for the whole tree instead. |
 
@@ -150,6 +150,9 @@ Controls how image files are paired with mask files when reading from folders.
 | `strategy` | `str` | `"exact_or_suffix"` | Filename matching strategy (see table below). |
 | `mask_suffixes` | `tuple[str, ...]` | `("_mask", "_labels", "_label", "_seg", "_segmentation")` | Candidate suffixes used by the `exact_or_suffix` strategy. |
 | `case_sensitive` | `bool` | `False` | When `False`, filenames are compared case-insensitively. |
+| `ignore_unrequested_masks` | `bool` | `False` | When `True`, masks whose stem ends in none of `mask_suffixes` are left out **before** matching: they are neither candidates nor reported as "Masks with no matching image". For a mask folder holding several masks per image (`img_cells.tif`, `img_nuclei.tif`, `img_mito.tif`, ...), set `mask_suffixes=("_cells",)` and `ignore_unrequested_masks=True`. A mask named exactly like its image ends with no suffix and is left out too; an image without a requested mask, or a requested mask without an image, still raises. Needs `exact_or_suffix` or `substring` (`exact` uses no suffix). `validate_image_and_mask_folders(..., ignore_unrequested_masks=True)` is the same option for the standalone helper. |
+
+With `ignore_unrequested_masks=False` (the default), every mask in the folder must match an image, so `mask_suffixes=("_cells",)` alone still refuses a folder that also holds `_nuclei` masks; the error then says how many of the unmatched masks end in none of `mask_suffixes` and names this option.
 
 **Matching strategies:**
 
@@ -261,7 +264,13 @@ Every generated patch is a `PatchRegion` dataclass. The fields below are populat
 | `output_height`, `output_width` | `int \| None` | Final exported array shape. Differs from `y1 - y0`/`x1 - x0` when `extraction.output_size` resizes the patch. `None` unless arrays were extracted (`extract_arrays=True` or `export.enabled=True`). |
 | `config_file` | `str \| None` | Filename of the full run-config JSON saved alongside `patches.csv` (see below). `None` unless `export.enabled=True`. |
 | `valid`, `reason` | `bool`, `str \| None` | Reserved for future rejected-patch reporting; not yet populated (`valid` is always `True`). |
-| `source_relative_path` | `str \| None` | The source image's path relative to the experiment root, with `/` separators, from its real location (`control/img.tif` for an image directly in `control/`, never the `single` output folders). Links the patch to the preprocessing brick's `plane_id` ([normalization contract](normalization_contract.md) §2). Tree runs make it relative to `image_root_path`; `run_patching_pipeline` to the image folder (the file name); direct `run_patching()` calls take it from `image_metadata`, else `None`. Last column of `patches.csv`. |
+| `source_relative_path` | `str \| None` | The source image's path relative to the experiment root, with `/` separators, from where it sits in the folder tree (`control/img.tif` for an image directly in `control/`, never the `single` output folders). A linked image or folder keeps the link's path under the root, not its target's, as the preprocessing brick records it (see "Trees of links" below). Links the patch to the preprocessing brick's `plane_id` ([normalization contract](normalization_contract.md) §2). Tree runs make it relative to `image_root_path`; `run_patching_pipeline` to the image folder (the file name); direct `run_patching()` calls take it from `image_metadata`, else `None`. Followed in `patches.csv` by the six `normalization_*` columns (see Normalization above). |
+| `image_height`, `image_width` | `int \| None` | Y/X size of the source image (the plane, for split Z/T planes) that `y0/y1/x0/x1` refer to. Set by `run_patching` for every patch, with or without arrays. |
+| `pad_top`, `pad_bottom`, `pad_left`, `pad_right` | `int \| None` | Rows/columns of `extraction.constant_values` added on each side where the rectangle extends past the image (`extraction.pad_mode="constant"`), counted before resizing; `0` when nothing was padded (`"clip"` never pads, and the built-in modes keep every rectangle inside the image). `None` unless arrays were extracted. |
+| `resized` | `bool \| None` | Whether `extraction.output_size` changed the patch's Y/X shape: `False` without an output size, and for a patch that already had it (resizing then leaves the pixels unchanged). `None` unless arrays were extracted. |
+| `output_axes` | `str \| None` | Axes of the delivered/exported array, in order: `common.image_axes` without the Z/T axes a plane policy resolved and, for split channels, without `C` (e.g. `"CYX"`, `"YX"`, `"ZCYX"` with `z_policy="keep"`). Exported TIFF/NPY files carry no axes of their own. `None` unless arrays were extracted. |
+
+These last eight columns come after every earlier one, so the order of the existing columns does not change.
 
 ### Shared MorphoBricks CSV contract
 
@@ -270,6 +279,24 @@ Every generated patch is a `PatchRegion` dataclass. The fields below are populat
 - `condition`/`biological_repeat` — either set `config.common.condition`/`config.common.biological_repeat` explicitly and call `run_patching_pipeline` on a single folder, or call `run_patching_condition_repeat_tree(image_root_path, ...)` on a `raw_data/<condition>/<biological_repeat>/` root and let both be derived per leaf from the folder path (see below). A label that is not given, or set to `None`, is written as `"single"` (`SINGLE_CONDITION_LABEL`, `SINGLE_BIOLOGICAL_REPEAT_LABEL`, `SINGLE_TECHNICAL_REPEAT_LABEL`), as for a missing folder level, so the label columns are never empty.
 - `technical_repeat` — the well, dish or coverslip within the biological repeat. Tree runs derive it from an optional `<condition>/<biological_repeat>/<technical_repeat>/` level and write `"single"` when a biological-repeat folder holds its images directly, so the column is never empty in a tree run. For a single folder set `config.common.technical_repeat`; when one folder holds several wells, pass `image_metadata=[{"technical_repeat": ...}, ...]` to `run_patching`.
 - `image_file`/`mask_file`/`patch_file` are populated automatically by `run_patching_pipeline` (folder-based runs, including each leaf of `run_patching_condition_repeat_tree`) and `export_patches` respectively.
+
+### Per-image table (`images.csv`)
+
+Wherever `patches.csv` is written (`export.enabled=True` with `save_metadata_csv=True`: `run_patching`, `run_patching_pipeline`, each leaf of `run_patching_condition_repeat_tree`, its combined output, and `export_patches`), `images.csv` is written beside it (`cellpatcher.export.IMAGE_TABLE_FILENAME`). It has **one row per input image the run considered**, including images that gave no patch, so a reader can tell an image without patches from one that was never patched. In memory, `PatchingResult.image_records` holds the same rows as `ImageRecord` objects (also without export), and `PatchingResult.image_table_file` names the file.
+
+| Column | Notes |
+|---|---|
+| `condition`, `biological_repeat`, `technical_repeat` | The labels the image's patches get in `patches.csv` (`"single"` when not given). |
+| `image_id` | `image_0000`, ... as in `patches.csv`: unique within one `patches.csv` of a folder or leaf, the only key of a direct `run_patching` call without file names. |
+| `image_file`, `mask_file`, `source_relative_path` | As in `patches.csv`; empty when not known (direct `run_patching` without `image_metadata`, no mask). |
+| `image_height`, `image_width` | The image's Y/X size, as in the patches' `image_height`/`image_width`. Empty for a skipped image. |
+| `n_patches` | The image's number of rows in `patches.csv` (one per channel patch with `split_channels`). |
+| `status` | `processed`: `n_patches` > 0. `no_patches`: the image was read and patched, but no patch was kept. `skipped`: the image had nothing to patch. |
+| `reason` | Empty for `processed`. For `no_patches`, the step that left none: `the patch mode generated no region in this image` (e.g. no labeled object in its mask, every object excluded by border or area), `the filters removed all <n> region(s)`, or `normalization discarded all <n> patch(es): they cannot be normalized from their own pixels` (decision D8). For `skipped`: `the image has no plane to patch along the axes split by z_policy/t_policy` (a Z or T axis of length 0 with `"all"`). |
+
+There is no `failed` status: an image that cannot be read, matched to a mask or patched stops the whole run with an error before any table is written, as before, so no image is ever left out silently.
+
+**Joining the two tables.** Every `patches.csv` row's image has exactly one `images.csv` row with the same `condition`/`biological_repeat`/`technical_repeat`/`image_id`/`image_file` (`image_id` alone is not unique across a combined tree CSV; `source_relative_path` is unique in folder and tree runs). An image's `n_patches` is its number of `patches.csv` rows. `export_patches` called directly writes the records it is given (`image_records=`), or else one `processed` row per image of the patches, since it cannot know about images without patches.
 
 ### OME-Zarr images
 
@@ -286,12 +313,13 @@ With the `preprocessing` extra (`pip install "cellpatcher[preprocessing]"`), fol
 - `<image files>` directly in the root — **no condition subfolders.** The whole dataset is treated as one condition and one biological repeat, labeled `cellpatcher.SINGLE_CONDITION_LABEL`/`cellpatcher.SINGLE_BIOLOGICAL_REPEAT_LABEL` (both `"single"`), exported to `<output_dir>/single/single/`.
 - `<condition>/<biological_repeat>/<technical_repeat>/<image files>` — **technical repeats.** A biological-repeat folder holding only subfolders has one subfolder per technical repeat (a well, a dish, a coverslip), each its own leaf, stamped with the subfolder name and exported to `<output_dir>/<condition>/<biological_repeat>/<technical_repeat>/`. A biological-repeat folder holding its images directly is one technical repeat, stamped `cellpatcher.SINGLE_TECHNICAL_REPEAT_LABEL` (`"single"`), and keeps the two-level output folder. The technical level needs the biological-repeat level above it: in `<condition>/<well>/<images>` the wells are read as biological repeats, so put them under a dated (or `single`) biological-repeat folder.
 - A root, condition or biological-repeat folder mixing loose image files with subfolders is ambiguous and raises `ValueError`. Hidden subfolders (names starting with `.`, e.g. `.ipynb_checkpoints`) are ignored.
+- **Trees of links.** Image files and folders may be symbolic links, for example a tree that gathers a subset of images stored elsewhere into the `<condition>/<biological_repeat>/` layout. Links are followed for reading; `image_file` is the link's name and `source_relative_path` the link's path under the root (as the preprocessing brick records it), so the patches of a linked tree are those of a copied tree. A link whose target does not exist raises (it is a missing image), in folder and tree runs alike. Two links to the same file are two images.
 
 When `mask_root_path` is given, the same structure is mirrored under it per leaf. Mask folder requirements follow the same per-mode rules as `run_patching_pipeline` (required for `mode="cell"`, optional for `mode="random"`, not accepted for `mode="grid"`/`"whole_fov"`), applied independently to each leaf — a leaf missing a required mask folder raises immediately and aborts the whole tree run rather than being silently skipped.
 
 Returns a list of `ConditionRepeatResult(condition, biological_repeat, image_folder, result, technical_repeat, relative_folder)`, one per leaf, in the same (condition, then biological repeat, then technical repeat) sorted order `discover_condition_repeat_folders` returns (whose `ConditionRepeatFolder` entries likewise carry `biological_repeat` and `technical_repeat`).
 
-- `combine_metadata=True` (requires `export.enabled=True` and `common.output_dir`) writes **one** `patches.csv` and **one** `run_config.json` directly in `output_dir` instead of a pair per leaf folder. Patch files still go to each leaf's `<output_dir>/<condition>/<biological_repeat>[/<technical_repeat>]/`, and each row's `patch_file` is the path relative to the CSV, e.g. `treated/2026_01_01/image_0000_grid_00000.tif` or `treated/2026_01_01/B02/image_0000_grid_00000.tif` — the same "relative to the CSV" meaning as in the per-leaf layout, so `ExportedPatchTorchDataset` reads the combined CSV unchanged. `patch_id`/`image_id` are only unique within a leaf; identify rows across the combined CSV by `condition`/`biological_repeat`/`technical_repeat`/`image_file` (or `patch_file`).
+- `combine_metadata=True` (requires `export.enabled=True` and `common.output_dir`) writes **one** `patches.csv`, **one** `images.csv` (every image of every leaf) and **one** `run_config.json` directly in `output_dir` instead of a set per leaf folder. Patch files still go to each leaf's `<output_dir>/<condition>/<biological_repeat>[/<technical_repeat>]/`, and each row's `patch_file` is the path relative to the CSV, e.g. `treated/2026_01_01/image_0000_grid_00000.tif` or `treated/2026_01_01/B02/image_0000_grid_00000.tif` — the same "relative to the CSV" meaning as in the per-leaf layout, so `ExportedPatchTorchDataset` reads the combined CSV unchanged. `patch_id`/`image_id` are only unique within a leaf; identify rows across the combined CSV by `condition`/`biological_repeat`/`technical_repeat`/`image_file` (or `patch_file`).
 - `progress_callback(completed, total, leaf)` is called before each leaf and once more at the end (`leaf=None`), e.g. to drive a progress bar.
 
 ### Renamed: `repeat` → `biological_repeat`
@@ -311,5 +339,5 @@ Output is identical whichever name is used; files are always written with `biolo
 
 Each exported `patches.csv` row, together with the `run_config.json` file it references via `config_file` (written alongside it whenever `export.enabled=True`; see `cellpatcher.RUN_CONFIG_FILENAME`), is enough to reconstruct the patch without re-deriving anything from code:
 
-- The row's own coordinates (`y0/y1/x0/x1`, `z0/z1`, `t`, `c`) and `output_height`/`output_width` fully describe the patch geometry and final exported array shape.
+- The row's own coordinates (`y0/y1/x0/x1`, `z0/z1`, `t`, `c`) and `output_height`/`output_width` fully describe the patch geometry and final exported array shape; `image_height`/`image_width`, the `pad_*` columns, `resized` and `output_axes` say, without the source image or the config, where the rectangle lies in its image, which pixels of the array are padding, whether the array was resampled and what its axes are.
 - `run_config.json` is the complete, serialized `CellPatcherConfig` for the run — strategy parameters (including `random.seed`), extraction/resize settings, matching strategy, and axes — everything needed to reproduce the same coordinates deterministically from the same inputs.

@@ -285,12 +285,21 @@ class MatchConfig:
 
     The package-backed notebook/workflows should pass these fields through when
     calling folder-validation helpers.
+
+    ``ignore_unrequested_masks`` leaves out, before matching, every mask whose
+    stem ends in none of ``mask_suffixes``: for a mask folder holding several
+    masks per image (``_cells``, ``_nuclei``, ...), set
+    ``mask_suffixes=("_cells",)`` and ``ignore_unrequested_masks=True``. Off
+    by default, so every mask in the folder must match an image.
     """
     strategy: str = "exact_or_suffix"
     mask_suffixes: tuple[str, ...] = ("_mask", "_labels", "_label", "_seg", "_segmentation")
     case_sensitive: bool = False
+    ignore_unrequested_masks: bool = False
 
     def __post_init__(self) -> None:
+        if not isinstance(self.ignore_unrequested_masks, bool):
+            raise ValueError("ignore_unrequested_masks must be a bool.")
         if self.strategy not in {"exact", "exact_or_suffix", "substring"}:
             raise ValueError("strategy must be one of: 'exact', 'exact_or_suffix', 'substring'.")
         if not isinstance(self.mask_suffixes, (tuple, list)) or not all(

@@ -190,6 +190,10 @@ CellPatcher-specific conventions:
   `patches.csv` — the full serialized `CellPatcherConfig` for the run, so
   every exported patch is deterministically reproducible from its CSV row
   (`config_file` column) plus that file (see §5).
+* Every `patches.csv` has the per-image table `images.csv`
+  (`cellpatcher.export.IMAGE_TABLE_FILENAME`) beside it, written by
+  `export_patches` and by the combined tree output; it lists every input
+  image, including those without patches (see §5).
 
 Reusable pipeline logic should live in importable modules rather than only
 in notebooks where practical.
@@ -265,6 +269,28 @@ Two ways to point CellPatcher at input data:
   `patch_file` is the path relative to the CSV
   (`<condition>/<biological_repeat>[/<technical_repeat>]/<file>`); in both
   layouts it is relative to the CSV's folder.
+- Beside every `patches.csv` (same folder, same `save_metadata_csv`
+  switch; per leaf, or once in `output_dir` with `combine_metadata=True`),
+  a per-image table `images.csv` with **one row per input image the run
+  considered, including images that gave no patch**: `condition`,
+  `biological_repeat`, `technical_repeat`, `image_id`, `image_file`,
+  `mask_file`, `source_relative_path` (the `patches.csv` names and values),
+  `image_height`/`image_width`, `n_patches` (its rows in `patches.csv`),
+  `status` (`processed` when `n_patches` > 0; `no_patches` when it was
+  patched but none kept; `skipped` when it had no plane to patch) and
+  `reason` (empty for `processed`; otherwise the step that left no patch:
+  the patch mode, the filters or normalization discards). There is no
+  `failed` status: a failing image stops the run with an error before any
+  table is written. Every `patches.csv` row joins exactly one `images.csv`
+  row on `condition`/`biological_repeat`/`technical_repeat`/`image_id`/
+  `image_file`. In memory: `PatchingResult.image_records`. Documented in
+  `docs/configuration_reference.md` ("Per-image table").
+- Per patch, the geometry a reader of exported arrays needs (appended after
+  every earlier `patches.csv` column): `image_height`/`image_width` (the
+  source image's Y/X size), `pad_top`/`pad_bottom`/`pad_left`/`pad_right`
+  (constant padding per side), `resized` (whether `output_size` changed the
+  shape) and `output_axes` (the array's axes; the files carry none).
+  Documented in `docs/configuration_reference.md`.
 - Optionally, exported patch arrays as `.npy` or `.tif`/`.tiff` files
   (`save_patch_array`), named by each row's `patch_file` column. With
   normalization they are float32 normalized values, or with
@@ -288,8 +314,8 @@ Two ways to point CellPatcher at input data:
 Milestones 1–5. Implemented so far (Milestone 1): the optional
 `preprocessing` extra (pinned commit in `setup.py`), the
 `source_relative_path` `PatchRegion` field/`patches.csv` column (last
-column; filled by folder and tree runs from each image's real path under the
-root), and `cellpatcher.statistics`, which loads `plane_histograms.csv` and
+column; filled by folder and tree runs from each image's path under the
+root, a linked image or folder keeping the link's path as in the brick), and `cellpatcher.statistics`, which loads `plane_histograms.csv` and
 the optional `run_manifest.json` and runs the checks of contract §5 — not
 yet called by the pipeline. Milestone 2 adds plane splitting
 (`common.z_policy`/`t_policy`), OME-Zarr images and OME-NGFF label masks

@@ -30,7 +30,7 @@ from cellpatcher.io import (
     read_ngff_mask,
     validate_image_and_mask_folders,
 )
-from cellpatcher.export import save_metadata_csv
+from cellpatcher.export import IMAGE_TABLE_FILENAME, save_image_table_csv, save_metadata_csv
 from cellpatcher.normalization import CSV_SCOPES, cached_statistics, validate_normalization
 from cellpatcher.pipeline import RUN_CONFIG_FILENAME, PatchingResult, _patch_planes, run_config_data, run_patching
 from cellpatcher.statistics import check_images
@@ -336,6 +336,7 @@ def _mask_loaders(image_folder_path, mask_folder_path, image_files, config, stra
         strategy=matching.strategy if strategy is None else strategy,
         mask_suffixes=matching.mask_suffixes if mask_suffixes is None else mask_suffixes,
         case_sensitive=matching.case_sensitive if case_sensitive is None else case_sensitive,
+        ignore_unrequested_masks=matching.ignore_unrequested_masks,
     )
     return [functools.partial(_read_mask_file, selected[image], config.common.mask_axes) for image in image_files]
 
@@ -364,14 +365,26 @@ def _check_preprocessing_inputs(config: CellPatcherConfig, experiment_root, imag
 def _source_relative_path(image_path: Path, experiment_root) -> str:
     """Path of *image_path* relative to *experiment_root*, with ``/`` separators.
 
-    Built from the image's real location, so it matches the preprocessing
-    brick's ``source_relative_path`` (``control/img.tif`` for an image
-    directly in ``control/``), unlike ``ConditionRepeatFolder.relative_folder``,
-    which inserts ``single`` for missing levels.
+    Built from where the image sits in the folder tree, so it matches the
+    preprocessing brick's ``source_relative_path`` (``control/img.tif`` for an
+    image directly in ``control/``), unlike
+    ``ConditionRepeatFolder.relative_folder``, which inserts ``single`` for
+    missing levels. Like the brick, which walks the tree following links,
+    a linked image or folder keeps its path under the root (the link's, not
+    its target's), so a tree of links to images stored elsewhere can be
+    patched. A path that is not under the root as written is compared by real
+    locations, as before.
     """
-    root = Path(experiment_root).expanduser().resolve()
+    root = Path(experiment_root).expanduser()
+    image = Path(image_path).expanduser()
     try:
-        return Path(image_path).expanduser().resolve().relative_to(root).as_posix()
+        # Discovery builds every image path from the root, so this holds for
+        # folder and tree runs; resolving would follow links out of the tree.
+        return image.absolute().relative_to(root.absolute()).as_posix()
+    except ValueError:  # e.g. the same folder written through a link
+        pass
+    try:
+        return image.resolve().relative_to(root.resolve()).as_posix()
     except ValueError as exc:
         raise ValueError(f"Image '{image_path}' is not inside the experiment root '{root}'.") from exc
 
@@ -651,15 +664,17 @@ def run_patching_condition_repeat_tree(
         Same as :func:`run_patching_pipeline`, applied to every leaf.
     combine_metadata:
         When ``True`` (requires ``config.export.enabled`` and
-        ``config.common.output_dir``), a single ``patches.csv`` and a single
+        ``config.common.output_dir``), a single ``patches.csv``, a single
+        ``images.csv`` (every image of every leaf) and a single
         ``run_config.json`` are written directly in ``output_dir`` instead
-        of one pair per leaf folder. The patch files themselves still go to
+        of one set per leaf folder. The patch files themselves still go to
         each leaf's ``<output_dir>/<condition>/<biological_repeat>[/<technical_repeat>]/``,
         and each row's ``patch_file`` is that file's path relative to
         ``output_dir`` (e.g. ``"treated/2026_01_01/image_0000_grid_00000.tif"``,
         or ``"treated/2026_01_01/B02/image_0000_grid_00000.tif"``), so it
         stays relative to the CSV exactly as in the per-leaf layout. Every
-        leaf's ``result.metadata_file`` then points to the combined CSV.
+        leaf's ``result.metadata_file`` (and ``result.image_table_file``)
+        then points to the combined CSV.
     progress_callback:
         Optional ``callable(completed, total, leaf)``, called before each
         leaf is processed (``leaf`` is the
@@ -774,7 +789,7 @@ def run_patching_condition_repeat_tree(
 
 
 def _write_combined_metadata(config: CellPatcherConfig, output_dir: Path, results: list[ConditionRepeatResult]) -> None:
-    """Write one run_config.json and one patches.csv covering every leaf of a tree run."""
+    """Write one run_config.json, one patches.csv and one images.csv covering every leaf of a tree run."""
     output_dir.mkdir(parents=True, exist_ok=True)
     with (output_dir / RUN_CONFIG_FILENAME).open("w", encoding="utf-8") as f:
         json.dump(run_config_data(config), f, indent=2, default=str)
@@ -793,5 +808,11 @@ def _write_combined_metadata(config: CellPatcherConfig, output_dir: Path, result
     if config.export.save_metadata_csv:
         csv_path = output_dir / "patches.csv"
         save_metadata_csv(all_patches, csv_path)
+        # Every image of every leaf, with those that gave no patch.
+        image_table_path = output_dir / IMAGE_TABLE_FILENAME
+        save_image_table_csv(
+            [record for leaf_result in results for record in leaf_result.result.image_records], image_table_path
+        )
         for leaf_result in results:
             leaf_result.result.metadata_file = str(csv_path)
+            leaf_result.result.image_table_file = str(image_table_path)
