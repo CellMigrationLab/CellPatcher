@@ -30,7 +30,7 @@ from cellpatcher.io import (
     read_ngff_mask,
     validate_image_and_mask_folders,
 )
-from cellpatcher.export import save_metadata_csv
+from cellpatcher.export import IMAGE_TABLE_FILENAME, save_image_table_csv, save_metadata_csv
 from cellpatcher.normalization import CSV_SCOPES, cached_statistics, validate_normalization
 from cellpatcher.pipeline import RUN_CONFIG_FILENAME, PatchingResult, _patch_planes, run_config_data, run_patching
 from cellpatcher.statistics import check_images
@@ -664,15 +664,17 @@ def run_patching_condition_repeat_tree(
         Same as :func:`run_patching_pipeline`, applied to every leaf.
     combine_metadata:
         When ``True`` (requires ``config.export.enabled`` and
-        ``config.common.output_dir``), a single ``patches.csv`` and a single
+        ``config.common.output_dir``), a single ``patches.csv``, a single
+        ``images.csv`` (every image of every leaf) and a single
         ``run_config.json`` are written directly in ``output_dir`` instead
-        of one pair per leaf folder. The patch files themselves still go to
+        of one set per leaf folder. The patch files themselves still go to
         each leaf's ``<output_dir>/<condition>/<biological_repeat>[/<technical_repeat>]/``,
         and each row's ``patch_file`` is that file's path relative to
         ``output_dir`` (e.g. ``"treated/2026_01_01/image_0000_grid_00000.tif"``,
         or ``"treated/2026_01_01/B02/image_0000_grid_00000.tif"``), so it
         stays relative to the CSV exactly as in the per-leaf layout. Every
-        leaf's ``result.metadata_file`` then points to the combined CSV.
+        leaf's ``result.metadata_file`` (and ``result.image_table_file``)
+        then points to the combined CSV.
     progress_callback:
         Optional ``callable(completed, total, leaf)``, called before each
         leaf is processed (``leaf`` is the
@@ -787,7 +789,7 @@ def run_patching_condition_repeat_tree(
 
 
 def _write_combined_metadata(config: CellPatcherConfig, output_dir: Path, results: list[ConditionRepeatResult]) -> None:
-    """Write one run_config.json and one patches.csv covering every leaf of a tree run."""
+    """Write one run_config.json, one patches.csv and one images.csv covering every leaf of a tree run."""
     output_dir.mkdir(parents=True, exist_ok=True)
     with (output_dir / RUN_CONFIG_FILENAME).open("w", encoding="utf-8") as f:
         json.dump(run_config_data(config), f, indent=2, default=str)
@@ -806,5 +808,11 @@ def _write_combined_metadata(config: CellPatcherConfig, output_dir: Path, result
     if config.export.save_metadata_csv:
         csv_path = output_dir / "patches.csv"
         save_metadata_csv(all_patches, csv_path)
+        # Every image of every leaf, with those that gave no patch.
+        image_table_path = output_dir / IMAGE_TABLE_FILENAME
+        save_image_table_csv(
+            [record for leaf_result in results for record in leaf_result.result.image_records], image_table_path
+        )
         for leaf_result in results:
             leaf_result.result.metadata_file = str(csv_path)
+            leaf_result.result.image_table_file = str(image_table_path)

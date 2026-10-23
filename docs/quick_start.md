@@ -83,8 +83,8 @@ After patching, choose how to use the results.
 | Goal | Config | Output / API |
 |---|---|---|
 | In-memory arrays only | `common.extract_arrays=True` | `result.patch_arrays` |
-| Patch files + CSV metadata on disk (`.npy`, recommended for Torch) | `ExportConfig(enabled=True, image_format="npy", save_metadata_csv=True)` + `common.output_dir=...` | `.npy` files + `patches.csv` in `output_dir` |
-| Patch files + CSV metadata on disk (TIFF) | `ExportConfig(enabled=True, image_format="tif")` + `common.output_dir=...` | `.tif` files + `patches.csv` |
+| Patch files + CSV metadata on disk (`.npy`, recommended for Torch) | `ExportConfig(enabled=True, image_format="npy", save_metadata_csv=True)` + `common.output_dir=...` | `.npy` files + `patches.csv` + `images.csv` (one row per input image) in `output_dir` |
+| Patch files + CSV metadata on disk (TIFF) | `ExportConfig(enabled=True, image_format="tif")` + `common.output_dir=...` | `.tif` files + `patches.csv` + `images.csv` |
 | Live Torch dataset (no disk round-trip) | `common.extract_arrays=False`, no export | `PatchTorchDataset(images, result.patches, ...)` |
 | Torch dataset from exported files (decoupled export + training) | Export to disk first, then load | `ExportedPatchTorchDataset(result.metadata_file, axes=..., tensor_config=...)` |
 

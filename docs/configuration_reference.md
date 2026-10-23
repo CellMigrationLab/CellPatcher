@@ -131,7 +131,7 @@ Controls whether and how patch arrays are written to disk.
 | Field | Type | Default | Notes |
 |---|---|---|---|
 | `enabled` | `bool` | `False` | Master switch for file export. When `True`, patch arrays are written to `common.output_dir`. |
-| `save_metadata_csv` | `bool` | `True` | When `True`, a `patches.csv` file with per-patch metadata is written alongside the patch files. |
+| `save_metadata_csv` | `bool` | `True` | When `True`, a `patches.csv` file with per-patch metadata is written alongside the patch files, together with the per-image table `images.csv` (see "Per-image table" below). |
 | `image_format` | `str` | `"tif"` | Output file format. One of `"tif"`, `"tiff"` (both write TIFF), or `"npy"` (NumPy binary). |
 | `save_run_config` | `bool` | `True` | When `True`, `run_config.json` (the full serialized config) is written next to the patch files and named in every row's `config_file`. `run_patching_condition_repeat_tree(combine_metadata=True)` turns it off per folder and writes one for the whole tree instead. |
 
@@ -280,6 +280,24 @@ These last eight columns come after every earlier one, so the order of the exist
 - `technical_repeat` — the well, dish or coverslip within the biological repeat. Tree runs derive it from an optional `<condition>/<biological_repeat>/<technical_repeat>/` level and write `"single"` when a biological-repeat folder holds its images directly, so the column is never empty in a tree run. For a single folder set `config.common.technical_repeat`; when one folder holds several wells, pass `image_metadata=[{"technical_repeat": ...}, ...]` to `run_patching`.
 - `image_file`/`mask_file`/`patch_file` are populated automatically by `run_patching_pipeline` (folder-based runs, including each leaf of `run_patching_condition_repeat_tree`) and `export_patches` respectively.
 
+### Per-image table (`images.csv`)
+
+Wherever `patches.csv` is written (`export.enabled=True` with `save_metadata_csv=True`: `run_patching`, `run_patching_pipeline`, each leaf of `run_patching_condition_repeat_tree`, its combined output, and `export_patches`), `images.csv` is written beside it (`cellpatcher.export.IMAGE_TABLE_FILENAME`). It has **one row per input image the run considered**, including images that gave no patch, so a reader can tell an image without patches from one that was never patched. In memory, `PatchingResult.image_records` holds the same rows as `ImageRecord` objects (also without export), and `PatchingResult.image_table_file` names the file.
+
+| Column | Notes |
+|---|---|
+| `condition`, `biological_repeat`, `technical_repeat` | The labels the image's patches get in `patches.csv` (`"single"` when not given). |
+| `image_id` | `image_0000`, ... as in `patches.csv`: unique within one `patches.csv` of a folder or leaf, the only key of a direct `run_patching` call without file names. |
+| `image_file`, `mask_file`, `source_relative_path` | As in `patches.csv`; empty when not known (direct `run_patching` without `image_metadata`, no mask). |
+| `image_height`, `image_width` | The image's Y/X size, as in the patches' `image_height`/`image_width`. Empty for a skipped image. |
+| `n_patches` | The image's number of rows in `patches.csv` (one per channel patch with `split_channels`). |
+| `status` | `processed`: `n_patches` > 0. `no_patches`: the image was read and patched, but no patch was kept. `skipped`: the image had nothing to patch. |
+| `reason` | Empty for `processed`. For `no_patches`, the step that left none: `the patch mode generated no region in this image` (e.g. no labeled object in its mask, every object excluded by border or area), `the filters removed all <n> region(s)`, or `normalization discarded all <n> patch(es): they cannot be normalized from their own pixels` (decision D8). For `skipped`: `the image has no plane to patch along the axes split by z_policy/t_policy` (a Z or T axis of length 0 with `"all"`). |
+
+There is no `failed` status: an image that cannot be read, matched to a mask or patched stops the whole run with an error before any table is written, as before, so no image is ever left out silently.
+
+**Joining the two tables.** Every `patches.csv` row's image has exactly one `images.csv` row with the same `condition`/`biological_repeat`/`technical_repeat`/`image_id`/`image_file` (`image_id` alone is not unique across a combined tree CSV; `source_relative_path` is unique in folder and tree runs). An image's `n_patches` is its number of `patches.csv` rows. `export_patches` called directly writes the records it is given (`image_records=`), or else one `processed` row per image of the patches, since it cannot know about images without patches.
+
 ### OME-Zarr images
 
 With the `preprocessing` extra (`pip install "cellpatcher[preprocessing]"`), folders whose names end in `.zarr` (usually `.ome.zarr`) are images, in folder runs, tree runs and `read_array`. CellPatcher reads level 0 of the store's only image with the preprocessing brick's reader; a store with several images (positions, series or plate wells) is an error. The axes come from the OME-NGFF metadata and are matched to `common.image_axes` (or `mask_axes`) by role: a length-1 axis that the configured axes lack is dropped, a configured axis the store lacks is added with length 1, and the dimensions are reordered; any other mismatch is an error. Discovery never enters a store, and `img.ome.zarr` matches masks named like `img.tif` or `img_mask.tif`. Without the extra, reading a store stops with the install command. OME-Zarr copies written by the preprocessing brick are not read: CellPatcher reads the source images.
@@ -301,7 +319,7 @@ When `mask_root_path` is given, the same structure is mirrored under it per leaf
 
 Returns a list of `ConditionRepeatResult(condition, biological_repeat, image_folder, result, technical_repeat, relative_folder)`, one per leaf, in the same (condition, then biological repeat, then technical repeat) sorted order `discover_condition_repeat_folders` returns (whose `ConditionRepeatFolder` entries likewise carry `biological_repeat` and `technical_repeat`).
 
-- `combine_metadata=True` (requires `export.enabled=True` and `common.output_dir`) writes **one** `patches.csv` and **one** `run_config.json` directly in `output_dir` instead of a pair per leaf folder. Patch files still go to each leaf's `<output_dir>/<condition>/<biological_repeat>[/<technical_repeat>]/`, and each row's `patch_file` is the path relative to the CSV, e.g. `treated/2026_01_01/image_0000_grid_00000.tif` or `treated/2026_01_01/B02/image_0000_grid_00000.tif` — the same "relative to the CSV" meaning as in the per-leaf layout, so `ExportedPatchTorchDataset` reads the combined CSV unchanged. `patch_id`/`image_id` are only unique within a leaf; identify rows across the combined CSV by `condition`/`biological_repeat`/`technical_repeat`/`image_file` (or `patch_file`).
+- `combine_metadata=True` (requires `export.enabled=True` and `common.output_dir`) writes **one** `patches.csv`, **one** `images.csv` (every image of every leaf) and **one** `run_config.json` directly in `output_dir` instead of a set per leaf folder. Patch files still go to each leaf's `<output_dir>/<condition>/<biological_repeat>[/<technical_repeat>]/`, and each row's `patch_file` is the path relative to the CSV, e.g. `treated/2026_01_01/image_0000_grid_00000.tif` or `treated/2026_01_01/B02/image_0000_grid_00000.tif` — the same "relative to the CSV" meaning as in the per-leaf layout, so `ExportedPatchTorchDataset` reads the combined CSV unchanged. `patch_id`/`image_id` are only unique within a leaf; identify rows across the combined CSV by `condition`/`biological_repeat`/`technical_repeat`/`image_file` (or `patch_file`).
 - `progress_callback(completed, total, leaf)` is called before each leaf and once more at the end (`leaf=None`), e.g. to drive a progress bar.
 
 ### Renamed: `repeat` → `biological_repeat`

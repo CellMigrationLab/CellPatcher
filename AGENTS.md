@@ -190,6 +190,10 @@ CellPatcher-specific conventions:
   `patches.csv` — the full serialized `CellPatcherConfig` for the run, so
   every exported patch is deterministically reproducible from its CSV row
   (`config_file` column) plus that file (see §5).
+* Every `patches.csv` has the per-image table `images.csv`
+  (`cellpatcher.export.IMAGE_TABLE_FILENAME`) beside it, written by
+  `export_patches` and by the combined tree output; it lists every input
+  image, including those without patches (see §5).
 
 Reusable pipeline logic should live in importable modules rather than only
 in notebooks where practical.
@@ -265,6 +269,22 @@ Two ways to point CellPatcher at input data:
   `patch_file` is the path relative to the CSV
   (`<condition>/<biological_repeat>[/<technical_repeat>]/<file>`); in both
   layouts it is relative to the CSV's folder.
+- Beside every `patches.csv` (same folder, same `save_metadata_csv`
+  switch; per leaf, or once in `output_dir` with `combine_metadata=True`),
+  a per-image table `images.csv` with **one row per input image the run
+  considered, including images that gave no patch**: `condition`,
+  `biological_repeat`, `technical_repeat`, `image_id`, `image_file`,
+  `mask_file`, `source_relative_path` (the `patches.csv` names and values),
+  `image_height`/`image_width`, `n_patches` (its rows in `patches.csv`),
+  `status` (`processed` when `n_patches` > 0; `no_patches` when it was
+  patched but none kept; `skipped` when it had no plane to patch) and
+  `reason` (empty for `processed`; otherwise the step that left no patch:
+  the patch mode, the filters or normalization discards). There is no
+  `failed` status: a failing image stops the run with an error before any
+  table is written. Every `patches.csv` row joins exactly one `images.csv`
+  row on `condition`/`biological_repeat`/`technical_repeat`/`image_id`/
+  `image_file`. In memory: `PatchingResult.image_records`. Documented in
+  `docs/configuration_reference.md` ("Per-image table").
 - Per patch, the geometry a reader of exported arrays needs (appended after
   every earlier `patches.csv` column): `image_height`/`image_width` (the
   source image's Y/X size), `pad_top`/`pad_bottom`/`pad_left`/`pad_right`

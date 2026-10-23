@@ -6,7 +6,10 @@ from pathlib import Path
 
 import numpy as np
 
-from cellpatcher.types import PatchRegion
+from cellpatcher.types import IMAGE_TABLE_COLUMNS, ImageRecord, PatchRegion
+
+# The per-image table written beside every patches.csv (see save_image_table_csv).
+IMAGE_TABLE_FILENAME = "images.csv"
 
 
 def sanitize_filename(value: str) -> str:
@@ -42,6 +45,51 @@ def save_metadata_csv(patches, csv_path):
             writer.writerow({k: row.get(k) for k in header})
 
 
+def save_image_table_csv(image_records, csv_path):
+    """Write the per-image table: one ``images.csv`` row per :class:`ImageRecord`.
+
+    Lists every image the run considered, including those without patches,
+    with the shared identity columns of ``patches.csv`` (AGENTS.md §5), the
+    image's Y/X size, its number of rows in ``patches.csv`` and a
+    ``status``/``reason`` (:data:`~cellpatcher.types.IMAGE_TABLE_COLUMNS`).
+    """
+    path = Path(csv_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=list(IMAGE_TABLE_COLUMNS))
+        writer.writeheader()
+        for record in image_records:
+            writer.writerow(record.to_dict())
+
+
+def image_records_from_patches(patches) -> list[ImageRecord]:
+    """One record per source image of *patches*, for callers that give no image records.
+
+    Only images with patches can be known from the patches themselves, so
+    every record is ``processed``; the pipeline passes its own records,
+    which also list the images without patches.
+    """
+    records: dict[tuple, ImageRecord] = {}
+    for patch in patches:
+        key = (patch.condition, patch.biological_repeat, patch.technical_repeat, patch.image_id, patch.image_file)
+        record = records.get(key)
+        if record is None:
+            record = records[key] = ImageRecord(
+                image_id=patch.image_id,
+                condition=patch.condition,
+                biological_repeat=patch.biological_repeat,
+                technical_repeat=patch.technical_repeat,
+                image_file=patch.image_file,
+                mask_file=patch.mask_file,
+                source_relative_path=patch.source_relative_path,
+                image_height=patch.image_height,
+                image_width=patch.image_width,
+            )
+        record.n_patches += 1
+        record.n_regions = record.n_kept = record.n_normalized = record.n_patches
+    return list(records.values())
+
+
 def save_patch_array(array, path):
     out = Path(path)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -70,7 +118,17 @@ def export_patches(
     image_format="tif",
     save_metadata=True,
     metadata_filename="patches.csv",
+    image_records=None,
+    image_table_filename=IMAGE_TABLE_FILENAME,
 ) -> list[str]:
+    """Save every patch array as a file named by its ``patch_id`` and, optionally, the metadata.
+
+    With *save_metadata*, ``patches.csv`` (*metadata_filename*) and the
+    per-image table ``images.csv`` (*image_table_filename*,
+    :func:`save_image_table_csv`) are written in *output_dir*. The table
+    lists *image_records* (the pipeline passes one per input image, with
+    those that gave no patch), or, when None, the images of *patches*.
+    """
     if output_dir is None:
         raise ValueError("output_dir is required for export.")
     if len(patches) != len(patch_arrays):
@@ -106,5 +164,8 @@ def export_patches(
 
     if save_metadata:
         save_metadata_csv(patches, out_dir / metadata_filename)
+        if image_records is None:
+            image_records = image_records_from_patches(patches)
+        save_image_table_csv(image_records, out_dir / image_table_filename)
 
     return saved_files
