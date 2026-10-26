@@ -122,65 +122,67 @@ def test_module_imports_without_the_extra():
 
 @needs_preprocessing
 def test_load_reads_rows_and_finds_the_manifest_next_to_the_table(stack_experiment):
+    import morphobricks_normalization as mbn
     import morphobricks_preprocessing as mbp
     from morphobricks_preprocessing.manifest import file_sha256
 
     _, output = stack_experiment
-    statistics = load_plane_statistics(output / mbp.OUTPUT_FILENAME)
+    statistics = load_plane_statistics(output / mbn.OUTPUT_FILENAME)
 
     assert len(statistics.records) == len(STACK_IMAGES) * Z_PLANES
     assert statistics.source_relative_paths == frozenset(STACK_IMAGES)
     assert statistics.manifest_path == output / mbp.MANIFEST_FILENAME
     assert statistics.manifest is not None
-    assert statistics.csv_sha256 == file_sha256(output / mbp.OUTPUT_FILENAME)
+    assert statistics.csv_sha256 == file_sha256(output / mbn.OUTPUT_FILENAME)
     assert len(statistics.records_for_image("control/img1.tif")) == Z_PLANES
 
 
 @needs_preprocessing
 def test_load_without_a_manifest_skips_it(stack_experiment, tmp_path):
-    import morphobricks_preprocessing as mbp
+    import morphobricks_normalization as mbn
 
     _, output = stack_experiment
     alone = tmp_path / "alone"
     alone.mkdir()
-    shutil.copy(output / mbp.OUTPUT_FILENAME, alone / mbp.OUTPUT_FILENAME)
+    shutil.copy(output / mbn.OUTPUT_FILENAME, alone / mbn.OUTPUT_FILENAME)
 
-    statistics = load_plane_statistics(alone / mbp.OUTPUT_FILENAME)
+    statistics = load_plane_statistics(alone / mbn.OUTPUT_FILENAME)
     assert statistics.manifest is None
     assert statistics.manifest_path is None
 
 
 @needs_preprocessing
 def test_load_with_an_explicit_manifest(stack_experiment, tmp_path):
+    import morphobricks_normalization as mbn
     import morphobricks_preprocessing as mbp
 
     _, output = stack_experiment
     elsewhere = tmp_path / "elsewhere.json"
     shutil.copy(output / mbp.MANIFEST_FILENAME, elsewhere)
 
-    statistics = load_plane_statistics(output / mbp.OUTPUT_FILENAME, manifest=elsewhere)
+    statistics = load_plane_statistics(output / mbn.OUTPUT_FILENAME, manifest=elsewhere)
     assert statistics.manifest_path == elsewhere
 
 
 @needs_preprocessing
 def test_load_missing_files_are_errors(stack_experiment, tmp_path):
-    import morphobricks_preprocessing as mbp
+    import morphobricks_normalization as mbn
 
     _, output = stack_experiment
     with pytest.raises(FileNotFoundError, match="does not exist"):
         load_plane_statistics(tmp_path / "missing.csv")
     with pytest.raises(FileNotFoundError, match="run manifest"):
-        load_plane_statistics(output / mbp.OUTPUT_FILENAME, manifest=tmp_path / "missing.json")
+        load_plane_statistics(output / mbn.OUTPUT_FILENAME, manifest=tmp_path / "missing.json")
 
 
 @needs_preprocessing
 def test_load_detects_a_table_changed_after_the_manifest(stack_experiment):
-    import morphobricks_preprocessing as mbp
+    import morphobricks_normalization as mbn
 
     _, output = stack_experiment
-    csv_path = output / mbp.OUTPUT_FILENAME
-    records = mbp.read_plane_histograms(csv_path)
-    mbp.write_plane_histograms(records[:-1], csv_path)
+    csv_path = output / mbn.OUTPUT_FILENAME
+    records = mbn.read_plane_histograms(csv_path)
+    mbn.write_plane_histograms(records[:-1], csv_path)
 
     with pytest.raises(PreprocessingCheckError, match="changed or replaced") as error_info:
         load_plane_statistics(csv_path)
@@ -189,10 +191,10 @@ def test_load_detects_a_table_changed_after_the_manifest(stack_experiment):
 
 @needs_preprocessing
 def test_load_rejects_another_table_version(stack_experiment):
-    import morphobricks_preprocessing as mbp
+    import morphobricks_normalization as mbn
 
     _, output = stack_experiment
-    csv_path = output / mbp.OUTPUT_FILENAME
+    csv_path = output / mbn.OUTPUT_FILENAME
     # plane_id holds commas, so the rows are edited with the csv module.
     with open(csv_path, newline="", encoding="utf-8") as f:
         header, *rows = list(csv.reader(f))
@@ -208,6 +210,7 @@ def test_load_rejects_another_table_version(stack_experiment):
 
 @needs_preprocessing
 def test_load_rejects_another_manifest_version(stack_experiment):
+    import morphobricks_normalization as mbn
     import morphobricks_preprocessing as mbp
 
     _, output = stack_experiment
@@ -217,7 +220,7 @@ def test_load_rejects_another_manifest_version(stack_experiment):
     manifest_path.write_text(json.dumps(data), encoding="utf-8")
 
     with pytest.raises(PreprocessingCheckError, match="not supported") as error_info:
-        load_plane_statistics(output / mbp.OUTPUT_FILENAME)
+        load_plane_statistics(output / mbn.OUTPUT_FILENAME)
     assert _codes(error_info) == ["unreadable_manifest"]
 
 
@@ -228,19 +231,19 @@ def test_load_rejects_another_manifest_version(stack_experiment):
 
 @needs_preprocessing
 def test_check_images_passes_for_the_preprocessed_images(stack_experiment):
-    import morphobricks_preprocessing as mbp
+    import morphobricks_normalization as mbn
 
     root, output = stack_experiment
-    statistics = load_plane_statistics(output / mbp.OUTPUT_FILENAME)
+    statistics = load_plane_statistics(output / mbn.OUTPUT_FILENAME)
     check_images(statistics, {path: "ZYX" for path in STACK_IMAGES}, experiment_root=root)
 
 
 @needs_preprocessing
 def test_check_images_reports_all_images_without_rows_in_one_message(stack_experiment):
-    import morphobricks_preprocessing as mbp
+    import morphobricks_normalization as mbn
 
     root, output = stack_experiment
-    statistics = load_plane_statistics(output / mbp.OUTPUT_FILENAME)
+    statistics = load_plane_statistics(output / mbn.OUTPUT_FILENAME)
     images = {path: "ZYX" for path in (*STACK_IMAGES, "control/new.tif", "treated/bio1/wellA/later.tif")}
 
     with pytest.raises(PreprocessingCheckError) as error_info:
@@ -253,7 +256,7 @@ def test_check_images_reports_all_images_without_rows_in_one_message(stack_exper
 
 @needs_preprocessing
 def test_check_images_detects_a_changed_image_with_the_manifest(stack_experiment):
-    import morphobricks_preprocessing as mbp
+    import morphobricks_normalization as mbn
 
     root, output = stack_experiment
     image_path = root / "control" / "img1.tif"
@@ -262,23 +265,23 @@ def test_check_images_detects_a_changed_image_with_the_manifest(stack_experiment
     images = {path: "ZYX" for path in STACK_IMAGES}
 
     with pytest.raises(PreprocessingCheckError) as error_info:
-        check_images(load_plane_statistics(output / mbp.OUTPUT_FILENAME), images, experiment_root=root)
+        check_images(load_plane_statistics(output / mbn.OUTPUT_FILENAME), images, experiment_root=root)
     (issue,) = error_info.value.issues
     assert (issue.code, issue.paths) == ("images_changed", ("control/img1.tif",))
 
     # Without the manifest there is no size or time to compare.
     alone = output.parent / "alone"
     alone.mkdir()
-    shutil.copy(output / mbp.OUTPUT_FILENAME, alone / mbp.OUTPUT_FILENAME)
-    check_images(load_plane_statistics(alone / mbp.OUTPUT_FILENAME), images)
+    shutil.copy(output / mbn.OUTPUT_FILENAME, alone / mbn.OUTPUT_FILENAME)
+    check_images(load_plane_statistics(alone / mbn.OUTPUT_FILENAME), images)
 
 
 @needs_preprocessing
 def test_check_images_detects_other_axis_roles(stack_experiment):
-    import morphobricks_preprocessing as mbp
+    import morphobricks_normalization as mbn
 
     root, output = stack_experiment
-    statistics = load_plane_statistics(output / mbp.OUTPUT_FILENAME)
+    statistics = load_plane_statistics(output / mbn.OUTPUT_FILENAME)
     images = {path: "ZYX" for path in STACK_IMAGES}
     images["control/img1.tif"] = "CYX"
 
@@ -291,10 +294,10 @@ def test_check_images_detects_other_axis_roles(stack_experiment):
 
 @needs_preprocessing
 def test_check_images_needs_the_root_with_a_manifest(stack_experiment):
-    import morphobricks_preprocessing as mbp
+    import morphobricks_normalization as mbn
 
     _, output = stack_experiment
-    statistics = load_plane_statistics(output / mbp.OUTPUT_FILENAME)
+    statistics = load_plane_statistics(output / mbn.OUTPUT_FILENAME)
     with pytest.raises(ValueError, match="experiment_root"):
         check_images(statistics, {"control/img1.tif": "ZYX"})
 
@@ -306,10 +309,10 @@ def test_check_images_needs_the_root_with_a_manifest(stack_experiment):
 
 @needs_preprocessing
 def test_check_planes_links_every_z_plane_to_its_row(stack_experiment):
-    import morphobricks_preprocessing as mbp
+    import morphobricks_normalization as mbn
 
     root, output = stack_experiment
-    statistics = load_plane_statistics(output / mbp.OUTPUT_FILENAME)
+    statistics = load_plane_statistics(output / mbn.OUTPUT_FILENAME)
 
     records = check_planes(statistics, _stack_planes(root))
     assert [record.plane_id for record in records] == [
@@ -319,10 +322,10 @@ def test_check_planes_links_every_z_plane_to_its_row(stack_experiment):
 
 @needs_preprocessing
 def test_check_planes_detects_changed_pixels_without_a_manifest(stack_experiment):
-    import morphobricks_preprocessing as mbp
+    import morphobricks_normalization as mbn
 
     root, output = stack_experiment
-    statistics = load_plane_statistics(output / mbp.OUTPUT_FILENAME, manifest=None)
+    statistics = load_plane_statistics(output / mbn.OUTPUT_FILENAME, manifest=None)
     path = "treated/bio1/wellB/field.tif"
     stack = _read_stack(root, path)
     stack[1, 0, 0] = 65000  # a new maximum in plane z=1
@@ -336,10 +339,10 @@ def test_check_planes_detects_changed_pixels_without_a_manifest(stack_experiment
 
 @needs_preprocessing
 def test_check_planes_compares_dtype_size_and_labels(stack_experiment):
-    import morphobricks_preprocessing as mbp
+    import morphobricks_normalization as mbn
 
     root, output = stack_experiment
-    statistics = load_plane_statistics(output / mbp.OUTPUT_FILENAME)
+    statistics = load_plane_statistics(output / mbn.OUTPUT_FILENAME)
     path = "control/img1.tif"
     stack = _read_stack(root, path)
 
@@ -362,10 +365,10 @@ def test_check_planes_compares_dtype_size_and_labels(stack_experiment):
 
 @needs_preprocessing
 def test_check_planes_reports_planes_without_rows(stack_experiment):
-    import morphobricks_preprocessing as mbp
+    import morphobricks_normalization as mbn
 
     root, output = stack_experiment
-    statistics = load_plane_statistics(output / mbp.OUTPUT_FILENAME)
+    statistics = load_plane_statistics(output / mbn.OUTPUT_FILENAME)
     stack = _read_stack(root, "control/img1.tif")
     plane = SourcePlane("control/img2.tif", "control", "single", "single", z=0, axis_lengths={"Z": Z_PLANES})
 
@@ -405,13 +408,13 @@ def test_source_plane_needs_a_coordinate_for_longer_axes():
 
 @needs_preprocessing
 def test_two_dimensional_images_match_with_or_without_a_z_axis(tmp_path):
-    import morphobricks_preprocessing as mbp
+    import morphobricks_normalization as mbn
 
     root = tmp_path / "experiment"
     image = np.arange(20 * 24, dtype=np.uint16).reshape(20, 24)
     _write_tiff(root / "control" / "a.tif", image, "YX")
     output = _preprocess(root, tmp_path / "preprocessing", "YX")
-    statistics = load_plane_statistics(output / mbp.OUTPUT_FILENAME)
+    statistics = load_plane_statistics(output / mbn.OUTPUT_FILENAME)
 
     # CellPatcher may read the image as YX or with a length-1 Z axis; the
     # table has the image without a Z axis. Both are the same plane.
@@ -428,7 +431,7 @@ def test_two_dimensional_images_match_with_or_without_a_z_axis(tmp_path):
 
 @needs_preprocessing
 def test_cellpatcher_patches_link_to_the_preprocessing_rows(tmp_path):
-    import morphobricks_preprocessing as mbp
+    import morphobricks_normalization as mbn
     import tifffile
 
     root = tmp_path / "experiment"
@@ -437,7 +440,7 @@ def test_cellpatcher_patches_link_to_the_preprocessing_rows(tmp_path):
     for relative_path in ("NA/img.tif", "treated/001/wellA/field.tif", "treated/001/wellB/field.tif"):
         _write_tiff(root / relative_path, rng.integers(0, 255, (16, 16), dtype=np.uint8), "YX")
     output = _preprocess(root, tmp_path / "preprocessing", "YX")
-    statistics = load_plane_statistics(output / mbp.OUTPUT_FILENAME)
+    statistics = load_plane_statistics(output / mbn.OUTPUT_FILENAME)
 
     config = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=8))
     patches = [patch for leaf in run_patching_condition_repeat_tree(root, config=config) for patch in leaf.result.patches]

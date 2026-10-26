@@ -68,7 +68,10 @@ def test_split_channel_patches_share_a_default_position_id():
     by_image = {}
     for patch in result.patches:
         by_image.setdefault(patch.image_file, set()).add(patch.position_id)
-    assert by_image == {"img0.tif": {"treated/2026_01_01/img0"}, "img1.tif": {"treated/2026_01_01/img1"}}
+    assert by_image == {
+        "img0.tif": {"treated/2026_01_01/single/img0"},
+        "img1.tif": {"treated/2026_01_01/single/img1"},
+    }
 
 
 def test_split_channels_keeps_a_supplied_position_id():
@@ -79,7 +82,7 @@ def test_split_channels_keeps_a_supplied_position_id():
 def test_split_channels_position_id_falls_back_to_image_id():
     # Labels that are not given are "single".
     result = run_patching(images=[_channel_image()], config=_grid_config())
-    assert {patch.position_id for patch in result.patches} == {"single/single/image_0000"}
+    assert {patch.position_id for patch in result.patches} == {"single/single/single/image_0000"}
 
 
 def test_without_split_channels_position_id_stays_empty_and_patches_stay_multichannel():
@@ -140,7 +143,7 @@ def test_split_channels_export_writes_one_file_and_row_per_channel(tmp_path):
     with (tmp_path / "patches.csv").open("r", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
     assert len(rows) == 12
-    assert {row["position_id"] for row in rows} == {"single/single/img0"}
+    assert {row["position_id"] for row in rows} == {"single/single/single/img0"}
     assert sorted({row["c"] for row in rows}) == ["0", "1", "2"]
     for row in rows:
         array = np.load(tmp_path / row["patch_file"])
@@ -164,5 +167,46 @@ def test_split_channels_in_combined_tree_run(tmp_path):
     with (tmp_path / "out" / "patches.csv").open("r", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
     assert len(rows) == 2 * 4 * 2  # conditions x tiles x channels
-    assert {row["position_id"] for row in rows} == {"control/single/img0", "treated/single/img0"}
+    assert {row["position_id"] for row in rows} == {"control/single/single/img0", "treated/single/single/img0"}
     assert all((tmp_path / "out" / row["patch_file"]).exists() for row in rows)
+
+
+def test_same_file_name_in_two_wells_gives_two_positions(tmp_path):
+    # The default position_id holds the technical repeat, so equal file names
+    # in two wells of one biological repeat stay two positions (decision D02).
+    image_root = tmp_path / "raw_data"
+    for well in ("B02", "B03"):
+        write_array(image_root / "control" / "2026_01_01" / well / "img0.npy", _channel_image(n_channels=2))
+
+    config = _grid_config()
+    config.export.enabled = True
+    config.export.image_format = "npy"
+    config.common.output_dir = str(tmp_path / "out")
+    run_patching_condition_repeat_tree(image_root, config=config, combine_metadata=True)
+
+    expected = {"control/2026_01_01/B02/img0", "control/2026_01_01/B03/img0"}
+    with (tmp_path / "out" / "patches.csv").open("r", encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
+    assert {row["position_id"] for row in rows} == expected
+    assert all(row["position_id"].split("/")[2] == row["technical_repeat"] for row in rows)
+    with (tmp_path / "out" / "images.csv").open("r", encoding="utf-8") as f:
+        image_rows = list(csv.DictReader(f))
+    assert sorted((row["technical_repeat"], row["position_id"]) for row in image_rows) == [
+        ("B02", "control/2026_01_01/B02/img0"), ("B03", "control/2026_01_01/B03/img0"),
+    ]
+
+
+def test_default_position_id_takes_a_per_image_technical_repeat():
+    result = run_patching(
+        images=[_channel_image(), _channel_image()],
+        config=_grid_config(),
+        image_metadata=[
+            {"image_file": "img0.tif", "technical_repeat": "wellA"},
+            {"image_file": "img0.tif", "technical_repeat": "wellB"},
+        ],
+    )
+
+    assert {patch.position_id for patch in result.patches} == {"single/single/wellA/img0", "single/single/wellB/img0"}
+    assert [record.position_id for record in result.image_records] == [
+        "single/single/wellA/img0", "single/single/wellB/img0",
+    ]

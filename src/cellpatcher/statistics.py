@@ -12,10 +12,13 @@ run before any patch is normalized:
 - :func:`check_planes` links each patched plane to its row and compares the
   labels, ``dtype``, pixel count, exact finite extrema and finite pixel count.
 
-Reading, histograms, plane identifiers and messages all come from
-``morphobricks_preprocessing`` (the optional ``preprocessing`` extra); this
-module only links and compares. It imports without the extra; each function
-raises :class:`PreprocessingUnavailableError` when the extra is missing.
+Reading, histograms, plane identifiers and messages all come from the
+MorphoBricks bricks of the optional ``preprocessing`` extra: the plane table,
+histograms and plane identifiers from ``morphobricks_normalization`` (where
+the preprocessing brick moved them), images, the manifest and messages from
+``morphobricks_preprocessing``. This module only links and compares. It
+imports without the extra; each function raises
+:class:`PreprocessingUnavailableError` when the extra is missing.
 """
 
 from __future__ import annotations
@@ -33,7 +36,8 @@ from cellpatcher.axes import normalize_axes
 from cellpatcher.io import SINGLE_CONDITION_LABEL as SINGLE_LABEL
 
 if TYPE_CHECKING:
-    from morphobricks_preprocessing import AxisMapping, PlaneRecord, RunManifest, ValidationIssue
+    from morphobricks_normalization import PlaneRecord
+    from morphobricks_preprocessing import AxisMapping, RunManifest, ValidationIssue
 
 INSTALL_COMMAND = 'pip install "cellpatcher[preprocessing]"'
 
@@ -79,12 +83,13 @@ def require_preprocessing() -> ModuleType:
     """
     try:
         import morphobricks_preprocessing
-        from morphobricks_preprocessing.csv_io import SCHEMA_VERSION
+        from morphobricks_normalization.csv_io import SCHEMA_VERSION
         from morphobricks_preprocessing.manifest import MANIFEST_VERSION
     except ImportError as exc:
         raise PreprocessingUnavailableError(
             "Using the statistics of the preprocessing brick needs the optional 'preprocessing' "
-            f"extra, which is not installed. Install it with: {INSTALL_COMMAND}"
+            "extra (morphobricks-preprocessing with morphobricks-normalization), which is not "
+            f"installed or is an older version. Install it with: {INSTALL_COMMAND}"
         ) from exc
     if (SCHEMA_VERSION, MANIFEST_VERSION) != (SUPPORTED_SCHEMA_VERSION, SUPPORTED_MANIFEST_VERSION):
         raise PreprocessingUnavailableError(
@@ -94,6 +99,25 @@ def require_preprocessing() -> ModuleType:
             f"CellPatcher is tested with: {INSTALL_COMMAND}"
         )
     return morphobricks_preprocessing
+
+
+def require_normalization() -> ModuleType:
+    """Return the ``morphobricks_normalization`` package.
+
+    Plane histograms, the ``plane_histograms.csv`` reader, plane identifiers,
+    pooling and normalization parameters moved there from the preprocessing
+    brick, whose old import paths only warn and forward. The ``preprocessing``
+    extra installs it.
+
+    Raises
+    ------
+    PreprocessingUnavailableError
+        As :func:`require_preprocessing`.
+    """
+    require_preprocessing()
+    import morphobricks_normalization
+
+    return morphobricks_normalization
 
 
 @dataclass(frozen=True)
@@ -181,7 +205,7 @@ class SourcePlane:
     @property
     def plane_id(self) -> str:
         """The preprocessing ``plane_id`` of this plane, e.g. ``"control/img.tif::z=0,c=0,t=0"``."""
-        return require_preprocessing().make_plane_id(self.source_relative_path, z=self.z, c=self.c, t=self.t)
+        return require_normalization().make_plane_id(self.source_relative_path, z=self.z, c=self.c, t=self.t)
 
 
 @dataclass(frozen=True, eq=False)
@@ -254,7 +278,8 @@ def load_plane_statistics(plane_histograms, manifest=None) -> PlaneStatistics:
         not the one the manifest was written with.
     """
     mbp = require_preprocessing()
-    from morphobricks_preprocessing.csv_io import CsvFormatError
+    mbn = require_normalization()
+    from morphobricks_normalization.csv_io import CsvFormatError
     from morphobricks_preprocessing.manifest import file_sha256
     from morphobricks_preprocessing.validation import error, plural
 
@@ -262,18 +287,18 @@ def load_plane_statistics(plane_histograms, manifest=None) -> PlaneStatistics:
     if not csv_path.is_file():
         raise FileNotFoundError(
             f"The plane histogram table {csv_path} does not exist. Give the path of the "
-            f"{mbp.OUTPUT_FILENAME} written by the preprocessing brick, or run the preprocessing "
+            f"{mbn.OUTPUT_FILENAME} written by the preprocessing brick, or run the preprocessing "
             "brick on this experiment first."
         )
     try:
-        records = tuple(mbp.read_plane_histograms(csv_path))
+        records = tuple(mbn.read_plane_histograms(csv_path))
     except CsvFormatError as exc:
         raise PreprocessingCheckError([
             error(
                 "unreadable_plane_histograms",
                 f"The plane histogram table cannot be read: {exc}",
                 [str(csv_path)],
-                f"Give a {mbp.OUTPUT_FILENAME} written by the preprocessing brick (version "
+                f"Give a {mbn.OUTPUT_FILENAME} written by the preprocessing brick (version "
                 f"{SUPPORTED_SCHEMA_VERSION}), or run the preprocessing brick again.",
             )
         ]) from exc
@@ -468,7 +493,7 @@ def check_planes(
     ValueError
         If ``pixels`` is not a 2D array.
     """
-    mbp = require_preprocessing()
+    mbn = require_normalization()
     failures: dict[str, list[str]] = defaultdict(list)
     matched: list[PlaneRecord] = []
     for plane, pixels in planes:
@@ -499,9 +524,9 @@ def check_planes(
                 f"{histogram.total_pixel_count:,})"
             )
         else:
-            # The preprocessing brick's own histogram gives its definitions of
-            # the finite extrema and finite pixel count.
-            current = mbp.compute_plane_histogram(pixels, bin_count=histogram.bin_count)
+            # The histogram the table was written with gives its definitions
+            # of the finite extrema and finite pixel count.
+            current = mbn.compute_plane_histogram(pixels, bin_count=histogram.bin_count)
             if (current.pixel_min, current.pixel_max, current.valid_pixel_count) != (
                 histogram.pixel_min, histogram.pixel_max, histogram.valid_pixel_count
             ):

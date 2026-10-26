@@ -29,10 +29,15 @@ setup(
         ],
         # Plane statistics of the MorphoBricks preprocessing brick, used for
         # normalization (docs/normalization_contract.md §1). Pinned to a
-        # commit and raised deliberately.
+        # commit and raised deliberately. Histograms, the plane table, pooling
+        # and normalization parameters moved to the normalization brick, which
+        # CellPatcher imports directly; its URL is the one the preprocessing
+        # commit requires, so both resolve to the same install.
         "preprocessing": [
             "morphobricks-preprocessing[zarr] @ git+https://github.com/CellMigrationLab/"
-            "morphobricks-preprocessing@fd923c95f4b36064e82ba4d4df8a294b7280d140",
+            "morphobricks-preprocessing@112977665fc067726b6f3776c5d44dffd9b3430a",
+            "morphobricks-normalization @ git+https://github.com/CellMigrationLab/"
+            "morphobricks-normalization.git@v0.1.0",
         ],
     },
 )

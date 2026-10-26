@@ -9,15 +9,15 @@ Implements ``docs/normalization_contract.md`` §6–§9 for ``config.normalizati
   histogram of the patch's own pixels (``"mask"``, ``"bbox"`` or ``"patch"``
   region), never including padding.
 - **Methods.** ``min_max``, ``percentile_range``, ``z_score`` and
-  ``robust_z_score`` of the preprocessing package turn the pooled histogram
+  ``robust_z_score`` of the normalization brick turn the pooled histogram
   into ``NormalizationParameters``; a patch is normalized per channel as
   ``(pixels - offset) / scale`` in float32, without clipping.
 - **Checks.** Every patched plane is linked to its CSV row with
   :func:`cellpatcher.statistics.check_planes` before anything is normalized.
 
-Histograms, pooling and parameters all come from ``morphobricks_preprocessing``
-(the ``preprocessing`` extra); this module chooses the pixels and applies the
-result. A group or patch with no finite pixels or zero spread stops the run
+Histograms, pooling and parameters all come from ``morphobricks_normalization``
+(installed by the ``preprocessing`` extra); this module chooses the pixels and
+applies the result. A group or patch with no finite pixels or zero spread stops the run
 (contract §7), and a patch whose own pixels have no finite values or zero spread
 is discarded and reported (decision D8).
 """
@@ -39,6 +39,7 @@ from cellpatcher.statistics import (
     check_images,
     check_planes,
     load_plane_statistics,
+    require_normalization,
     require_preprocessing,
 )
 
@@ -116,11 +117,12 @@ def run_inputs(config) -> dict | None:
     if not settings.enabled or settings.scope not in CSV_SCOPES or settings.plane_histograms is None:
         return None
     mbp = require_preprocessing()
+    mbn = require_normalization()
     statistics = cached_statistics(settings.plane_histograms, settings.manifest)
     manifest = statistics.manifest
     return {
         "plane_histograms_sha256": statistics.csv_sha256,
-        "schema_version": mbp.csv_io.SCHEMA_VERSION,
+        "schema_version": mbn.csv_io.SCHEMA_VERSION,
         "manifest_used": manifest is not None,
         "manifest_version": None if manifest is None else manifest.manifest_version,
         "preprocessing_version": mbp.__version__,
@@ -167,13 +169,13 @@ class PatchNormalization:
         """
         if not patch.normalization_offset:
             return None
-        mbp = require_preprocessing()
+        mbn = require_normalization()
         offsets = [float(value) for value in str(patch.normalization_offset).split(";")]
         scales = [float(value) for value in str(patch.normalization_scale).split(";")]
         if len(offsets) != len(scales):
             raise ValueError(f"{patch.patch_id}: {len(offsets)} normalization offsets but {len(scales)} scales.")
         method = patch.normalization_method or ""
-        parameters = tuple(mbp.NormalizationParameters(method, o, s) for o, s in zip(offsets, scales))
+        parameters = tuple(mbn.NormalizationParameters(method, o, s) for o, s in zip(offsets, scales))
         exact = patch.normalization_exact in (True, "true", "True")
         return cls(method, patch.normalization_scope or "", patch.normalization_group, parameters, exact)
 
@@ -286,7 +288,7 @@ class Normalizer:
         self.settings = config.normalization
         self.statistics = statistics
         self.region = resolved_patch_region(config)
-        self._mbp = require_preprocessing()
+        self._mbn = require_normalization()
         self._index: dict[tuple, list] | None = None
         self._groups: dict[tuple, tuple] = {}
 
@@ -458,9 +460,9 @@ class Normalizer:
         self._ensure_index()
         name = "/".join(key[0]) + f" (channel {key[1]}" + ("" if key[2] is None else f", t={key[2]}") + ")"
         try:
-            pooled = self._mbp.PooledHistogram(self._index[key])
+            pooled = self._mbn.PooledHistogram(self._index[key])
             return self._parameters(pooled), pooled.max_representative_error == 0
-        except self._mbp.NoValidPixelsError:
+        except self._mbn.NoValidPixelsError:
             return f"{name}: no finite pixels"
         except ValueError:
             return f"{name}: zero intensity spread for {self.settings.method}"
@@ -483,11 +485,11 @@ class Normalizer:
                 parameters, exact, problem = [], True, None
                 for pixels in channels:
                     values = pixels[region]
-                    histogram = self._mbp.compute_plane_histogram(values)
+                    histogram = self._mbn.compute_plane_histogram(values)
                     try:
-                        pooled = self._mbp.PooledHistogram([histogram])
+                        pooled = self._mbn.PooledHistogram([histogram])
                         parameters.append(self._parameters(pooled))
-                    except self._mbp.NoValidPixelsError:
+                    except self._mbn.NoValidPixelsError:
                         problem = "no finite pixels in the region"
                         break
                     except ValueError:
@@ -521,13 +523,13 @@ class Normalizer:
     def _parameters(self, pooled):
         method = self.settings.method
         if method == "minmax":
-            return self._mbp.min_max(pooled)
+            return self._mbn.min_max(pooled)
         if method == "percentile":
             low, high = self.settings.percentile
-            return self._mbp.percentile_range(pooled, low, high)
+            return self._mbn.percentile_range(pooled, low, high)
         if method == "zscore":
-            return self._mbp.z_score(pooled)
-        return self._mbp.robust_z_score(pooled)
+            return self._mbn.z_score(pooled)
+        return self._mbn.robust_z_score(pooled)
 
 
 def _time_suffix(t, per_time_point: bool) -> str:
