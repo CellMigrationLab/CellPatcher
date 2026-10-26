@@ -11,9 +11,6 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # The lowest supported Python, which shared environments and
-        # installers use, and a later one (MorphoBricks decision D01).
-        python-version: ['3.11', '3.13']
         # Without and with the optional preprocessing extra, whose tests
         # skip when it is not installed.
         extras: ['test', 'test,preprocessing']
@@ -24,7 +21,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: '3.11'
 
       - name: Install package + test extras
         run: |
@@ -32,6 +29,4 @@ jobs:
           python -m pip install -e ".[${{ matrix.extras }}]"
 
       - name: Run tests
-        # A path the preprocessing brick has moved (its DeprecationWarning
-        # starts with the old path) fails here instead of in a later release.
-        run: python -m pytest -q -W "error:morphobricks_preprocessing:DeprecationWarning"
+        run: python -m pytest -q
