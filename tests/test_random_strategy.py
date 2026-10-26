@@ -69,7 +69,11 @@ def test_random_strategy_impossible_mask_raises():
 def test_random_strategy_patch_ids_deterministic():
     s = RandomPatchStrategy(RandomConfig(patch_size=8, n_patches=3, seed=0))
     patches = s.generate_regions(image_shape=(32, 32), image_id="img")
-    assert [p.patch_id for p in patches] == ["img_random_00000", "img_random_00001", "img_random_00002"]
+    # The last level of patch_id: each draw's own rectangle (cellpatcher.ids).
+    assert [p.patch_id for p in patches] == [f"random-y{p.y0}-x{p.x0}-h8-w8" for p in patches]
+    assert [p.patch_id for p in patches] == [
+        p.patch_id for p in s.generate_regions(image_shape=(32, 32), image_id="other")
+    ]
 
 
 def test_random_strategy_touches_border_when_on_edge():

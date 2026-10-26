@@ -43,8 +43,22 @@ class PatchRegion:
       per image from ``image_metadata``; never a biological repeat. Tree runs
       stamp ``SINGLE_TECHNICAL_REPEAT_LABEL`` (``"single"``) when a biological
       repeat folder holds its images directly.
-    - ``position_id``: optional stable spatial acquisition-position identifier.
-      Use the same value for all Z/C/T planes from one XY position.
+    - ``patch_id``: run-independent id built from ``position_id``,
+      ``object_set``, the plane indices and the patch's label or rectangle
+      (grammar in :mod:`cellpatcher.ids`); never from the image's place in
+      the run. ``image_id`` (``image_<index>``) is that place, kept for
+      joining ``images.csv`` and for rebuilding patches from a run's image
+      list; it is not an identity across runs.
+    - ``position_id``: stable spatial acquisition-position identifier, shared
+      by all Z/C/T planes from one XY position. Always filled by
+      ``run_patching``: the one supplied in ``image_metadata``, otherwise
+      ``<condition>/<biological_repeat>/<technical_repeat>/<file stem>``
+      (one file is one position), or ``array-<hash>`` of the pixels in
+      place of the stem for an in-memory image without ``image_file``.
+    - ``object_set``: the mask a ``cell``-mode patch's ``label_id`` belongs
+      to (the OME-NGFF label name, the mask file's suffix, or
+      ``common.object_set``; ``"mask"`` when none names it); ``None`` in
+      other modes.
     - ``image_file``, ``mask_file``: source filenames, from folder-based runs.
     - ``patch_file``: exported patch filename, from ``export_patches``.
     - ``output_height``, ``output_width``: final exported array shape, which
@@ -137,6 +151,10 @@ class PatchRegion:
     pad_right: int | None = None
     resized: bool | None = None
     output_axes: str | None = None
+    # The object set (mask) a cell-mode patch's label belongs to; part of
+    # patch_id (cellpatcher.ids). Appended last so earlier columns keep
+    # their order.
+    object_set: str | None = None
 
     def __post_init__(self) -> None:
         # y0/x0 are always required (defaulted to 0), so their ranges are

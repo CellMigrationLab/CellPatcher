@@ -121,7 +121,9 @@ def test_real_tiff_cell_mode_centroid_and_bbox_center_both_work(center_on):
 def test_real_tiff_cell_mode_binary_policy_connected_components():
     image, labels = load_real_tiff_fixture()
     binary = labels > 0
-    result = run_patching(images=image, masks=binary, config=_cell_config(exclude_border=False, binary_mask_policy="connected_components"))
+    with pytest.warns(UserWarning, match="connected components"):
+        config = _cell_config(exclude_border=False, binary_mask_policy="connected_components")
+        result = run_patching(images=image, masks=binary, config=config)
 
     # Both binary CCs in this fixture touch the image border; exclude_border=False
     # means they are kept, giving EXPECTED_BINARY_CC_PATCH_COUNT patches.
@@ -287,7 +289,8 @@ def test_real_tiff_cell_mode_single_object_and_area_filters():
     cfg = _cell_config(exclude_border=False, binary_mask_policy="single_object")
     cfg.cell.min_area = 10000
     cfg.cell.max_area = 800000
-    result = run_patching(images=image, masks=(labels > 0), config=cfg)
+    # A binary mask as integers is one object (decision D47: a bool mask is refused).
+    result = run_patching(images=image, masks=(labels > 0).astype(np.uint8), config=cfg)
     assert len(result.patches) == 1
     assert result.patch_arrays is not None
     assert result.patch_arrays[0].shape == (32, 32)

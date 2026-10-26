@@ -47,7 +47,6 @@ class GridStrategy(BasePatchStrategy):
         x_starts = self._starts(width, tile_size, stride, self.config.include_partial)
 
         patches: list[PatchRegion] = []
-        idx = 0
         for y0 in y_starts:
             y1 = min(y0 + tile_size, height)
             # _starts can still produce a start whose tile would be clipped
@@ -63,7 +62,7 @@ class GridStrategy(BasePatchStrategy):
 
                 tile_h = y1 - y0
                 tile_w = x1 - x0
-                patch_id = f"{image_id}_grid_{idx:05d}" if image_id is not None else f"grid_{idx:05d}"
+                patch_id = f"grid-y{y0}-x{x0}-h{tile_h}-w{tile_w}"
                 touches_border = y0 == 0 or x0 == 0 or y1 == height or x1 == width
 
                 patches.append(
@@ -81,6 +80,5 @@ class GridStrategy(BasePatchStrategy):
                         touches_border=touches_border,
                     )
                 )
-                idx += 1
 
         return patches

@@ -94,31 +94,11 @@ def _prepare_labeled_plane(labels, config: CellConfig, mask_axes: str) -> np.nda
     if selected.size == 0:
         raise ValueError("labels must not be empty.")
 
-    unique_values = np.unique(selected)
-    foreground_mask = selected.astype(bool)
-
-    if np.any(unique_values < 0):
-        raise ValueError("labels must be non-negative. Found negative values in the label array.")
-
-    if np.issubdtype(selected.dtype, np.floating):
-        if np.any((unique_values != 0.0) & (unique_values != 1.0)):
-            raise ValueError(
-                "Non-binary float label arrays are ambiguous. Float masks must contain only 0.0 and 1.0. "
-                "For labeled masks, use an integer dtype."
-            )
-
-    # A binary (0/1) mask has no per-object ids yet, so it must first be
-    # turned into a labeled map -- either by connected-component labeling
-    # or by treating the whole foreground as a single object.
-    if np.all(np.isin(unique_values, [0, 1, False, True])):
-        if config.binary_mask_policy == "connected_components":
-            return strategy._label_connected_components(foreground_mask)
-        if config.binary_mask_policy == "single_object":
-            return foreground_mask.astype(np.int32)
-        raise ValueError(f"Unsupported binary_mask_policy: {config.binary_mask_policy}")
-
-    # Already a labeled map (values beyond {0, 1}): use as-is.
-    return selected.astype(np.int32)
+    # The same rules as a patching run (decision D47): integer masks are
+    # instance labels as given; binary masks need the connected-component
+    # opt-in; labels above the int32 maximum are refused.
+    labeled, _ = strategy.label_objects(selected)
+    return labeled
 
 
 def scan_cell_objects(*, image_shape, labels, image_id=None, config=None, image_axes="YX", mask_axes="YX") -> list[CellObjectRecord]:

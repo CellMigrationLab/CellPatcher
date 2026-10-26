@@ -221,7 +221,7 @@ def test_technical_repeat_from_config_and_per_image_metadata():
     cfg = CellPatcherConfig(mode="whole_fov")
     cfg.common.condition, cfg.common.biological_repeat = "control", "2026_02_02"
     cfg.common.technical_repeat = "dish_1"
-    result = run_patching(images=images, config=cfg)
+    result = run_patching(images=images, config=cfg, image_metadata=[{"image_file": "a.tif"}, {"image_file": "b.tif"}])
     assert {p.technical_repeat for p in result.patches} == {"dish_1"}
     # Per image, the metadata wins: one biological-repeat folder can hold several wells.
     result = run_patching(
@@ -229,6 +229,10 @@ def test_technical_repeat_from_config_and_per_image_metadata():
         config=cfg,
         image_metadata=[{"technical_repeat": "B02"}, {}],
     )
+    # The same pixels in two wells are two positions.
+    assert [p.position_id.rsplit("/", 1)[0] for p in result.patches] == [
+        "control/2026_02_02/B02", "control/2026_02_02/dish_1"
+    ]
     assert [p.technical_repeat for p in result.patches] == ["B02", "dish_1"]
     # Unset, it is "single", as condition and biological_repeat are.
     assert run_patching(images=images[0], config=CellPatcherConfig(mode="whole_fov")).patches[

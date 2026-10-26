@@ -113,7 +113,7 @@ def test_combined_tree_csv_records_the_column(tmp_path):
 
 def test_run_patching_takes_it_from_image_metadata():
     images = [np.ones((16, 16), dtype=np.float32)] * 2
-    metadata = [{"source_relative_path": "control/a.tif"}, {}]
+    metadata = [{"source_relative_path": "control/a.tif"}, {"position_id": "P2"}]
 
     result = run_patching(images=images, config=_grid_config(), image_metadata=metadata)
     paths = {patch.image_id: patch.source_relative_path for patch in result.patches}

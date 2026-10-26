@@ -55,7 +55,8 @@ def test_exported_grid_patches_record_axes_padding_and_no_resize(tmp_path):
     with (tmp_path / "patches.csv").open(newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         rows = list(reader)
-    assert reader.fieldnames[-len(GEOMETRY_COLUMNS):] == GEOMETRY_COLUMNS
+    # object_set (decision D44) was appended after the geometry columns.
+    assert reader.fieldnames[-len(GEOMETRY_COLUMNS) - 1:] == [*GEOMETRY_COLUMNS, "object_set"]
     assert len(rows) == len(result.patches) == 6
     for row in rows:
         assert (row["image_height"], row["image_width"]) == ("40", "48")
@@ -69,7 +70,7 @@ def test_exported_grid_patches_record_axes_padding_and_no_resize(tmp_path):
 def test_earlier_columns_keep_their_order():
     header = [f.name for f in fields(PatchRegion)]
     assert header.index("normalization_exact") + 1 == header.index("image_height")
-    assert header[-len(GEOMETRY_COLUMNS):] == GEOMETRY_COLUMNS
+    assert header[-len(GEOMETRY_COLUMNS) - 1:] == [*GEOMETRY_COLUMNS, "object_set"]
 
 
 def test_resized_is_true_only_where_resizing_changed_the_shape():

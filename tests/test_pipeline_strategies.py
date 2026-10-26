@@ -73,8 +73,19 @@ def test_pipeline_cell_list_images_masks_works():
     cfg = CellPatcherConfig(mode="cell")
     imgs = [np.zeros((6, 6)), np.zeros((6, 6))]
     masks = [np.pad(np.ones((2, 2), dtype=int), 2), np.pad(np.ones((2, 2), dtype=int), 2)]
-    result = run_patching(images=imgs, masks=masks, config=cfg)
+    metadata = [{"image_file": "a.tif"}, {"image_file": "b.tif"}]
+    result = run_patching(images=imgs, masks=masks, config=cfg, image_metadata=metadata)
     assert len(result.patches) >= 2
+
+
+def test_pipeline_refuses_identical_unnamed_images_instead_of_numbering_them():
+    # Two in-memory images with the same pixels and no position_id or file
+    # name have the same identity: refused rather than told apart by their
+    # place in the run.
+    cfg = CellPatcherConfig(mode="cell")
+    masks = [np.pad(np.ones((2, 2), dtype=int), 2)] * 2
+    with pytest.raises(ValueError, match="position_id"):
+        run_patching(images=[np.zeros((6, 6)), np.zeros((6, 6))], masks=masks, config=cfg)
 
 
 def test_pipeline_cell_rejects_missing_masks():
@@ -474,8 +485,12 @@ def test_pipeline_cell_binary_mask_single_object_policy():
     labels = np.zeros((10, 10), dtype=bool)
     labels[1:3, 1:3] = True
     labels[6:8, 6:8] = True
-    result = run_patching(images=img, masks=labels, config=cfg)
-    assert len(result.patches) == 1
+    # Decision D47: a bool mask has no object ids and is refused without the
+    # connected-component opt-in; as integers it is one object, label 1.
+    with pytest.raises(ValueError, match="binary"):
+        run_patching(images=img, masks=labels, config=cfg)
+    result = run_patching(images=img, masks=labels.astype(np.uint8), config=cfg)
+    assert [patch.label_id for patch in result.patches] == [1]
 
 
 def test_pipeline_cell_binary_mask_connected_components_policy():
@@ -486,8 +501,22 @@ def test_pipeline_cell_binary_mask_connected_components_policy():
     labels = np.zeros((10, 10), dtype=bool)
     labels[1:3, 1:3] = True
     labels[6:8, 6:8] = True
-    result = run_patching(images=img, masks=labels, config=cfg)
+    with pytest.warns(UserWarning, match="connected components"):
+        result = run_patching(images=img, masks=labels, config=cfg)
     assert len(result.patches) == 2
+
+
+def test_pipeline_refuses_masking_by_computed_component_labels():
+    # apply_mask keeps pixels equal to label_id, which a 0/1 mask does not hold
+    # for components after the first: refused instead of blanking them.
+    cfg = CellPatcherConfig(mode="cell")
+    cfg.cell.binary_mask_policy = "connected_components"
+    cfg.extraction.apply_mask = True
+    cfg.common.extract_arrays = True
+    labels = np.zeros((10, 10), dtype=bool)
+    labels[1:3, 1:3] = True
+    with pytest.raises(ValueError, match="apply_mask"):
+        run_patching(images=np.zeros((10, 10)), masks=labels, config=cfg)
 
 
 def test_pipeline_cell_min_area_filters_tiny_cells():
@@ -654,8 +683,8 @@ def test_pipeline_export_grid_multi_image_writes_all_patches(tmp_path):
     cfg.export.enabled = True
     cfg.export.image_format = "npy"
     images = [np.zeros((16, 16)), np.zeros((16, 16))]
-    result = run_patching(images=images, config=cfg)
-    assert len(result.exported_files) == len(result.patches)
+    result = run_patching(images=images, config=cfg, image_metadata=[{"position_id": "P1"}, {"position_id": "P2"}])
+    assert len(result.exported_files) == len(result.patches) == 8
 
 
 # ---------------------------------------------------------------------------

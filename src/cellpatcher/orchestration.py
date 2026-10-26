@@ -31,6 +31,7 @@ from cellpatcher.io import (
     validate_image_and_mask_folders,
 )
 from cellpatcher.export import IMAGE_TABLE_FILENAME, save_image_table_csv, save_metadata_csv
+from cellpatcher.ids import object_set_from_label_path, object_set_from_mask_file
 from cellpatcher.normalization import CSV_SCOPES, cached_statistics, validate_normalization
 from cellpatcher.pipeline import RUN_CONFIG_FILENAME, PatchingResult, _patch_planes, run_config_data, run_patching
 from cellpatcher.statistics import check_images
@@ -389,20 +390,40 @@ def _source_relative_path(image_path: Path, experiment_root) -> str:
         raise ValueError(f"Image '{image_path}' is not inside the experiment root '{root}'.") from exc
 
 
-def _image_metadata(image_path: Path, mask_file: str | None, experiment_root) -> dict:
+def _mask_object_set(config: CellPatcherConfig, image_path: Path, mask_file: str | None) -> str | None:
+    """The object set a cell-mode mask's own name gives, or None (``common.object_set`` or ``"mask"`` then).
+
+    Only when ``common.object_set`` is not set: an OME-NGFF mask gives its
+    label image name; a mask file the part of its name after the image's
+    stem (``img_cells.tif`` -> ``"cells"``), and nothing when named like its
+    image.
+    """
+    if config.mode != "cell" or mask_file is None or config.common.object_set is not None:
+        return None
+    if config.common.mask_source == "ngff_labels":
+        return object_set_from_label_path(mask_file)
+    return object_set_from_mask_file(image_path.name, mask_file)
+
+
+def _image_metadata(image_path: Path, mask_file: str | None, experiment_root, config: CellPatcherConfig) -> dict:
     """Build one image's ``run_patching(image_metadata=...)`` entry.
 
     Carries the source file names (and, with *experiment_root*, the image's
     ``source_relative_path``) through so they land on every ``PatchRegion``
     (and the exported metadata CSV) *before* ``export_patches`` writes it —
     passing this into ``run_patching`` rather than stamping the result
-    afterwards is what makes that ordering guarantee hold.
+    afterwards is what makes that ordering guarantee hold. The image file
+    name also gives the image's default ``position_id``, and the mask's name
+    its ``object_set`` (:func:`_mask_object_set`).
     """
     meta = {"image_file": image_path.name}
     if mask_file is not None:
         meta["mask_file"] = mask_file
     if experiment_root is not None:
         meta["source_relative_path"] = _source_relative_path(image_path, experiment_root)
+    object_set = _mask_object_set(config, image_path, mask_file)
+    if object_set is not None:
+        meta["object_set"] = object_set
     return meta
 
 
@@ -548,7 +569,7 @@ def _run_folder_patching(
     if len(image_files) == 0:
         raise ValueError("No supported image files found in image folder.")
     # image_files' sorted order fixes the image_0000, image_0001, ...
-    # ids used everywhere downstream (run_patching, filename stamping).
+    # image_id values (a run-local index); patch_id does not use them.
     loaders = _mask_loaders(
         image_folder_path, mask_folder_path, image_files, config, strategy, mask_suffixes, case_sensitive
     )
@@ -561,7 +582,7 @@ def _run_folder_patching(
             for index, image_path in enumerate(image_files):
                 mask, mask_file = loaders[index]() if loaders is not None else (None, None)
                 yield (
-                    _image_metadata(image_path, mask_file, experiment_root),
+                    _image_metadata(image_path, mask_file, experiment_root, config),
                     iter_file_planes(
                         image_path, common.image_axes, mask, common.mask_axes, common,
                         single_planes=config.normalization.enabled,
@@ -576,7 +597,7 @@ def _run_folder_patching(
     # OME-Zarr images are put into common.image_axes by role (read_image).
     images = [read_image(path, common.image_axes) for path in image_files]
     image_metadata = [
-        _image_metadata(path, mask_file, experiment_root) for path, mask_file in zip(image_files, mask_files)
+        _image_metadata(path, mask_file, experiment_root, config) for path, mask_file in zip(image_files, mask_files)
     ]
     return run_patching(images=images, masks=masks, config=config, image_metadata=image_metadata)
 
@@ -641,8 +662,10 @@ def run_patching_condition_repeat_tree(
     ``config.export.enabled`` and ``config.common.output_dir`` are set, each
     leaf's ``output_dir`` becomes ``<output_dir>/<condition>/<biological_repeat>``,
     or ``<output_dir>/<condition>/<biological_repeat>/<technical_repeat>`` for a
-    technical-repeat subfolder, mirroring the input layout (patch ids
-    restart at ``image_0000`` in every leaf, so leaves never share a folder).
+    technical-repeat subfolder, mirroring the input layout. ``image_id``
+    restarts at ``image_0000`` in every leaf; ``patch_id`` starts with the
+    image's ``position_id`` (``<condition>/<biological_repeat>/<technical_repeat>/<stem>``),
+    so it is unique across the whole tree.
 
     Parameters
     ----------
@@ -670,8 +693,9 @@ def run_patching_condition_repeat_tree(
         of one set per leaf folder. The patch files themselves still go to
         each leaf's ``<output_dir>/<condition>/<biological_repeat>[/<technical_repeat>]/``,
         and each row's ``patch_file`` is that file's path relative to
-        ``output_dir`` (e.g. ``"treated/2026_01_01/image_0000_grid_00000.tif"``,
-        or ``"treated/2026_01_01/B02/image_0000_grid_00000.tif"``), so it
+        ``output_dir`` (e.g.
+        ``"treated/2026_01_01/treated_2026_01_01_single_img_grid-y0-x0-h128-w128.tif"``,
+        or ``"treated/2026_01_01/B02/treated_2026_01_01_B02_img_grid-y0-x0-h128-w128.tif"``), so it
         stays relative to the CSV exactly as in the per-leaf layout. Every
         leaf's ``result.metadata_file`` (and ``result.image_table_file``)
         then points to the combined CSV.

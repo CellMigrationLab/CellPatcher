@@ -92,7 +92,7 @@ def test_folder_run_lists_images_with_and_without_patches(tmp_path):
         "image_id": "image_0000", "image_file": "a.tif", "mask_file": "a_mask.tif",
         "source_relative_path": "a.tif", "image_height": "96", "image_width": "128",
         "n_patches": "4", "status": "processed", "reason": "",
-        "position_id": "", "n_regions": "4", "n_kept": "4", "n_normalized": "4",
+        "position_id": "treated/2026_01_01/single/a", "n_regions": "4", "n_kept": "4", "n_normalized": "4",
     }
     # The image whose mask holds no cell is listed, not dropped.
     assert by_file["b.tif"]["n_patches"] == "0"
@@ -159,13 +159,13 @@ def test_split_channels_count_one_row_per_channel_patch(tmp_path):
         export=ExportConfig(enabled=True, image_format="npy"),
     )
     config.extraction.split_channels = True
-    run_patching(images=[np.ones((3, 32, 16), np.uint8)], config=config)
+    run_patching(images=[np.ones((3, 32, 16), np.uint8)], config=config, image_metadata=[{"image_file": "img.tif"}])
 
     patch_rows, image_rows = _assert_tables_join(tmp_path)
     assert len(patch_rows) == 6
     assert [(row["n_patches"], row["image_height"], row["image_width"]) for row in image_rows] == [("6", "32", "16")]
     # Regions are counted before the split, patches after it.
-    assert (image_rows[0]["n_regions"], image_rows[0]["position_id"]) == ("2", "single/single/single/image_0000")
+    assert (image_rows[0]["n_regions"], image_rows[0]["position_id"]) == ("2", "single/single/single/img")
 
 
 def test_the_supplied_position_id_is_listed_also_for_images_without_patches(tmp_path):
@@ -182,11 +182,13 @@ def test_the_supplied_position_id_is_listed_also_for_images_without_patches(tmp_
 
     patch_rows, image_rows = _assert_tables_join(tmp_path)
     assert {row["position_id"] for row in patch_rows} == {"P1"}
-    # Without split_channels, a position that was not supplied is not guessed.
-    assert [(row["position_id"], row["status"]) for row in image_rows] == [
-        ("P1", "processed"), ("P2", "no_patches"), ("", "no_patches"),
+    # A position that was not supplied is named by the pixels of the
+    # in-memory image (never by its place in the run), also without patches.
+    assert [(row["position_id"], row["status"]) for row in image_rows][:2] == [
+        ("P1", "processed"), ("P2", "no_patches"),
     ]
-    assert [record.position_id for record in result.image_records] == ["P1", "P2", None]
+    assert image_rows[2]["position_id"].startswith("single/single/single/array-")
+    assert [record.position_id for record in result.image_records] == [row["position_id"] for row in image_rows]
 
 
 def test_an_image_without_planes_is_skipped_with_a_reason(tmp_path):

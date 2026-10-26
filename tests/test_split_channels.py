@@ -25,14 +25,14 @@ def _grid_config(image_axes="CYX", **extraction):
 
 
 def test_split_channels_creates_one_single_channel_patch_per_channel():
-    result = run_patching(images=[_channel_image()], config=_grid_config())
+    result = run_patching(images=[_channel_image()], config=_grid_config(), image_metadata=[{"image_file": "img.tif"}])
 
     assert len(result.patches) == 4 * 3  # 4 tiles x 3 channels
     first_tile = result.patches[:3]
     assert [patch.patch_id for patch in first_tile] == [
-        "image_0000_grid_00000_c0",
-        "image_0000_grid_00000_c1",
-        "image_0000_grid_00000_c2",
+        "single/single/single/img/c0/grid-y0-x0-h8-w8",
+        "single/single/single/img/c1/grid-y0-x0-h8-w8",
+        "single/single/single/img/c2/grid-y0-x0-h8-w8",
     ]
     assert [patch.c for patch in first_tile] == [0, 1, 2]
     assert len({(patch.y0, patch.y1, patch.x0, patch.x1) for patch in first_tile}) == 1
@@ -79,19 +79,23 @@ def test_split_channels_keeps_a_supplied_position_id():
     assert {patch.position_id for patch in result.patches} == {"P07"}
 
 
-def test_split_channels_position_id_falls_back_to_image_id():
-    # Labels that are not given are "single".
-    result = run_patching(images=[_channel_image()], config=_grid_config())
-    assert {patch.position_id for patch in result.patches} == {"single/single/single/image_0000"}
+def test_split_channels_position_id_falls_back_to_a_hash_of_the_pixels_not_the_run_index():
+    # Labels that are not given are "single". An in-memory image without a
+    # file name is named by its pixels, never by its place in the run.
+    alone = run_patching(images=[_channel_image()], config=_grid_config())
+    second = run_patching(images=[_channel_image(size=24), _channel_image()], config=_grid_config())
+    (position,) = {patch.position_id for patch in alone.patches}
+    assert position.startswith("single/single/single/array-")
+    assert {patch.position_id for patch in second.patches if patch.image_id == "image_0001"} == {position}
 
 
-def test_without_split_channels_position_id_stays_empty_and_patches_stay_multichannel():
+def test_without_split_channels_position_id_is_filled_and_patches_stay_multichannel():
     config = _grid_config()
     config.extraction.split_channels = False
-    result = run_patching(images=[_channel_image()], config=config)
+    result = run_patching(images=[_channel_image()], config=config, image_metadata=[{"image_file": "img.tif"}])
 
     assert len(result.patches) == 4
-    assert all(patch.position_id is None and patch.c is None for patch in result.patches)
+    assert all(patch.position_id == "single/single/single/img" and patch.c is None for patch in result.patches)
     assert all(array.shape == (3, 8, 8) for array in result.patch_arrays)
 
 
