@@ -277,13 +277,17 @@ Two ways to point CellPatcher at input data:
   `mask_file`, `source_relative_path` (the `patches.csv` names and values),
   `image_height`/`image_width`, `n_patches` (its rows in `patches.csv`),
   `status` (`processed` when `n_patches` > 0; `no_patches` when it was
-  patched but none kept; `skipped` when it had no plane to patch) and
+  patched but none kept; `skipped` when it had no plane to patch),
   `reason` (empty for `processed`; otherwise the step that left no patch:
-  the patch mode, the filters or normalization discards). There is no
+  the patch mode, the filters or normalization discards), then, appended
+  later, `position_id` (the one its patches carry, also for an image
+  without patches; empty when neither supplied nor defaulted) and
+  `n_regions`/`n_kept`/`n_normalized` (counts after the patch mode, the
+  filters and normalization). There is no
   `failed` status: a failing image stops the run with an error before any
   table is written. Every `patches.csv` row joins exactly one `images.csv`
   row on `condition`/`biological_repeat`/`technical_repeat`/`image_id`/
-  `image_file`. In memory: `PatchingResult.image_records`. Documented in
+  `image_file`, with the same `position_id`. In memory: `PatchingResult.image_records`. Documented in
   `docs/configuration_reference.md` ("Per-image table").
 - Per patch, the geometry a reader of exported arrays needs (appended after
   every earlier `patches.csv` column): `image_height`/`image_width` (the
@@ -425,10 +429,13 @@ columns: `patch_id`, `image_id`, `mode`, `y0`/`y1`/`x0`/`x1`, `height`/
 - `position_id` — taken from `image_metadata` when supplied. Only when
   `ExtractionConfig.split_channels=True` (one single-channel patch per
   channel, `c` = channel index) is it filled automatically for images
-  without one, as `<condition>/<biological_repeat>/<image file stem>`
-  (`single/single/<stem>` when no labels are given), so every
-  channel patch of one image shares it. Otherwise it stays `None` unless
-  supplied.
+  without one, as
+  `<condition>/<biological_repeat>/<technical_repeat>/<image file stem>`
+  (`single/single/single/<stem>` when no labels are given), so every
+  channel patch of one image shares it and equal file names in two wells
+  stay distinct. Otherwise it stays `None` unless supplied. The canonical
+  MorphoBricks FOV key is `condition` + `biological_repeat` +
+  `technical_repeat` + `position_id` (MorphoBricks decision D02, 2026-10-26).
 
 Mask/patch columns are always present (never omitted) but hold `None`/empty
 when not applicable, rather than the column itself being dropped — simpler

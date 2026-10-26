@@ -50,8 +50,9 @@ def save_image_table_csv(image_records, csv_path):
 
     Lists every image the run considered, including those without patches,
     with the shared identity columns of ``patches.csv`` (AGENTS.md §5), the
-    image's Y/X size, its number of rows in ``patches.csv`` and a
-    ``status``/``reason`` (:data:`~cellpatcher.types.IMAGE_TABLE_COLUMNS`).
+    image's Y/X size, its number of rows in ``patches.csv``, a
+    ``status``/``reason``, its ``position_id`` and the region counts behind
+    ``n_patches`` (:data:`~cellpatcher.types.IMAGE_TABLE_COLUMNS`).
     """
     path = Path(csv_path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -66,8 +67,9 @@ def image_records_from_patches(patches) -> list[ImageRecord]:
     """One record per source image of *patches*, for callers that give no image records.
 
     Only images with patches can be known from the patches themselves, so
-    every record is ``processed``; the pipeline passes its own records,
-    which also list the images without patches.
+    every record is ``processed``, and its region counts are its
+    ``n_patches`` (the earlier counts are not known here). The pipeline
+    passes its own records, which also list the images without patches.
     """
     records: dict[tuple, ImageRecord] = {}
     for patch in patches:
@@ -84,6 +86,7 @@ def image_records_from_patches(patches) -> list[ImageRecord]:
                 source_relative_path=patch.source_relative_path,
                 image_height=patch.image_height,
                 image_width=patch.image_width,
+                position_id=patch.position_id,
             )
         record.n_patches += 1
         record.n_regions = record.n_kept = record.n_normalized = record.n_patches

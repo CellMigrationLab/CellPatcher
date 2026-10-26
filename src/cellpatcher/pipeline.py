@@ -107,16 +107,37 @@ def _stamp_image_metadata(image_list, image_metadata, patches: list[PatchRegion]
             patch.source_relative_path = str(meta["source_relative_path"])
 
 
+def _image_labels(config: CellPatcherConfig, meta) -> tuple[str, str, str]:
+    """An image's condition, biological and technical repeat, as :func:`_stamp_image_metadata` sets them."""
+    condition, biological_repeat, technical_repeat = _run_labels(config)
+    if meta.get("technical_repeat") is not None:
+        technical_repeat = str(meta["technical_repeat"])
+    return condition, biological_repeat, technical_repeat
+
+
+def _image_position_id(config: CellPatcherConfig, meta, image_id: str) -> str | None:
+    """The ``position_id`` every patch of an image carries.
+
+    The one supplied in *meta*; otherwise, with ``split_channels``, the
+    default of :func:`_position_id`; otherwise None (not guessed).
+    """
+    if meta.get("position_id") is not None:
+        return str(meta["position_id"])
+    if not config.extraction.split_channels:
+        return None
+    condition, biological_repeat, technical_repeat = _image_labels(config, meta)
+    return _position_id(condition, biological_repeat, technical_repeat, meta.get("image_file"), image_id)
+
+
 def _image_record(config: CellPatcherConfig, image_id: str, meta, image_shape=None) -> ImageRecord:
     """An image's :class:`ImageRecord` with the identity its patches get (no counts yet).
 
     Labels and provenance follow :func:`_stamp_run_context` and
-    :func:`_stamp_image_metadata`, so the record joins its patches' rows.
+    :func:`_stamp_image_metadata`, and ``position_id`` follows
+    :func:`_split_channel_patches`, so the record joins its patches' rows.
     """
     meta = meta or {}
-    condition, biological_repeat, technical_repeat = _run_labels(config)
-    if meta.get("technical_repeat") is not None:
-        technical_repeat = str(meta["technical_repeat"])
+    condition, biological_repeat, technical_repeat = _image_labels(config, meta)
     height = width = None
     if image_shape is not None:
         height, width = _spatial_shape_from_axes(image_shape, axes=config.common.image_axes)
@@ -132,6 +153,7 @@ def _image_record(config: CellPatcherConfig, image_id: str, meta, image_shape=No
         ),
         image_height=height,
         image_width=width,
+        position_id=_image_position_id(config, meta, image_id),
     )
 
 
@@ -146,14 +168,18 @@ def _patch_array_axes(config: CellPatcherConfig) -> str:
 
 
 def _default_position_id(patch: PatchRegion) -> str:
-    return _position_id(patch.condition, patch.biological_repeat, patch.image_file, patch.image_id)
+    return _position_id(
+        patch.condition, patch.biological_repeat, patch.technical_repeat, patch.image_file, patch.image_id
+    )
 
 
-def _position_id(condition, biological_repeat, image_file, image_id) -> str:
+def _position_id(condition, biological_repeat, technical_repeat, image_file, image_id) -> str:
     # One source image is one XY acquisition position, so all of its channel
-    # patches share this ID. Condition and biological repeat keep it unique across a tree run.
+    # patches share this ID. The condition, biological and technical repeat
+    # keep it unique across a tree run: two wells may hold files of the same
+    # name (the canonical FOV key is these three labels plus position_id).
     source = Path(image_file).stem if image_file else image_id
-    return "/".join(str(part) for part in (condition, biological_repeat, source) if part)
+    return "/".join(str(part) for part in (condition, biological_repeat, technical_repeat, source) if part)
 
 
 def _split_channel_patches(config: CellPatcherConfig, image_list, patches: list[PatchRegion], patch_arrays):
@@ -162,7 +188,8 @@ def _split_channel_patches(config: CellPatcherConfig, image_list, patches: list[
     Every channel patch keeps the parent's coordinates and provenance, gets
     ``c`` set to its channel index and ``_c<index>`` appended to its
     ``patch_id``, and shares one ``position_id`` (the supplied one, or a
-    default derived from condition/biological repeat/image file).
+    default derived from condition/biological repeat/technical repeat/image
+    file).
     """
     axes = normalize_axes(config.common.image_axes)
     if "C" not in axes:
@@ -599,7 +626,6 @@ def _patch_planes(config: CellPatcherConfig, sources) -> PatchingResult:
     a time. Random seeds continue across images (plane *k* of the run gets
     ``seed + k``), so the result does not depend on how the planes arrive.
     """
-    condition, biological_repeat, _ = _run_labels(config)
     need_arrays = config.common.extract_arrays or config.export.enabled
     raw_export = config.normalization.enabled and config.normalization.export_values == "raw" and config.export.enabled
     patches: list[PatchRegion] = []
@@ -628,9 +654,7 @@ def _patch_planes(config: CellPatcherConfig, sources) -> PatchingResult:
             if config.extraction.split_channels and plane_meta.get("position_id") is None:
                 # The planes of one image share its position (the default for
                 # split channels, from the source image rather than the plane).
-                plane_meta["position_id"] = _position_id(
-                    condition, biological_repeat, meta.get("image_file"), f"image_{index:04d}"
-                )
+                plane_meta["position_id"] = _image_position_id(config, meta, f"image_{index:04d}")
             plane_metadata.append(plane_meta)
 
         image_id = f"image_{index:04d}"

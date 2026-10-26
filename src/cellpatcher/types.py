@@ -189,6 +189,14 @@ IMAGE_TABLE_COLUMNS = (
     "n_patches",
     "status",
     "reason",
+    # Appended after the first release of the table, so earlier columns keep
+    # their positions: the image's position (AGENTS.md §5, empty when neither
+    # supplied nor defaulted) and its counts before n_patches, which tell a
+    # mode that generated no region from filters or normalization removing all.
+    "position_id",
+    "n_regions",
+    "n_kept",
+    "n_normalized",
 )
 
 
@@ -204,6 +212,8 @@ class ImageRecord:
     (decision D8 discards the patches that cannot be normalized; equal to
     ``n_kept`` without normalization) and ``n_patches`` rows written to
     ``patches.csv`` (one per channel with ``split_channels``).
+    ``position_id`` is the one every patch of the image carries: supplied
+    via ``image_metadata``, the ``split_channels`` default, or None.
 
     ``status`` (see :attr:`status`) is ``"processed"`` (at least one patch),
     ``"no_patches"`` (patched, none kept; :attr:`reason` says at which step)
@@ -224,6 +234,7 @@ class ImageRecord:
     n_normalized: int = 0
     n_patches: int = 0
     skip_reason: str | None = None
+    position_id: str | None = None
 
     @property
     def status(self) -> str:

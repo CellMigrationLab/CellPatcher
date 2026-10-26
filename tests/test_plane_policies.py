@@ -130,7 +130,7 @@ def test_split_channels_follow_the_plane_suffix_and_share_one_position():
     assert [p.patch_id for p in result.patches] == [
         f"image_0000_grid_00000_z{z:03d}_c{c}" for z in range(3) for c in range(2)
     ]
-    assert {p.position_id for p in result.patches} == {"single/single/image_0000"}
+    assert {p.position_id for p in result.patches} == {"single/single/single/image_0000"}
     np.testing.assert_array_equal(result.patch_arrays[3], stack[1, 1])
 
 

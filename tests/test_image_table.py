@@ -43,6 +43,7 @@ def _assert_tables_join(folder):
         assert key in images, f"{row['patch_file']} comes from an image missing in images.csv: {key}"
         assert row["image_height"] == images[key]["image_height"]
         assert row["image_width"] == images[key]["image_width"]
+        assert row["position_id"] == images[key]["position_id"]
         counts[key] = counts.get(key, 0) + 1
     for key, image_row in images.items():
         assert int(image_row["n_patches"]) == counts.get(key, 0)
@@ -91,6 +92,7 @@ def test_folder_run_lists_images_with_and_without_patches(tmp_path):
         "image_id": "image_0000", "image_file": "a.tif", "mask_file": "a_mask.tif",
         "source_relative_path": "a.tif", "image_height": "96", "image_width": "128",
         "n_patches": "4", "status": "processed", "reason": "",
+        "position_id": "", "n_regions": "4", "n_kept": "4", "n_normalized": "4",
     }
     # The image whose mask holds no cell is listed, not dropped.
     assert by_file["b.tif"]["n_patches"] == "0"
@@ -141,6 +143,9 @@ def test_filters_that_remove_every_region_are_the_reason(tmp_path):
         ("image_0000", "4", "processed"), ("image_0001", "0", "no_patches"),
     ]
     assert image_rows[1]["reason"] == "the filters removed all 4 region(s)"
+    assert [(row["n_regions"], row["n_kept"], row["n_normalized"]) for row in image_rows] == [
+        ("4", "4", "4"), ("4", "0", "0"),
+    ]
     # A direct run_patching call has no labels or file names: "single" labels, empty file columns.
     assert (image_rows[1]["condition"], image_rows[1]["image_file"]) == ("single", "")
     assert result.image_records[1].n_regions == 4 and result.image_records[1].n_kept == 0
@@ -159,6 +164,29 @@ def test_split_channels_count_one_row_per_channel_patch(tmp_path):
     patch_rows, image_rows = _assert_tables_join(tmp_path)
     assert len(patch_rows) == 6
     assert [(row["n_patches"], row["image_height"], row["image_width"]) for row in image_rows] == [("6", "32", "16")]
+    # Regions are counted before the split, patches after it.
+    assert (image_rows[0]["n_regions"], image_rows[0]["position_id"]) == ("2", "single/single/single/image_0000")
+
+
+def test_the_supplied_position_id_is_listed_also_for_images_without_patches(tmp_path):
+    config = CellPatcherConfig(
+        mode="grid",
+        common=CommonConfig(output_dir=str(tmp_path)),
+        grid=GridConfig(tile_size=16),
+        export=ExportConfig(enabled=True, image_format="npy"),
+    )
+    config.filters.min_mean_intensity = 50
+    images = [np.full((32, 32), 100, np.uint16), np.zeros((32, 32), np.uint16), np.zeros((32, 32), np.uint16)]
+    metadata = [{"position_id": "P1"}, {"position_id": "P2"}, {}]
+    result = run_patching(images=images, config=config, image_metadata=metadata)
+
+    patch_rows, image_rows = _assert_tables_join(tmp_path)
+    assert {row["position_id"] for row in patch_rows} == {"P1"}
+    # Without split_channels, a position that was not supplied is not guessed.
+    assert [(row["position_id"], row["status"]) for row in image_rows] == [
+        ("P1", "processed"), ("P2", "no_patches"), ("", "no_patches"),
+    ]
+    assert [record.position_id for record in result.image_records] == ["P1", "P2", None]
 
 
 def test_an_image_without_planes_is_skipped_with_a_reason(tmp_path):
@@ -177,6 +205,9 @@ def test_an_image_without_planes_is_skipped_with_a_reason(tmp_path):
         ("image_0000", "8", "processed"), ("image_0001", "0", "skipped"),
     ]
     assert "no plane to patch" in image_rows[1]["reason"]
+    assert [(row["n_regions"], row["n_kept"], row["n_normalized"]) for row in image_rows] == [
+        ("8", "8", "8"), ("0", "0", "0"),
+    ]
     # The planes of one image make one row, with the image's size.
     assert (image_rows[0]["image_height"], image_rows[0]["image_width"]) == ("32", "32")
     assert len(result.image_records) == 2
@@ -330,3 +361,4 @@ def test_an_image_whose_patches_are_all_discarded_by_normalization(tmp_path):
     _, image_rows = _assert_tables_join(tmp_path)
     assert [(row["n_patches"], row["status"]) for row in image_rows] == [("4", "processed"), ("0", "no_patches")]
     assert image_rows[1]["reason"].startswith("normalization discarded all 4 patch(es)")
+    assert (image_rows[1]["n_regions"], image_rows[1]["n_kept"], image_rows[1]["n_normalized"]) == ("4", "4", "0")
