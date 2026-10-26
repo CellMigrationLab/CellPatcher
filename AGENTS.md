@@ -21,7 +21,7 @@
 
 Key dependencies: `numpy`, `scipy`, `tifffile`, `imageio` (core, required). Optional extras: `ipywidgets`, `matplotlib`, `pillow`, `tqdm`, `joblib`, `jl-hidecode` (notebook extra); `torch` (optional `cellpatcher.torch_dataset` adapter only — never a core dependency); `morphobricks-preprocessing[zarr]` from GitHub at a pinned commit, with `morphobricks-normalization` at the tag that commit requires (`preprocessing` extra, for `cellpatcher.statistics` and normalization — never a core dependency; histograms, the plane table, plane IDs, pooling and normalization parameters are imported from `morphobricks_normalization`, not from their deprecated preprocessing paths).
 
-Current health snapshot (latest audit): 461 tests passing, 1 skipped.
+Current health snapshot (2026-10-26, after decisions D44/D45/D47): 679 tests passing, 4 skipped (the torch tests, when `torch` is not installed), on Python 3.11 and 3.13.
 
 ---
 
@@ -44,14 +44,18 @@ These rules override other implementation preferences.
   `mask_file`, `y0/y1/x0/x1`, `z0/z1`, `t`, `c`, `label_id`,
   `center_y`/`center_x`/`center_z`, `touches_border`, `area_px`,
   `patch_file`, `output_height`/`output_width`, `config_file`, `valid`,
-  `reason`, `source_relative_path`). These are exactly the columns written to the exported metadata
+  `reason`, `source_relative_path`, `object_set`). These are exactly the columns written to the exported metadata
   CSV (`save_metadata_csv` in `src/cellpatcher/export.py`, plus the
   computed `height`/`width` convenience columns from `PatchRegion.to_dict()`),
   and downstream repos may already depend on them. New fields may be
   *added* (as optional, default-`None` fields) without violating this rule;
   existing ones may not be renamed or have their meaning changed.
   (`biological_repeat` was renamed from `repeat` with explicit owner
-  approval; `repeat` remains a deprecated alias for a transition — see §5.)
+  approval; `repeat` remains a deprecated alias for a transition — see §5.
+  The *format* of `patch_id` was changed with explicit owner approval,
+  decision D44 of 2026-10-26: it is now built by `cellpatcher.ids` from the
+  FOV identity and the patch's own coordinates, never from run order — see
+  §5. Its meaning, the patch's unique identifier, is unchanged.)
 * **The MorphoBricks-wide `condition`/`biological_repeat`/`technical_repeat`/
   `image_file`/`mask_file`/`patch_file` CSV contract in §5 is now
   implemented** — `run_patching`/`run_patching_pipeline` populate these
@@ -178,6 +182,16 @@ CellPatcher-specific conventions:
 * `scan_cell_patch_size` computes dataset-level patch-size recommendations.
 * `ExtractionConfig.apply_mask` is cell-mode oriented and clears pixels
   outside selected labels before resize/export.
+* Patch identity lives in `src/cellpatcher/ids.py` (decisions D44/D45,
+  2026-10-26): `patch_id` = `position_id` + object set + plane indices +
+  label or rectangle; `position_id` is always filled. Never derive an
+  identity from `image_id` (the image's place in the run) or from list
+  order; every run refuses duplicate `patch_id` values.
+* Cell-mode masks are instance labels used as given (decision D47):
+  boolean masks are refused unless `CellConfig.binary_mask_policy=
+  "connected_components"` (warns; recorded in `run_config.json`); labels
+  above the int32 maximum are refused. `cell_scan` shares the rule
+  (`CellSegmentationStrategy.label_objects`).
 * Strategies generate strictly 2D Y/X regions. Z/T stacks become planes
   either with `common.z_policy`/`t_policy` in the pipeline
   (`cellpatcher.planes`; default `"keep"` keeps all planes in each patch)
@@ -281,7 +295,7 @@ Two ways to point CellPatcher at input data:
   `reason` (empty for `processed`; otherwise the step that left no patch:
   the patch mode, the filters or normalization discards), then, appended
   later, `position_id` (the one its patches carry, also for an image
-  without patches; empty when neither supplied nor defaulted) and
+  without patches; always filled since decision D45) and
   `n_regions`/`n_kept`/`n_normalized` (counts after the patch mode, the
   filters and normalization). There is no
   `failed` status: a failing image stops the run with an error before any
@@ -426,16 +440,33 @@ columns: `patch_id`, `image_id`, `mode`, `y0`/`y1`/`x0`/`x1`, `height`/
   `image_metadata=[{"image_file": ..., "mask_file": ...}, ...]`.
 - `patch_file` — populated automatically by `export_patches`
   (`export.enabled=True`); `None` when a patch isn't exported to a file.
-- `position_id` — taken from `image_metadata` when supplied. Only when
-  `ExtractionConfig.split_channels=True` (one single-channel patch per
-  channel, `c` = channel index) is it filled automatically for images
-  without one, as
+- `position_id` — always filled (owner decision D45, 2026-10-26), in every
+  run type: taken from `image_metadata` when supplied (a user-given value
+  wins); otherwise one file is one position, as
   `<condition>/<biological_repeat>/<technical_repeat>/<image file stem>`
-  (`single/single/single/<stem>` when no labels are given), so every
-  channel patch of one image shares it and equal file names in two wells
-  stay distinct. Otherwise it stays `None` unless supplied. The canonical
-  MorphoBricks FOV key is `condition` + `biological_repeat` +
+  (`single/single/single/<stem>` when no labels are given; `io.image_stem`,
+  so `img.ome.zarr` gives `img`), so every plane and channel patch of one
+  image shares it and equal file names in two wells stay distinct. An
+  in-memory image given to `run_patching` with neither a `position_id`
+  nor an `image_file` gets `array-<16 hex of the SHA-256 of its dtype,
+  shape and pixels>` in place of the stem — never a run-order value. The
+  canonical MorphoBricks FOV key is `condition` + `biological_repeat` +
   `technical_repeat` + `position_id` (MorphoBricks decision D02, 2026-10-26).
+- `patch_id` — run-independent (owner decision D44, 2026-10-26), built by
+  `cellpatcher.ids`:
+  `position_id "/" [object_set "/"] ["t"NNNN "/"] ["z"NNN "/"] ["c"N "/"] token`,
+  token `label<label_id>` (cell), `grid-y<y0>-x<x0>-h<h>-w<w>` (grid),
+  `random-y<y0>-x<x0>-h<h>-w<w>[-n<k>]` (random; `-n` numbers repeated
+  draws of one rectangle) or `whole_fov`. Exported file names are
+  `sanitize_filename(patch_id)` (`/` → `_`). Formerly
+  `<image_id>_<mode>_<index>[_t<NNN>][_z<NNN>][_c<n>]`, which changed with
+  the run. Random rectangles themselves still depend on the image's place
+  in the run (`random.seed + index`): open owner question.
+- `object_set` — cell mode only: `image_metadata["object_set"]`, else
+  `common.object_set`, else the mask's own name in folder/tree runs (the
+  OME-NGFF label name, or the mask file stem's part after the image stem:
+  `img_cells.tif` → `cells`), else `"mask"`. Appended as the last
+  `patches.csv` column.
 
 Mask/patch columns are always present (never omitted) but hold `None`/empty
 when not applicable, rather than the column itself being dropped — simpler
@@ -511,7 +542,7 @@ here as new feature-extraction/analysis repos are created.
 | Technical repeat | A well, dish or coverslip within a biological repeat: the optional shared column `technical_repeat` of the MorphoBricks contract (§5), derived from a `<condition>/<biological_repeat>/<technical_repeat>/` folder level or set via `common.technical_repeat`/`image_metadata`; `"single"` when a biological repeat has no such level |
 | Single repeat    | A condition with no biological-repeat subfolder — `<condition>/<image files>` instead of `<condition>/<biological_repeat>/<image files>`. `run_patching_condition_repeat_tree` treats it as one implicit biological repeat, labeled `cellpatcher.SINGLE_BIOLOGICAL_REPEAT_LABEL` (`"single"`; also available as `SINGLE_REPEAT_LABEL`) (§5, §6). Likewise, images directly in the root folder are one condition labeled `cellpatcher.SINGLE_CONDITION_LABEL` (`"single"`) with a single biological repeat |
 | Patch           | A sub-region cropped from a microscopy image                                                      |
-| Mask            | Binary/label image marking regions of interest (e.g. cell outlines), used in `cell` mode           |
+| Mask            | Instance-label image marking objects (each non-zero integer value one object), used in `cell` mode; boolean masks need the `binary_mask_policy="connected_components"` opt-in |
 | Feature         | A numeric descriptor extracted from a patch or image (produced downstream, e.g. by fiberfeatures)  |
 | Patch mode      | One of `cell`, `random`, `grid`, `whole_fov` — determines how `PatchRegion` coordinates are generated |
 | `PatchRegion`   | Coordinate-first descriptor of a single patch and its metadata (`src/cellpatcher/types.py`)        |

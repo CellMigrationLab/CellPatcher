@@ -125,7 +125,10 @@ result = run_patching(images=images, masks=labels_2d, config=config)
 ## Keeping Z/T plane metadata with patch results
 
 `iter_image_planes_for_patching` and `iter_cell_planes_for_patching` return `metadata` and `plane_id` on each yielded item.
-When you pass a list of prepared planes into `run_patching`, image IDs are assigned as `image_0000`, `image_0001`, ... .
+When you pass a list of prepared planes into `run_patching`, image IDs are assigned as `image_0000`, `image_0001`, ... (the place in the run).
+Pass each plane's `metadata` too: its `t`/`z` indices become levels of `patch_id`, which is built from the
+position and the plane, not from the image ID (`configuration_reference.md`, "Patch identity"). Without them,
+planes of one image with the same pixels or the same `position_id` give the same `patch_id` and the run is refused.
 
 Pass that per-plane `metadata` straight through as `run_patching(..., image_metadata=...)` and it is stamped onto the
 matching `PatchRegion`'s `t`/`z0`/`z1`/`c` fields automatically — and therefore into the exported `patches.csv` too,

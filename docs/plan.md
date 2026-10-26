@@ -417,7 +417,8 @@ from GitHub at a pinned version) **[D1]**.
   masks follow the image's planes when their Z/T length equals the image's and are shared
   when they lack the axis or have length 1 (the §4 rule, for every mask); a split axis keeps
   one `image_id` per source image and appends the plane to `patch_id`
-  (`image_0000_grid_00003_z002`, before `_c<n>`). Blocking projections under normalization
+  (`image_0000_grid_00003_z002`, before `_c<n>`; since owner decision D44 of 2026-10-26 a
+  `z002` level of the run-independent `patch_id`, see `configuration_reference.md`). Blocking projections under normalization
   needs `NormalizationConfig`, so it lands with Milestone 3. Delivered in steps: plane
   splitting, OME-Zarr images, OME-NGFF labels (with `ngff_label_names`/`open_ngff_labels`
   added to the preprocessing package), plane-by-plane reading (one image at a time, and with
