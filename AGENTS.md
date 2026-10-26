@@ -19,7 +19,7 @@
 | Tests       | `PYTHONPATH=src python -m pytest -q` (equivalent to `pytest tests/` once the package is installed editable)                                              |
 | Environment | `python -m pip install -e .` (add extras as needed: `.[test]`, `.[notebook]`, `.[torch]`) or `conda env create -f environment.yaml`                       |
 
-Key dependencies: `numpy`, `scipy`, `tifffile`, `imageio` (core, required). Optional extras: `ipywidgets`, `matplotlib`, `pillow`, `tqdm`, `joblib`, `jl-hidecode` (notebook extra); `torch` (optional `cellpatcher.torch_dataset` adapter only — never a core dependency); `morphobricks-preprocessing[zarr]` from GitHub at a pinned commit (`preprocessing` extra, for `cellpatcher.statistics` and the planned normalization — never a core dependency).
+Key dependencies: `numpy`, `scipy`, `tifffile`, `imageio` (core, required). Optional extras: `ipywidgets`, `matplotlib`, `pillow`, `tqdm`, `joblib`, `jl-hidecode` (notebook extra); `torch` (optional `cellpatcher.torch_dataset` adapter only — never a core dependency); `morphobricks-preprocessing[zarr]` from GitHub at a pinned commit, with `morphobricks-normalization` at the tag that commit requires (`preprocessing` extra, for `cellpatcher.statistics` and normalization — never a core dependency; histograms, the plane table, plane IDs, pooling and normalization parameters are imported from `morphobricks_normalization`, not from their deprecated preprocessing paths).
 
 Current health snapshot (latest audit): 461 tests passing, 1 skipped.
 
@@ -338,8 +338,9 @@ outputs above are the whole interface. In summary:
   `patches.csv` — `source_relative_path` and six `normalization_*` columns —
   plus a `normalization` config section and a `normalization_inputs` object
   in `run_config.json`.
-- **Reuse:** histograms, pooling, normalization parameters and image readers
-  are imported from `morphobricks_preprocessing`, never reimplemented here.
+- **Reuse:** histograms, pooling and normalization parameters are imported
+  from `morphobricks_normalization`, image readers, manifests and messages
+  from `morphobricks_preprocessing`; never reimplemented here.
 
 ### Shared CSV column contract
 
