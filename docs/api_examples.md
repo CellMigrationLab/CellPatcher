@@ -5,7 +5,7 @@
 These examples are designed for quick copy/paste experimentation.
 Assume `image` and `labels` are already loaded NumPy arrays.
 If you're reading from disk, use `read_array(...)` for TIFF/NPY inputs.
-All examples call `run_patching(...)`.
+All examples call `run_patching(...)`. An in-memory image needs an identity: pass `image_metadata=[{"position_id": ...}]`, one entry per image (an image without a `position_id` or `image_file` is refused; see "Patch identity" in `configuration_reference.md`).
 
 These examples assume:
 
@@ -74,7 +74,7 @@ config = CellPatcherConfig(
     extraction=ExtractionConfig(apply_mask=True, output_size=224),
 )
 
-result = run_patching(images=image, masks=labels, config=config)
+result = run_patching(images=image, masks=labels, config=config, image_metadata=[{"position_id": "fov1"}])
 ```
 
 ## Example 2 — Grid mode export to `.npy`
@@ -89,7 +89,7 @@ config = CellPatcherConfig(
     export=ExportConfig(enabled=True, image_format="npy", save_metadata_csv=True),
 )
 
-result = run_patching(images=image, config=config)
+result = run_patching(images=image, config=config, image_metadata=[{"position_id": "fov1"}])
 print(result.metadata_file)
 ```
 
@@ -106,7 +106,7 @@ config = CellPatcherConfig(
     random=RandomConfig(patch_size=64, n_patches=16, seed=42),
 )
 
-result = run_patching(images=image, masks=sampling_mask, config=config)
+result = run_patching(images=image, masks=sampling_mask, config=config, image_metadata=[{"position_id": "fov1"}])
 ```
 
 Random sampling is with replacement, so duplicate regions are possible.
@@ -122,7 +122,7 @@ config = CellPatcherConfig(
     extraction=ExtractionConfig(output_size=224),
 )
 
-result = run_patching(images=image, config=config)
+result = run_patching(images=image, config=config, image_metadata=[{"position_id": "fov1"}])
 print(len(result.patches))  # 1
 ```
 
@@ -163,7 +163,7 @@ config = CellPatcherConfig(
     ),
 )
 
-result = run_patching(images=image, config=config)
+result = run_patching(images=image, config=config, image_metadata=[{"position_id": "fov1"}])
 ```
 
 Here, `foreground_threshold="mean"` means foreground is defined relative to each patch's mean intensity.
@@ -235,7 +235,7 @@ config = CellPatcherConfig(mode="grid")
 config.common = CommonConfig(image_axes=planes[0].axes, extract_arrays=True)
 config.grid = GridConfig(tile_size=128)
 
-result = run_patching(images=images, config=config)
+result = run_patching(images=images, config=config, image_metadata=[{**p.metadata, "position_id": "fov1"} for p in planes])
 ```
 
 ```python
@@ -262,7 +262,7 @@ config = CellPatcherConfig(mode="cell")
 config.common = CommonConfig(image_axes=pairs[0].image_axes, mask_axes="YX", extract_arrays=True)
 config.cell = CellConfig(patch_size="auto")
 
-result = run_patching(images=images, masks=labels_2d, config=config)
+result = run_patching(images=images, masks=labels_2d, config=config, image_metadata=[{**p.metadata, "position_id": "fov1"} for p in pairs])
 ```
 
 
@@ -283,7 +283,7 @@ from cellpatcher.torch_dataset import PatchTorchDataset, PatchTensorConfig
 
 config.common.extract_arrays = False
 config.export.enabled = False
-result = run_patching(images=image, masks=labels, config=config)
+result = run_patching(images=image, masks=labels, config=config, image_metadata=[{"position_id": "fov1"}])
 
 dataset = PatchTorchDataset(
     images=image,
@@ -345,7 +345,7 @@ config.export = ExportConfig(
     save_metadata_csv=True,
 )
 
-result = run_patching(images=image, config=config)
+result = run_patching(images=image, config=config, image_metadata=[{"position_id": "fov1"}])
 
 dataset = ExportedPatchTorchDataset(
     result.metadata_file,

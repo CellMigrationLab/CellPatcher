@@ -66,7 +66,9 @@ Common pitfalls:
 
 ## Random mode
 
-Random mode creates fixed-size random patches, with optional seeded reproducibility.
+Random mode creates fixed-size random patches, with optional seeded reproducibility. With a seed, each image (plane) is
+sampled from a seed derived from `random.seed` and its `position_id`/`t`/`z`/`c`, so its rectangles do not depend on
+which other files are in the run.
 
 - Optional `masks` can restrict sampling to allowed regions.
 - Sampling is **with replacement**, so duplicate regions are possible.

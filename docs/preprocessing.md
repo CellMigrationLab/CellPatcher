@@ -89,7 +89,7 @@ config = CellPatcherConfig(mode="grid")
 config.common = CommonConfig(image_axes=planes[0].axes, extract_arrays=True)
 config.grid = GridConfig(tile_size=128)
 
-result = run_patching(images=images, config=config)
+result = run_patching(images=images, config=config, image_metadata=[{**p.metadata, "position_id": "fov1"} for p in planes])
 ```
 
 ## Example: cell mode over matched Z planes
@@ -118,7 +118,7 @@ config = CellPatcherConfig(mode="cell")
 config.common = CommonConfig(image_axes=pairs[0].image_axes, mask_axes="YX", extract_arrays=True)
 config.cell = CellConfig(patch_size="auto")
 
-result = run_patching(images=images, masks=labels_2d, config=config)
+result = run_patching(images=images, masks=labels_2d, config=config, image_metadata=[{**p.metadata, "position_id": "fov1"} for p in pairs])
 ```
 
 

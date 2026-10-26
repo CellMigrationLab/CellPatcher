@@ -6,7 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased] - BREAKING: run-independent patch identity and instance-label masks
 
-Owner decisions D44, D45 and D47 (2026-10-26). Details: "Patch identity" in
+Owner decisions D44, D45 and D47 (2026-10-26), and the owner's follow-up answers of the same day
+(unnamed images refused, random mode seeded per FOV, multi-series TIFFs refused). Details: "Patch identity" in
 `docs/configuration_reference.md`; code in `src/cellpatcher/ids.py`.
 
 ### Changed (breaking)
@@ -28,10 +29,20 @@ Owner decisions D44, D45 and D47 (2026-10-26). Details: "Patch identity" in
   Example: `image_0002_cell_00007_t003_c1` (third file of a run) becomes
   `ctrl/2026_01_01/B02/fov1/nuclei/t0003/c1/label7` wherever `fov1.tif` is in the run.
 - **`position_id` always filled (D45).** Supplied via `image_metadata`, else
-  `<condition>/<biological_repeat>/<technical_repeat>/<file stem>` (one file is one position),
-  else, for an in-memory image without a file name, `array-<hash of its pixels>`. Previously
-  only filled with `split_channels` (where an image without file name got `image_<index>`), and
-  empty otherwise, also in `images.csv`.
+  `<condition>/<biological_repeat>/<technical_repeat>/<file stem>` (one file is one position).
+  Previously only filled with `split_channels` (where an image without file name got
+  `image_<index>`), and empty otherwise, also in `images.csv`.
+- **Unnamed in-memory images are refused.** `run_patching` on an image with neither
+  `image_metadata[i]["position_id"]` nor `image_metadata[i]["image_file"]` raises `ValueError`
+  naming the image's place in the run. Before, any array was accepted. Migration: pass
+  `run_patching(images=..., image_metadata=[{"position_id": "<fov>"}, ...])`, one entry per image
+  (plane metadata from the preprocessing helpers can be merged: `{**p.metadata, "position_id": ...}`).
+- **Random mode is seeded per FOV.** Image *k* of a run (plane *k* with split planes) used to be
+  sampled with `random.seed + k`, so its rectangles changed with the other files in the run. Each
+  image (plane) is now sampled with a seed derived from `random.seed` and its identity: SHA-256 of
+  `<position_id>|t=<t>|z=<z>|c=<c>` combined with the seed in `numpy.random.SeedSequence`. Same
+  seed, same rectangles for the same image wherever it is in the run; the rectangles drawn for a
+  given seed differ from those of earlier versions.
 - **`CellConfig.binary_mask_policy` default `"connected_components"` → `"single_object"` (D47).**
   Integer masks are always instance labels used as given (a 0/1 integer mask is now one object,
   label 1, also with `"connected_components"`). A boolean (or 0.0/1.0 float) mask is refused
@@ -49,7 +60,9 @@ Owner decisions D44, D45 and D47 (2026-10-26). Details: "Patch identity" in
 ### Fixed
 - A multi-image store (OME-Zarr plate or multi-position store, multi-series TIFF) read plane by
   plane was silently patched from its first image only; it is now refused, naming the store and
-  its image count.
+  its image count. A multi-series TIFF read whole (`z_policy`/`t_policy` `"keep"`, projections,
+  or without the `preprocessing` extra; also any TIFF read by `read_array`, masks included) is
+  refused the same way, naming the file and its series count.
 - `extraction.apply_mask` with connected-component labels of a binary mask blanked every object
   but label 1; that combination is now refused.
 

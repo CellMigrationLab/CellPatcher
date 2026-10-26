@@ -21,7 +21,7 @@
 
 Key dependencies: `numpy`, `scipy`, `tifffile`, `imageio` (core, required). Optional extras: `ipywidgets`, `matplotlib`, `pillow`, `tqdm`, `joblib`, `jl-hidecode` (notebook extra); `torch` (optional `cellpatcher.torch_dataset` adapter only — never a core dependency); `morphobricks-preprocessing[zarr]` from GitHub at a pinned commit, with `morphobricks-normalization` at the tag that commit requires (`preprocessing` extra, for `cellpatcher.statistics` and normalization — never a core dependency; histograms, the plane table, plane IDs, pooling and normalization parameters are imported from `morphobricks_normalization`, not from their deprecated preprocessing paths).
 
-Current health snapshot (2026-10-26, after decisions D44/D45/D47): 679 tests passing, 4 skipped (the torch tests, when `torch` is not installed), on Python 3.11 and 3.13.
+Current health snapshot (2026-10-26, after decisions D44/D45/D47 and the follow-up owner answers): 685 tests passing, 4 skipped (the torch tests, when `torch` is not installed), on Python 3.11 and 3.13.
 
 ---
 
@@ -448,8 +448,9 @@ columns: `patch_id`, `image_id`, `mode`, `y0`/`y1`/`x0`/`x1`, `height`/
   so `img.ome.zarr` gives `img`), so every plane and channel patch of one
   image shares it and equal file names in two wells stay distinct. An
   in-memory image given to `run_patching` with neither a `position_id`
-  nor an `image_file` gets `array-<16 hex of the SHA-256 of its dtype,
-  shape and pixels>` in place of the stem — never a run-order value. The
+  nor an `image_file` is refused (owner decision, 2026-10-26): never a
+  run-order value. A file holding several images or series (OME-Zarr plate,
+  multi-series TIFF) is refused however it is read. The
   canonical MorphoBricks FOV key is `condition` + `biological_repeat` +
   `technical_repeat` + `position_id` (MorphoBricks decision D02, 2026-10-26).
 - `patch_id` — run-independent (owner decision D44, 2026-10-26), built by
@@ -460,8 +461,11 @@ columns: `patch_id`, `image_id`, `mode`, `y0`/`y1`/`x0`/`x1`, `height`/
   draws of one rectangle) or `whole_fov`. Exported file names are
   `sanitize_filename(patch_id)` (`/` → `_`). Formerly
   `<image_id>_<mode>_<index>[_t<NNN>][_z<NNN>][_c<n>]`, which changed with
-  the run. Random rectangles themselves still depend on the image's place
-  in the run (`random.seed + index`): open owner question.
+  the run. Random mode samples each image (plane) with
+  `ids.random_seed(random.seed, identity)`: SHA-256 of
+  `<position_id>|t=..|z=..|c=..` combined with the seed in a numpy
+  `SeedSequence` (never Python's `hash()`, never the run index), so the
+  rectangles do not depend on run order either.
 - `object_set` — cell mode only: `image_metadata["object_set"]`, else
   `common.object_set`, else the mask's own name in folder/tree runs (the
   OME-NGFF label name, or the mask file stem's part after the image stem:
