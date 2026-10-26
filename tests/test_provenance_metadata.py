@@ -10,6 +10,7 @@ from cellpatcher.pipeline import RUN_CONFIG_FILENAME, run_patching
 from cellpatcher.orchestration import run_patching_pipeline
 from cellpatcher.types import PatchRegion
 from tests.helpers import make_synthetic_cell_image_and_labels
+from tests.helpers import named
 
 
 def test_to_dict_includes_height_and_width():
@@ -25,7 +26,7 @@ def test_condition_and_repeat_stamped_on_every_patch():
     cfg.common.condition = "treated"
     cfg.common.biological_repeat = "2026_01_01"
 
-    result = run_patching(images=image, config=cfg)
+    result = run_patching(images=image, config=cfg, image_metadata=named(image))
     assert len(result.patches) == 1
     assert result.patches[0].condition == "treated"
     assert result.patches[0].biological_repeat == "2026_01_01"
@@ -33,14 +34,14 @@ def test_condition_and_repeat_stamped_on_every_patch():
 
 def test_missing_labels_default_to_single():
     image = np.ones((16, 16), dtype=np.float32)
-    result = run_patching(images=image, config=CellPatcherConfig(mode="whole_fov"))
+    result = run_patching(images=image, config=CellPatcherConfig(mode="whole_fov"), image_metadata=named(image))
     patch = result.patches[0]
     assert (patch.condition, patch.biological_repeat, patch.technical_repeat) == ("single", "single", "single")
 
     # A label set to None (or null in an older run_config.json) is "single" too.
     cfg = CellPatcherConfig(mode="whole_fov")
     cfg.common.condition, cfg.common.technical_repeat = "treated", None
-    patch = run_patching(images=image, config=cfg).patches[0]
+    patch = run_patching(images=image, config=cfg, image_metadata=named(image)).patches[0]
     assert (patch.condition, patch.biological_repeat, patch.technical_repeat) == ("treated", "single", "single")
 
 
@@ -52,7 +53,7 @@ def test_output_height_width_reflect_resize_not_raw_bbox():
     cfg.extraction.output_size = 16
     cfg.extraction.resize_order = 0
 
-    result = run_patching(images=image, config=cfg)
+    result = run_patching(images=image, config=cfg, image_metadata=named(image))
     patch = result.patches[0]
     assert patch.height == 8 and patch.width == 8
     assert patch.output_height == 16 and patch.output_width == 16
@@ -60,7 +61,7 @@ def test_output_height_width_reflect_resize_not_raw_bbox():
 
 def test_output_height_width_none_when_arrays_not_extracted():
     image = np.ones((16, 16), dtype=np.float32)
-    result = run_patching(images=image, config=CellPatcherConfig(mode="whole_fov"))
+    result = run_patching(images=image, config=CellPatcherConfig(mode="whole_fov"), image_metadata=named(image))
     assert result.patches[0].output_height is None
     assert result.patches[0].output_width is None
 
@@ -72,7 +73,7 @@ def test_config_file_written_and_referenced_when_export_enabled(tmp_path):
     cfg.export.image_format = "npy"
     cfg.common.output_dir = str(tmp_path)
 
-    result = run_patching(images=image, config=cfg)
+    result = run_patching(images=image, config=cfg, image_metadata=named(image))
     config_path = tmp_path / RUN_CONFIG_FILENAME
     assert config_path.exists()
     assert result.patches[0].config_file == RUN_CONFIG_FILENAME
@@ -93,7 +94,7 @@ def test_config_file_captures_seed_for_deterministic_reconstruction(tmp_path):
     cfg.export.image_format = "npy"
     cfg.common.output_dir = str(tmp_path)
 
-    run_patching(images=image, config=cfg)
+    run_patching(images=image, config=cfg, image_metadata=named(image))
     with (tmp_path / RUN_CONFIG_FILENAME).open("r", encoding="utf-8") as f:
         saved = json.load(f)
     assert saved["random"]["seed"] == 42
@@ -106,7 +107,7 @@ def test_patch_file_matches_actual_exported_filename(tmp_path):
     cfg.export.image_format = "npy"
     cfg.common.output_dir = str(tmp_path)
 
-    result = run_patching(images=image, config=cfg)
+    result = run_patching(images=image, config=cfg, image_metadata=named(image))
     patch = result.patches[0]
     assert patch.patch_file is not None
     assert (tmp_path / patch.patch_file).exists()
@@ -122,7 +123,7 @@ def test_exported_csv_includes_new_provenance_columns(tmp_path):
     cfg.export.image_format = "npy"
     cfg.common.output_dir = str(tmp_path)
 
-    run_patching(images=image, config=cfg)
+    run_patching(images=image, config=cfg, image_metadata=named(image))
     with (tmp_path / "patches.csv").open("r", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
     row = rows[0]
@@ -136,7 +137,8 @@ def test_exported_csv_includes_new_provenance_columns(tmp_path):
 
 def test_image_metadata_stamps_plane_t_and_z():
     images = [np.ones((8, 8), dtype=np.float32), np.ones((8, 8), dtype=np.float32)]
-    image_metadata = [{"t": 0, "z": 2}, {"t": 1, "z": 5}]
+    # One position seen at two planes: the plane indices tell their patches apart.
+    image_metadata = [{"t": 0, "z": 2, "position_id": "P"}, {"t": 1, "z": 5, "position_id": "P"}]
 
     result = run_patching(images=images, config=CellPatcherConfig(mode="whole_fov"), image_metadata=image_metadata)
     assert len(result.patches) == 2
@@ -227,14 +229,13 @@ def test_technical_repeat_from_config_and_per_image_metadata():
     result = run_patching(
         images=images,
         config=cfg,
-        image_metadata=[{"technical_repeat": "B02"}, {}],
+        image_metadata=[{"technical_repeat": "B02", "image_file": "a.tif"}, {"image_file": "a.tif"}],
     )
-    # The same pixels in two wells are two positions.
+    # The same file name in two wells is two positions.
     assert [p.position_id.rsplit("/", 1)[0] for p in result.patches] == [
         "control/2026_02_02/B02", "control/2026_02_02/dish_1"
     ]
     assert [p.technical_repeat for p in result.patches] == ["B02", "dish_1"]
     # Unset, it is "single", as condition and biological_repeat are.
-    assert run_patching(images=images[0], config=CellPatcherConfig(mode="whole_fov")).patches[
-        0
-    ].technical_repeat == "single"
+    unset = run_patching(images=images[0], config=CellPatcherConfig(mode="whole_fov"), image_metadata=named(images[0]))
+    assert unset.patches[0].technical_repeat == "single"

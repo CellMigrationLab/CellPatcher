@@ -185,6 +185,7 @@ def test_export_config_rejects_invalid_image_format():
 # ---------------------------------------------------------------------------
 
 from cellpatcher.config import ExtractionConfig
+from tests.helpers import named
 
 
 def test_extraction_config_rejects_invalid_pad_mode():
@@ -232,14 +233,14 @@ def test_run_patching_with_none_config_uses_cell_mode_default():
     img = np.zeros((6, 6))
     mask = np.zeros((6, 6), dtype=int)
     mask[2:4, 2:4] = 1
-    result = run_patching(images=img, masks=mask, config=None)
+    result = run_patching(images=img, masks=mask, config=None, image_metadata=named(img))
     assert len(result.patches) == 1
 
 
 def test_run_patching_rejects_non_config_instance():
     import numpy as np
     with pytest.raises(TypeError, match="CellPatcherConfig"):
-        run_patching(images=np.zeros((4, 4)), config={"mode": "grid"})
+        run_patching(images=np.zeros((4, 4)), config={"mode": "grid"}, image_metadata=named(np.zeros((4, 4))))
 
 
 # ---------------------------------------------------------------------------

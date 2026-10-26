@@ -12,6 +12,7 @@ from cellpatcher.preprocess import iter_image_planes_for_patching
 from cellpatcher.resize import resize_patch
 from cellpatcher.torch_dataset import PatchTensorConfig, PatchTorchDataset, patch_array_to_tensor
 from cellpatcher.types import PatchRegion
+from tests.helpers import named
 
 
 def test_tensor_config_validation():
@@ -291,7 +292,7 @@ def test_patch_torch_dataset_real_fixture_smoke():
 
     cfg = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=128, overlap=0.0, include_partial=False))
     cfg.common.image_axes = "YX"
-    result = run_patching(images=image, config=cfg)
+    result = run_patching(images=image, config=cfg, image_metadata=named(image))
     ds = PatchTorchDataset(images=image, patches=result.patches, image_axes="YX")
     assert len(ds) == len(result.patches)
     assert len(ds) > 0
@@ -364,7 +365,7 @@ def test_exported_patch_torch_dataset_loads_real_export_patches_output(tmp_path)
     cfg.export.image_format = "npy"
     cfg.common.output_dir = str(tmp_path)
 
-    result = run_patching(images=image, config=cfg)
+    result = run_patching(images=image, config=cfg, image_metadata=named(image))
     ds = ExportedPatchTorchDataset(result.metadata_file)
     assert len(ds) == 1
     sample = ds[0]
@@ -492,7 +493,7 @@ def test_exported_patch_torch_dataset_integration_with_run_patching_export(tmp_p
     cfg.grid = GridConfig(tile_size=32, overlap=0.0, include_partial=False)
     cfg.export = ExportConfig(enabled=True, image_format="npy", save_metadata_csv=True)
 
-    result = run_patching(images=image, config=cfg)
+    result = run_patching(images=image, config=cfg, image_metadata=named(image))
     ds = ExportedPatchTorchDataset(result.metadata_file, axes=cfg.common.image_axes)
     sample = ds[0]
     assert tuple(sample["image"].shape)[0] == 3
@@ -508,7 +509,7 @@ def test_real_tiff_fixture_exported_torch_dataset(tmp_path):
     cfg.common = CommonConfig(image_axes="YX", output_dir=str(tmp_path), extract_arrays=False)
     cfg.export = ExportConfig(enabled=True, image_format="npy", save_metadata_csv=True)
 
-    result = run_patching(images=image, config=cfg)
+    result = run_patching(images=image, config=cfg, image_metadata=named(image))
     assert result.metadata_file is not None
 
     dataset = ExportedPatchTorchDataset(result.metadata_file, axes=cfg.common.image_axes)
@@ -538,7 +539,7 @@ def test_real_tiff_fixture_cell_apply_mask_torch_dataset():
     cfg.extraction.apply_mask = True
     cfg.extraction.output_size = 32
 
-    result = run_patching(images=image, masks=labels, config=cfg)
+    result = run_patching(images=image, masks=labels, config=cfg, image_metadata=named(image))
     ds = PatchTorchDataset(
         images=image,
         patches=result.patches,

@@ -32,6 +32,7 @@ from cellpatcher.orchestration import (
 )
 from cellpatcher.pipeline import RUN_CONFIG_FILENAME, run_patching
 from cellpatcher.types import PatchRegion
+from tests.helpers import named
 
 
 def _write_image(path, shape=(16, 16)):
@@ -255,7 +256,9 @@ def test_run_patching_with_repeat_config_gives_identical_patches():
     new_cfg = CellPatcherConfig(mode="whole_fov", common=CommonConfig(biological_repeat="2026_01_01"))
     with pytest.warns(DeprecationWarning):
         old_cfg = CellPatcherConfig(mode="whole_fov", common=CommonConfig(repeat="2026_01_01"))
-    assert run_patching(images=image, config=old_cfg).patches == run_patching(images=image, config=new_cfg).patches
+    assert run_patching(images=image, config=old_cfg,
+        image_metadata=named(image)).patches == run_patching(images=image, config=new_cfg,
+        image_metadata=named(image)).patches
 
 
 def test_discovery_and_tree_results_expose_deprecated_repeat_alias(tmp_path):

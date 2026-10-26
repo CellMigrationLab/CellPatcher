@@ -53,8 +53,8 @@ class PatchRegion:
       by all Z/C/T planes from one XY position. Always filled by
       ``run_patching``: the one supplied in ``image_metadata``, otherwise
       ``<condition>/<biological_repeat>/<technical_repeat>/<file stem>``
-      (one file is one position), or ``array-<hash>`` of the pixels in
-      place of the stem for an in-memory image without ``image_file``.
+      (one file is one position); an in-memory image with neither is
+      refused.
     - ``object_set``: the mask a ``cell``-mode patch's ``label_id`` belongs
       to (the OME-NGFF label name, the mask file's suffix, or
       ``common.object_set``; ``"mask"`` when none names it); ``None`` in

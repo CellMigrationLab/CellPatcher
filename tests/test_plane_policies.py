@@ -10,6 +10,7 @@ from cellpatcher.config import CellPatcherConfig, CommonConfig, GridConfig
 from cellpatcher.io import write_array
 from cellpatcher.orchestration import run_patching_pipeline
 from cellpatcher.pipeline import RUN_CONFIG_FILENAME, run_patching
+from tests.helpers import named
 
 
 def _stack(shape=(3, 16, 16)):
@@ -75,25 +76,27 @@ def test_t_and_z_split_together_in_t_then_z_order():
 
 def test_first_and_select_choose_one_plane_without_a_suffix():
     stack = _stack()
-    first = run_patching(images=stack, config=_grid_config(z_policy="first"))
+    first = run_patching(images=stack, config=_grid_config(z_policy="first"), image_metadata=named(stack))
     assert {(p.z0, p.patch_id.endswith("_z000")) for p in first.patches} == {(0, False)}
 
-    selected = run_patching(images=stack, config=_grid_config(z_policy="select", z_index=2))
+    selected = run_patching(images=stack, config=_grid_config(z_policy="select", z_index=2),
+        image_metadata=named(stack))
     assert {p.z0 for p in selected.patches} == {2}
     np.testing.assert_array_equal(selected.patch_arrays[0], stack[2, :8, :8])
 
 
 def test_projection_has_no_plane_index():
     stack = _stack()
-    result = run_patching(images=stack, config=_grid_config(z_policy="max"))
+    result = run_patching(images=stack, config=_grid_config(z_policy="max"), image_metadata=named(stack))
     assert {p.z0 for p in result.patches} == {None}
     np.testing.assert_array_equal(result.patch_arrays[0], stack.max(axis=0)[:8, :8])
 
 
 def test_images_without_the_axis_are_unchanged():
     image = np.ones((16, 16), dtype=np.float32)
-    keep = run_patching(images=image, config=_grid_config("YX"))
-    split = run_patching(images=image, config=_grid_config("YX", z_policy="all", t_policy="all"))
+    keep = run_patching(images=image, config=_grid_config("YX"), image_metadata=named(image))
+    split = run_patching(images=image, config=_grid_config("YX", z_policy="all", t_policy="all"),
+        image_metadata=named(image))
     assert [p.patch_id for p in split.patches] == [p.patch_id for p in keep.patches]
     assert {p.z0 for p in split.patches} == {None}
 
@@ -106,17 +109,19 @@ def test_invalid_policies_and_indices_are_rejected():
     with pytest.raises(ValueError, match="needs z_index"):
         CommonConfig(z_policy="select")
     with pytest.raises(ValueError, match="outside the images"):
-        run_patching(images=_stack(), config=_grid_config(z_policy="select", z_index=3))
+        run_patching(images=_stack(), config=_grid_config(z_policy="select", z_index=3), image_metadata=named(_stack()))
     # Set after construction: still checked when the run starts.
     config = _grid_config()
     config.common.z_policy = "median"
     with pytest.raises(ValueError, match="z_policy must be one of"):
-        run_patching(images=_stack(), config=config)
+        run_patching(images=_stack(), config=config, image_metadata=named(_stack()))
 
 
 def test_image_metadata_z_conflicts_with_a_z_policy():
     with pytest.raises(ValueError, match="use one or the other"):
-        run_patching(images=_stack(), config=_grid_config(z_policy="all"), image_metadata=[{"z": 1}])
+        run_patching(
+            images=_stack(), config=_grid_config(z_policy="all"), image_metadata=[{"z": 1, "position_id": "P"}]
+        )
 
 
 def test_provenance_from_image_metadata_reaches_every_plane():
@@ -142,8 +147,8 @@ def test_random_mode_is_deterministic_per_plane():
     config = CellPatcherConfig(mode="random")
     config.random.patch_size, config.random.n_patches = 4, 3
     config.common.image_axes, config.common.z_policy = "ZYX", "all"
-    first = run_patching(images=_stack(), config=config)
-    second = run_patching(images=_stack(), config=config)
+    first = run_patching(images=_stack(), config=config, image_metadata=named(_stack()))
+    second = run_patching(images=_stack(), config=config, image_metadata=named(_stack()))
     assert [(p.patch_id, p.y0, p.x0) for p in first.patches] == [(p.patch_id, p.y0, p.x0) for p in second.patches]
     assert len({p.patch_id for p in first.patches}) == 9
 
@@ -172,27 +177,32 @@ def test_cell_masks_with_the_image_z_length_follow_its_planes():
 
 def test_a_2d_or_length_one_mask_is_shared_by_every_plane():
     mask = _labels_per_plane()[0]
-    shared = run_patching(images=_stack(), masks=mask, config=_cell_config(mask_axes="YX", z_policy="all"))
+    shared = run_patching(images=_stack(), masks=mask, config=_cell_config(mask_axes="YX", z_policy="all"),
+        image_metadata=named(_stack()))
     assert [(p.z0, p.label_id) for p in shared.patches] == [(0, 1), (1, 1), (2, 1)]
 
-    single = run_patching(images=_stack(), masks=mask[None], config=_cell_config(z_policy="all"))
+    single = run_patching(images=_stack(), masks=mask[None], config=_cell_config(z_policy="all"),
+        image_metadata=named(_stack()))
     assert [(p.z0, p.label_id) for p in single.patches] == [(0, 1), (1, 1), (2, 1)]
 
 
 def test_mask_z_length_must_match_or_be_one():
     with pytest.raises(ValueError, match="must have the image's Z length"):
-        run_patching(images=_stack(), masks=_labels_per_plane(2), config=_cell_config(z_policy="all"))
+        run_patching(images=_stack(), masks=_labels_per_plane(2), config=_cell_config(z_policy="all"),
+            image_metadata=named(_stack()))
 
 
 def test_a_projection_cannot_use_masks_that_follow_the_planes():
     with pytest.raises(ValueError, match="projects the images' Z planes"):
-        run_patching(images=_stack(), masks=_labels_per_plane(), config=_cell_config(z_policy="max"))
+        run_patching(images=_stack(), masks=_labels_per_plane(), config=_cell_config(z_policy="max"),
+            image_metadata=named(_stack()))
 
 
 def test_apply_mask_uses_the_matching_label_plane():
     config = _cell_config(z_policy="all")
     config.extraction.apply_mask = True
-    result = run_patching(images=_stack() + 1, masks=_labels_per_plane(), config=config)
+    result = run_patching(images=_stack() + 1, masks=_labels_per_plane(), config=config,
+        image_metadata=named(_stack() + 1))
     for patch, array in zip(result.patches, result.patch_arrays):
         # Only the patch's own object survives; it is in its own plane.
         assert np.count_nonzero(array) == 9

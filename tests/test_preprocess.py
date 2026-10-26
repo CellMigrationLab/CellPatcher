@@ -351,7 +351,8 @@ def test_iter_cell_planes_integration_run_patching_cell_mode():
     cfg.cell = CellConfig(patch_size="auto", exclude_border=False)
 
     # The planes' metadata gives each plane's z, which tells their patches apart.
-    result = run_patching(images=images, masks=labels_2d, config=cfg, image_metadata=[p.metadata for p in pairs])
+    metadata = [{**p.metadata, "position_id": "P"} for p in pairs]
+    result = run_patching(images=images, masks=labels_2d, config=cfg, image_metadata=metadata)
     assert len(result.patches) > 0
     assert result.patch_arrays is not None
     assert [patch.z0 for patch in result.patches] == [0, 1]

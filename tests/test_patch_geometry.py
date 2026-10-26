@@ -13,6 +13,7 @@ from cellpatcher.pipeline import _padding, run_patching
 from cellpatcher.types import PatchRegion
 
 from tests.helpers import make_synthetic_cell_image_and_labels
+from tests.helpers import named
 
 GEOMETRY_COLUMNS = [
     "image_height", "image_width", "pad_top", "pad_bottom", "pad_left", "pad_right", "resized", "output_axes",
@@ -32,7 +33,7 @@ def test_image_size_is_recorded_in_every_mode_without_arrays(mode):
     config.random.patch_size = 16
     config.random.n_patches = 3
     masks = [labels] if mode in ("cell", "random") else None
-    result = run_patching(images=[image], masks=masks, config=config)
+    result = run_patching(images=[image], masks=masks, config=config, image_metadata=named([image]))
 
     assert result.patches
     assert {(patch.image_height, patch.image_width) for patch in result.patches} == {image.shape}
@@ -50,7 +51,7 @@ def test_exported_grid_patches_record_axes_padding_and_no_resize(tmp_path):
         grid=GridConfig(tile_size=16),
         export=ExportConfig(enabled=True, image_format="npy"),
     )
-    result = run_patching(images=[_stack()], config=config)
+    result = run_patching(images=[_stack()], config=config, image_metadata=named([_stack()]))
 
     with (tmp_path / "patches.csv").open(newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
@@ -81,9 +82,9 @@ def test_resized_is_true_only_where_resizing_changed_the_shape():
         cell=CellConfig(patch_size=20, exclude_border=False),
         extraction=ExtractionConfig(output_size=20),
     )
-    resized = run_patching(images=[image], masks=[labels], config=config)
+    resized = run_patching(images=[image], masks=[labels], config=config, image_metadata=named([image]))
     config.extraction.output_size = None
-    plain = run_patching(images=[image], masks=[labels], config=config)
+    plain = run_patching(images=[image], masks=[labels], config=config, image_metadata=named([image]))
 
     flags = {patch.label_id: patch.resized for patch in resized.patches}
     for patch, array, crop in zip(resized.patches, resized.patch_arrays, plain.patch_arrays):
@@ -103,7 +104,7 @@ def test_split_channel_patches_have_no_channel_axis():
         grid=GridConfig(tile_size=16),
         extraction=ExtractionConfig(split_channels=True),
     )
-    result = run_patching(images=[_stack(n_channels=3)], config=config)
+    result = run_patching(images=[_stack(n_channels=3)], config=config, image_metadata=named([_stack(n_channels=3)]))
 
     assert {patch.output_axes for patch in result.patches} == {"YX"}
     assert {patch.c for patch in result.patches} == {0, 1, 2}
@@ -121,7 +122,7 @@ def test_output_axes_follow_the_plane_policy(z_policy, z_index, expected_axes):
         common=CommonConfig(image_axes="ZCYX", extract_arrays=True, z_policy=z_policy, z_index=z_index),
         grid=GridConfig(tile_size=16),
     )
-    result = run_patching(images=[stack], config=config)
+    result = run_patching(images=[stack], config=config, image_metadata=named([stack]))
 
     assert {patch.output_axes for patch in result.patches} == {expected_axes}
     assert {(patch.image_height, patch.image_width) for patch in result.patches} == {(40, 48)}

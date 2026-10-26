@@ -18,6 +18,7 @@ from cellpatcher.config import CellPatcherConfig, GridConfig, NormalizationConfi
 from cellpatcher.orchestration import load_config, run_patching_condition_repeat_tree, run_patching_pipeline
 from cellpatcher.pipeline import RUN_CONFIG_FILENAME, run_patching
 from cellpatcher.statistics import PreprocessingCheckError
+from tests.helpers import named
 
 pytestmark = [
     pytest.mark.skipif(
@@ -141,11 +142,13 @@ def test_a_run_config_without_normalization_loads_as_off(tmp_path):
 
 def test_csv_scopes_need_the_table_and_regions_need_cell_mode():
     with pytest.raises(ValueError, match="needs the plane_histograms.csv"):
-        run_patching(images=np.ones((16, 16), np.uint8), config=_config(None, image_axes="YX"))
+        run_patching(images=np.ones((16, 16), np.uint8), config=_config(None, image_axes="YX"),
+            image_metadata=named(np.ones((16, 16), np.uint8)))
     with pytest.raises(ValueError, match="only mode='cell' has"):
         run_patching(
             images=np.ones((16, 16), np.uint8),
             config=_config(None, image_axes="YX", scope="patch", patch_region="mask"),
+                image_metadata=named(np.ones((16, 16), np.uint8)),
         )
 
 
@@ -269,7 +272,7 @@ def test_patch_regions_use_exactly_their_pixels(region, patch_size):
     config.common.mask_axes = "YX"
     config.cell.patch_size, config.cell.exclude_border = patch_size, False
 
-    (patch,) = run_patching(images=image, masks=labels, config=config).patches
+    (patch,) = run_patching(images=image, masks=labels, config=config, image_metadata=named(image)).patches
     rows, cols = slice(max(patch.y0, 0), patch.y1), slice(max(patch.x0, 0), patch.x1)
     if region == "mask":
         pixels = image[rows, cols][labels[rows, cols] == 1]
@@ -305,7 +308,7 @@ def test_patches_without_spread_are_discarded_and_reported(tmp_path):
 
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        result = run_patching(images=image, config=config)
+        result = run_patching(images=image, config=config, image_metadata=named(image))
     assert [(p.y0, p.x0) for p in result.patches] == [(0, 0), (0, 8)]
     assert len(result.patch_arrays) == len(result.exported_files) == 2
     (report,) = [w for w in caught if "discarded" in str(w.message)]
@@ -318,7 +321,8 @@ def test_patches_without_spread_are_discarded_and_reported(tmp_path):
 def test_patches_without_finite_pixels_are_discarded_too():
     image = np.arange(256, dtype=np.float32).reshape(16, 16)
     image[8:, 8:] = np.nan
-    result = run_patching(images=image, config=_config(None, image_axes="YX", scope="patch"))
+    result = run_patching(images=image, config=_config(None, image_axes="YX", scope="patch"),
+        image_metadata=named(image))
     assert (8, 8) not in [(p.y0, p.x0) for p in result.patches] and len(result.patches) == 3
 
 
@@ -336,7 +340,7 @@ def test_filters_see_raw_values_and_mask_fill_is_in_normalized_units():
     config.extraction.apply_mask, config.extraction.mask_fill_value = True, float("nan")
     config.extraction.output_size = 6
 
-    result = run_patching(images=image, masks=labels, config=config)
+    result = run_patching(images=image, masks=labels, config=config, image_metadata=named(image))
     (patch,), (array,) = result.patches, result.patch_arrays
     assert array.dtype == np.float32 and array.shape == (6, 6)
     assert np.isnan(array).any() and np.nanmin(array) >= -0.01 and np.nanmax(array) <= 1.01
@@ -399,11 +403,12 @@ def test_in_memory_runs_need_source_relative_path_for_csv_scopes(experiment):
     stack = stacks["control/bio1/a.tif"]
     config = _config(csv_path)
     with pytest.raises(ValueError, match="source_relative_path"):
-        run_patching(images=stack, config=config)
+        run_patching(images=stack, config=config, image_metadata=named(stack))
 
     # The labels must be the CSV's: run_patching does not read them from paths.
     config.common.condition, config.common.biological_repeat = "control", "bio1"
-    result = run_patching(images=stack, config=config, image_metadata=[{"source_relative_path": "control/bio1/a.tif"}])
+    metadata = [{"source_relative_path": "control/bio1/a.tif", "position_id": "a"}]
+    result = run_patching(images=stack, config=config, image_metadata=metadata)
     assert {p.normalization_group for p in result.patches} == {"control/bio1/a.tif"}
 
 
@@ -421,7 +426,7 @@ def test_warnings_explain_the_scope(experiment):
     image = np.arange(256, dtype=np.uint8).reshape(16, 16)
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        run_patching(images=image, config=_config(None, image_axes="YX", scope="patch"))
+        run_patching(images=image, config=_config(None, image_axes="YX", scope="patch"), image_metadata=named(image))
     assert not [w for w in caught if "background" in str(w.message)]
 
 

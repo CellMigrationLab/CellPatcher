@@ -7,6 +7,7 @@ from cellpatcher.config import CellPatcherConfig, CommonConfig, ExtractionConfig
 from cellpatcher.io import write_array
 from cellpatcher.orchestration import run_patching_condition_repeat_tree
 from cellpatcher.pipeline import run_patching
+from tests.helpers import named
 
 
 def _channel_image(n_channels=3, size=16, channels_last=False):
@@ -43,14 +44,16 @@ def test_split_channels_creates_one_single_channel_patch_per_channel():
 
 
 def test_split_channels_supports_channels_last_images():
-    result = run_patching(images=[_channel_image(channels_last=True)], config=_grid_config("YXC"))
+    result = run_patching(images=[_channel_image(channels_last=True)], config=_grid_config("YXC"),
+        image_metadata=named([_channel_image(channels_last=True)]))
 
     assert len(result.patches) == 4 * 3
     assert all(np.all(array == patch.c + 1) for patch, array in zip(result.patches, result.patch_arrays))
 
 
 def test_split_channels_resizes_before_splitting():
-    result = run_patching(images=[_channel_image()], config=_grid_config(output_size=4))
+    result = run_patching(images=[_channel_image()], config=_grid_config(output_size=4),
+        image_metadata=named([_channel_image()]))
 
     assert all(array.shape == (4, 4) for array in result.patch_arrays)
     assert all((patch.output_height, patch.output_width) == (4, 4) for patch in result.patches)
@@ -79,14 +82,10 @@ def test_split_channels_keeps_a_supplied_position_id():
     assert {patch.position_id for patch in result.patches} == {"P07"}
 
 
-def test_split_channels_position_id_falls_back_to_a_hash_of_the_pixels_not_the_run_index():
-    # Labels that are not given are "single". An in-memory image without a
-    # file name is named by its pixels, never by its place in the run.
-    alone = run_patching(images=[_channel_image()], config=_grid_config())
-    second = run_patching(images=[_channel_image(size=24), _channel_image()], config=_grid_config())
-    (position,) = {patch.position_id for patch in alone.patches}
-    assert position.startswith("single/single/single/array-")
-    assert {patch.position_id for patch in second.patches if patch.image_id == "image_0001"} == {position}
+def test_split_channels_refuse_an_image_without_position_id_or_file_name():
+    # Never named by its place in the run (decision D45).
+    with pytest.raises(ValueError, match="neither a position_id nor an image_file"):
+        run_patching(images=[_channel_image()], config=_grid_config())
 
 
 def test_without_split_channels_position_id_is_filled_and_patches_stay_multichannel():
@@ -102,7 +101,7 @@ def test_without_split_channels_position_id_is_filled_and_patches_stay_multichan
 def test_split_channels_without_extracting_arrays_still_splits_regions():
     config = _grid_config()
     config.common.extract_arrays = False
-    result = run_patching(images=[_channel_image()], config=config)
+    result = run_patching(images=[_channel_image()], config=config, image_metadata=named([_channel_image()]))
 
     assert result.patch_arrays is None
     assert len(result.patches) == 4 * 3
@@ -110,7 +109,8 @@ def test_split_channels_without_extracting_arrays_still_splits_regions():
 
 def test_split_channels_requires_a_channel_axis():
     with pytest.raises(ValueError, match="split_channels=True needs a 'C' axis"):
-        run_patching(images=[np.ones((16, 16), dtype=np.uint16)], config=_grid_config("YX"))
+        run_patching(images=[np.ones((16, 16), dtype=np.uint16)], config=_grid_config("YX"),
+            image_metadata=named([np.ones((16, 16), dtype=np.uint16)]))
 
 
 def test_split_channels_config_validation():
@@ -127,7 +127,7 @@ def test_split_channels_with_cell_mode_and_apply_mask():
         common=CommonConfig(image_axes="CYX", mask_axes="YX", extract_arrays=True),
         extraction=ExtractionConfig(split_channels=True, apply_mask=True, mask_fill_value=0),
     )
-    result = run_patching(images=[image], masks=[labels], config=config)
+    result = run_patching(images=[image], masks=[labels], config=config, image_metadata=named([image]))
 
     assert [patch.c for patch in result.patches] == [0, 1]
     assert {patch.label_id for patch in result.patches} == {1}

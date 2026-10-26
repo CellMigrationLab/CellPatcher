@@ -18,6 +18,9 @@ from cellpatcher.orchestration import run_patching_condition_repeat_tree, run_pa
 from cellpatcher.pipeline import RUN_CONFIG_FILENAME, run_patching
 from tests.helpers import write_ngff, write_ngff_labels
 
+needs_preprocessing = pytest.mark.skipif(
+    importlib.util.find_spec("morphobricks_preprocessing") is None, reason="needs the 'preprocessing' extra"
+)
 needs_zarr = pytest.mark.skipif(
     importlib.util.find_spec("morphobricks_preprocessing") is None or importlib.util.find_spec("zarr") is None,
     reason="needs the 'preprocessing' extra with zarr",
@@ -173,7 +176,7 @@ def test_object_set_set_after_construction_is_checked():
     config = _cell_config()
     config.common.object_set = "a/b"
     with pytest.raises(ValueError, match="object_set"):
-        run_patching(images=_image(0), masks=_labels(0), config=config)
+        run_patching(images=_image(0), masks=_labels(0), config=config, image_metadata=[{"position_id": "P"}])
 
 
 def test_whole_fov_and_supplied_position_id():
@@ -195,12 +198,62 @@ def test_folder_runs_fill_position_id_without_split_channels(tmp_path):
     assert [record.position_id for record in result.image_records] == ["treated/r1/single/img.ome"]
 
 
-def test_an_unnamed_in_memory_image_is_named_by_its_pixels_wherever_it_is_in_the_run():
+def test_an_in_memory_image_without_position_id_or_file_name_is_refused():
     config = CellPatcherConfig(mode="whole_fov")
-    alone = run_patching(images=_image(1), config=config).patches[0].patch_id
-    second = run_patching(images=[_image(2), _image(1)], config=config).patches[1].patch_id
-    assert alone == second
-    assert alone.startswith("single/single/single/array-") and alone.endswith("/whole_fov")
+    message = 'Image 1 of the run has neither a position_id nor an image_file.*"position_id"'
+    with pytest.raises(ValueError, match=message):
+        run_patching(images=[_image(2), _image(1)], config=config, image_metadata=[{"position_id": "P"}, {}])
+    # A file name alone names the position (one file is one position).
+    named = run_patching(images=_image(1), config=config, image_metadata=[{"image_file": "fov.tif"}])
+    assert [patch.patch_id for patch in named.patches] == ["single/single/single/fov/whole_fov"]
+
+
+# ---------------------------------------------------------------------------
+# Random mode is seeded per FOV
+# ---------------------------------------------------------------------------
+
+
+def _random_config(seed=0):
+    config = CellPatcherConfig(mode="random")
+    config.random.patch_size, config.random.n_patches, config.random.seed = 8, 5, seed
+    return config
+
+
+def _rectangles(result, image_file):
+    return [(p.patch_id, p.y0, p.x0) for p in result.patches if p.image_file == image_file]
+
+
+def test_random_rectangles_do_not_depend_on_the_place_in_the_run(tmp_path):
+    write_array(tmp_path / "alone" / "m_target.tif", _image(7))
+    alone = _rectangles(run_patching_pipeline(tmp_path / "alone", config=_random_config()), "m_target.tif")
+    assert len(alone) == 5
+
+    ten = tmp_path / "ten"
+    for index in range(9):
+        write_array(ten / f"n{index}.tif", _image(index))
+    write_array(ten / "m_target.tif", _image(7))
+    assert _rectangles(run_patching_pipeline(ten, config=_random_config()), "m_target.tif") == alone
+    write_array(ten / "a_first.tif", _image(11))
+    assert _rectangles(run_patching_pipeline(ten, config=_random_config()), "m_target.tif") == alone
+
+    # Another seed draws other rectangles; so does another position.
+    reseeded = run_patching_pipeline(tmp_path / "alone", config=_random_config(seed=1))
+    assert _rectangles(reseeded, "m_target.tif") != alone
+    other = run_patching(images=_image(7), config=_random_config(), image_metadata=[{"image_file": "other.tif"}])
+    assert [(p.y0, p.x0) for p in other.patches] != [(y0, x0) for _, y0, x0 in alone]
+
+
+def test_random_planes_are_seeded_by_their_own_indices():
+    config = _random_config()
+    config.common.image_axes, config.common.z_policy = "ZYX", "all"
+    stack = np.stack([_image(0)] * 3)
+    full = run_patching(images=stack, config=config, image_metadata=[{"position_id": "P"}])
+    # Plane z=2 alone (from metadata) draws what it drew inside the stack.
+    alone = run_patching(images=stack[2], config=_random_config(), image_metadata=[{"position_id": "P", "z": 2}])
+    assert [(p.patch_id, p.y0, p.x0) for p in full.patches if p.z0 == 2] == [
+        (p.patch_id, p.y0, p.x0) for p in alone.patches
+    ]
+    assert len({tuple((p.y0, p.x0) for p in full.patches if p.z0 == z) for z in range(3)}) == 3
 
 
 # ---------------------------------------------------------------------------
@@ -235,10 +288,12 @@ def test_object_set_precedence(tmp_path):
     assert {patch.patch_id.split("/")[4] for patch in result.patches} == {"cytoplasm"}
 
     # In memory, image_metadata wins over the config; other modes have none.
-    result = run_patching(images=_image(0), masks=_labels(0), config=config, image_metadata=[{"object_set": "cells"}])
+    result = run_patching(
+        images=_image(0), masks=_labels(0), config=config, image_metadata=[{"object_set": "cells", "position_id": "P"}]
+    )
     assert {patch.object_set for patch in result.patches} == {"cells"}
     grid_config = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=16))
-    grid = run_patching(images=_image(0), config=grid_config, image_metadata=[{"object_set": "x"}])
+    grid = run_patching(images=_image(0), config=grid_config, image_metadata=[{"object_set": "x", "position_id": "P"}])
     assert {patch.object_set for patch in grid.patches} == {None}
 
 
@@ -270,9 +325,54 @@ def test_the_connected_components_opt_in_is_recorded_in_run_config(tmp_path):
     config.cell.binary_mask_policy = "connected_components"
     mask = _labels(0) > 0
     with pytest.warns(UserWarning, match="connected components"):
-        run_patching(images=_image(0), masks=mask, config=config)
+        run_patching(images=_image(0), masks=mask, config=config, image_metadata=[{"position_id": "P"}])
     saved = json.loads((tmp_path / RUN_CONFIG_FILENAME).read_text(encoding="utf-8"))
     assert saved["cell"]["binary_mask_policy"] == "connected_components"
+
+
+@pytest.mark.parametrize("z_policy", ["keep", "max"])
+def test_a_multi_series_tiff_read_whole_is_refused(tmp_path, z_policy):
+    import tifffile
+
+    path = tmp_path / "images" / "plate.tif"
+    path.parent.mkdir()
+    tifffile.imwrite(path, np.zeros((2, 16, 16), dtype=np.uint16))
+    tifffile.imwrite(path, np.ones((2, 16, 16), dtype=np.uint16), append=True)
+    config = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=8))
+    config.common.image_axes, config.common.z_policy = "ZYX", z_policy
+    with pytest.raises(ValueError, match="plate.tif holds 2 image series"):
+        run_patching_pipeline(path.parent, config=config)
+
+
+def test_a_multi_series_tiff_is_refused_without_the_preprocessing_extra(tmp_path, monkeypatch):
+    import tifffile
+
+    import cellpatcher.statistics as statistics
+
+    def unavailable():
+        raise statistics.PreprocessingUnavailableError("not installed")
+
+    monkeypatch.setattr(statistics, "require_preprocessing", unavailable)
+    path = tmp_path / "plate.tif"
+    tifffile.imwrite(path, np.zeros((2, 16, 16), dtype=np.uint16))
+    tifffile.imwrite(path, np.ones((2, 16, 16), dtype=np.uint16), append=True)
+    config = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=8))
+    config.common.image_axes, config.common.z_policy = "ZYX", "all"
+    with pytest.raises(ValueError, match="plate.tif holds 2 image series"):
+        run_patching_pipeline(tmp_path, config=config)
+
+
+@needs_preprocessing
+def test_a_multi_series_tiff_is_refused_when_reading_planes(tmp_path):
+    import tifffile
+
+    path = tmp_path / "plate.tif"
+    tifffile.imwrite(path, np.zeros((2, 16, 16), dtype=np.uint16))
+    tifffile.imwrite(path, np.ones((2, 16, 16), dtype=np.uint16), append=True)
+    config = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=8))
+    config.common.image_axes, config.common.z_policy = "ZYX", "all"
+    with pytest.raises(ValueError, match="plate.tif holds 2 images"):
+        run_patching_pipeline(tmp_path, config=config)
 
 
 @needs_zarr

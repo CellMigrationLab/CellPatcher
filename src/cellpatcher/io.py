@@ -279,11 +279,22 @@ def discover_condition_repeat_folders(
     return results
 
 
+def _refuse_several_series(path, series_count: int) -> None:
+    """Refuse a TIFF holding several image series (positions, wells): only the first would be read."""
+    if series_count > 1:
+        raise ValueError(
+            f"{path} holds {series_count} image series (several positions, series or wells); CellPatcher reads "
+            "one image per file and would read only the first. Save each series in its own file."
+        )
+
+
 def read_array(file_path):
     """Read an image or mask file into a NumPy array.
 
     An OME-Zarr image (a ``.zarr`` folder) is read from level 0 of its only
     image, in its stored axis order; see :func:`read_ome_zarr` for its axes.
+    A TIFF holding several image series is refused (with ``tifffile``), as
+    a multi-image OME-Zarr store is, instead of reading its first series.
     """
     path = Path(file_path).expanduser()
     if is_ome_zarr(path):
@@ -301,8 +312,13 @@ def read_array(file_path):
         # accepted optional dependency for TIFF support.
         try:
             import tifffile
-            return tifffile.imread(path)
         except ImportError:
+            tifffile = None
+        if tifffile is not None:
+            with tifffile.TiffFile(path) as tif:
+                _refuse_several_series(path, len(tif.series))
+                return tif.asarray()
+        else:
             try:
                 import imageio.v3 as iio
             except ImportError as exc:

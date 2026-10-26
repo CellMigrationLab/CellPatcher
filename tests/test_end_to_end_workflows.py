@@ -7,6 +7,7 @@ from cellpatcher.config import CellPatcherConfig, GridConfig, RandomConfig
 from cellpatcher.io import read_array, validate_image_and_mask_folders, write_array
 from cellpatcher.pipeline import run_patching
 from tests.helpers import make_synthetic_cell_image_and_labels
+from tests.helpers import named
 
 
 def test_e2e_cell_scan_mask_resize_export(tmp_path):
@@ -34,7 +35,7 @@ def test_e2e_cell_scan_mask_resize_export(tmp_path):
     cfg.common.output_dir = str(tmp_path)
     cfg.common.extract_arrays = False
 
-    result = run_patching(images=image, masks=labels, config=cfg)
+    result = run_patching(images=image, masks=labels, config=cfg, image_metadata=named(image))
 
     assert cfg.cell.patch_size == summary.recommended_size("max")
     assert len(result.exported_files) == summary.n_included
@@ -63,7 +64,7 @@ def test_e2e_grid_filter_resize_export(tmp_path):
     cfg.export.image_format = "npy"
     cfg.common.output_dir = str(tmp_path)
 
-    result = run_patching(images=image, config=cfg)
+    result = run_patching(images=image, config=cfg, image_metadata=named(image))
     assert len(result.patches) < 16
     assert len(result.exported_files) == len(result.patches)
     loaded = np.load(result.exported_files[0])
@@ -83,7 +84,7 @@ def test_e2e_random_mask_resize_export(tmp_path):
     cfg.export.image_format = "npy"
     cfg.common.output_dir = str(tmp_path)
 
-    result = run_patching(images=image, masks=sampling_mask, config=cfg)
+    result = run_patching(images=image, masks=sampling_mask, config=cfg, image_metadata=named(image))
     assert len(result.patches) == 5
     assert len(result.exported_files) == 5
     assert all(np.load(path).shape == (16, 16) for path in result.exported_files)
@@ -97,7 +98,7 @@ def test_e2e_whole_fov_export(tmp_path):
     cfg.export.save_metadata_csv = True
     cfg.common.output_dir = str(tmp_path)
 
-    result = run_patching(images=image, config=cfg)
+    result = run_patching(images=image, config=cfg, image_metadata=named(image))
     assert len(result.patches) == 1
     assert len(result.exported_files) == 1
     assert (tmp_path / "patches.csv").exists()
@@ -130,7 +131,7 @@ def test_e2e_yxc_cell_pipeline():
     cfg.extraction.output_size = 12
     cfg.extraction.resize_order = 0
 
-    result = run_patching(images=image, masks=labels, config=cfg)
+    result = run_patching(images=image, masks=labels, config=cfg, image_metadata=named(image))
     assert result.patch_arrays is not None
     assert len(result.patch_arrays) == 1
     assert result.patch_arrays[0].shape == (12, 12, 3)
@@ -159,7 +160,7 @@ def test_e2e_folder_matching_to_cell_pipeline(tmp_path):
     cfg.cell.exclude_border = True
     cfg.common.extract_arrays = True
 
-    result = run_patching(images=image_arr, masks=mask_arr, config=cfg)
+    result = run_patching(images=image_arr, masks=mask_arr, config=cfg, image_metadata=named(image_arr))
     assert len(result.patches) > 0
     assert result.patch_arrays is not None
 
@@ -169,7 +170,7 @@ def test_e2e_folder_matching_to_cell_pipeline(tmp_path):
     cfg.export.image_format = "npy"
     cfg.export.save_metadata_csv = True
     cfg.common.output_dir = str(tmp_path / "out")
-    result2 = run_patching(images=image_arr, masks=mask_arr, config=cfg)
+    result2 = run_patching(images=image_arr, masks=mask_arr, config=cfg, image_metadata=named(image_arr))
     assert (tmp_path / "out" / "patches.csv").exists()
     with (tmp_path / "out" / "patches.csv").open("r", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))

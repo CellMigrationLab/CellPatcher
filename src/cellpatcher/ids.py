@@ -101,21 +101,7 @@ def resolve_object_set(meta, common) -> str:
     return DEFAULT_OBJECT_SET
 
 
-def array_fingerprint(image) -> str:
-    """``array-<16 hex>``: a SHA-256 of an in-memory image's dtype, shape and pixels.
-
-    The ``position_id`` fallback of an image given with neither a
-    ``position_id`` nor an ``image_file``: the same pixels give the same
-    value in every run, whatever their place in the run.
-    """
-    array = np.ascontiguousarray(np.asarray(image))
-    digest = hashlib.sha256()
-    digest.update(f"{array.dtype.str}|{array.shape}|".encode())
-    digest.update(array.tobytes())
-    return f"array-{digest.hexdigest()[:16]}"
-
-
-def resolve_position_id(labels, meta, image=None) -> str:
+def resolve_position_id(labels, meta, *, image_index=None) -> str:
     """The ``position_id`` every patch of an image carries (decision D45).
 
     *labels* is the image's ``(condition, biological_repeat,
@@ -123,23 +109,44 @@ def resolve_position_id(labels, meta, image=None) -> str:
     (``image_metadata``) wins. Otherwise one file is taken as one XY
     position: ``<condition>/<biological_repeat>/<technical_repeat>/<file
     stem>`` from ``meta["image_file"]`` (``io.image_stem``, so
-    ``img.ome.zarr`` gives ``img``), or, for an in-memory image without a file
-    name, the same with :func:`array_fingerprint` in place of the stem.
+    ``img.ome.zarr`` gives ``img``).
 
     Raises
     ------
     ValueError
-        If neither a ``position_id``, an ``image_file`` nor the image is given.
+        If neither a ``position_id`` nor an ``image_file`` is given: an
+        in-memory image has no identity of its own, and its place in the run
+        (*image_index*, named in the message) is not one.
     """
     if meta.get("position_id") is not None:
         return str(meta["position_id"])
     if meta.get("image_file"):
-        source = image_stem(meta["image_file"])
-    elif image is not None:
-        source = array_fingerprint(image)
-    else:
-        raise ValueError("An image has neither a position_id, an image_file nor pixels to identify it.")
-    return "/".join(str(part) for part in (*labels, source))
+        return "/".join(str(part) for part in (*labels, image_stem(meta["image_file"])))
+    which = "An image" if image_index is None else f"Image {image_index} of the run"
+    raise ValueError(
+        f"{which} has neither a position_id nor an image_file, so its patches have no identity (its place "
+        'in the run is not one). Pass image_metadata=[{"position_id": ...}, ...] to run_patching, one entry '
+        'per image (or {"image_file": ...}: its file stem then names the position).'
+    )
+
+
+def random_seed(seed, meta) -> int | None:
+    """The seed random mode samples one image (plane) with, from the run seed and the image's identity.
+
+    Derived from ``seed`` and the canonical identity string
+    ``position_id|t=<t>|z=<z>|c=<c>`` (from *meta*, the image's metadata;
+    ``-`` for an absent index) through SHA-256 and
+    ``numpy.random.SeedSequence``, so the same image (plane) gets the same
+    rectangles in every run, whatever its place in the run, and another
+    ``seed`` gives others. None when ``seed`` is None (unseeded sampling).
+    """
+    if seed is None:
+        return None
+    parts = [str(meta["position_id"])]
+    parts += [f"{axis}={'-' if meta.get(axis) is None else int(meta[axis])}" for axis in ("t", "z", "c")]
+    digest = hashlib.sha256("|".join(parts).encode("utf-8")).digest()
+    words = [int.from_bytes(digest[i:i + 4], "little") for i in range(0, len(digest), 4)]
+    return int(np.random.SeedSequence([int(seed), *words]).generate_state(1, dtype=np.uint64)[0])
 
 
 def patch_token(patch) -> str:
