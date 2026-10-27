@@ -202,6 +202,6 @@ def test_ome_zarr_planes_link_to_preprocessing_rows(tmp_path):
         for p in patches
     ]
     records = check_planes(statistics, planes)
-    assert sorted(r.plane_id for r in records) == sorted(
-        f"control/a.ome.zarr::z={z},c={c},t=0" for z in range(3) for c in range(2)
+    assert sorted((r.plane_id, r.c) for r in records) == sorted(
+        (f"control/a.ome.zarr::z={z},t=0", c) for z in range(3) for c in range(2)
     )

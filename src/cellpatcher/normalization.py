@@ -452,8 +452,8 @@ class Normalizer:
         """Group every CSV row by its key (the scope's labels, channel and optional t), once."""
         if self._index is None:
             self._index = defaultdict(list)
-            for record in self.statistics.records:
-                self._index[self._group_key(record)].append(record)
+            for channel in self.statistics.channel_records():
+                self._index[self._group_key(channel)].append(channel)
 
     def _group_key(self, record) -> tuple:
         t = record.t if self.settings.per_time_point else None
@@ -464,7 +464,7 @@ class Normalizer:
         self._ensure_index()
         name = "/".join(key[0]) + f" (channel {key[1]}" + ("" if key[2] is None else f", t={key[2]}") + ")"
         try:
-            pooled = self._mbn.PooledHistogram(self._index[key])
+            pooled = self._mbn.PooledHistogram(channel.histogram for channel in self._index[key])
             return self._parameters(pooled), pooled.max_representative_error == 0
         except self._mbn.NoValidPixelsError:
             return f"{name}: no finite pixels"

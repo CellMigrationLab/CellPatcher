@@ -19,9 +19,9 @@
 | Tests       | `PYTHONPATH=src python -m pytest -q` (equivalent to `pytest tests/` once the package is installed editable)                                              |
 | Environment | `python -m pip install -e .` (add extras as needed: `.[test]`, `.[notebook]`, `.[torch]`) or `conda env create -f environment.yaml`                       |
 
-Key dependencies: `numpy`, `scipy`, `tifffile`, `imageio` (core, required). Optional extras: `ipywidgets`, `matplotlib`, `pillow`, `tqdm`, `joblib`, `jl-hidecode` (notebook extra); `torch` (optional `cellpatcher.torch_dataset` adapter only — never a core dependency); `morphobricks-preprocessing[zarr]` from GitHub at a pinned commit, with `morphobricks-normalization` at the tag that commit requires (`preprocessing` extra, for `cellpatcher.statistics` and normalization — never a core dependency; histograms, the plane table, plane IDs, pooling and normalization parameters are imported from `morphobricks_normalization`, not from their deprecated preprocessing paths).
+Key dependencies: `numpy`, `scipy`, `tifffile`, `imageio` (core, required). Optional extras: `ipywidgets`, `matplotlib`, `pillow`, `tqdm`, `joblib`, `jl-hidecode` (notebook extra); `torch` (optional `cellpatcher.torch_dataset` adapter only — never a core dependency); `morphobricks-preprocessing[zarr]` from GitHub at a pinned tag, which brings `morphobricks-normalization` (no separate pin; MorphoFeature decision D79) (`preprocessing` extra, for `cellpatcher.statistics` and normalization — never a core dependency; histograms, the plane table, plane IDs, pooling and normalization parameters are imported from `morphobricks_normalization`, not from their deprecated preprocessing paths).
 
-Current health snapshot (2026-10-26, after decisions D44/D45/D47 and the follow-up owner answers): 685 tests passing, 4 skipped (the torch tests, when `torch` is not installed), on Python 3.11 and 3.13.
+Current health snapshot (2026-10-27, after reading `plane_histograms.csv` schema version 3 with preprocessing `v0.1.0`): 717 tests passing on Python 3.11 with `torch` installed (the torch tests skip without it). Earlier (2026-10-26): 685 passing, 4 skipped, on Python 3.11 and 3.13.
 
 ---
 

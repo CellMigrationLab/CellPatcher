@@ -43,8 +43,10 @@ INSTALL_COMMAND = 'pip install "cellpatcher[preprocessing]"'
 
 # Versions of plane_histograms.csv and run_manifest.json this CellPatcher reads
 # (contract §1). The installed preprocessing package must read the same ones.
-# Table version 2 always writes z, c and t, so plane_id matches exactly.
-SUPPORTED_SCHEMA_VERSION = "2"
+# Table version 3 has one row per XYC plane (an image at one Z and T), each
+# channel's histogram in its own columns, and always writes z and t, so
+# plane_id matches exactly; a channel is found inside its row.
+SUPPORTED_SCHEMA_VERSION = "3"
 SUPPORTED_MANIFEST_VERSION = "1"
 
 _PLANE_ROLES = ("Z", "C", "T")
@@ -135,7 +137,8 @@ class SourcePlane:
         Zero-based plane coordinates (CellPatcher's ``z0`` as ``z``). An axis
         the image does not have, or has with length 1, has coordinate 0; None
         is stored as 0, as in the preprocessing table (contract §3). A patch
-        that keeps several channels is one ``SourcePlane`` per channel.
+        that keeps several channels is one ``SourcePlane`` per channel; its
+        row in the table holds every channel (schema version 3).
     axis_lengths
         Length of each Z, C and T axis the image has, e.g. ``{"Z": 5}``. An
         axis left out has length 1. None when the lengths are not known (for
@@ -204,8 +207,73 @@ class SourcePlane:
 
     @property
     def plane_id(self) -> str:
-        """The preprocessing ``plane_id`` of this plane, e.g. ``"control/img.tif::z=0,c=0,t=0"``."""
-        return require_normalization().make_plane_id(self.source_relative_path, z=self.z, c=self.c, t=self.t)
+        """The preprocessing ``plane_id`` of this plane's row, e.g. ``"control/img.tif::z=0,t=0"``.
+
+        The row is the XYC plane: every channel of the image at this Z and T.
+        """
+        return require_normalization().make_plane_id(self.source_relative_path, z=self.z, t=self.t)
+
+    @property
+    def name(self) -> str:
+        """The plane and its channel, as named in messages, e.g. ``"img.tif::z=0,t=0 c=1"``."""
+        return f"{self.plane_id} c={self.c}"
+
+
+@dataclass(frozen=True)
+class ChannelRecord:
+    """One channel of one row of ``plane_histograms.csv``.
+
+    A row (schema version 3) is an XYC plane holding one histogram per
+    channel; CellPatcher links and pools one channel at a time.
+
+    Attributes
+    ----------
+    record
+        The row, a ``morphobricks_normalization.PlaneRecord``.
+    c
+        The zero-based channel.
+    """
+
+    record: PlaneRecord
+    c: int
+
+    @property
+    def histogram(self):
+        """The channel's ``PlaneHistogram``."""
+        return self.record.channel_histogram(self.c)
+
+    @property
+    def source_relative_path(self) -> str:
+        return self.record.source_relative_path
+
+    @property
+    def condition(self) -> str:
+        return self.record.condition
+
+    @property
+    def biological_repeat(self) -> str:
+        return self.record.biological_repeat
+
+    @property
+    def technical_repeat(self) -> str:
+        return self.record.technical_repeat
+
+    @property
+    def z(self) -> int:
+        return self.record.z
+
+    @property
+    def t(self) -> int:
+        return self.record.t
+
+    @property
+    def plane_id(self) -> str:
+        """The row's ``plane_id``."""
+        return self.record.plane_id
+
+    def group_key(self, level: str) -> tuple[str, ...]:
+        """The row's labels at ``level`` (``PlaneRecord.group_key``)."""
+        return self.record.group_key(level)
 
 
 @dataclass(frozen=True, eq=False)
@@ -245,9 +313,18 @@ class PlaneStatistics:
         """All rows of one image, in table order."""
         return tuple(r for r in self.records if r.source_relative_path == source_relative_path)
 
-    def find_record(self, plane: SourcePlane) -> PlaneRecord | None:
-        """The row with ``plane``'s ``plane_id``, or None if the table has none."""
-        return self._by_plane_id.get(plane.plane_id)
+    def find_record(self, plane: SourcePlane) -> ChannelRecord | None:
+        """``plane``'s channel of the row with its ``plane_id``, or None if the table has neither."""
+        record = self._by_plane_id.get(plane.plane_id)
+        if record is None or not 0 <= plane.c < record.channel_count:
+            return None
+        return ChannelRecord(record, plane.c)
+
+    def channel_records(self) -> Iterable[ChannelRecord]:
+        """Every channel of every row, in table order."""
+        for record in self.records:
+            for c in range(record.channel_count):
+                yield ChannelRecord(record, c)
 
 
 def load_plane_statistics(plane_histograms, manifest=None) -> PlaneStatistics:
@@ -462,10 +539,10 @@ def check_images(
 def check_planes(
     statistics: PlaneStatistics,
     planes: Iterable[tuple[SourcePlane, np.ndarray]],
-) -> list[PlaneRecord]:
+) -> list[ChannelRecord]:
     """Link each patched plane to its row and run the per-plane checks of contract §5.
 
-    For every plane, a row with its ``plane_id`` must exist, with the same
+    For every plane, a row with its ``plane_id`` holding its channel must exist, with the same
     ``condition``, ``biological_repeat`` and ``technical_repeat``, the same
     ``dtype`` and ``total_pixel_count`` (Y × X), and the plane's exact finite
     minimum, maximum and finite pixel count equal to ``pixel_min``,
@@ -484,7 +561,7 @@ def check_planes(
     Returns
     -------
     list
-        The matched ``PlaneRecord`` of each plane, in order.
+        The matched :class:`ChannelRecord` of each plane, in order.
 
     Raises
     ------
@@ -495,32 +572,32 @@ def check_planes(
     """
     mbn = require_normalization()
     failures: dict[str, list[str]] = defaultdict(list)
-    matched: list[PlaneRecord] = []
+    matched: list[ChannelRecord] = []
     for plane, pixels in planes:
         pixels = np.asarray(pixels)
         if pixels.ndim != 2:
             raise ValueError(
-                f"{plane.plane_id}: a plane must be a 2D (Y, X) array; got shape {pixels.shape}."
+                f"{plane.name}: a plane must be a 2D (Y, X) array; got shape {pixels.shape}."
             )
         record = statistics.find_record(plane)
         if record is None:
-            failures["missing_plane_rows"].append(plane.plane_id)
+            failures["missing_plane_rows"].append(plane.name)
             continue
         matched.append(record)
         histogram = record.histogram
         record_labels = (record.condition, record.biological_repeat, record.technical_repeat)
         if plane.labels != record_labels:
             failures["label_mismatch"].append(
-                f"{plane.plane_id} (CellPatcher {_labels_text(plane.labels)}, "
+                f"{plane.name} (CellPatcher {_labels_text(plane.labels)}, "
                 f"table {_labels_text(record_labels)})"
             )
         if pixels.dtype.name != histogram.dtype.name:
             failures["dtype_mismatch"].append(
-                f"{plane.plane_id} (CellPatcher {pixels.dtype.name}, table {histogram.dtype.name})"
+                f"{plane.name} (CellPatcher {pixels.dtype.name}, table {histogram.dtype.name})"
             )
         elif pixels.size != histogram.total_pixel_count:
             failures["pixel_count_mismatch"].append(
-                f"{plane.plane_id} (CellPatcher {pixels.size:,} pixels, table "
+                f"{plane.name} (CellPatcher {pixels.size:,} pixels, table "
                 f"{histogram.total_pixel_count:,})"
             )
         else:
@@ -530,7 +607,7 @@ def check_planes(
             if (current.pixel_min, current.pixel_max, current.valid_pixel_count) != (
                 histogram.pixel_min, histogram.pixel_max, histogram.valid_pixel_count
             ):
-                failures["pixel_values_changed"].append(plane.plane_id)
+                failures["pixel_values_changed"].append(plane.name)
     if failures:
         raise PreprocessingCheckError(_plane_issues(statistics.plane_histograms.name, failures))
     return matched
@@ -598,8 +675,8 @@ def _plane_issues(csv_name: str, failures: Mapping[str, list[str]]) -> list[Vali
 
     texts = {
         "missing_plane_rows": (
-            "{have} no row in {csv}. Their images were read with other axes, or changed, since the "
-            "preprocessing run.",
+            "{have} no row in {csv}, or a row without their channel. Their images were read with "
+            "other axes, or changed, since the preprocessing run.",
             "Set common.image_axes to the roles confirmed in the preprocessing brick, or run the "
             "preprocessing brick again.",
         ),

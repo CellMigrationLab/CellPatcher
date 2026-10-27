@@ -190,7 +190,7 @@ def test_image_scope_pools_every_z_plane_of_the_image_per_channel(experiment, tm
     saved = json.loads((tmp_path / "out" / RUN_CONFIG_FILENAME).read_text(encoding="utf-8"))
     assert saved["normalization"]["scope"] == "image"
     inputs = saved["normalization_inputs"]
-    assert (inputs["schema_version"], inputs["manifest_used"], inputs["manifest_version"]) == ("2", True, "1")
+    assert (inputs["schema_version"], inputs["manifest_used"], inputs["manifest_version"]) == ("3", True, "1")
     assert len(inputs["plane_histograms_sha256"]) == 64
     assert load_config(tmp_path / "out" / RUN_CONFIG_FILENAME).normalization == config.normalization
 

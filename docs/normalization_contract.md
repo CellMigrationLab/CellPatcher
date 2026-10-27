@@ -81,12 +81,15 @@ index per plane:
 Repeating a normalized grayscale patch to RGB stays available in the torch adapters
 (`PatchTensorConfig.channel_policy="repeat_to_rgb"`), which run after normalization.
 
-**Plane identity.** A plane is identified by
-`make_plane_id(source_relative_path, z=..., c=..., t=...)`, with CellPatcher's `z0` as `z`.
-Both bricks always write all three coordinates: an axis the image does not have, or has with
-length 1, has coordinate 0 (`control/img.tif::z=0,c=0,t=0` for a 2D image), so the same plane
-has the same `plane_id` whether or not its file or CellPatcher's axes include the axis. A
-patch that keeps several channels belongs to one plane per channel, `c = 0 … C−1`.
+**Plane identity.** A row of `plane_histograms.csv` (schema version 3) is an XYC plane: every
+channel of an image at one Z and T, each channel's histogram in its own columns. It is
+identified by `make_plane_id(source_relative_path, z=..., t=...)`, with CellPatcher's `z0` as
+`z`. Both bricks always write both coordinates: an axis the image does not have, or has with
+length 1, has coordinate 0 (`control/img.tif::z=0,t=0` for a 2D image), so the same plane has
+the same `plane_id` whether or not its file or CellPatcher's axes include the axis. A channel
+`c` is found inside its row; a row without that channel is a missing row. A patch that keeps
+several channels belongs to one plane per channel, `c = 0 … C−1`, all in one row; messages
+name them `<plane_id> c=<c>`.
 
 **Memory.** CellPatcher needs each plane whole in memory to patch it. A plane larger than the
 memory limit is an error, even if the preprocessing brick read it in blocks.

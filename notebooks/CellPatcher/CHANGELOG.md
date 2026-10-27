@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased] - BREAKING: run-independent patch identity and instance-label masks
 
+### Changed: preprocessing tables of schema version 3
+- The `preprocessing` extra installs `morphobricks-preprocessing` at its tag `v0.1.0`, which
+  brings `morphobricks-normalization` `v0.2.0`; there is no separate normalization pin
+  (MorphoFeature decision D79: every brick pins the same preprocessing tag).
+- `plane_histograms.csv` schema version 3 is read; schema version 2 tables are refused
+  ("run the preprocessing brick again"). A row is an XYC plane holding every channel, so
+  `plane_id` is `<path>::z=<z>,t=<t>` (no `c`), and a channel is found inside its row.
+- `check_planes` returns `cellpatcher.statistics.ChannelRecord` (one channel of a row: its
+  `histogram`, labels, `z`, `t`, `c`, `group_key`) instead of a schema-2 `PlaneRecord`.
+  Plane messages name `<plane_id> c=<c>`. Normalization parameters are unchanged: each
+  channel's histogram is the one schema version 2 stored.
+
 Owner decisions D44, D45 and D47 (2026-10-26), and the owner's follow-up answers of the same day
 (unnamed images refused, random mode seeded per FOV, multi-series TIFFs refused). Details: "Patch identity" in
 `docs/configuration_reference.md`; code in `src/cellpatcher/ids.py`.

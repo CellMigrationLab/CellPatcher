@@ -174,7 +174,7 @@ Normalization with the statistics of the preprocessing brick, following the [nor
 | Field | Type | Default | Notes |
 |---|---|---|---|
 | `enabled` | `bool` | `False` | Normalize every patch. |
-| `plane_histograms` | `str \| None` | `None` | Path of the preprocessing brick's `plane_histograms.csv` (schema version 2); required for every scope except `"patch"`. Give CellPatcher the same experiment root as the preprocessing brick. |
+| `plane_histograms` | `str \| None` | `None` | Path of the preprocessing brick's `plane_histograms.csv` (schema version 3); required for every scope except `"patch"`. Give CellPatcher the same experiment root as the preprocessing brick. |
 | `manifest` | `str \| None` | `None` | Path of its `run_manifest.json` for extra checks (file sizes and times, CSV hash, axis roles); `None` uses the one next to the CSV when there is one. |
 | `method` | `str` | `"percentile"` | `"minmax"`, `"percentile"`, `"zscore"` or `"robust_zscore"` (MAD × 1.4826). |
 | `percentile` | `(float, float)` | `(1.0, 99.8)` | Low and high percentile for `"percentile"`, `0 ≤ low < high ≤ 100`. |

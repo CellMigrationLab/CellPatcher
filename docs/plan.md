@@ -172,8 +172,10 @@ remove those images from the run or use the patch scope.
 ## 4. Linking patches to plane statistics
 
 Each 2D plane is identified by the preprocessing `plane_id`, built with `make_plane_id()`:
-`source_relative_path` plus `::z=…,c=…,t=…`, always with all three coordinates (0 for an
-axis the image does not have; preprocessing schema version 2). CellPatcher adds one
+`source_relative_path` plus `::z=…,t=…`, always with both coordinates (0 for an axis the
+image does not have; preprocessing schema version 3, whose row holds every channel of the
+plane, so the channel is found inside the row; schema version 2 had one row per channel and
+`::z=…,c=…,t=…`). CellPatcher adds one
 optional `PatchRegion` field, `source_relative_path` (default `None`, so existing outputs are
 unchanged): the image's path relative to the experiment root, `/`-separated, exactly as in
 preprocessing. It is computed from the image's real location under the root. It must not be
