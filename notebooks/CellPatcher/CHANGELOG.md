@@ -52,6 +52,8 @@ Owner decisions D44, D45 and D47 (2026-10-26), and the owner's follow-up answers
   `position_id`, or two images given one `position_id` without plane indices).
 
 ### Added
+
+- `NormalizationConfig.clip` (default `None`): limits applied right after normalizing, before masking and resizing, in every delivery path (requested by MorphoEmbed so per-patch inputs are clipped before resizing, as its other scopes are).
 - `object_set` `PatchRegion` field / last `patches.csv` column (cell mode), and
   `CommonConfig.object_set`. Precedence: `image_metadata["object_set"]`, `common.object_set`,
   the mask's own name in folder/tree runs (OME-NGFF label name, or the mask stem after the image

@@ -132,6 +132,11 @@ def test_config_defaults_and_validation():
         NormalizationConfig(patch_region="cell")
     with pytest.raises(ValueError, match="0 <= low < high <= 100"):
         NormalizationConfig(percentile=(99.0, 1.0))
+    assert settings.clip is None
+    assert NormalizationConfig(clip=[0, 1]).clip == (0.0, 1.0)  # as after a JSON round trip
+    for bad in ((1.0, 0.0), (0.0, float("inf")), ("low", 1.0), (0.0,)):
+        with pytest.raises(ValueError, match="normalization.clip must"):
+            NormalizationConfig(clip=bad)
 
 
 def test_a_run_config_without_normalization_loads_as_off(tmp_path):
@@ -440,3 +445,21 @@ def test_a_flat_folder_run_normalizes_against_its_own_preprocessing(tmp_path):
     assert {(p.source_relative_path, p.normalization_offset, p.normalization_scale) for p in result.patches} == {
         ("a.tif", "0.0", "255.0")
     }
+
+
+def test_clip_comes_after_normalizing_and_before_resizing():
+    """Resizing interpolates clipped values, so no resized value leaves the clip range."""
+    from cellpatcher.resize import resize_patch
+
+    image, labels = _cell_image()
+    config = _config(None, mode="cell", image_axes="YX", scope="patch", patch_region="bbox", clip=(0.25, 0.75))
+    config.common.mask_axes = "YX"
+    config.cell.patch_size, config.cell.exclude_border = 10, False
+    (cropped,) = run_patching(images=image, masks=labels, config=config, image_metadata=named(image)).patch_arrays
+    assert cropped.min() == 0.25 and cropped.max() == 0.75  # both limits are reached
+    config.extraction.output_size, config.extraction.resize_order = 7, 1
+    (resized,) = run_patching(images=image, masks=labels, config=config, image_metadata=named(image)).patch_arrays
+    np.testing.assert_array_equal(resized, resize_patch(cropped, axes="YX", output_size=7, order=1))
+    config.normalization.clip = None
+    (unclipped,) = run_patching(images=image, masks=labels, config=config, image_metadata=named(image)).patch_arrays
+    assert not np.array_equal(np.clip(unclipped, 0.25, 0.75), resized)  # clipping after resizing differs

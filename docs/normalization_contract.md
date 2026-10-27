@@ -258,6 +258,7 @@ several channels, the patch's `c` stays empty and the list order is the channel 
 | `manifest` | `str \| None` | `None` | Path of `run_manifest.json`; `None` looks next to the CSV |
 | `method` | `str` | `"percentile"` | §6 |
 | `percentile` | `tuple[float, float]` | `(1.0, 99.8)` | Low and high percentiles, `0 ≤ low < high ≤ 100` |
+| `clip` | `tuple[float, float] \| None` | `None` | Limits applied right after normalizing (by the brick's `NormalizationParameters.apply`), before masking and resizing; the same in eager, lazy, exported and raw-on-load delivery |
 | `scope` | `str` | `"image"` | §7 |
 | `per_time_point` | `bool` | `False` | §7 |
 | `patch_region` | `str \| None` | `None` | §8; `None` means `"mask"` in `cell` mode and `"patch"` otherwise |

@@ -1,3 +1,4 @@
+import math
 from dataclasses import dataclass, field
 
 from cellpatcher._deprecation import accept_deprecated_repeat
@@ -237,6 +238,11 @@ class NormalizationConfig:
         ``"robust_zscore"`` (MAD x 1.4826).
     percentile
         Low and high percentile of ``"percentile"``, ``0 <= low < high <= 100``.
+    clip
+        ``(low, high)`` limits applied right after normalizing, before masking
+        and resizing (so resizing interpolates clipped values), or None (the
+        default: no clip). For example ``(0, 1)`` with ``"percentile"`` or
+        ``"minmax"``.
     scope
         Pixels the parameters come from: ``"condition"``,
         ``"biological_repeat"``, ``"technical_repeat"``, ``"image"`` (default:
@@ -264,6 +270,7 @@ class NormalizationConfig:
     manifest: str | None = None
     method: str = "percentile"
     percentile: tuple[float, float] = (1.0, 99.8)
+    clip: tuple[float, float] | None = None
     scope: str = "image"
     per_time_point: bool = False
     patch_region: str | None = None
@@ -291,6 +298,14 @@ class NormalizationConfig:
         if not 0 <= low < high <= 100:
             raise ValueError(f"normalization.percentile must satisfy 0 <= low < high <= 100; got ({low}, {high}).")
         self.percentile = (low, high)
+        if self.clip is not None:
+            try:
+                low, high = (float(value) for value in self.clip)
+            except (TypeError, ValueError):
+                raise ValueError("normalization.clip must be None or two numbers (low, high).") from None
+            if not (math.isfinite(low) and math.isfinite(high) and low < high):
+                raise ValueError(f"normalization.clip must be finite with low < high; got ({low}, {high}).")
+            self.clip = (low, high)
         if self.export_values not in EXPORT_VALUES:
             raise ValueError(
                 f"normalization.export_values must be one of {list(EXPORT_VALUES)}; got {self.export_values!r}."

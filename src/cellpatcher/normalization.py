@@ -202,12 +202,16 @@ class PatchNormalization:
         patch.normalization_scale = format_numbers(p.scale for p in self.parameters)
         patch.normalization_exact = self.exact
 
-    def apply(self, array, axes: str) -> np.ndarray:
-        """Normalize *array* (with *axes*) per channel into a new float32 array."""
+    def apply(self, array, axes: str, clip=None) -> np.ndarray:
+        """Normalize *array* (with *axes*) per channel into a new float32 array.
+
+        *clip* (``config.normalization.clip``) limits the normalized values,
+        through the brick's own ``NormalizationParameters.apply``.
+        """
         array = np.asarray(array)
         axes = normalize_axes(axes, array.ndim)
         if "C" not in axes:
-            return self.parameters[0].apply(array, dtype=np.float32)
+            return self.parameters[0].apply(array, clip=clip, dtype=np.float32)
         channel_axis = axes.index("C")
         if array.shape[channel_axis] != len(self.parameters):
             raise ValueError(
@@ -217,7 +221,7 @@ class PatchNormalization:
         out = np.empty(array.shape, dtype=np.float32)
         for channel, parameters in enumerate(self.parameters):
             index = (slice(None),) * channel_axis + (channel,)
-            out[index] = parameters.apply(array[index], dtype=np.float32)
+            out[index] = parameters.apply(array[index], clip=clip, dtype=np.float32)
         return out
 
 

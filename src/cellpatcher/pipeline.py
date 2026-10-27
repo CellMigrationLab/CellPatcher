@@ -376,7 +376,9 @@ def _maybe_extract_arrays(
             # mask fill value below and resizing work in normalized units
             # (docs/normalization_contract.md §9).
             per_image_arrays = [
-                normalizations[id(patch)].apply(array, config.common.image_axes)
+                normalizations[id(patch)].apply(
+                    array, config.common.image_axes, clip=config.normalization.clip
+                )
                 for patch, array in zip(image_patches, per_image_arrays)
             ]
 
