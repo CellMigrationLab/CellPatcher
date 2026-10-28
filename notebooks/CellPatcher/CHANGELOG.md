@@ -7,7 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased] - BREAKING: run-independent patch identity and instance-label masks
 
 ### Changed: preprocessing tables of schema version 3
-- The `preprocessing` extra installs `morphobricks-preprocessing` at its tag `v0.1.0`, which
+- The `preprocessing` extra installs `morphobricks-preprocessing` at its tag `v0.2.0`, which
   brings `morphobricks-normalization` `v0.2.0`; there is no separate normalization pin
   (MorphoFeature decision D79: every brick pins the same preprocessing tag).
 - `plane_histograms.csv` schema version 3 is read; schema version 2 tables are refused
