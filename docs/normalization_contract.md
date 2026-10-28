@@ -118,8 +118,9 @@ Rules for `"ngff_labels"`:
 
 | Input | Required | Detail |
 |---|---|---|
-| `plane_histograms.csv` | For the `condition`, `biological_repeat`, `technical_repeat` and `image` scopes | Path given in `normalization.plane_histograms`. Not needed for the `patch` scope. |
+| `plane_histograms.csv` | For the `biological_repeat` and `image` scopes | Path given in `normalization.plane_histograms`. Not needed for the `patch` scope. |
 | `run_manifest.json` | Never | Given in `normalization.manifest`, or found next to the CSV. An explicitly given path that does not exist is an error. |
+| `experiment_design.csv` | For the `biological_repeat` scope | Given in `normalization.experiment_design`, or found next to the CSV. It must exist, every repeat group must be confirmed with one folder per condition (the preprocessing brick's `design_issues`), its SHA-256 must equal the manifest's `experiment_design_sha256` when the manifest records one, and every image's condition and biological repeat must be in it. Checked before any image is read. |
 
 Checks before any patch is normalized; every failure blocks the run:
 
@@ -165,13 +166,21 @@ parameters, always per channel.
 
 | Scope | Pooled planes, per channel | From | `normalization_group` |
 |---|---|---|---|
-| `"condition"` | Same `condition` | CSV rows, `group_records(records, "condition")` | `<condition>` |
-| `"biological_repeat"` | Same `condition`, `biological_repeat` | `group_records(..., "biological_repeat")` | `<condition>/<biological_repeat>` |
-| `"technical_repeat"` | Same `condition`, `biological_repeat`, `technical_repeat` | `group_records(..., "technical_repeat")` | `<condition>/<biological_repeat>/<technical_repeat>` |
-| `"image"` (default) | All Z and T planes of one image | `group_records(..., "image")` | `<source_relative_path>` |
-| `"patch"` | The patch's selected pixels (§8) | `compute_plane_histogram` | `<source_relative_path>::<patch_id>` |
+| `"biological_repeat"` | One repeat group: the same biological repeat in every condition, technical repeats merged, as paired in `experiment_design.csv` | CSV rows, the normalization brick's `scope_groups(records, settings, repeat_groups)` | `<repeat group>` |
+| `"image"` (default) | All Z and T planes of one image | `scope_groups(records, settings)` | `<source_relative_path>` |
+| `"patch"` | The patch's selected pixels (§8) | the brick's `fit` on the pixels | `<source_relative_path>::<patch_id>` |
 
-- The channel is added to every group key, so channels never share parameters.
+- Every channel has its own parameters (the brick's `fit`), so channels never share them.
+- `normalization.pooling` (`biological_repeat` only): `"pixels"` (default) counts each pixel
+  once; `"conditions"` weighs each condition of the repeat group equally.
+- `biological_repeat` keeps the differences between conditions within a repeat and removes
+  the differences between repeats; a repeat group without images from some condition is
+  normalized with the conditions it has, with the brick's `repeat_missing_conditions` warning.
+- The `condition` and `technical_repeat` scopes were removed on 2026-10-28, without a
+  deprecation period (normalization brick N29): a configuration or `run_config.json` naming
+  them is refused. Raw patches exported with them still normalize on load, from their
+  `patches.csv` columns. Until then `biological_repeat` meant one group per condition and
+  repeat, named `<condition>/<biological_repeat>`.
 - `normalization.per_time_point=True` adds `t` to the key; `::t=<t>` is appended to
   `normalization_group`.
 - All CSV rows of the group are pooled, including planes of the same images that were not
@@ -244,10 +253,11 @@ In memory, `PatchRegion.normalization_parameters` holds the brick's `Parameters`
 - A top-level `normalization_inputs` object records: `plane_histograms_sha256`,
   `schema_version`, `manifest_used` (`true`/`false`), `manifest_version` (or `null`) and
   `preprocessing_version`. Paths are not recorded, as they are machine-specific.
-- For the `image` and `patch` scopes, a top-level `normalization_settings` object holds the
-  normalization brick's `NormalizationSettings.to_dict()`. It is left out for the
-  `condition`, `biological_repeat` and `technical_repeat` scopes, whose groups are
-  CellPatcher's own until follow-up C2.
+- With the `biological_repeat` scope, `normalization_inputs` also records
+  `experiment_design_file` (the file name) and `experiment_design_sha256`.
+- A top-level `normalization_settings` object holds the normalization brick's
+  `NormalizationSettings.to_dict()` (scope, method, its options and, for
+  `biological_repeat`, the pooling weight).
 
 ## 12. Delivery
 
@@ -277,11 +287,13 @@ In memory, `PatchRegion.normalization_parameters` holds the brick's `Parameters`
 | `method` | `str` | `"percentile"` | §6 |
 | `percentile` | `tuple[float, float]` | `(1.0, 99.8)` | Low and high percentiles, `0 ≤ low < high ≤ 100` |
 | `clip` | `tuple[float, float] \| None` | `None` | Limits applied right after normalizing (by the brick's `NormalizationParameters.apply`), before masking and resizing; the same in eager, lazy, exported and raw-on-load delivery |
-| `scope` | `str` | `"image"` | §7 |
+| `scope` | `str` | `"image"` | §7: `"biological_repeat"`, `"image"` or `"patch"` |
 | `per_time_point` | `bool` | `False` | §7 |
 | `patch_region` | `str \| None` | `None` | §8; `None` means `"mask"` in `cell` mode and `"patch"` otherwise |
 | `export_values` | `str` | `"normalized"` | §12: `"normalized"` or `"raw"` |
 | `memory_limit` | `int` | `4 * 1024**3` | Bytes, for eager delivery (§12) |
+| `experiment_design` | `str \| None` | `None` | Path of `experiment_design.csv` (§5); `None` looks next to the CSV |
+| `pooling` | `str` | `"pixels"` | §7: `"pixels"` or `"conditions"` |
 
 `config.common` gains `mask_source` (`"tiff_tree"` or `"ngff_labels"`, default `"tiff_tree"`)
 and `mask_label_name` (`str | None`, default `None`) (§4), and `z_policy`/`t_policy`
@@ -296,8 +308,8 @@ and suggests an action, in the preprocessing brick's style. Technical details go
 
 | Severity | Situations |
 |---|---|
-| Error (run blocked) | Extra not installed; CSV missing for a group or image scope; unsupported CSV or manifest version; explicitly given manifest missing; any check of §5 failing; image without CSV rows at a group or image scope; projection, merged channels or `repeat_to_rgb` under normalization (§3); plane over the memory limit; `"ngff_labels"` on a TIFF image, a missing or ambiguous label name, or a label image whose dimensions do not fit (§4); `"mask"`/`"bbox"` region outside `cell` mode; zero or non-finite scale, or no finite pixels, for a group; deprecated normalization arguments combined with normalization (§15); eager delivery over the memory limit; OME-Zarr input without `zarr` |
-| Warning (run continues) | Patches discarded without spread or finite pixels (§8, D8); approximate parameters; group statistics include background pixels (once per run); per-condition or per-repeat scope (removes intensity differences between groups); use of a deprecated normalization argument |
+| Error (run blocked) | Extra not installed; CSV missing for a group or image scope; unsupported CSV or manifest version; explicitly given manifest missing; any check of §5 failing; image without CSV rows at a group or image scope; experiment design missing, unreadable, not confirmed, changed since preprocessing, or without an image's repeat (§5); a removed scope (§7); projection, merged channels or `repeat_to_rgb` under normalization (§3); plane over the memory limit; `"ngff_labels"` on a TIFF image, a missing or ambiguous label name, or a label image whose dimensions do not fit (§4); `"mask"`/`"bbox"` region outside `cell` mode; zero or non-finite scale, or no finite pixels, for a group; deprecated normalization arguments combined with normalization (§15); eager delivery over the memory limit; OME-Zarr input without `zarr` |
+| Warning (run continues) | Patches discarded without spread or finite pixels (§8, D8); approximate parameters; group statistics include background pixels (once per run); the `biological_repeat` scope (removes differences between repeats, keeps those between conditions); a repeat group without images from some condition; use of a deprecated normalization argument |
 
 ## 15. Deprecations
 

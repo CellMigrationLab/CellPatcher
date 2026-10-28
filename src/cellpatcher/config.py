@@ -209,9 +209,26 @@ class ExtractionConfig:
 
 
 NORMALIZATION_METHODS = ("minmax", "percentile", "zscore", "robust_zscore")
-NORMALIZATION_SCOPES = ("condition", "biological_repeat", "technical_repeat", "image", "patch")
+NORMALIZATION_SCOPES = ("biological_repeat", "image", "patch")
+# Removed without a deprecation period (normalization brick decision N29).
+REMOVED_NORMALIZATION_SCOPES = ("condition", "technical_repeat")
+POOLING_WEIGHTS = ("pixels", "conditions")
 PATCH_REGIONS = ("mask", "bbox", "patch")
 EXPORT_VALUES = ("normalized", "raw")
+
+
+def unknown_scope_message(scope) -> str:
+    """The message for a ``normalization.scope`` that does not exist, as the normalization brick words it."""
+    message = (
+        f"Scope '{scope}' does not exist. Choose 'biological_repeat' (one biological repeat across all "
+        "conditions), 'image' or 'patch'."
+    )
+    if scope in REMOVED_NORMALIZATION_SCOPES:
+        message += (
+            f" The '{scope}' scope was removed (October 2026): normalizing per {scope.replace('_', ' ')} "
+            "removed real differences between them. Raw patches exported with it still normalize on load."
+        )
+    return message
 
 
 @dataclass
@@ -244,10 +261,13 @@ class NormalizationConfig:
         default: no clip). For example ``(0, 1)`` with ``"percentile"`` or
         ``"minmax"``.
     scope
-        Pixels the parameters come from: ``"condition"``,
-        ``"biological_repeat"``, ``"technical_repeat"``, ``"image"`` (default:
-        all Z and T planes of the source image) or ``"patch"`` (the patch's
-        own pixels). Always per channel.
+        Pixels the parameters come from: ``"biological_repeat"`` (one repeat
+        group: the same biological repeat in every condition, technical
+        repeats merged, as paired in the preprocessing brick's
+        ``experiment_design.csv``), ``"image"`` (default: all Z and T planes
+        of the source image) or ``"patch"`` (the patch's own pixels). Always
+        per channel. The former ``"condition"`` and ``"technical_repeat"``
+        scopes are refused.
     per_time_point
         Normalize each time point separately (adds ``t`` to the group).
     patch_region
@@ -263,6 +283,14 @@ class NormalizationConfig:
         Bytes allowed for the normalized patches of eager delivery
         (``common.extract_arrays=True``); above it the run stops and suggests
         ``cellpatcher.iter_patch_arrays``, which gives one patch at a time.
+    experiment_design
+        For ``scope="biological_repeat"``: path of the preprocessing brick's
+        ``experiment_design.csv`` (the repeat groups and their confirmation);
+        None uses the one next to ``plane_histograms``.
+    pooling
+        For ``scope="biological_repeat"``: how much each condition weighs in
+        its repeat group, ``"pixels"`` (default: each pixel once) or
+        ``"conditions"`` (each condition equally).
     """
 
     enabled: bool = False
@@ -276,6 +304,9 @@ class NormalizationConfig:
     patch_region: str | None = None
     export_values: str = "normalized"
     memory_limit: int = 4 * 1024**3
+    # Appended after the earlier fields so run_config.json keeps their order.
+    experiment_design: str | None = None
+    pooling: str = "pixels"
 
     def __post_init__(self) -> None:
         if not isinstance(self.enabled, bool):
@@ -283,7 +314,12 @@ class NormalizationConfig:
         if self.method not in NORMALIZATION_METHODS:
             raise ValueError(f"normalization.method must be one of {list(NORMALIZATION_METHODS)}; got {self.method!r}.")
         if self.scope not in NORMALIZATION_SCOPES:
-            raise ValueError(f"normalization.scope must be one of {list(NORMALIZATION_SCOPES)}; got {self.scope!r}.")
+            raise ValueError(f"normalization.scope: {unknown_scope_message(self.scope)}")
+        if self.pooling not in POOLING_WEIGHTS:
+            raise ValueError(
+                f"normalization.pooling must be 'pixels' (each pixel counts once) or 'conditions' (each "
+                f"condition weighs the same); got {self.pooling!r}."
+            )
         if self.patch_region is not None and self.patch_region not in PATCH_REGIONS:
             raise ValueError(
                 f"normalization.patch_region must be one of {list(PATCH_REGIONS)} or None; got {self.patch_region!r}."

@@ -463,6 +463,15 @@ from GitHub at a pinned version) **[D1]**.
   `NormalizationSettings.to_dict()` as `normalization_settings` for the image and patch scopes.
   Parameters and arrays are identical to the earlier code. The pins already moved with PR #28
   (preprocessing `v0.2.0`, which brings normalization `v0.2.0`; schema version 3).
+- **Follow-up C2 — Three scopes:** *Done (October 2026).* `biological_repeat`, `image` and
+  `patch`. The `biological_repeat` groups come from the brick's `scope_groups` with the repeat
+  groups of the preprocessing brick's `experiment_design.csv` (new
+  `normalization.experiment_design`), which must exist, be confirmed, match the manifest's
+  SHA-256 and list every image's repeat, all before any image is read; new
+  `normalization.pooling` (`"pixels"` or `"conditions"`). `normalization_group` is the repeat
+  group label. `condition` and `technical_repeat` are refused (N29), while raw patches
+  exported with them still normalize on load. `run_config.json` records the design's name and
+  SHA-256, and `normalization_settings` for every scope.
 - **Later:** reading only patch windows for planes too large to hold in memory (the
   preprocessing brick now computes statistics for those planes in blocks, but patching still
   needs the whole plane); reading the preprocessing OME-Zarr copies; reference parameters
@@ -515,7 +524,10 @@ Reviewed in October 2026.
 5. **[D5] Scopes.** *Decided:* condition, biological repeat, technical repeat, image and patch,
    from the preprocessing CSV (patch scope from the patch's pixels); image is the default.
    Each group uses its own parameters; reference parameters are not offered in this
-   milestone.
+   milestone. *Revised (owner-approved normalization brick decisions N29, N30, N32; follow-up
+   C2, 2026-10-28):* three scopes. `biological_repeat` pools one repeat group across all
+   conditions, technical repeats merged, as paired in `experiment_design.csv`, with a
+   `pooling` weight; `condition` and `technical_repeat` are removed.
 6. **[D6] Patch-scope pixels.** *Decided:* three regions: the label's pixels (`mask`), its
    bounding box (`bbox`) and the whole patch (`patch`).
 7. **[D7] Masked group statistics.** *Decided:* no; the preprocessing statistics stay
@@ -533,7 +545,9 @@ Reviewed in October 2026.
 11. **[D11] Z projections.** *Decided:* no projections under normalization; each Z slice is an
     individual plane.
 12. **[D12] Existing normalizations.** *Decided:* deprecate everything related to
-    normalization in the current version and replace it with this design.
+    normalization in the current version and replace it with this design. *Revised (N29):*
+    the removed `condition` and `technical_repeat` scopes are refused straight away, without
+    a deprecation period.
 13. **[D13] Delivery modes.** *Decided:* all three of §7, normalized files by default.
 14. **[D14] Parameters storage.** *Decided:* columns in `patches.csv`, with `;`-separated
     values per channel for multichannel patches. *Revised (owner-approved normalization brick

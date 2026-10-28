@@ -2,10 +2,12 @@
 
 Implements ``docs/normalization_contract.md`` §6–§9 for ``config.normalization``:
 
-- **Scopes.** ``"condition"``, ``"biological_repeat"``, ``"technical_repeat"``
-  and ``"image"`` pool the rows of ``plane_histograms.csv`` of the patch's
-  group (``group_records`` levels, with the channel, and with
-  ``per_time_point`` the time point, added to the key); ``"patch"`` builds a
+- **Scopes.** ``"biological_repeat"`` and ``"image"`` pool the rows of
+  ``plane_histograms.csv`` of the patch's group, grouped by the normalization
+  brick's ``scope_groups`` (with ``per_time_point`` the time point added to
+  the key). A ``biological_repeat`` group is one repeat group: the same
+  biological repeat in every condition, technical repeats merged, paired in
+  the preprocessing brick's ``experiment_design.csv``. ``"patch"`` builds a
   histogram of the patch's own pixels (``"mask"``, ``"bbox"`` or ``"patch"``
   region), never including padding.
 - **Methods.** The normalization brick's ``fit`` turns a group's rows, or a
@@ -38,6 +40,7 @@ from cellpatcher.axes import normalize_axes
 from cellpatcher.masking import _label_to_2d
 from cellpatcher.statistics import (
     PlaneStatistics,
+    PreprocessingCheckError,
     SourcePlane,
     check_images,
     check_planes,
@@ -46,12 +49,7 @@ from cellpatcher.statistics import (
     require_preprocessing,
 )
 
-CSV_SCOPES = ("condition", "biological_repeat", "technical_repeat", "image")
-_GROUP_SCOPES = ("condition", "biological_repeat", "technical_repeat")
-# Scopes whose meaning is the normalization brick's own. CellPatcher's group
-# scopes (one group per condition, and per repeat within a condition) are its
-# own groupings until the CellPatcher follow-up C2 replaces them.
-_BRICK_SCOPES = ("image", "patch")
+CSV_SCOPES = ("biological_repeat", "image")
 _STATISTICS_CACHE: dict[tuple, PlaneStatistics] = {}
 
 
@@ -114,11 +112,104 @@ def cached_statistics(plane_histograms, manifest=None) -> PlaneStatistics:
     return _STATISTICS_CACHE[key]
 
 
+@dataclass(frozen=True)
+class ExperimentDesignInput:
+    """The preprocessing brick's ``experiment_design.csv``, checked for the ``biological_repeat`` scope.
+
+    Attributes
+    ----------
+    path
+        The file read.
+    sha256
+        Its SHA-256.
+    repeat_groups
+        ``{(condition, biological_repeat): repeat group label}``, the pairing
+        the normalization brick's ``scope_groups`` takes.
+    """
+
+    path: Path
+    sha256: str
+    repeat_groups: dict
+
+
+def experiment_design_path(settings) -> Path:
+    """``normalization.experiment_design``, or the ``experiment_design.csv`` next to ``plane_histograms``."""
+    require_preprocessing()
+    from morphobricks_preprocessing.design import DESIGN_FILENAME
+
+    if settings.experiment_design is not None:
+        return Path(settings.experiment_design).expanduser()
+    return Path(settings.plane_histograms).expanduser().parent / DESIGN_FILENAME
+
+
+def load_experiment_design(settings, statistics: PlaneStatistics) -> ExperimentDesignInput:
+    """Read and check the experiment design of the ``biological_repeat`` scope, before any image is read.
+
+    Raises
+    ------
+    PreprocessingCheckError
+        If the file does not exist or cannot be read, a repeat group is not
+        confirmed or holds two folders of one condition (the preprocessing
+        brick's ``design_issues``), or the file is not the one the
+        preprocessing manifest was written with.
+    """
+    require_preprocessing()
+    from morphobricks_preprocessing.design import (
+        DESIGN_FILENAME,
+        DesignFormatError,
+        design_issues,
+        read_experiment_design,
+    )
+    from morphobricks_preprocessing.manifest import file_sha256
+    from morphobricks_preprocessing.validation import error
+
+    path = experiment_design_path(settings)
+    rerun = (
+        "Run step 1 of the preprocessing brick on this experiment (it pairs and confirms the biological "
+        "repeats), then run the preprocessing brick again."
+    )
+    if not path.is_file():
+        raise PreprocessingCheckError([
+            error(
+                "missing_experiment_design",
+                "normalization.scope='biological_repeat' pools each biological repeat across the conditions, "
+                f"as paired in the preprocessing brick's {DESIGN_FILENAME}, but {path} does not exist.",
+                [str(path)],
+                f"{rerun} Or give the file in normalization.experiment_design.",
+            )
+        ])
+    try:
+        design = read_experiment_design(path)
+    except DesignFormatError as exc:
+        raise PreprocessingCheckError([
+            error("unreadable_experiment_design", f"The experiment design cannot be read: {exc}", [str(path)], rerun)
+        ]) from exc
+    issues = design_issues(design)
+    if issues:
+        raise PreprocessingCheckError(issues)
+    sha256 = file_sha256(path)
+    manifest = statistics.manifest
+    expected = None if manifest is None else getattr(manifest, "experiment_design_sha256", None)
+    if expected is not None and expected != sha256:
+        raise PreprocessingCheckError([
+            error(
+                "changed_experiment_design",
+                f"{path.name} changed after the preprocessing run that wrote {statistics.plane_histograms.name}: "
+                "its SHA-256 differs from the one in the run manifest, so the repeat groups may not be the ones "
+                "the statistics were checked with.",
+                [str(path)],
+                "Run the preprocessing brick again on this experiment, or give the experiment design of that run.",
+            )
+        ])
+    return ExperimentDesignInput(path, sha256, design.repeat_groups())
+
+
 def run_inputs(config) -> dict | None:
     """The ``normalization_inputs`` of ``run_config.json`` (contract §11).
 
     None when normalization is off or uses no CSV (the patch scope). Paths
-    are not recorded: they are machine-specific.
+    are not recorded: they are machine-specific. The ``biological_repeat``
+    scope also records the experiment design's file name and SHA-256.
     """
     settings = config.normalization
     if not settings.enabled or settings.scope not in CSV_SCOPES or settings.plane_histograms is None:
@@ -127,40 +218,35 @@ def run_inputs(config) -> dict | None:
     mbn = require_normalization()
     statistics = cached_statistics(settings.plane_histograms, settings.manifest)
     manifest = statistics.manifest
-    return {
+    inputs = {
         "plane_histograms_sha256": statistics.csv_sha256,
         "schema_version": mbn.csv_io.SCHEMA_VERSION,
         "manifest_used": manifest is not None,
         "manifest_version": None if manifest is None else manifest.manifest_version,
         "preprocessing_version": mbp.__version__,
     }
+    if settings.scope == "biological_repeat":
+        design = load_experiment_design(settings, statistics)
+        inputs.update(experiment_design_file=design.path.name, experiment_design_sha256=design.sha256)
+    return inputs
 
 
 def fit_settings(settings):
-    """The normalization brick's ``NormalizationSettings`` for fitting with ``config.normalization``.
-
-    The brick fits any group of ``plane_histograms.csv`` rows the same way, so
-    CellPatcher's own group scopes are fitted with the brick's ``"image"``
-    scope and their real scope is recorded on the parameters.
-    """
+    """The normalization brick's ``NormalizationSettings`` for ``config.normalization``."""
     mbn = require_normalization()
     return mbn.NormalizationSettings(
         method=settings.method,
         percentile=tuple(settings.percentile),
-        scope=settings.scope if settings.scope in _BRICK_SCOPES else "image",
+        scope=settings.scope,
+        pooling=settings.pooling,
         per_time_point=settings.per_time_point,
     )
 
 
 def run_settings(config) -> dict | None:
-    """The brick's ``NormalizationSettings.to_dict()`` for ``run_config.json`` (``normalization_settings``).
-
-    None when normalization is off, and for CellPatcher's own group scopes
-    (``condition``, ``biological_repeat`` per condition, ``technical_repeat``),
-    which the brick's settings do not describe.
-    """
+    """The brick's ``NormalizationSettings.to_dict()``, ``normalization_settings`` of ``run_config.json``; None when off."""
     settings = config.normalization
-    if not settings.enabled or settings.scope not in _BRICK_SCOPES:
+    if not settings.enabled:
         return None
     return fit_settings(settings).to_dict()
 
@@ -295,12 +381,11 @@ class PatchNormalization:
 def group_parameters(config) -> list[dict]:
     """The normalization parameters of every group in ``plane_histograms.csv``, for review before a run.
 
-    For a CSV scope (``condition``, ``biological_repeat``, ``technical_repeat``
-    or ``image``), one entry per group and channel (and time point with
-    ``per_time_point``), in sorted order: ``group`` (as in
-    ``normalization_group``), ``channel``, ``t``, ``planes`` (CSV rows
-    pooled), ``offset``, ``scale`` and ``exact``, or ``problem`` when the
-    group has no finite pixels or zero spread (which stops a run).
+    For a CSV scope (``biological_repeat`` or ``image``), one entry per group
+    and channel (and time point with ``per_time_point``), in sorted order:
+    ``group`` (as in ``normalization_group``), ``channel``, ``t``, ``planes``
+    (CSV rows pooled), ``offset``, ``scale`` and ``exact``, or ``problem``
+    when the group has no finite pixels or zero spread (which stops a run).
 
     Raises
     ------
@@ -309,15 +394,16 @@ def group_parameters(config) -> list[dict]:
     """
     normalizer = Normalizer.for_config(config)
     if normalizer is None or normalizer.statistics is None:
-        raise ValueError("Per-group parameters exist for the condition, repeat and image scopes only.")
+        raise ValueError("Per-group parameters exist for the biological-repeat and image scopes only.")
     normalizer._ensure_index()
     rows = []
-    for key in sorted(normalizer._index, key=lambda k: (k[0], k[1] or 0)):
+    for key in normalizer._index:  # sorted by the brick's scope_groups
         records = normalizer._index[key]
         result = normalizer._group_parameters(key)
-        group = _group_text(records[0], normalizer.settings.scope, normalizer.settings.per_time_point)
+        group = normalizer._mbn.group_name(key)
+        t = key[1] if normalizer.settings.per_time_point else None
         for channel in range(records[0].channel_count):
-            row = {"group": group, "channel": channel, "t": key[1], "planes": len(records)}
+            row = {"group": group, "channel": channel, "t": t, "planes": len(records)}
             if isinstance(result, str):
                 row["problem"] = result.split(": ", 1)[-1]
             else:
@@ -352,10 +438,11 @@ class Normalizer:
     is off; then :meth:`normalize` gives every patch its parameters.
     """
 
-    def __init__(self, config, statistics: PlaneStatistics | None):
+    def __init__(self, config, statistics: PlaneStatistics | None, repeat_groups: dict | None = None):
         self.config = config
         self.settings = config.normalization
         self.statistics = statistics
+        self.repeat_groups = repeat_groups
         self.region = resolved_patch_region(config)
         self._mbn = require_normalization()
         self._fit_settings = fit_settings(self.settings)
@@ -366,14 +453,16 @@ class Normalizer:
     def for_config(cls, config) -> Normalizer | None:
         """The run's normalizer, or None when ``config.normalization.enabled`` is False.
 
-        Validates the settings, loads the statistics for a CSV scope, and
-        warns about the scope's consequences (contract §14).
+        Validates the settings, loads the statistics for a CSV scope (and,
+        for ``biological_repeat``, checks the experiment design and groups
+        the rows, so a design problem stops the run before any patch is
+        normalized), and warns about the scope's consequences (contract §14).
         """
         settings = config.normalization
         if not settings.enabled:
             return None
         validate_normalization(config)
-        statistics = None
+        statistics, repeat_groups = None, None
         if settings.scope in CSV_SCOPES:
             statistics = cached_statistics(settings.plane_histograms, settings.manifest)
             warnings.warn(
@@ -384,14 +473,15 @@ class Normalizer:
                 NormalizationWarning,
                 stacklevel=2,
             )
-            if settings.scope in _GROUP_SCOPES:
-                warnings.warn(
-                    f"normalization.scope={settings.scope!r} puts every {settings.scope.replace('_', ' ')} "
-                    "on the same intensity scale, which removes real intensity differences between them.",
-                    NormalizationWarning,
-                    stacklevel=2,
-                )
-        return cls(config, statistics)
+            if settings.scope == "biological_repeat":
+                repeat_groups = load_experiment_design(settings, statistics).repeat_groups
+        mbn = require_normalization()
+        for issue in mbn.check_settings(fit_settings(settings), statistics_file=statistics is not None):
+            warnings.warn(issue.message, NormalizationWarning, stacklevel=2)
+        normalizer = cls(config, statistics, repeat_groups)
+        if repeat_groups is not None:
+            normalizer._ensure_index()
+        return normalizer
 
     def normalize(self, images, image_axes, masks, mask_axes, metadata, labels, patches) -> dict[int, PatchNormalization]:
         """Compute and record every patch's normalization; return it keyed by ``id(patch)``.
@@ -472,6 +562,8 @@ class Normalizer:
         check_images(
             without_manifest, {metadata[index]["source_relative_path"]: image_axes for index in channel_planes}
         )
+        if self.repeat_groups is not None:
+            self._check_design_labels(channel_planes, metadata, labels)
         has_channels = "C" in normalize_axes(image_axes)
         keys, planes = [], []
         for index, channels in channel_planes.items():
@@ -502,7 +594,7 @@ class Normalizer:
             if isinstance(result, str):
                 failures.append(result)
                 continue
-            group = _group_text(channel_records[0], level, self.settings.per_time_point)
+            group = self._mbn.group_name(key)
             parameters = replace(
                 result.select(record.c for record in channel_records), scope=level, group=group
             )
@@ -517,21 +609,43 @@ class Normalizer:
             )
         return normalizations
 
+    def _check_design_labels(self, channel_planes, metadata, labels) -> None:
+        """Refuse images whose condition and biological repeat the experiment design does not pair."""
+        from morphobricks_preprocessing.validation import error
+
+        unknown = sorted({
+            (metadata[index].get("source_relative_path"), tuple(labels[index][:2]))
+            for index in channel_planes
+            if tuple(label or "single" for label in labels[index][:2]) not in self.repeat_groups
+        })
+        if unknown:
+            pairs = sorted({"/".join(label or "single" for label in pair) for _, pair in unknown})
+            raise PreprocessingCheckError([
+                error(
+                    "image_not_in_design",
+                    f"The experiment design has no repeat group for {', '.join(pairs)}, the condition and "
+                    "biological repeat of these images.",
+                    [path for path, _ in unknown if path],
+                    "Run step 1 of the preprocessing brick on this experiment so that the design lists every "
+                    "biological repeat, then run the preprocessing brick again.",
+                )
+            ])
+
     def _ensure_index(self) -> None:
-        """Group every CSV row (an XYC plane) by its key (the scope's labels and optional t), once."""
+        """Group every CSV row (an XYC plane) with the brick's ``scope_groups``, once; warn about its issues."""
         if self._index is None:
-            self._index = defaultdict(list)
-            for record in self.statistics.records:
-                self._index[self._group_key(record)].append(record)
+            groups, issues = self._mbn.scope_groups(self.statistics.records, self._fit_settings, self.repeat_groups)
+            for issue in issues:
+                warnings.warn(issue.message, NormalizationWarning, stacklevel=3)
+            self._index = groups
 
     def _group_key(self, record) -> tuple:
-        t = record.t if self.settings.per_time_point else None
-        return (record.group_key(self.settings.scope), t)
+        return self._mbn.group_key(record, self._fit_settings, self.repeat_groups)
 
     def _group_parameters(self, key):
         """The brick ``Parameters`` of a group (every channel), or a failure description."""
         self._ensure_index()
-        name = "/".join(key[0]) + ("" if key[1] is None else f" (t={key[1]})")
+        name = self._mbn.group_name(key)
         try:
             return self._mbn.fit(self._index[key], self._fit_settings)
         except self._mbn.NoValidPixelsError as exc:
@@ -602,15 +716,6 @@ class Normalizer:
 
 def _time_suffix(t, per_time_point: bool) -> str:
     return f"::t={0 if t is None else t}" if per_time_point else ""
-
-
-def _group_text(record, level: str, per_time_point: bool) -> str:
-    """``normalization_group`` of a CSV scope (contract §7)."""
-    if level == "image":
-        text = record.source_relative_path
-    else:
-        text = "/".join(record.group_key(level))
-    return text + _time_suffix(record.t, per_time_point)
 
 
 def _channel_planes(image, axes: str) -> list[np.ndarray]:
