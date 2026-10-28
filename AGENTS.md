@@ -343,7 +343,9 @@ yet called by the pipeline. Milestone 2 adds plane splitting
 `config.normalization` (`cellpatcher.normalization`): the pipeline normalizes
 patches per channel at a biological-repeat (across conditions, from the
 preprocessing brick's `experiment_design.csv`), image or patch scope
-(follow-up C2 removed the condition and technical-repeat scopes), and records
+(follow-up C2 removed the condition and technical-repeat scopes; follow-up C3
+added `normalization.image_type="rgb"`, R, G and B sharing one offset and
+scale), and records
 the parameters in six `normalization_*` columns after `source_relative_path`
 and in `run_config.json` (`normalization` section, `normalization_inputs`).
 Until each later part is merged, the inputs and

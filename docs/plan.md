@@ -208,7 +208,9 @@ pooled with `PooledHistogram`, so every scope uses the same definitions:
 ### 6.1 Channels are always separate
 
 Parameters are always computed and applied per channel; channels are never pooled
-together **[D4]**.
+together **[D4]**. *Revised (owner-approved normalization brick decisions N33, N34; follow-up
+C3, 2026-10-28):* except for `normalization.image_type="rgb"`, where R, G and B are pooled
+into one shared offset and scale (StarDist's percentile normalization).
 
 ### 6.2 Scopes
 
@@ -473,6 +475,14 @@ from GitHub at a pinned version) **[D1]**.
   group label. `condition` and `technical_repeat` are refused (N29), while raw patches
   exported with them still normalize on load. `run_config.json` records the design's name and
   SHA-256, and `normalization_settings` for every scope.
+- **Follow-up C3 — RGB images:** *Done (October 2026).* New `normalization.image_type`
+  (`"fluorescence"`, the default, or `"rgb"`). `"rgb"` allows only `"percentile"`, refuses
+  `extraction.split_channels`, needs three 8- or 16-bit channels, and pools R, G and B into
+  one offset and scale at every scope (the brick's `fit` and `Parameters.apply`, bit-identical
+  to `csbdeep.utils.normalize(x, 1, 99.8, axis=(0, 1, 2))` at the patch scope). With a
+  preprocessing manifest that records an image type, `normalization.image_type` must be the
+  same; otherwise the configuration decides (N34). An RGB patch without spread becomes zeros
+  and is kept.
 - **Later:** reading only patch windows for planes too large to hold in memory (the
   preprocessing brick now computes statistics for those planes in blocks, but patching still
   needs the whole plane); reading the preprocessing OME-Zarr copies; reference parameters
@@ -521,7 +531,8 @@ Reviewed in October 2026.
    labels inside the image.
 4. **[D4] Splitting and channels.** *Decided:* any of Z, C and T can be split until a 2D plane
    remains; parameters are always per channel; time points are pooled by default, with an
-   option to normalize each separately.
+   option to normalize each separately. *Revised (N33, N34; follow-up C3, 2026-10-28):* RGB
+   images (`image_type="rgb"`) share one offset and scale across R, G and B.
 5. **[D5] Scopes.** *Decided:* condition, biological repeat, technical repeat, image and patch,
    from the preprocessing CSV (patch scope from the patch's pixels); image is the default.
    Each group uses its own parameters; reference parameters are not offered in this
