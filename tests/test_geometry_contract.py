@@ -260,3 +260,26 @@ def test_new_options_survive_a_saved_run_config(tmp_path):
     path.write_text(json.dumps(run_config_data(config), default=str))
     loaded = load_config(path)
     assert loaded.random == config.random and loaded.whole_fov == config.whole_fov
+
+
+def test_fraction_masks_with_nan_are_refused():
+    mask = np.zeros((20, 20))
+    mask[0, 0] = np.nan
+    with pytest.raises(ValueError, match="NaN"):
+        _run("grid", np.zeros((20, 20)), fraction_masks=[{"tissue": mask}], grid=GridConfig(tile_size=10))
+
+
+def test_a_seed_scope_set_after_validation_is_refused_clearly():
+    random = RandomConfig(patch_size=8, n_patches=2)
+    random.seed_scope = "bogus"
+    with pytest.raises(ValueError, match="seed_scope"):
+        _run("random", np.zeros((20, 20)), random=random)
+
+
+def test_the_whole_fov_template_shows_its_section(tmp_path):
+    import json
+
+    from cellpatcher.orchestration import save_config_for_mode
+
+    path = save_config_for_mode("whole_fov", tmp_path / "c.json")
+    assert json.loads(path.read_text())["whole_fov"] == {"square_cover": False}

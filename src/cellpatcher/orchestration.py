@@ -46,7 +46,7 @@ _MODE_SECTIONS: dict[str, tuple[str, ...]] = {
     "cell": ("cell", "matching"),
     "random": ("random", "matching"),
     "grid": ("grid",),
-    "whole_fov": (),
+    "whole_fov": ("whole_fov",),
 }
 
 
@@ -201,7 +201,7 @@ def save_config_for_mode(mode: str, path) -> Path:
     * ``cell``   → ``cell``, ``matching``
     * ``random`` → ``random``, ``matching``
     * ``grid``   → ``grid``
-    * ``whole_fov`` → *(none beyond common)*
+    * ``whole_fov`` → ``whole_fov``
 
     Parameters
     ----------

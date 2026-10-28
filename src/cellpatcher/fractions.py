@@ -46,6 +46,8 @@ def check_fraction_masks(fraction_masks, image_list, image_axes: str) -> list[di
                     f"fraction mask {name!r} of image {index} has shape {array.shape}; the image's Y/X shape "
                     f"is {tuple(shape)}."
                 )
+            if np.issubdtype(array.dtype, np.floating) and not np.isfinite(array).all():
+                raise ValueError(f"fraction mask {name!r} of image {index} holds NaN or infinity.")
             entry[name] = array != 0
         checked.append(entry)
     return checked

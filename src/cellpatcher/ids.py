@@ -153,6 +153,8 @@ def random_seed(seed, meta, scope: str = "plane_channel") -> int | None:
     """
     if seed is None:
         return None
+    if scope not in SEED_SCOPE_AXES:  # e.g. set after the config was validated
+        raise ValueError(f"random.seed_scope must be one of {list(SEED_SCOPE_AXES)}; got {scope!r}.")
     parts = [str(meta["position_id"])]
     parts += [f"{axis}={'-' if meta.get(axis) is None else int(meta[axis])}" for axis in SEED_SCOPE_AXES[scope]]
     digest = hashlib.sha256("|".join(parts).encode("utf-8")).digest()
