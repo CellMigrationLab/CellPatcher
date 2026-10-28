@@ -177,18 +177,38 @@ def _patch_array_axes(config: CellPatcherConfig) -> str:
     return axes.replace("C", "") if config.extraction.split_channels else axes
 
 
-def _split_channel_patches(config: CellPatcherConfig, image_list, patches: list[PatchRegion], patch_arrays):
-    """Replace each region by one region (and array) per channel of its source image.
+def _check_split_channels(config: CellPatcherConfig, image_list) -> None:
+    """Refuse a channel selection the images cannot give, before any patch is made.
 
-    Every channel patch keeps the parent's coordinates, provenance and
-    ``position_id``, and gets ``c`` set to its channel index (a ``c<index>``
-    level of its ``patch_id``, :mod:`cellpatcher.ids`).
+    Only the image shapes are read, so an in-memory run stops before patching
+    and a folder or tree run (which exports once, at the end) before writing.
     """
+    if not config.extraction.split_channels:
+        return
     axes = normalize_axes(config.common.image_axes)
     if "C" not in axes:
         raise ValueError(
-            f"extraction.split_channels=True needs a 'C' axis in common.image_axes (got '{axes}')."
+            f"extraction.split_channels={config.extraction.split_channels!r} needs a 'C' axis in "
+            f"common.image_axes (got '{axes}')."
         )
+    for index, image in enumerate(image_list):
+        normalize_axes(axes, ndim=len(image.shape))
+        try:
+            config.extraction.split_channel_indices(int(image.shape[axes.index("C")]))
+        except ValueError as exc:
+            raise ValueError(f"Image {index} of the run: {exc}") from None
+
+
+def _split_channel_patches(config: CellPatcherConfig, image_list, patches: list[PatchRegion], patch_arrays):
+    """Replace each region by one region (and array) per selected channel of its source image.
+
+    Every channel patch keeps the parent's coordinates, provenance and
+    ``position_id``, and gets ``c`` set to its channel index (a ``c<index>``
+    level of its ``patch_id``, :mod:`cellpatcher.ids`). ``split_channels=True``
+    selects every channel, a list only those channels.
+    """
+    _check_split_channels(config, image_list)
+    axes = normalize_axes(config.common.image_axes)
     channel_axis = axes.index("C")
     image_lookup = {f"image_{idx:04d}": image for idx, image in enumerate(image_list)}
 
@@ -196,8 +216,7 @@ def _split_channel_patches(config: CellPatcherConfig, image_list, patches: list[
     split_arrays = [] if patch_arrays is not None else None
     for index, patch in enumerate(patches):
         image_shape = image_lookup[patch.image_id].shape
-        normalize_axes(axes, ndim=len(image_shape))
-        for channel in range(int(image_shape[channel_axis])):
+        for channel in config.extraction.split_channel_indices(int(image_shape[channel_axis])):
             channel_patch = replace(patch, c=channel)
             split_channel_normalization(channel_patch, channel)
             split_patches.append(channel_patch)
@@ -836,6 +855,7 @@ def run_patching(images=None, masks=None, config=None, image_metadata=None) -> P
             for image in _normalize_images(images):
                 plane_choices(image.shape, config.common.image_axes, None, None, config.common, single_planes=True)
     if images is not None:
+        _check_split_channels(config, _normalize_images(images))
         image_metadata = _identity_metadata(config, _normalize_images(images), image_metadata)
     if config.mode == "cell" and masks is not None:
         _refuse_masking_computed_labels(config, _normalize_masks(masks))

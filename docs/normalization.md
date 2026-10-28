@@ -116,7 +116,9 @@ channels never share parameters (except the three channels of an RGB image).
   `common.z_policy`/`t_policy` to `"all"` (one patch per plane), `"first"` or `"select"`;
   `"keep"` and Z projections stop the run. Each Z slice is its own plane.
 - **Channels** may be kept together in one patch (each channel gets its own parameters, listed
-  in channel order) or split with `extraction.split_channels=True`.
+  in channel order) or split with `extraction.split_channels=True`, or `[i, ...]` for only the
+  selected channels. A single-channel patch keeps the parameters of its channel in the image's
+  group, so selecting channels never changes their values.
 - **OME-Zarr images** (folders ending in `.zarr`) are read like TIFF files; their masks can be a
   mask folder or the label images inside them (`common.mask_source="ngff_labels"`, with
   `common.mask_label_name`).

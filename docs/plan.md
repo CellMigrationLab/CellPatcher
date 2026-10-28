@@ -489,6 +489,15 @@ from GitHub at a pinned version) **[D1]**.
   only for that scope. The image type comes from the preprocessing manifest when it records
   one (read with `cellpatcher.statistics.recorded_image_type`, and locked); otherwise the user
   chooses it. RGB offers only the percentile method and refuses split channels.
+- **Follow-up C5 — Channel selection:** *Done (October 2026).* `extraction.split_channels`
+  also accepts a list of channel indices: one single-channel patch (and `patches.csv` row, `c`
+  set) per selected channel of each region, in channel order, sharing the image's
+  `position_id`. `True` and `False` keep their meaning. An index the images do not have stops
+  the run before any patch is made or written (the images' shapes are checked first; a
+  folder or tree run exports once, at the end). Normalization parameters stay those of the
+  channel in its group (`Parameters.select([i])`, N46). RGB refuses any channel splitting. The
+  notebook shows one checkbox per channel (`C0`, `C1`, ..., with the OME channel names when the
+  header records them, `cellpatcher.io.channel_names`).
 - **Later:** reading only patch windows for planes too large to hold in memory (the
   preprocessing brick now computes statistics for those planes in blocks, but patching still
   needs the whole plane); reading the preprocessing OME-Zarr copies; reference parameters

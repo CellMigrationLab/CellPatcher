@@ -1,5 +1,6 @@
 import math
 from dataclasses import dataclass, field
+from numbers import Integral
 
 from cellpatcher._deprecation import accept_deprecated_repeat
 from cellpatcher.io import (
@@ -178,8 +179,10 @@ class ExtractionConfig:
     apply_mask: bool = False
     mask_fill_value: float = 0.0
     # Export one single-channel patch per channel of each region instead of
-    # one multichannel patch (requires a "C" axis in common.image_axes).
-    split_channels: bool = False
+    # one multichannel patch (requires a "C" axis in common.image_axes):
+    # True for every channel, or a list of channel indices for only those
+    # (CellPatcher follow-up C5).
+    split_channels: bool | list[int] = False
 
     def __post_init__(self) -> None:
         if self.pad_mode not in {"clip", "constant"}:
@@ -204,8 +207,57 @@ class ExtractionConfig:
             raise ValueError("apply_mask must be a bool.")
         if not isinstance(self.mask_fill_value, (int, float)):
             raise ValueError("mask_fill_value must be a scalar number.")
-        if not isinstance(self.split_channels, bool):
-            raise ValueError("split_channels must be a bool.")
+        channel_selection(self.split_channels)
+
+    def split_channel_indices(self, channel_count: int) -> tuple[int, ...]:
+        """The channels that get a single-channel patch of their own, for an image with *channel_count* channels.
+
+        Every channel for ``split_channels=True``, the selected ones (in
+        increasing order) for a list, and none for False.
+
+        Raises
+        ------
+        ValueError
+            If a selected index is not a channel of the image.
+        """
+        selection = channel_selection(self.split_channels)
+        if selection is None:
+            return tuple(range(channel_count)) if self.split_channels else ()
+        outside = [channel for channel in selection if channel >= channel_count]
+        if outside:
+            raise ValueError(
+                f"extraction.split_channels selects channel {', '.join(map(str, outside))}, but the image has "
+                f"{channel_count} channel{'' if channel_count == 1 else 's'} (indices 0 to {channel_count - 1}). "
+                "Select channels the images have, or True for every channel."
+            )
+        return selection
+
+
+def channel_selection(split_channels) -> tuple[int, ...] | None:
+    """The channel indices a list ``split_channels`` selects, sorted; None for True or False.
+
+    Raises
+    ------
+    ValueError
+        If *split_channels* is neither a bool nor a non-empty list of distinct
+        non-negative channel indices.
+    """
+    if isinstance(split_channels, bool):
+        return None
+    if (
+        not isinstance(split_channels, (list, tuple))
+        or not split_channels
+        or any(isinstance(channel, bool) or not isinstance(channel, Integral) or channel < 0
+               for channel in split_channels)
+    ):
+        raise ValueError(
+            "split_channels must be a bool or a non-empty list of channel indices (0, 1, ...): True gives one "
+            "patch per channel, a list one patch per selected channel, False one multichannel patch; got "
+            f"{split_channels!r}."
+        )
+    if len(set(split_channels)) != len(split_channels):
+        raise ValueError(f"split_channels lists a channel more than once: {list(split_channels)!r}.")
+    return tuple(sorted(int(channel) for channel in split_channels))
 
 
 NORMALIZATION_METHODS = ("minmax", "percentile", "zscore", "robust_zscore")

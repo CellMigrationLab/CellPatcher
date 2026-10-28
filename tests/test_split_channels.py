@@ -5,7 +5,7 @@ import pytest
 
 from cellpatcher.config import CellPatcherConfig, CommonConfig, ExtractionConfig, GridConfig
 from cellpatcher.io import write_array
-from cellpatcher.orchestration import run_patching_condition_repeat_tree
+from cellpatcher.orchestration import load_config, run_patching_condition_repeat_tree, run_patching_pipeline
 from cellpatcher.pipeline import run_patching
 from tests.helpers import named
 
@@ -21,7 +21,7 @@ def _grid_config(image_axes="CYX", **extraction):
         mode="grid",
         common=CommonConfig(image_axes=image_axes, extract_arrays=True),
         grid=GridConfig(tile_size=8),
-        extraction=ExtractionConfig(split_channels=True, **extraction),
+        extraction=ExtractionConfig(**{"split_channels": True, **extraction}),
     )
 
 
@@ -116,6 +116,91 @@ def test_split_channels_requires_a_channel_axis():
 def test_split_channels_config_validation():
     with pytest.raises(ValueError, match="split_channels must be a bool"):
         ExtractionConfig(split_channels="yes")
+
+
+# ---------------------------------------------------------------------------
+# Channel selection (CellPatcher follow-up C5)
+# ---------------------------------------------------------------------------
+
+
+def test_a_channel_selection_gives_one_patch_per_selected_channel():
+    image = _channel_image(n_channels=4)
+    result = run_patching(images=[image], config=_grid_config(split_channels=[3, 1]),
+                          image_metadata=[{"image_file": "img.tif"}])
+
+    assert len(result.patches) == 4 * 2  # 4 tiles x 2 selected channels
+    assert [patch.c for patch in result.patches[:2]] == [1, 3]  # in channel order
+    assert [patch.patch_id for patch in result.patches[:2]] == [
+        "single/single/single/img/c1/grid-y0-x0-h8-w8",
+        "single/single/single/img/c3/grid-y0-x0-h8-w8",
+    ]
+    assert {patch.position_id for patch in result.patches} == {"single/single/single/img"}
+    for patch, array in zip(result.patches, result.patch_arrays):
+        assert array.shape == (8, 8) and np.all(array == patch.c + 1)
+    assert [record.n_patches for record in result.image_records] == [8]
+
+
+def test_selecting_every_channel_gives_the_patches_of_true():
+    image = _channel_image()
+    metadata = [{"image_file": "img.tif"}]
+    every = run_patching(images=[image], config=_grid_config(), image_metadata=metadata)
+    listed = run_patching(images=[image], config=_grid_config(split_channels=[0, 1, 2]), image_metadata=metadata)
+
+    assert [patch.to_dict() for patch in listed.patches] == [patch.to_dict() for patch in every.patches]
+    for left, right in zip(listed.patch_arrays, every.patch_arrays):
+        np.testing.assert_array_equal(left, right)
+
+
+@pytest.mark.parametrize("selection", [[], [-1], [0, 0], ["0"], [True], 1])
+def test_a_channel_selection_must_list_distinct_channel_indices(selection):
+    with pytest.raises(ValueError, match="split_channels"):
+        ExtractionConfig(split_channels=selection)
+
+
+def test_numpy_channel_indices_are_accepted():
+    config = ExtractionConfig(split_channels=[np.int64(2), np.int32(0)])
+    assert config.split_channel_indices(3) == (0, 2)
+
+
+def test_a_channel_the_images_lack_is_refused_before_patching(tmp_path):
+    config = _grid_config(split_channels=[1, 3])
+    config.export.enabled, config.common.output_dir = True, str(tmp_path / "out")
+    images = [_channel_image(n_channels=4), _channel_image(n_channels=3)]
+    with pytest.raises(ValueError, match=r"Image 1 of the run: .*selects channel 3, but the image has 3 channels"):
+        run_patching(images=images, config=config, image_metadata=named(images))
+    assert not (tmp_path / "out").exists()
+
+
+def test_a_channel_selection_set_after_construction_is_checked_too():
+    config = _grid_config()
+    config.extraction.split_channels = [5]
+    with pytest.raises(ValueError, match="selects channel 5, but the image has 3 channels"):
+        run_patching(images=[_channel_image()], config=config, image_metadata=named([_channel_image()]))
+
+
+def test_a_folder_run_with_a_missing_channel_writes_nothing(tmp_path):
+    folder = tmp_path / "images"
+    folder.mkdir()
+    for name in ("a.npy", "b.npy"):
+        write_array(folder / name, _channel_image(n_channels=2))
+    config = _grid_config(split_channels=[2])
+    config.export.enabled, config.common.output_dir = True, str(tmp_path / "out")
+    with pytest.raises(ValueError, match="has 2 channels"):
+        run_patching_pipeline(folder, config=config)
+    assert not (tmp_path / "out" / "patches.csv").exists()
+
+
+def test_a_channel_selection_is_exported_and_reloaded(tmp_path):
+    config = _grid_config(split_channels=[2])
+    config.export.enabled, config.export.image_format = True, "npy"
+    config.common.output_dir = str(tmp_path)
+    run_patching(images=[_channel_image()], config=config, image_metadata=[{"image_file": "img0.tif"}])
+
+    with (tmp_path / "patches.csv").open("r", encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
+    assert len(rows) == 4 and {row["c"] for row in rows} == {"2"}
+    assert all(np.all(np.load(tmp_path / row["patch_file"]) == 3) for row in rows)
+    assert load_config(tmp_path / "run_config.json").extraction.split_channels == [2]
 
 
 def test_split_channels_with_cell_mode_and_apply_mask():
@@ -214,3 +299,16 @@ def test_default_position_id_takes_a_per_image_technical_repeat():
     assert [record.position_id for record in result.image_records] == [
         "single/single/wellA/img0", "single/single/wellB/img0",
     ]
+
+
+def test_channel_names_come_from_the_ome_header(tmp_path):
+    pytest.importorskip("morphobricks_preprocessing")
+    import tifffile
+
+    from cellpatcher.io import channel_names
+
+    tifffile.imwrite(tmp_path / "a.ome.tif", _channel_image(), ome=True,
+                     metadata={"axes": "CYX", "Channel": {"Name": ["DAPI", "GFP", "Actin"]}})
+    write_array(tmp_path / "b.npy", _channel_image())
+    assert channel_names(tmp_path / "a.ome.tif") == ("DAPI", "GFP", "Actin")
+    assert channel_names(tmp_path / "b.npy") == ()  # no header to read names from
