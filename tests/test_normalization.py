@@ -28,8 +28,12 @@ pytestmark = [
 ]
 
 NORMALIZATION_COLUMNS = [
-    "normalization_method", "normalization_scope", "normalization_group",
-    "normalization_offset", "normalization_scale", "normalization_exact",
+    "normalization_method", "normalization_scope", "normalization_group", "normalization_exact",
+]
+# One pair per channel, grouped by channel (normalization brick N41, N42); the
+# simulated experiment has two channels.
+CHANNEL_COLUMNS = [
+    "Normalization_Offset_C0", "Normalization_Scale_C0", "Normalization_Offset_C1", "Normalization_Scale_C1",
 ]
 
 
@@ -177,7 +181,8 @@ def test_image_scope_pools_every_z_plane_of_the_image_per_channel(experiment, tm
             expected = (raw - lows[:, None, None]) / (highs - lows)[:, None, None]
             assert array.dtype == np.float32
             np.testing.assert_allclose(array, expected, rtol=1e-6)
-            assert patch.normalization_offset == ";".join(repr(float(v)) for v in lows)
+            assert patch.normalization_parameters.offset == tuple(float(v) for v in lows)
+            assert patch.normalization_parameters.channels == (0, 1)
             assert (patch.normalization_method, patch.normalization_scope, patch.normalization_group) == (
                 "min-max", "image", patch.source_relative_path,
             )
@@ -185,14 +190,25 @@ def test_image_scope_pools_every_z_plane_of_the_image_per_channel(experiment, tm
 
     header, rows = _read_csv(tmp_path / "out" / "patches.csv")
     start = header.index("source_relative_path")
-    assert header[start : start + 7] == ["source_relative_path", *NORMALIZATION_COLUMNS]
+    assert header[start : start + 9] == ["source_relative_path", *NORMALIZATION_COLUMNS, *CHANNEL_COLUMNS]
     assert {row["normalization_exact"] for row in rows} == {"true"}
+    assert "normalization_offset" not in header and "normalization_parameters" not in header
+    first = rows[0]
+    lows = stacks[first["source_relative_path"]].min(axis=(0, 2, 3))
+    assert (first["Normalization_Offset_C0"], first["Normalization_Offset_C1"]) == tuple(repr(float(v)) for v in lows)
     saved = json.loads((tmp_path / "out" / RUN_CONFIG_FILENAME).read_text(encoding="utf-8"))
     assert saved["normalization"]["scope"] == "image"
     inputs = saved["normalization_inputs"]
     assert (inputs["schema_version"], inputs["manifest_used"], inputs["manifest_version"]) == ("3", True, "1")
     assert len(inputs["plane_histograms_sha256"]) == 64
     assert load_config(tmp_path / "out" / RUN_CONFIG_FILENAME).normalization == config.normalization
+    from morphobricks_normalization import NormalizationSettings, __version__
+
+    assert saved["normalization_settings"] == {
+        "library_version": __version__, "image_type": "fluorescence", "method": "minmax", "scope": "image",
+        "per_time_point": False,
+    }
+    assert NormalizationSettings.from_dict(saved["normalization_settings"]).method_name == "min-max"
 
 
 @pytest.mark.parametrize(
@@ -209,8 +225,9 @@ def test_group_scopes_pool_the_group_per_channel(experiment, scope, members, gro
 
     patch = _patches_by_image(results)["control/bio1/a.tif"]
     pooled = np.concatenate([stacks[m].transpose(1, 0, 2, 3).reshape(2, -1) for m in members], axis=1)
-    np.testing.assert_allclose([float(v) for v in patch.normalization_offset.split(";")], pooled.mean(axis=1))
-    np.testing.assert_allclose([float(v) for v in patch.normalization_scale.split(";")], pooled.std(axis=1))
+    np.testing.assert_allclose(patch.normalization_parameters.offset, pooled.mean(axis=1))
+    np.testing.assert_allclose(patch.normalization_parameters.scale, pooled.std(axis=1))
+    assert patch.normalization_parameters.scope == scope
     assert (patch.normalization_group, patch.normalization_method) == (group, "z-score")
 
 
@@ -226,7 +243,7 @@ def test_per_time_point_gives_each_time_point_its_own_parameters(tmp_path):
 
     (leaf,) = run_patching_condition_repeat_tree(root, config=config)
     by_t = {patch.t: patch for patch in leaf.result.patches}
-    assert (by_t[0].normalization_offset, by_t[1].normalization_offset) == ("0.0", "100.0")
+    assert (by_t[0].normalization_parameters.offset, by_t[1].normalization_parameters.offset) == ((0.0,), (100.0,))
     assert by_t[1].normalization_group == "control/a.tif::t=1"
 
 
@@ -251,8 +268,8 @@ def test_split_channels_keep_their_own_parameters(experiment):
     config.extraction.split_channels = True
     results = run_patching_condition_repeat_tree(root, config=config)
     patches = [p for leaf in results for p in leaf.result.patches if p.source_relative_path == "control/bio1/a.tif"]
-    offsets = {(p.c, p.normalization_offset) for p in patches}
-    assert len(offsets) == 2 and all(";" not in offset for _, offset in offsets)
+    offsets = {(p.c, p.normalization_parameters.channels, p.normalization_parameters.offset) for p in patches}
+    assert len(offsets) == 2 and all(channels == (c,) and len(offset) == 1 for c, channels, offset in offsets)
 
 
 # ---------------------------------------------------------------------------
@@ -285,8 +302,9 @@ def test_patch_regions_use_exactly_their_pixels(region, patch_size):
         pixels = image[4:9, 4:13]  # the whole box, whatever the patch size
     else:
         pixels = image[rows, cols]
-    assert (float(patch.normalization_offset), float(patch.normalization_scale)) == (
-        float(pixels.min()), float(pixels.max() - pixels.min()),
+    parameters = patch.normalization_parameters
+    assert (parameters.offset, parameters.scale, parameters.channels) == (
+        (float(pixels.min()),), (float(pixels.max() - pixels.min()),), (0,),
     )
     assert patch.normalization_group == f"{patch.image_id}::{patch.patch_id}"
 
@@ -366,7 +384,8 @@ def test_normalization_off_leaves_arrays_and_columns_unchanged(experiment):
     config.normalization.enabled = False
     results = run_patching_condition_repeat_tree(root, config=config)
     assert results[0].result.patch_arrays[0].dtype == np.uint8
-    assert {getattr(p, column) for leaf in results for p in leaf.result.patches for column in NORMALIZATION_COLUMNS} == {None}
+    columns = [*NORMALIZATION_COLUMNS, "normalization_parameters"]
+    assert {getattr(p, column) for leaf in results for p in leaf.result.patches for column in columns} == {None}
 
 
 # ---------------------------------------------------------------------------
@@ -442,9 +461,11 @@ def test_a_flat_folder_run_normalizes_against_its_own_preprocessing(tmp_path):
     csv_path = _preprocess(folder, tmp_path / "preprocessing", "YX")
 
     result = run_patching_pipeline(folder, config=_config(csv_path, image_axes="YX"))
-    assert {(p.source_relative_path, p.normalization_offset, p.normalization_scale) for p in result.patches} == {
-        ("a.tif", "0.0", "255.0")
+    found = {
+        (p.source_relative_path, p.normalization_parameters.offset, p.normalization_parameters.scale)
+        for p in result.patches
     }
+    assert found == {("a.tif", (0.0,), (255.0,))}
 
 
 def test_clip_comes_after_normalizing_and_before_resizing():
@@ -463,3 +484,116 @@ def test_clip_comes_after_normalizing_and_before_resizing():
     config.normalization.clip = None
     (unclipped,) = run_patching(images=image, masks=labels, config=config, image_metadata=named(image)).patch_arrays
     assert not np.array_equal(np.clip(unclipped, 0.25, 0.75), resized)  # clipping after resizing differs
+
+
+# ---------------------------------------------------------------------------
+# The normalization brick's fitting and columns (CellPatcher follow-up C1)
+# ---------------------------------------------------------------------------
+
+
+def test_split_channel_rows_fill_only_their_own_channel_pair(experiment, tmp_path):
+    root, stacks, csv_path = experiment
+    config = _config(csv_path)
+    config.extraction.split_channels = True
+    config.export.enabled, config.common.output_dir = True, str(tmp_path / "out")
+    run_patching_condition_repeat_tree(root, config=config, combine_metadata=True)
+
+    header, rows = _read_csv(tmp_path / "out" / "patches.csv")
+    assert header[header.index("normalization_exact") + 1 :][:4] == CHANNEL_COLUMNS
+    for row in rows:
+        own, other = row["c"], "1" if row["c"] == "0" else "0"
+        lows = stacks[row["source_relative_path"]].min(axis=(0, 2, 3))
+        assert row[f"Normalization_Offset_C{own}"] == repr(float(lows[int(own)]))
+        assert row[f"Normalization_Offset_C{other}"] == row[f"Normalization_Scale_C{other}"] == ""
+
+
+def test_the_brick_gives_the_parameters_and_arrays_of_the_earlier_code(experiment):
+    """Bit-identical to pooling each channel's histograms with the brick's method functions, clip included."""
+    import morphobricks_normalization as mbn
+
+    from cellpatcher.statistics import load_plane_statistics
+
+    root, stacks, csv_path = experiment
+    config = _config(csv_path, scope="condition", method="percentile", percentile=(2.0, 98.0), clip=(0.0, 1.0))
+    results = run_patching_condition_repeat_tree(root, config=config)
+    records = load_plane_statistics(csv_path).records
+    for leaf in results:
+        for patch, array in zip(leaf.result.patches, leaf.result.patch_arrays):
+            members = [r for r in records if r.condition == patch.condition]
+            old = [
+                mbn.percentile_range(mbn.PooledHistogram(r.channel_histogram(c) for r in members), 2.0, 98.0)
+                for c in range(2)
+            ]
+            assert patch.normalization_parameters.offset == tuple(p.offset for p in old)
+            assert patch.normalization_parameters.scale == tuple(p.scale for p in old)
+            assert patch.normalization_method == old[0].method
+            stack = stacks[patch.source_relative_path]
+            raw = stack[patch.z0, :, patch.y0 : patch.y1, patch.x0 : patch.x1]
+            expected = np.stack([p.apply(raw[c], clip=(0.0, 1.0), dtype=np.float32) for c, p in enumerate(old)])
+            np.testing.assert_array_equal(array, expected)
+
+
+def test_clipping_after_the_brick_equals_clipping_before_rounding():
+    import morphobricks_normalization as mbn
+
+    from cellpatcher.normalization import PatchNormalization
+
+    rng = np.random.default_rng(1)
+    pixels = rng.normal(0.5, 0.4, (3, 64, 64)) * 1000
+    parameters = mbn.Parameters("min-max", "image", "g", True, offset=(1.0, -3.5, 0.25), scale=(999.7, 1000.3, 0.1))
+    for clip in ((0.0, 1.0), (0.1, 0.30000001), (-1e-9, 1e-9)):
+        new = PatchNormalization(parameters).apply(pixels, "CYX", clip=clip)
+        old = np.stack([
+            mbn.NormalizationParameters("min-max", o, s).apply(pixels[c], clip=clip, dtype=np.float32)
+            for c, (o, s) in enumerate(zip(parameters.offset, parameters.scale))
+        ])
+        np.testing.assert_array_equal(new, old)
+
+
+def test_rows_of_earlier_tables_still_normalize_on_load():
+    """Normalization brick decision N47: CellPatcher converts the ';'-separated columns itself."""
+    from cellpatcher.normalization import parameters_from_row
+
+    settings = {"method": "minmax", "percentile": [1.0, 99.8]}
+    old_row = {
+        "patch_id": "p", "c": "", "normalization_method": "min-max", "normalization_scope": "image",
+        "normalization_group": "a.tif", "normalization_offset": "1.5;2.0", "normalization_scale": "3.0;4.0",
+        "normalization_exact": "true",
+    }
+    parameters = parameters_from_row(old_row, settings)
+    assert (parameters.offset, parameters.scale, parameters.channels, parameters.exact) == (
+        (1.5, 2.0), (3.0, 4.0), (0, 1), True,
+    )
+    split_row = {**old_row, "c": "1", "normalization_offset": "2.0", "normalization_scale": "4.0"}
+    split = parameters_from_row(split_row, settings)
+    assert (split.offset, split.channels) == ((2.0,), (1,))
+    new_row = {**old_row, "normalization_offset": "", "normalization_scale": "", **parameters.to_columns()}
+    assert parameters_from_row(new_row, settings) == parameters
+    assert parameters_from_row({"patch_id": "p", "normalization_method": ""}, settings) is None
+
+
+def test_images_with_different_channel_counts_are_refused():
+    two, three = np.ones((2, 16, 16), np.uint8), np.ones((3, 16, 16), np.uint8)
+    two[:, 0, 0] = three[:, 0, 0] = 9
+    config = _config(None, image_axes="CYX", scope="patch")
+    with pytest.raises(ValueError, match="different numbers of channels"):
+        run_patching(images=[two, three], config=config, image_metadata=named([two, three]))
+
+
+def test_run_config_records_the_brick_settings_for_its_own_scopes_only(experiment, tmp_path):
+    root, _, csv_path = experiment
+    for scope, recorded in (("image", True), ("condition", False)):
+        config = _config(csv_path, scope=scope)
+        config.export.enabled, config.common.output_dir = True, str(tmp_path / scope)
+        run_patching_condition_repeat_tree(root, config=config, combine_metadata=True)
+        saved = json.loads((tmp_path / scope / RUN_CONFIG_FILENAME).read_text(encoding="utf-8"))
+        assert ("normalization_settings" in saved) is recorded
+
+
+def test_the_old_offset_and_scale_attributes_are_deprecated(experiment):
+    root, _, csv_path = experiment
+    (leaf, *_) = run_patching_condition_repeat_tree(root, config=_config(csv_path))
+    patch = leaf.result.patches[0]
+    with pytest.warns(DeprecationWarning, match="normalization_parameters"):
+        offset = patch.normalization_offset
+    assert offset == ";".join(repr(value) for value in patch.normalization_parameters.offset)

@@ -11,8 +11,9 @@ exported files, patches can be delivered:
 - **from exported files**, with :func:`iter_exported_patches` (or
   :func:`load_exported_patch`): files exported with
   ``normalization.export_values="raw"`` are normalized on load with each row's
-  ``normalization_offset``/``normalization_scale``; parameters are never
-  recomputed.
+  ``Normalization_Offset_C<i>``/``Normalization_Scale_C<i>`` columns (or the
+  ``;``-separated ``normalization_offset``/``normalization_scale`` of earlier
+  tables); parameters are never recomputed.
 
 All delivery modes give the same arrays for the same configuration (raw files
 of resized or masked patches up to float32 rounding).
@@ -33,7 +34,7 @@ from cellpatcher.axes import normalize_axes
 from cellpatcher.extract import extract_patch
 from cellpatcher.io import read_array, read_image
 from cellpatcher.masking import apply_label_mask_to_patch
-from cellpatcher.normalization import PatchNormalization
+from cellpatcher.normalization import PatchNormalization, parameters_from_row
 from cellpatcher.planes import apply_plane_choice, patch_plane_choice, read_file_plane, select_mask_plane
 from cellpatcher.resize import resize_patch
 
@@ -127,7 +128,7 @@ def load_exported_patch(row: Mapping, *, root_dir, run_config: Mapping | None = 
 
     Files exported with ``normalization.export_values="raw"`` (from
     *run_config*, the run's ``run_config.json``) are normalized on load with
-    the row's ``normalization_offset``/``normalization_scale``; normalized
+    the row's parameter columns; normalized
     files and runs without normalization are returned as stored.
     """
     array = read_array(Path(root_dir) / str(row["patch_file"]))
@@ -157,11 +158,14 @@ def iter_exported_patches(metadata_file, *, root_dir=None) -> Iterator[tuple[dic
 def _normalize_on_load(row: Mapping, array, run_config: Mapping | None) -> np.ndarray:
     """Normalize a loaded patch file when its run exported raw values (else return it as stored)."""
     settings = (run_config or {}).get("normalization") or {}
-    if settings.get("export_values") != "raw" or not row.get("normalization_offset"):
+    if settings.get("export_values") != "raw":
+        return array
+    parameters = parameters_from_row(row, settings)
+    if parameters is None:
         return array
     patch = _row_patch(row)
     clip = settings.get("clip")
-    return PatchNormalization.from_patch(patch).apply(
+    return PatchNormalization(parameters).apply(
         array, patch_axes(_run_config(run_config), patch), clip=tuple(clip) if clip else None
     )
 
@@ -240,7 +244,7 @@ def _finish_patch(patch, plane, axes, mask_plane, mask_axes, config) -> np.ndarr
 
 
 def _row_patch(row: Mapping):
-    """The fields of a ``patches.csv`` row that :func:`patch_axes` and the parameters need."""
+    """The fields of a ``patches.csv`` row that :func:`patch_axes` needs."""
 
     def number(name):
         value = row.get(name)
@@ -251,12 +255,6 @@ def _row_patch(row: Mapping):
         z0=number("z0"),
         t=number("t"),
         c=number("c"),
-        normalization_method=row.get("normalization_method"),
-        normalization_scope=row.get("normalization_scope"),
-        normalization_group=row.get("normalization_group"),
-        normalization_offset=row.get("normalization_offset"),
-        normalization_scale=row.get("normalization_scale"),
-        normalization_exact=row.get("normalization_exact"),
     )
 
 

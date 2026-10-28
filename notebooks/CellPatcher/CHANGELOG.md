@@ -4,6 +4,37 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased] - BREAKING: per-channel normalization columns (follow-up C1)
+
+### Changed (breaking)
+- **`patches.csv` parameter columns.** `normalization_offset` and `normalization_scale`
+  (`;`-separated, one value per channel) are replaced by one `Normalization_Offset_C<i>` and
+  `Normalization_Scale_C<i>` pair per channel, right after `normalization_exact` and grouped
+  by channel (normalization brick decisions N41, N42). A split-channel patch fills only its
+  own channel's pair. Values are unchanged.
+
+  | Old | New |
+  |---|---|
+  | `normalization_offset` = `1.5;2.0` | `Normalization_Offset_C0` = `1.5`, `Normalization_Offset_C1` = `2.0` |
+  | `normalization_scale` = `3.0;4.0` | `Normalization_Scale_C0` = `3.0`, `Normalization_Scale_C1` = `4.0` |
+  | split channel 1: `normalization_offset` = `2.0` | `Normalization_Offset_C1` = `2.0`, `C0` pair blank |
+
+- **`PatchRegion.normalization_parameters`** holds the normalization brick's `Parameters`
+  (`offset`, `scale`, `channels`). `PatchRegion.normalization_offset`/`normalization_scale`
+  are deprecated read-only properties giving the old `;`-separated text.
+- With normalization, images with different numbers of channels are refused (N43).
+
+### Added
+- `run_config.json` records the brick's `NormalizationSettings.to_dict()` as
+  `normalization_settings` for the image and patch scopes.
+
+### Unchanged
+- Parameters and normalized arrays: fitting now goes through the brick's `fit` and
+  `Parameters.apply`, with the same numbers. `normalization.clip` is still applied by
+  CellPatcher before masking and resizing.
+- Raw patches exported earlier still normalize on load: their `;`-separated columns are read
+  (N47).
+
 ## [Unreleased] - BREAKING: run-independent patch identity and instance-label masks
 
 ### Changed: preprocessing tables of schema version 3
