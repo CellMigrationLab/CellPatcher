@@ -59,13 +59,15 @@ def _confirmed_design(root, pairs=None):
     return design
 
 
-def _preprocess(root, output, axes, design="confirmed"):
+def _preprocess(root, output, axes, design="confirmed", histogram_settings=None):
     """Run the preprocessing brick; by default with a confirmed design, written as experiment_design.csv."""
     import morphobricks_preprocessing as mbp
 
     if design == "confirmed":
         design = _confirmed_design(root)
-    result = mbp.run_experiment(root, mbp.AxisMapping(axes, axes), output_folder=output, design=design)
+    result = mbp.run_experiment(
+        root, mbp.AxisMapping(axes, axes), output_folder=output, design=design, histogram_settings=histogram_settings
+    )
     assert result.written, [str(issue) for issue in result.issues]
     return result.csv_path
 
@@ -223,7 +225,7 @@ def test_image_scope_pools_every_z_plane_of_the_image_per_channel(experiment, tm
     saved = json.loads((tmp_path / "out" / RUN_CONFIG_FILENAME).read_text(encoding="utf-8"))
     assert saved["normalization"]["scope"] == "image"
     inputs = saved["normalization_inputs"]
-    assert (inputs["schema_version"], inputs["manifest_used"], inputs["manifest_version"]) == ("3", True, "1")
+    assert (inputs["schema_version"], inputs["manifest_used"], inputs["manifest_version"]) == ("4", True, "1")
     assert len(inputs["plane_histograms_sha256"]) == 64
     assert load_config(tmp_path / "out" / RUN_CONFIG_FILENAME).normalization == config.normalization
     from morphobricks_normalization import NormalizationSettings, __version__
@@ -488,6 +490,34 @@ def test_a_flat_folder_run_normalizes_against_its_own_preprocessing(tmp_path):
         for p in result.patches
     }
     assert found == {("a.tif", (0.0,), (255.0,))}
+
+
+def test_a_table_with_the_robust_histogram_range_normalizes(tmp_path):
+    """Preprocessing v0.3.0 writes schema version 4; with the robust range a hot pixel no longer
+    squeezes the plane into a few bins (normalization brick Milestone 5, preprocessing P6)."""
+    from morphobricks_normalization.ranges import HistogramSettings
+
+    folder = tmp_path / "images"
+    image = np.random.default_rng(3).normal(100.0, 10.0, (128, 128)).astype(np.float32)
+    image[3, 5] = 1e9  # one hot pixel
+    _write_tiff(folder / "a.tif", image, "YX")
+    robust = _preprocess(
+        folder, tmp_path / "robust", "YX", histogram_settings=HistogramSettings(histogram_range="robust")
+    )
+
+    config = _config(robust, image_axes="YX", method="percentile")
+    result = run_patching_pipeline(folder, config=config)  # the checks of every plane pass
+    parameters = {p.normalization_parameters for p in result.patches}
+    assert len(parameters) == 1
+    (only,) = parameters
+    low, high = np.percentile(image, (1.0, 99.8), method="inverted_cdf")
+    assert abs(only.offset[0] - low) < 0.05 and abs(only.offset[0] + only.scale[0] - high) < 0.05
+    assert only.exact is False
+
+    # With the default range the same image gives no intensity spread to normalize by.
+    minmax = _preprocess(folder, tmp_path / "minmax", "YX")
+    with pytest.raises(ValueError, match="zero intensity spread"):
+        run_patching_pipeline(folder, config=_config(minmax, image_axes="YX", method="percentile"))
 
 
 def test_clip_comes_after_normalizing_and_before_resizing():
