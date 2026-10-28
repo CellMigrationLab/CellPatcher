@@ -18,6 +18,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `"rgb"` with a method other than `"percentile"`, with `extraction.split_channels=True`, or
   with images that are not three 8- or 16-bit channels is refused.
 
+## [Unreleased] - preprocessing v0.3.0: tables of schema version 4
+
+### Changed
+- The `preprocessing` extra installs `morphobricks-preprocessing` at its tag `v0.3.0`, which
+  brings `morphobricks-normalization` `v0.3.1` (MorphoFeature decision D79: one preprocessing
+  tag per brick).
+- `plane_histograms.csv` schema version 4 is read: each channel also has its underflow and
+  overflow, which the preprocessing brick writes with its robust histogram range (its
+  follow-up P6). The normalization brick's pooling and fitting use them, so a hot pixel no
+  longer squeezes a float plane into a few bins when the table was written with that range.
+  Tables of schema version 3 or earlier are refused, asking to run the preprocessing brick
+  again; normalization parameters from a version-3 table and a version-4 table of the default
+  range are the same.
+
 ## [Unreleased] - BREAKING: three normalization scopes (follow-up C2)
 
 ### Changed (breaking)

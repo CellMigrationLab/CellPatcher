@@ -81,7 +81,7 @@ index per plane:
 Repeating a normalized grayscale patch to RGB stays available in the torch adapters
 (`PatchTensorConfig.channel_policy="repeat_to_rgb"`), which run after normalization.
 
-**Plane identity.** A row of `plane_histograms.csv` (schema version 3) is an XYC plane: every
+**Plane identity.** A row of `plane_histograms.csv` (schema version 4) is an XYC plane: every
 channel of an image at one Z and T, each channel's histogram in its own columns. It is
 identified by `make_plane_id(source_relative_path, z=..., t=...)`, with CellPatcher's `z0` as
 `z`. Both bricks always write both coordinates: an axis the image does not have, or has with

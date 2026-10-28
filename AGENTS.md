@@ -21,7 +21,7 @@
 
 Key dependencies: `numpy`, `scipy`, `tifffile`, `imageio` (core, required). Optional extras: `ipywidgets`, `matplotlib`, `pillow`, `tqdm`, `joblib`, `jl-hidecode` (notebook extra); `torch` (optional `cellpatcher.torch_dataset` adapter only — never a core dependency); `morphobricks-preprocessing[zarr]` from GitHub at a pinned tag, which brings `morphobricks-normalization` (no separate pin; MorphoFeature decision D79) (`preprocessing` extra, for `cellpatcher.statistics` and normalization — never a core dependency; histograms, the plane table, plane IDs, pooling and normalization parameters are imported from `morphobricks_normalization`, not from their deprecated preprocessing paths).
 
-Current health snapshot (2026-10-28, after reading `plane_histograms.csv` schema version 3 with preprocessing `v0.2.0`): 717 tests passing on Python 3.11 with `torch` installed (the torch tests skip without it). Earlier (2026-10-26): 685 passing, 4 skipped, on Python 3.11 and 3.13.
+Current health snapshot (2026-10-28, after reading `plane_histograms.csv` schema version 4 with preprocessing `v0.3.0`): 728 tests passing on Python 3.12 (Windows) with `torch` installed, plus `test_torch_dataset.py::test_exported_patch_torch_dataset_filename_column_and_relative_path`, which fails on Windows only (it compares a `/` path with a `\` one). Earlier (schema version 3, preprocessing `v0.2.0`): 717 passing on Python 3.11 with `torch`. Earlier (2026-10-26): 685 passing, 4 skipped, on Python 3.11 and 3.13.
 
 ---
 

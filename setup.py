@@ -31,12 +31,13 @@ setup(
         # normalization (docs/normalization_contract.md §1). Pinned to its tag
         # and raised deliberately. Histograms, the plane table, pooling and
         # normalization parameters moved to the normalization brick, which
-        # CellPatcher imports directly; the preprocessing tag brings it (v0.2.0
-        # for v0.2.0), with no separate pin, so every MorphoBricks brick
-        # installs one version (MorphoFeature decision D79).
+        # CellPatcher imports directly; the preprocessing tag brings it (v0.3.1
+        # for v0.3.0: plane_histograms.csv schema version 4), with no separate
+        # pin, so every MorphoBricks brick installs one version (MorphoFeature
+        # decision D79).
         "preprocessing": [
             "morphobricks-preprocessing[zarr] @ git+https://github.com/CellMigrationLab/"
-            "morphobricks-preprocessing@v0.2.0",
+            "morphobricks-preprocessing@v0.3.0",
         ],
     },
 )
