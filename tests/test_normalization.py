@@ -559,6 +559,25 @@ def test_split_channel_rows_fill_only_their_own_channel_pair(experiment, tmp_pat
         assert row[f"Normalization_Offset_C{other}"] == row[f"Normalization_Scale_C{other}"] == ""
 
 
+def test_a_selected_channel_row_fills_only_its_channel_pair(experiment, tmp_path):
+    # CellPatcher follow-up C5: the group's Parameters.select([i]) (N46).
+    root, stacks, csv_path = experiment
+    config = _config(csv_path)
+    config.extraction.split_channels = [1]
+    config.export.enabled, config.common.output_dir = True, str(tmp_path / "out")
+    run_patching_condition_repeat_tree(root, config=config, combine_metadata=True)
+
+    header, rows = _read_csv(tmp_path / "out" / "patches.csv")
+    assert rows and {row["c"] for row in rows} == {"1"}
+    # Only the channels the table's patches carry get columns.
+    assert [name for name in header if name.startswith("Normalization_")] == [
+        "Normalization_Offset_C1", "Normalization_Scale_C1",
+    ]
+    for row in rows:
+        lows = stacks[row["source_relative_path"]].min(axis=(0, 2, 3))
+        assert row["Normalization_Offset_C1"] == repr(float(lows[1]))
+
+
 def test_the_brick_gives_the_parameters_and_arrays_of_the_earlier_code(experiment):
     """Bit-identical to pooling each channel's histograms with the brick's method functions, clip included."""
     import morphobricks_normalization as mbn

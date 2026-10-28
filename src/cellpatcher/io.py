@@ -365,6 +365,21 @@ def write_array(file_path, array):
     raise ValueError(f"Unsupported file extension: {suffix}")
 
 
+def channel_names(path) -> tuple[str | None, ...]:
+    """The channel names an OME-TIFF or OME-Zarr image records, read from its header; () when unknown.
+
+    Only the header is read, with the preprocessing brick's reader. Other
+    formats, files whose header names no channel, and installs without the
+    ``preprocessing`` extra give (); the names are for display only.
+    """
+    try:
+        from morphobricks_preprocessing.metadata import inspect_image
+    except ImportError:
+        return ()
+    header = inspect_image(path)
+    return tuple(header.channel_names) if header.readable else ()
+
+
 def read_ome_zarr(path) -> tuple[np.ndarray, str]:
     """Read level 0 of an OME-Zarr image with the preprocessing brick's reader.
 

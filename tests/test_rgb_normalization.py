@@ -109,9 +109,10 @@ def test_rgb_allows_only_the_percentile_method(method):
         NormalizationConfig(image_type="rgb", method=method)
 
 
-def test_rgb_with_split_channels_is_refused_before_patching():
+@pytest.mark.parametrize("split_channels", [True, [0], [0, 1, 2]])
+def test_rgb_with_split_channels_is_refused_before_patching(split_channels):
     config = _config()
-    config.extraction.split_channels = True
+    config.extraction.split_channels = split_channels
     with pytest.raises(ValueError, match="split_channels must be False"):
         _run(_rgb_images(1), config)
 

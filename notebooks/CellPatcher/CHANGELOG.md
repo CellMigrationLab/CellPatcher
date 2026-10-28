@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased] - Channel selection for single-channel patches (follow-up C5)
+
+### Added
+- `extraction.split_channels` also accepts a list of channel indices (for example `[1]`): one
+  single-channel patch and `patches.csv` row per selected channel of each region, in channel
+  order. `True` (every channel) and `False` (one multichannel patch) are unchanged. An index
+  the images do not have stops the run before any patch is made or written, naming the image's
+  channel count. A selected channel keeps its normalization parameters (only its
+  `Normalization_Offset_C<i>`/`Normalization_Scale_C<i>` pair is filled).
+- Notebook, **Channels**: with **Split channels**, one checkbox per channel (`C0`, `C1`, ...,
+  with the channel names an OME-TIFF or OME-Zarr header records). All ticked gives every
+  channel, as before; ticking some gives only those.
+- `cellpatcher.io.channel_names(path)`: the channel names an OME-TIFF or OME-Zarr image
+  records, read from its header (`()` when unknown).
+
 ## [Unreleased] - Notebook: image type and pooling (follow-up C4)
 
 ### Added
