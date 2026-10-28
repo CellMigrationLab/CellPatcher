@@ -1,4 +1,5 @@
-from dataclasses import asdict, dataclass
+import warnings
+from dataclasses import dataclass, field, fields
 
 from cellpatcher._deprecation import accept_deprecated_repeat
 
@@ -75,10 +76,16 @@ class PatchRegion:
       brick's ``plane_id``. Filled by folder and tree runs, or per image from
       ``image_metadata``; ``None`` otherwise.
     - ``normalization_method``, ``normalization_scope``, ``normalization_group``,
-      ``normalization_offset``, ``normalization_scale``, ``normalization_exact``:
-      the normalization applied to the patch (``config.normalization``):
-      ``(pixels - offset) / scale`` per channel; offsets and scales are
-      ``;``-separated per channel. ``None`` when normalization is off.
+      ``normalization_exact``: the normalization applied to the patch
+      (``config.normalization``): ``(pixels - offset) / scale`` per channel.
+      ``None`` when normalization is off.
+    - ``normalization_parameters``: the normalization brick's ``Parameters``
+      of the patch (one offset and scale per channel of the image it holds),
+      or ``None``. Not a column itself: :meth:`to_dict` writes it as one
+      ``Normalization_Offset_C<i>``/``Normalization_Scale_C<i>`` pair per
+      channel (normalization brick decisions N41, N42). The former
+      ``normalization_offset``/``normalization_scale`` attributes are
+      deprecated read-only properties giving the old ``;``-separated text.
     - ``image_height``, ``image_width``: the Y/X size of the source image
       (plane) the rectangle ``y0/y1/x0/x1`` lies in; set by ``run_patching``
       for every patch, whether or not arrays are extracted.
@@ -131,13 +138,10 @@ class PatchRegion:
     # order (docs/normalization_contract.md §10).
     source_relative_path: str | None = None
     # How the patch was normalized (docs/normalization_contract.md §10); all
-    # None when normalization is off. Offsets and scales are one value per
-    # channel of the patch, in channel order, joined by ";" (full precision).
+    # None when normalization is off.
     normalization_method: str | None = None
     normalization_scope: str | None = None
     normalization_group: str | None = None
-    normalization_offset: str | None = None
-    normalization_scale: str | None = None
     normalization_exact: bool | None = None
     # Geometry of the source image and of the delivered/exported array, so a
     # reader of the exported files needs neither the source image nor
@@ -155,6 +159,12 @@ class PatchRegion:
     # patch_id (cellpatcher.ids). Appended last so earlier columns keep
     # their order.
     object_set: str | None = None
+    # The normalization brick's Parameters. Not a column itself: to_dict()
+    # writes it as the per-channel Normalization_Offset_C<i>/
+    # Normalization_Scale_C<i> columns, which export.save_metadata_csv places
+    # right after normalization_exact. Last, so the fields before it are
+    # still exactly the CSV's columns in order.
+    normalization_parameters: object | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         # y0/x0 are always required (defaulted to 0), so their ranges are
@@ -184,11 +194,45 @@ class PatchRegion:
     def has_z(self) -> bool:
         return self.z0 is not None and self.z1 is not None
 
+    @property
+    def normalization_offset(self) -> str | None:
+        """Deprecated: the offsets as ``;``-separated text; read ``normalization_parameters``."""
+        return self._deprecated_numbers("normalization_offset", "offset")
+
+    @property
+    def normalization_scale(self) -> str | None:
+        """Deprecated: the scales as ``;``-separated text; read ``normalization_parameters``."""
+        return self._deprecated_numbers("normalization_scale", "scale")
+
+    def _deprecated_numbers(self, name: str, attribute: str) -> str | None:
+        warnings.warn(
+            f"PatchRegion.{name} is deprecated: patches.csv now has one Normalization_Offset_C<i> and "
+            "Normalization_Scale_C<i> column per channel. Read PatchRegion.normalization_parameters "
+            "(.offset, .scale, .channels) instead.",
+            DeprecationWarning,
+            stacklevel=3,
+        )
+        if self.normalization_parameters is None:
+            return None
+        return ";".join(repr(float(value)) for value in getattr(self.normalization_parameters, attribute))
+
     def to_dict(self) -> dict:
-        data = asdict(self)
+        """The ``patches.csv`` row: every field, ``height``/``width``, and the per-channel parameter columns."""
+        data = {f.name: getattr(self, f.name) for f in fields(self) if f.name != "normalization_parameters"}
         data["height"] = self.height
         data["width"] = self.width
+        if self.normalization_parameters is not None:
+            data.update(normalization_channel_columns(self.normalization_parameters))
         return data
+
+
+def normalization_channel_columns(parameters) -> dict[str, str]:
+    """The ``Normalization_Offset_C<i>``/``Normalization_Scale_C<i>`` columns of *parameters*, grouped by channel."""
+    return {
+        name: value
+        for name, value in parameters.to_columns().items()
+        if name.startswith(("Normalization_Offset_C", "Normalization_Scale_C"))
+    }
 
 
 # Columns of the per-image table (``images.csv``), written beside every

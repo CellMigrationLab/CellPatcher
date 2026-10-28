@@ -334,7 +334,7 @@ by the decisions in §13 (AGENTS.md §8).
 | `normalization_method` | `min-max`, `percentile 1-99.8`, `z-score` or `robust z-score` (the preprocessing method names) |
 | `normalization_scope` | `condition`, `biological_repeat`, `technical_repeat`, `image` or `patch` |
 | `normalization_group` | Group key: the labels joined with `/` (e.g. `control/bio_rep1`), the `source_relative_path` for image scope, or `<source_relative_path>::<patch_id>` for patch scope (patch ids are only unique within a leaf); `::t=<t>` is appended when `per_time_point` is on |
-| `normalization_offset`, `normalization_scale` | One number per channel; for a patch that keeps several channels, numbers separated by `;` in channel order |
+| `normalization_offset`, `normalization_scale` | One number per channel; for a patch that keeps several channels, numbers separated by `;` in channel order. *Replaced by follow-up C1 (2026-10-28):* one `Normalization_Offset_C<i>`/`Normalization_Scale_C<i>` pair per channel, after `normalization_exact` (see D14) |
 | `normalization_exact` | `true` when every channel's parameters are exact, `false` when any is a histogram approximation |
 
 **`run_config.json`** records the normalization settings and, in a `normalization_inputs`
@@ -449,6 +449,20 @@ from GitHub at a pinned version) **[D1]**.
   gains a mask source choice (OME-Zarr labels), plane policies, the normalization section with
   `normalization.group_parameters`, readiness checks of the preprocessing inputs, and the
   before/after preview; user guide [normalization.md](normalization.md).
+- **Follow-up C1 — The normalization brick's fitting and columns:** *Done (October 2026),*
+  as planned in the normalization brick's
+  [CellPatcher follow-up](https://github.com/CellMigrationLab/morphobricks-normalization/blob/main/docs/followup_cellpatcher.md).
+  Parameters come from the brick's `fit` and are applied with `Parameters.apply` (every scope;
+  CellPatcher's group scopes are fitted as groups of rows until C2 replaces them);
+  `normalization.clip` stays in CellPatcher, after `apply`, because the brick never clips
+  (N19). `patches.csv` writes one `Normalization_Offset_C<i>`/`Normalization_Scale_C<i>` pair
+  per channel with `to_columns` (N41, N42), and raw files normalize on load with
+  `from_columns`, or from the `;`-separated columns of earlier tables (N47). In memory,
+  `PatchRegion.normalization_parameters` holds the brick's `Parameters`. Images with different
+  channel counts are refused (N43). `run_config.json` records the brick's
+  `NormalizationSettings.to_dict()` as `normalization_settings` for the image and patch scopes.
+  Parameters and arrays are identical to the earlier code. The pins already moved with PR #28
+  (preprocessing `v0.2.0`, which brings normalization `v0.2.0`; schema version 3).
 - **Later:** reading only patch windows for planes too large to hold in memory (the
   preprocessing brick now computes statistics for those planes in blocks, but patching still
   needs the whole plane); reading the preprocessing OME-Zarr copies; reference parameters
@@ -512,13 +526,18 @@ Reviewed in October 2026.
    listed in one warning suggesting another method, region or scope. A group without spread
    still stops the run (contract §7).
 9. **[D9] Pipeline order.** *Decided:* extract → normalize → mask → resize; update AGENTS.md.
-10. **[D10] Clipping and dtype.** *Decided:* no clipping; float32 output.
+10. **[D10] Clipping and dtype.** *Decided:* no clipping; float32 output. *Revised (owner
+    decision D68, 2026-10-27):* an optional `normalization.clip`, off by default, applied right
+    after normalizing and before masking and resizing; it stays in CellPatcher after the move to
+    the brick's `Parameters.apply` (follow-up C1).
 11. **[D11] Z projections.** *Decided:* no projections under normalization; each Z slice is an
     individual plane.
 12. **[D12] Existing normalizations.** *Decided:* deprecate everything related to
     normalization in the current version and replace it with this design.
 13. **[D13] Delivery modes.** *Decided:* all three of §7, normalized files by default.
 14. **[D14] Parameters storage.** *Decided:* columns in `patches.csv`, with `;`-separated
-    values per channel for multichannel patches.
+    values per channel for multichannel patches. *Revised (owner-approved normalization brick
+    decisions N41, N42; follow-up C1, 2026-10-28):* one `Normalization_Offset_C<i>`/
+    `Normalization_Scale_C<i>` pair per channel; earlier tables are still read on load (N47).
 15. **[D15] Filters.** *Decided:* keep filters on raw values.
 16. **[D16] Changed images.** *Decided:* block the run.

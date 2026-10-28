@@ -209,10 +209,12 @@ generate regions → filter → extract → **normalize** → apply mask → res
 
 ## 10. `patches.csv` columns
 
-Seven optional columns (new optional `PatchRegion` fields), appended after all existing
-columns in this order. Existing columns keep their names, order and values, so readers that
-select columns by name are unaffected. With normalization off, the six `normalization_*`
-columns are empty.
+Optional columns appended after all existing columns in this order: `source_relative_path`,
+four `normalization_*` columns, then one `Normalization_Offset_C<i>`/`Normalization_Scale_C<i>`
+pair per channel, grouped by channel (normalization brick decisions N41, N42; CellPatcher
+follow-up C1). Existing columns keep their names, order and values, so readers that select
+columns by name are unaffected. With normalization off, the four `normalization_*` columns are
+empty and there are no channel pairs.
 
 | Column | Type | Meaning |
 |---|---|---|
@@ -220,12 +222,20 @@ columns are empty.
 | `normalization_method` | text | §6 name |
 | `normalization_scope` | text | §7 scope value |
 | `normalization_group` | text | §7 group key |
-| `normalization_offset` | number list | One value per channel of the patch, in channel order, separated by `;`; a single value for a one-channel patch |
-| `normalization_scale` | number list | As `normalization_offset` |
 | `normalization_exact` | `true`/`false` | `true` when every channel's parameters are exact (§6) |
+| `Normalization_Offset_C<i>` | number | Offset of channel `i` of the image |
+| `Normalization_Scale_C<i>` | number | Scale of channel `i` of the image |
 
-Numbers are written with full precision (Python `repr` of the float). For a patch that keeps
-several channels, the patch's `c` stays empty and the list order is the channel index.
+The pairs are written by the normalization brick's `Parameters.to_columns()`, with full
+precision (Python `repr` of the float). A table has one pair for every channel any of its
+patches holds. A patch that keeps several channels fills every pair, and its `c` stays empty;
+a split-channel patch (`c` = `i`) fills only its own pair and leaves the others blank.
+
+Tables written before 2026-10-28 have `;`-separated `normalization_offset` and
+`normalization_scale` columns instead (one value per channel of the patch, in channel order);
+CellPatcher still reads them when normalizing raw files on load (normalization brick N47).
+In memory, `PatchRegion.normalization_parameters` holds the brick's `Parameters`; the former
+`normalization_offset`/`normalization_scale` attributes are deprecated read-only properties.
 
 ## 11. `run_config.json`
 
@@ -234,6 +244,10 @@ several channels, the patch's `c` stays empty and the list order is the channel 
 - A top-level `normalization_inputs` object records: `plane_histograms_sha256`,
   `schema_version`, `manifest_used` (`true`/`false`), `manifest_version` (or `null`) and
   `preprocessing_version`. Paths are not recorded, as they are machine-specific.
+- For the `image` and `patch` scopes, a top-level `normalization_settings` object holds the
+  normalization brick's `NormalizationSettings.to_dict()`. It is left out for the
+  `condition`, `biological_repeat` and `technical_repeat` scopes, whose groups are
+  CellPatcher's own until follow-up C2.
 
 ## 12. Delivery
 
@@ -247,8 +261,9 @@ several channels, the patch's `c` stays empty and the list order is the channel 
 - All modes give identical arrays for the same configuration.
 - Eager delivery estimates its memory first and stops above `normalization.memory_limit`,
   suggesting the lazy iterator.
-- Loading raw files normalizes with the row's `normalization_offset`/`normalization_scale` and
-  never recomputes parameters.
+- Loading raw files normalizes with the row's parameter columns (§10: the brick's
+  `Parameters.from_columns`, or the `;`-separated columns of earlier tables) and never
+  recomputes parameters.
 
 ## 13. Configuration
 

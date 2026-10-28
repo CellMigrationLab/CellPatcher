@@ -30,9 +30,11 @@ def save_metadata_csv(patches, csv_path):
     # The CSV header follows PatchRegion's own field order, with the
     # computed height/width convenience columns inserted right after the
     # x1 coordinate they're derived from (rather than tacked on at the end).
-    header = [f.name for f in fields(PatchRegion)]
+    header = [f.name for f in fields(PatchRegion) if f.name != "normalization_parameters"]
     x1_index = header.index("x1")
     header = header[: x1_index + 1] + ["height", "width"] + header[x1_index + 1 :]
+    exact_index = header.index("normalization_exact")
+    header = header[: exact_index + 1] + normalization_columns(patches) + header[exact_index + 1 :]
     rows = patch_metadata_to_rows(patches)
 
     with path.open("w", newline="", encoding="utf-8") as f:
@@ -43,6 +45,22 @@ def save_metadata_csv(patches, csv_path):
             if isinstance(row.get("normalization_exact"), bool):
                 row["normalization_exact"] = "true" if row["normalization_exact"] else "false"
             writer.writerow({k: row.get(k) for k in header})
+
+
+def normalization_columns(patches) -> list[str]:
+    """The per-channel parameter columns of *patches*, grouped by channel (normalization brick N41, N42).
+
+    One ``Normalization_Offset_C<i>``/``Normalization_Scale_C<i>`` pair for
+    every channel any patch has parameters for; a row of a split channel
+    leaves the other channels' pairs blank. None without normalization.
+    """
+    channels = sorted({
+        int(c)
+        for patch in patches
+        if patch.normalization_parameters is not None
+        for c in patch.normalization_parameters.channels
+    })
+    return [name for c in channels for name in (f"Normalization_Offset_C{c}", f"Normalization_Scale_C{c}")]
 
 
 def save_image_table_csv(image_records, csv_path):

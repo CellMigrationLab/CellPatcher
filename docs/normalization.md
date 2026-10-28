@@ -113,12 +113,13 @@ undone:
 | `normalization_method` | e.g. `percentile 1-99.8`, `min-max`, `z-score`, `robust z-score` |
 | `normalization_scope` | the scope used |
 | `normalization_group` | e.g. `control`, `control/2026_01_01`, `control/2026_01_01/a.tif`, or `<image>::<patch_id>` for the patch scope (`::t=<t>` with `per_time_point`) |
-| `normalization_offset`, `normalization_scale` | one value per channel of the patch, separated by `;` |
 | `normalization_exact` | `true` for exact parameters (8- and 16-bit images), `false` for histogram approximations (float images) |
+| `Normalization_Offset_C<i>`, `Normalization_Scale_C<i>` | the offset and scale of channel `i`, one pair per channel; a split-channel patch fills only its own channel's pair |
 
 `run_config.json` records the normalization settings and which statistics were used
 (`normalization_inputs`: the CSV's SHA-256, its version, whether a manifest was used, and the
-preprocessing package version).
+preprocessing package version), and for the image and patch scopes the normalization brick's
+own settings (`normalization_settings`).
 
 ## Getting the patches
 

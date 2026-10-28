@@ -69,7 +69,9 @@ def test_exported_grid_patches_record_axes_padding_and_no_resize(tmp_path):
 
 
 def test_earlier_columns_keep_their_order():
-    header = [f.name for f in fields(PatchRegion)]
+    # normalization_parameters, the last field, is written as per-channel columns, not as itself.
+    header = [f.name for f in fields(PatchRegion)][:-1]
+    assert fields(PatchRegion)[-1].name == "normalization_parameters"
     assert header.index("normalization_exact") + 1 == header.index("image_height")
     assert header[-len(GEOMETRY_COLUMNS) - 1:] == [*GEOMETRY_COLUMNS, "object_set"]
 

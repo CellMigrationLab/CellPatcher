@@ -8,25 +8,28 @@ Implements ``docs/normalization_contract.md`` §6–§9 for ``config.normalizati
   ``per_time_point`` the time point, added to the key); ``"patch"`` builds a
   histogram of the patch's own pixels (``"mask"``, ``"bbox"`` or ``"patch"``
   region), never including padding.
-- **Methods.** ``min_max``, ``percentile_range``, ``z_score`` and
-  ``robust_z_score`` of the normalization brick turn the pooled histogram
-  into ``NormalizationParameters``; a patch is normalized per channel as
-  ``(pixels - offset) / scale`` in float32, without clipping.
+- **Methods.** The normalization brick's ``fit`` turns a group's rows, or a
+  patch's pixels, into ``Parameters`` (one offset and scale per channel), and
+  ``Parameters.apply`` normalizes a patch per channel as
+  ``(pixels - offset) / scale`` in float32. ``normalization.clip`` is applied
+  here, after the brick's ``apply``: the brick never clips (its decision N19).
 - **Checks.** Every patched plane is linked to its CSV row with
   :func:`cellpatcher.statistics.check_planes` before anything is normalized.
 
-Histograms, pooling and parameters all come from ``morphobricks_normalization``
-(installed by the ``preprocessing`` extra); this module chooses the pixels and
-applies the result. A group or patch with no finite pixels or zero spread stops the run
-(contract §7), and a patch whose own pixels have no finite values or zero spread
-is discarded and reported (decision D8).
+Histograms, pooling, fitting and the parameter columns all come from
+``morphobricks_normalization`` (installed by the ``preprocessing`` extra); this
+module chooses the groups and pixels and records the result. A group with no
+finite pixels or zero spread stops the run (contract §7), and a patch whose own
+pixels have no finite values or zero spread is discarded and reported
+(decision D8).
 """
 
 from __future__ import annotations
 
 import warnings
 from collections import defaultdict
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import numpy as np
@@ -45,6 +48,10 @@ from cellpatcher.statistics import (
 
 CSV_SCOPES = ("condition", "biological_repeat", "technical_repeat", "image")
 _GROUP_SCOPES = ("condition", "biological_repeat", "technical_repeat")
+# Scopes whose meaning is the normalization brick's own. CellPatcher's group
+# scopes (one group per condition, and per repeat within a condition) are its
+# own groupings until the CellPatcher follow-up C2 replaces them.
+_BRICK_SCOPES = ("image", "patch")
 _STATISTICS_CACHE: dict[tuple, PlaneStatistics] = {}
 
 
@@ -129,99 +136,159 @@ def run_inputs(config) -> dict | None:
     }
 
 
-def format_numbers(values) -> str:
-    """Per-channel numbers for ``patches.csv``: full precision (``repr``), separated by ``;``."""
-    return ";".join(repr(float(value)) for value in values)
+def fit_settings(settings):
+    """The normalization brick's ``NormalizationSettings`` for fitting with ``config.normalization``.
+
+    The brick fits any group of ``plane_histograms.csv`` rows the same way, so
+    CellPatcher's own group scopes are fitted with the brick's ``"image"``
+    scope and their real scope is recorded on the parameters.
+    """
+    mbn = require_normalization()
+    return mbn.NormalizationSettings(
+        method=settings.method,
+        percentile=tuple(settings.percentile),
+        scope=settings.scope if settings.scope in _BRICK_SCOPES else "image",
+        per_time_point=settings.per_time_point,
+    )
+
+
+def run_settings(config) -> dict | None:
+    """The brick's ``NormalizationSettings.to_dict()`` for ``run_config.json`` (``normalization_settings``).
+
+    None when normalization is off, and for CellPatcher's own group scopes
+    (``condition``, ``biological_repeat`` per condition, ``technical_repeat``),
+    which the brick's settings do not describe.
+    """
+    settings = config.normalization
+    if not settings.enabled or settings.scope not in _BRICK_SCOPES:
+        return None
+    return fit_settings(settings).to_dict()
+
+
+def parameters_from_row(row: Mapping, settings: Mapping):
+    """The brick ``Parameters`` recorded in a ``patches.csv`` row, or None when it has none.
+
+    *settings* is the ``normalization`` section of the row's
+    ``run_config.json``. A row with ``Normalization_Offset_C<i>`` and
+    ``Normalization_Scale_C<i>`` columns is read with the brick's
+    ``Parameters.from_columns``. A row of an earlier table, with
+    ``;``-separated ``normalization_offset``/``normalization_scale``, is
+    converted here (normalization brick decision N47): one value per channel
+    of the patch, or for a split channel the one value of channel ``c``.
+    """
+    mbn = require_normalization()
+    has_pairs = any(
+        str(name).startswith(("Normalization_Offset_C", "Normalization_Scale_C")) and value not in (None, "")
+        for name, value in row.items()
+    )
+    if has_pairs:
+        brick = mbn.NormalizationSettings(
+            method=settings.get("method", "percentile"), percentile=tuple(settings.get("percentile", (1.0, 99.8)))
+        )
+        return mbn.Parameters.from_columns(row, brick)
+    if not row.get("normalization_offset"):
+        return None
+    offsets = [float(value) for value in str(row["normalization_offset"]).split(";")]
+    scales = [float(value) for value in str(row.get("normalization_scale") or "").split(";")]
+    if len(offsets) != len(scales):
+        raise ValueError(f"{row.get('patch_id')}: {len(offsets)} normalization offsets but {len(scales)} scales.")
+    c = row.get("c")
+    return mbn.Parameters(
+        method=row.get("normalization_method") or "",
+        scope=row.get("normalization_scope") or "",
+        group=row.get("normalization_group") or None,
+        exact=row.get("normalization_exact") in (True, "true", "True"),
+        offset=tuple(offsets),
+        scale=tuple(scales),
+        channels=(int(c),) if len(offsets) == 1 and c not in (None, "") else None,
+    )
 
 
 @dataclass(frozen=True)
 class PatchNormalization:
-    """The normalization of one patch: one set of parameters per channel.
+    """The normalization of one patch: the brick's ``Parameters``, one offset and scale per channel.
 
     Attributes
     ----------
-    method, scope
-        The preprocessing method name (e.g. ``"percentile 1-99.8"``) and
-        ``normalization.scope``.
-    group
-        The group key (contract §7); None for the patch scope, whose key
-        needs the final ``patch_id`` (set by :func:`finish_patch_groups`).
     parameters
-        ``NormalizationParameters`` per channel, in channel order.
-    exact
-        True when every channel's parameters are exact (no histogram
-        approximation).
+        ``morphobricks_normalization.Parameters``: the method name (e.g.
+        ``"percentile 1-99.8"``), ``normalization.scope``, the group key
+        (contract §7; None for the patch scope until :func:`finish_patch_groups`
+        knows the final ``patch_id``), exactness, and the offsets and scales
+        of the image channels the patch holds.
     """
 
-    method: str
-    scope: str
-    group: str | None
-    parameters: tuple
-    exact: bool
+    parameters: object
+
+    @property
+    def method(self) -> str:
+        return self.parameters.method
+
+    @property
+    def scope(self) -> str:
+        return self.parameters.scope
+
+    @property
+    def group(self) -> str | None:
+        return self.parameters.group
+
+    @property
+    def exact(self) -> bool:
+        return self.parameters.exact
 
     @classmethod
     def from_patch(cls, patch) -> PatchNormalization | None:
-        """The normalization recorded in a patch's ``normalization_*`` fields, or None when there is none.
-
-        The offsets and scales are read back exactly (they are written with
-        ``repr``), so the result applies the same parameters; nothing is
-        recomputed.
-        """
-        if not patch.normalization_offset:
-            return None
-        mbn = require_normalization()
-        offsets = [float(value) for value in str(patch.normalization_offset).split(";")]
-        scales = [float(value) for value in str(patch.normalization_scale).split(";")]
-        if len(offsets) != len(scales):
-            raise ValueError(f"{patch.patch_id}: {len(offsets)} normalization offsets but {len(scales)} scales.")
-        method = patch.normalization_method or ""
-        parameters = tuple(mbn.NormalizationParameters(method, o, s) for o, s in zip(offsets, scales))
-        exact = patch.normalization_exact in (True, "true", "True")
-        return cls(method, patch.normalization_scope or "", patch.normalization_group, parameters, exact)
+        """The normalization recorded on a patch (``normalization_parameters``), or None when there is none."""
+        parameters = getattr(patch, "normalization_parameters", None)
+        return None if parameters is None else cls(parameters)
 
     def unapply(self, array, axes: str) -> np.ndarray:
         """Map normalized values back to raw units per channel, as float32: ``values * scale + offset``."""
         array = np.asarray(array)
         axes = normalize_axes(axes, array.ndim)
+        offsets, scales = self.parameters.offset, self.parameters.scale
         if "C" not in axes:
-            only = self.parameters[0]
-            return (array.astype(np.float64) * only.scale + only.offset).astype(np.float32)
+            return (array.astype(np.float64) * scales[0] + offsets[0]).astype(np.float32)
         channel_axis = axes.index("C")
         out = np.empty(array.shape, dtype=np.float32)
-        for channel, parameters in enumerate(self.parameters):
+        for channel, (offset, scale) in enumerate(zip(offsets, scales)):
             index = (slice(None),) * channel_axis + (channel,)
-            out[index] = array[index].astype(np.float64) * parameters.scale + parameters.offset
+            out[index] = array[index].astype(np.float64) * scale + offset
         return out
 
     def stamp(self, patch) -> None:
-        """Record the normalization in the patch's ``normalization_*`` fields."""
+        """Record the normalization on the patch: the ``normalization_*`` fields and ``normalization_parameters``."""
         patch.normalization_method = self.method
         patch.normalization_scope = self.scope
         patch.normalization_group = self.group
-        patch.normalization_offset = format_numbers(p.offset for p in self.parameters)
-        patch.normalization_scale = format_numbers(p.scale for p in self.parameters)
         patch.normalization_exact = self.exact
+        patch.normalization_parameters = self.parameters
 
     def apply(self, array, axes: str, clip=None) -> np.ndarray:
         """Normalize *array* (with *axes*) per channel into a new float32 array.
 
-        *clip* (``config.normalization.clip``) limits the normalized values,
-        through the brick's own ``NormalizationParameters.apply``.
+        Computed by the brick's ``Parameters.apply``. *clip*
+        (``config.normalization.clip``) then limits the float32 values; with
+        the bounds rounded to float32 too, this equals clipping before
+        rounding, because rounding keeps the order of values.
         """
         array = np.asarray(array)
         axes = normalize_axes(axes, array.ndim)
+        parameters = self.parameters
         if "C" not in axes:
-            return self.parameters[0].apply(array, clip=clip, dtype=np.float32)
-        channel_axis = axes.index("C")
-        if array.shape[channel_axis] != len(self.parameters):
-            raise ValueError(
-                f"The patch has {array.shape[channel_axis]} channels but {len(self.parameters)} sets of "
-                "normalization parameters."
-            )
-        out = np.empty(array.shape, dtype=np.float32)
-        for channel, parameters in enumerate(self.parameters):
-            index = (slice(None),) * channel_axis + (channel,)
-            out[index] = parameters.apply(array[index], clip=clip, dtype=np.float32)
+            if parameters.channel_count != 1:
+                parameters = parameters.select([parameters.channels[0]])
+            out = parameters.apply(array)
+        else:
+            channel_axis = axes.index("C")
+            if array.shape[channel_axis] != parameters.channel_count:
+                raise ValueError(
+                    f"The patch has {array.shape[channel_axis]} channels but {parameters.channel_count} sets of "
+                    "normalization parameters."
+                )
+            out = parameters.apply(array, channel_axis=channel_axis)
+        if clip is not None:
+            np.clip(out, np.float32(clip[0]), np.float32(clip[1]), out=out)
         return out
 
 
@@ -245,21 +312,18 @@ def group_parameters(config) -> list[dict]:
         raise ValueError("Per-group parameters exist for the condition, repeat and image scopes only.")
     normalizer._ensure_index()
     rows = []
-    for key in sorted(normalizer._index, key=lambda k: (k[0], k[1] if k[1] is not None else -1, k[2] or 0)):
+    for key in sorted(normalizer._index, key=lambda k: (k[0], k[1] or 0)):
         records = normalizer._index[key]
         result = normalizer._group_parameters(key)
-        row = {
-            "group": _group_text(records[0], normalizer.settings.scope, normalizer.settings.per_time_point),
-            "channel": key[1],
-            "t": key[2],
-            "planes": len(records),
-        }
-        if isinstance(result, str):
-            row["problem"] = result.split(": ", 1)[-1]
-        else:
-            parameters, exact = result
-            row.update(offset=parameters.offset, scale=parameters.scale, exact=exact)
-        rows.append(row)
+        group = _group_text(records[0], normalizer.settings.scope, normalizer.settings.per_time_point)
+        for channel in range(records[0].channel_count):
+            row = {"group": group, "channel": channel, "t": key[1], "planes": len(records)}
+            if isinstance(result, str):
+                row["problem"] = result.split(": ", 1)[-1]
+            else:
+                index = result.channels.index(channel)
+                row.update(offset=result.offset[index], scale=result.scale[index], exact=result.exact)
+            rows.append(row)
     return rows
 
 
@@ -270,14 +334,15 @@ def finish_patch_groups(patches, per_time_point: bool) -> None:
             continue
         source = patch.source_relative_path or patch.image_file or patch.image_id
         patch.normalization_group = f"{source}::{patch.patch_id}" + _time_suffix(patch.t, per_time_point)
+        if patch.normalization_parameters is not None:
+            patch.normalization_parameters = replace(patch.normalization_parameters, group=patch.normalization_group)
 
 
 def split_channel_normalization(patch, channel: int) -> None:
-    """Keep only *channel*'s parameters on a split channel patch (one value per channel of the patch)."""
-    if patch.normalization_offset is None:
+    """Keep only *channel*'s parameters on a split channel patch (the brick's ``Parameters.select``, N46)."""
+    if patch.normalization_parameters is None:
         return
-    patch.normalization_offset = patch.normalization_offset.split(";")[channel]
-    patch.normalization_scale = patch.normalization_scale.split(";")[channel]
+    patch.normalization_parameters = patch.normalization_parameters.select([channel])
 
 
 class Normalizer:
@@ -293,8 +358,9 @@ class Normalizer:
         self.statistics = statistics
         self.region = resolved_patch_region(config)
         self._mbn = require_normalization()
+        self._fit_settings = fit_settings(self.settings)
         self._index: dict[tuple, list] | None = None
-        self._groups: dict[tuple, tuple] = {}
+        self._groups: dict[tuple, object] = {}
 
     @classmethod
     def for_config(cls, config) -> Normalizer | None:
@@ -355,19 +421,24 @@ class Normalizer:
         cellpatcher.statistics.PreprocessingCheckError
             If a check of contract §5 fails.
         ValueError
-            If a group or patch has no finite pixels or zero spread, or a
-            CSV scope lacks the images' ``source_relative_path``.
+            If a group or patch has no finite pixels or zero spread, a CSV
+            scope lacks the images' ``source_relative_path``, or the images
+            have different numbers of channels (normalization brick N43).
         """
         by_image = defaultdict(list)
         for patch in patches:
             by_image[int(patch.image_id.rsplit("_", 1)[1])].append(patch)
         channel_planes = {index: _channel_planes(images[index], image_axes) for index in by_image}
+        self._check_channel_counts(channel_planes, metadata)
 
         if self.statistics is not None:
             records = self._check(channel_planes, metadata, labels, image_axes)
             normalizations = self._group_normalizations(records, by_image)
         else:
-            normalizations = self._patch_normalizations(channel_planes, masks, mask_axes, by_image)
+            has_channels = "C" in normalize_axes(image_axes)
+            normalizations = self._patch_normalizations(
+                channel_planes, masks, mask_axes, by_image, metadata, has_channels
+            )
         for patch in patches:
             if id(patch) in normalizations:  # patches discarded under decision D8 are absent
                 normalizations[id(patch)].stamp(patch)
@@ -423,21 +494,19 @@ class Normalizer:
         failures, normalizations = [], {}
         for index, image_patches in by_image.items():
             channel_records = per_image[index]
-            parameters, exact = [], True
-            for record in channel_records:
-                key = self._group_key(record)
-                if key not in self._groups:
-                    self._groups[key] = self._group_parameters(key)
-                result = self._groups[key]
-                if isinstance(result, str):
-                    failures.append(result)
-                    continue
-                parameters.append(result[0])
-                exact = exact and result[1]
-            if len(parameters) != len(channel_records):
+            # Every channel of an image is in the same row, so in the same group.
+            key = self._group_key(channel_records[0].record)
+            if key not in self._groups:
+                self._groups[key] = self._group_parameters(key)
+            result = self._groups[key]
+            if isinstance(result, str):
+                failures.append(result)
                 continue
             group = _group_text(channel_records[0], level, self.settings.per_time_point)
-            normalization = PatchNormalization(parameters[0].method, level, group, tuple(parameters), exact)
+            parameters = replace(
+                result.select(record.c for record in channel_records), scope=level, group=group
+            )
+            normalization = PatchNormalization(parameters)
             for patch in image_patches:
                 normalizations[id(patch)] = normalization
         if failures:
@@ -449,34 +518,50 @@ class Normalizer:
         return normalizations
 
     def _ensure_index(self) -> None:
-        """Group every CSV row by its key (the scope's labels, channel and optional t), once."""
+        """Group every CSV row (an XYC plane) by its key (the scope's labels and optional t), once."""
         if self._index is None:
             self._index = defaultdict(list)
-            for channel in self.statistics.channel_records():
-                self._index[self._group_key(channel)].append(channel)
+            for record in self.statistics.records:
+                self._index[self._group_key(record)].append(record)
 
     def _group_key(self, record) -> tuple:
         t = record.t if self.settings.per_time_point else None
-        return (record.group_key(self.settings.scope), record.c, t)
+        return (record.group_key(self.settings.scope), t)
 
     def _group_parameters(self, key):
-        """``(NormalizationParameters, exact)`` of a group, or a failure description."""
+        """The brick ``Parameters`` of a group (every channel), or a failure description."""
         self._ensure_index()
-        name = "/".join(key[0]) + f" (channel {key[1]}" + ("" if key[2] is None else f", t={key[2]}") + ")"
+        name = "/".join(key[0]) + ("" if key[1] is None else f" (t={key[1]})")
         try:
-            pooled = self._mbn.PooledHistogram(channel.histogram for channel in self._index[key])
-            return self._parameters(pooled), pooled.max_representative_error == 0
-        except self._mbn.NoValidPixelsError:
-            return f"{name}: no finite pixels"
-        except ValueError:
-            return f"{name}: zero intensity spread for {self.settings.method}"
+            return self._mbn.fit(self._index[key], self._fit_settings)
+        except self._mbn.NoValidPixelsError as exc:
+            return f"{name}: no finite pixels ({exc})"
+        except ValueError as exc:
+            return f"{name}: zero intensity spread for {self.settings.method} ({exc})"
+
+    def _check_channel_counts(self, channel_planes, metadata) -> None:
+        """Refuse images with different numbers of channels (normalization brick decision N43)."""
+        counts = [
+            (metadata[index].get("source_relative_path") or metadata[index].get("image_file") or f"image_{index}",
+             len(channels))
+            for index, channels in sorted(channel_planes.items())
+        ]
+        if len({count for _, count in counts}) > 1:
+            from morphobricks_normalization.records import different_channel_counts
+
+            raise ValueError(different_channel_counts(counts, "The images of this run"))
 
     # Patch scope -------------------------------------------------------------------------
 
-    def _patch_normalizations(self, channel_planes, masks, mask_axes, by_image) -> dict[int, PatchNormalization]:
+    def _patch_normalizations(
+        self, channel_planes, masks, mask_axes, by_image, metadata, has_channels
+    ) -> dict[int, PatchNormalization]:
         failures, discarded, normalizations = [], [], {}
         for index, image_patches in by_image.items():
             channels = channel_planes[index]
+            # The image's channel indices: 0, 1, ... along its C axis, or the
+            # one channel it was selected as (image_metadata "c"), as for the CSV rows.
+            channel_ids = tuple(range(len(channels))) if has_channels else (int(metadata[index].get("c") or 0),)
             labels_2d = None
             if self.region in ("mask", "bbox"):
                 labels_2d = _label_plane(masks[index], mask_axes, self.config.cell.mask_channel)
@@ -486,26 +571,16 @@ class Normalizer:
                 except ValueError as exc:
                     failures.append(f"{_describe(patch)}: {exc}")
                     continue
-                parameters, exact, problem = [], True, None
-                for pixels in channels:
-                    values = pixels[region]
-                    histogram = self._mbn.compute_plane_histogram(values)
-                    try:
-                        pooled = self._mbn.PooledHistogram([histogram])
-                        parameters.append(self._parameters(pooled))
-                    except self._mbn.NoValidPixelsError:
-                        problem = "no finite pixels in the region"
-                        break
-                    except ValueError:
-                        problem = f"zero intensity spread for {self.settings.method}"
-                        break
-                    exact = exact and pooled.max_representative_error == 0
-                if problem:
-                    discarded.append(f"{_describe(patch)}: {problem}")
+                values = np.stack([pixels[region] for pixels in channels])
+                try:
+                    parameters = self._mbn.fit(values, self._fit_settings, channel_axis=0)
+                except self._mbn.NoValidPixelsError:
+                    discarded.append(f"{_describe(patch)}: no finite pixels in the region")
                     continue
-                normalizations[id(patch)] = PatchNormalization(
-                    parameters[0].method, "patch", None, tuple(parameters), exact
-                )
+                except ValueError:
+                    discarded.append(f"{_describe(patch)}: zero intensity spread for {self.settings.method}")
+                    continue
+                normalizations[id(patch)] = PatchNormalization(replace(parameters, channels=channel_ids))
         if failures:
             raise ValueError(
                 f"{len(failures)} patch(es) have no pixels for patch_region={self.region!r}:\n"
@@ -523,17 +598,6 @@ class Normalizer:
                 stacklevel=3,
             )
         return normalizations
-
-    def _parameters(self, pooled):
-        method = self.settings.method
-        if method == "minmax":
-            return self._mbn.min_max(pooled)
-        if method == "percentile":
-            low, high = self.settings.percentile
-            return self._mbn.percentile_range(pooled, low, high)
-        if method == "zscore":
-            return self._mbn.z_score(pooled)
-        return self._mbn.robust_z_score(pooled)
 
 
 def _time_suffix(t, per_time_point: bool) -> str:

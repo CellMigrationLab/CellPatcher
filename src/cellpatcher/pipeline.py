@@ -23,6 +23,7 @@ from cellpatcher.normalization import (
     Normalizer,
     finish_patch_groups,
     run_inputs,
+    run_settings,
     split_channel_normalization,
     validate_normalization,
 )
@@ -476,11 +477,19 @@ def _normalize(config: CellPatcherConfig, image_list, masks, image_metadata, pat
 
 
 def run_config_data(config: CellPatcherConfig) -> dict:
-    """The ``run_config.json`` content: the config, plus ``normalization_inputs`` when a CSV is used."""
+    """The ``run_config.json`` content: the config, plus the normalization brick's records.
+
+    ``normalization_inputs`` when a CSV is used, and ``normalization_settings``
+    (the brick's ``NormalizationSettings.to_dict()``) for the image and patch
+    scopes.
+    """
     data = asdict(config)
     inputs = run_inputs(config)
     if inputs is not None:
         data["normalization_inputs"] = inputs
+    settings = run_settings(config)
+    if settings is not None:
+        data["normalization_settings"] = settings
     return data
 
 

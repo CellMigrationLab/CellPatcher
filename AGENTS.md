@@ -314,7 +314,9 @@ Two ways to point CellPatcher at input data:
   normalization they are float32 normalized values, or with
   `normalization.export_values="raw"` the raw values (source dtype, float32
   when resized or masked) to be normalized on load with the row's
-  `normalization_offset`/`normalization_scale`
+  `Normalization_Offset_C<i>`/`Normalization_Scale_C<i>` columns (or the
+  `;`-separated `normalization_offset`/`normalization_scale` of tables
+  written before 2026-10-28)
   (`cellpatcher.iter_exported_patches`, `ExportedPatchTorchDataset`).
 - In memory: eager arrays (`common.extract_arrays=True`, within
   `normalization.memory_limit`) or one patch at a time
@@ -352,12 +354,18 @@ outputs above are the whole interface. In summary:
   scopes) and, optionally, its `run_manifest.json` for extra checks. It still
   discovers images with its own folder rules. OME-Zarr images and their
   OME-NGFF `labels/` masks become readable.
-- **Outputs:** seven optional `PatchRegion` fields appended to
-  `patches.csv` — `source_relative_path` and six `normalization_*` columns —
-  plus a `normalization` config section and a `normalization_inputs` object
-  in `run_config.json`.
-- **Reuse:** histograms, pooling and normalization parameters are imported
-  from `morphobricks_normalization`, image readers, manifests and messages
+- **Outputs:** optional columns appended to `patches.csv` —
+  `source_relative_path`, four `normalization_*` columns and one
+  `Normalization_Offset_C<i>`/`Normalization_Scale_C<i>` pair per channel
+  (CellPatcher follow-up C1, normalization brick N41/N42; in memory
+  `PatchRegion.normalization_parameters`, the brick's `Parameters`) — plus a
+  `normalization` config section, a `normalization_inputs` object and, for
+  the image and patch scopes, `normalization_settings` (the brick's
+  `NormalizationSettings.to_dict()`) in `run_config.json`.
+- **Reuse:** histograms, pooling, fitting (`fit`, `Parameters.apply`,
+  `to_columns`/`from_columns`) and settings are imported
+  from `morphobricks_normalization` (`normalization.clip` stays in
+  CellPatcher, because the brick never clips), image readers, manifests and messages
   from `morphobricks_preprocessing`; never reimplemented here.
 
 ### Shared CSV column contract
