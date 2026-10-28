@@ -213,6 +213,9 @@ NORMALIZATION_SCOPES = ("biological_repeat", "image", "patch")
 # Removed without a deprecation period (normalization brick decision N29).
 REMOVED_NORMALIZATION_SCOPES = ("condition", "technical_repeat")
 POOLING_WEIGHTS = ("pixels", "conditions")
+IMAGE_TYPES = ("fluorescence", "rgb")
+# StarDist's percentile normalization is the one RGB method (normalization brick decision N33).
+RGB_METHODS = ("percentile",)
 PATCH_REGIONS = ("mask", "bbox", "patch")
 EXPORT_VALUES = ("normalized", "raw")
 
@@ -252,7 +255,8 @@ class NormalizationConfig:
         next to the CSV when there is one.
     method
         ``"minmax"``, ``"percentile"`` (default), ``"zscore"`` or
-        ``"robust_zscore"`` (MAD x 1.4826).
+        ``"robust_zscore"`` (MAD x 1.4826); only ``"percentile"`` for
+        ``image_type="rgb"``.
     percentile
         Low and high percentile of ``"percentile"``, ``0 <= low < high <= 100``.
     clip
@@ -265,9 +269,9 @@ class NormalizationConfig:
         group: the same biological repeat in every condition, technical
         repeats merged, as paired in the preprocessing brick's
         ``experiment_design.csv``), ``"image"`` (default: all Z and T planes
-        of the source image) or ``"patch"`` (the patch's own pixels). Always
-        per channel. The former ``"condition"`` and ``"technical_repeat"``
-        scopes are refused.
+        of the source image) or ``"patch"`` (the patch's own pixels). Per
+        channel, except for ``image_type="rgb"``. The former ``"condition"``
+        and ``"technical_repeat"`` scopes are refused.
     per_time_point
         Normalize each time point separately (adds ``t`` to the group).
     patch_region
@@ -291,6 +295,14 @@ class NormalizationConfig:
         For ``scope="biological_repeat"``: how much each condition weighs in
         its repeat group, ``"pixels"`` (default: each pixel once) or
         ``"conditions"`` (each condition equally).
+    image_type
+        ``"fluorescence"`` (default: each channel normalized separately) or
+        ``"rgb"``: colour images of three 8- or 16-bit channels, normalized
+        with StarDist's percentile method, one offset and scale from the R, G
+        and B pixels pooled together (normalization brick decisions N33, N34).
+        With a preprocessing manifest that records the image type, this must
+        be the same type. ``"rgb"`` keeps the three channels in one patch, so
+        ``extraction.split_channels`` must be False.
     """
 
     enabled: bool = False
@@ -307,6 +319,7 @@ class NormalizationConfig:
     # Appended after the earlier fields so run_config.json keeps their order.
     experiment_design: str | None = None
     pooling: str = "pixels"
+    image_type: str = "fluorescence"
 
     def __post_init__(self) -> None:
         if not isinstance(self.enabled, bool):
@@ -319,6 +332,16 @@ class NormalizationConfig:
             raise ValueError(
                 f"normalization.pooling must be 'pixels' (each pixel counts once) or 'conditions' (each "
                 f"condition weighs the same); got {self.pooling!r}."
+            )
+        if self.image_type not in IMAGE_TYPES:
+            raise ValueError(
+                f"normalization.image_type must be 'fluorescence' (each channel normalized separately) or 'rgb' "
+                f"(colour images); got {self.image_type!r}."
+            )
+        if self.image_type == "rgb" and self.method not in RGB_METHODS:
+            raise ValueError(
+                "normalization.image_type='rgb' is normalized with StarDist's percentile method only, which scales "
+                f"the three colour channels together; got method={self.method!r}. Use method='percentile'."
             )
         if self.patch_region is not None and self.patch_region not in PATCH_REGIONS:
             raise ValueError(

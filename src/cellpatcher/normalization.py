@@ -15,6 +15,10 @@ Implements ``docs/normalization_contract.md`` §6–§9 for ``config.normalizati
   ``Parameters.apply`` normalizes a patch per channel as
   ``(pixels - offset) / scale`` in float32. ``normalization.clip`` is applied
   here, after the brick's ``apply``: the brick never clips (its decision N19).
+- **Image types.** ``"fluorescence"`` normalizes each channel separately;
+  ``"rgb"`` uses StarDist's percentile method, one offset and scale from the
+  R, G and B pixels pooled together (recorded for C0, C1 and C2), applied with
+  CSBDeep's float32 arithmetic by the brick.
 - **Checks.** Every patched plane is linked to its CSV row with
   :func:`cellpatcher.statistics.check_planes` before anything is normalized.
 
@@ -73,13 +77,20 @@ def validate_normalization(config) -> None:
     cellpatcher.statistics.PreprocessingUnavailableError
         If normalization is enabled without the ``preprocessing`` extra.
     ValueError
-        If a CSV scope has no ``plane_histograms``, or a ``"mask"``/``"bbox"``
-        patch region is used outside ``cell`` mode.
+        If a CSV scope has no ``plane_histograms``, a ``"mask"``/``"bbox"``
+        patch region is used outside ``cell`` mode, or ``"rgb"`` images are
+        split into channels.
     """
     settings = config.normalization
     if not settings.enabled:
         return
     require_preprocessing()
+    if settings.image_type == "rgb" and config.extraction.split_channels is not False:
+        raise ValueError(
+            "normalization.image_type='rgb' normalizes the R, G and B channels together and keeps them in one "
+            "patch, so extraction.split_channels must be False. Use image_type='fluorescence' to get one patch "
+            "per channel."
+        )
     if settings.scope in CSV_SCOPES and settings.plane_histograms is None:
         raise ValueError(
             f"normalization.scope={settings.scope!r} needs the plane_histograms.csv written by the "
@@ -204,6 +215,36 @@ def load_experiment_design(settings, statistics: PlaneStatistics) -> ExperimentD
     return ExperimentDesignInput(path, sha256, design.repeat_groups())
 
 
+def check_image_type(settings, statistics: PlaneStatistics) -> None:
+    """Refuse an ``image_type`` that differs from the one the preprocessing manifest records (N34).
+
+    Without a manifest, or with one that records no image type (written before
+    the preprocessing brick asked for it), ``normalization.image_type`` decides.
+
+    Raises
+    ------
+    PreprocessingCheckError
+        If the manifest records another image type.
+    """
+    manifest = statistics.manifest
+    recorded = None if manifest is None else getattr(manifest, "image_type", None)
+    if recorded is None or recorded == settings.image_type:
+        return
+    from morphobricks_preprocessing.validation import error
+
+    path = statistics.manifest_path
+    raise PreprocessingCheckError([
+        error(
+            "image_type_differs",
+            f"The preprocessing run that wrote {statistics.plane_histograms.name} was confirmed for "
+            f"{recorded!r} images, but normalization.image_type is {settings.image_type!r}.",
+            [str(path)] if path is not None else [],
+            f"Set normalization.image_type={recorded!r}, or run the preprocessing brick again with image type "
+            f"{settings.image_type!r} if that one is right.",
+        )
+    ])
+
+
 def run_inputs(config) -> dict | None:
     """The ``normalization_inputs`` of ``run_config.json`` (contract §11).
 
@@ -235,6 +276,7 @@ def fit_settings(settings):
     """The normalization brick's ``NormalizationSettings`` for ``config.normalization``."""
     mbn = require_normalization()
     return mbn.NormalizationSettings(
+        image_type=settings.image_type,
         method=settings.method,
         percentile=tuple(settings.percentile),
         scope=settings.scope,
@@ -269,7 +311,9 @@ def parameters_from_row(row: Mapping, settings: Mapping):
     )
     if has_pairs:
         brick = mbn.NormalizationSettings(
-            method=settings.get("method", "percentile"), percentile=tuple(settings.get("percentile", (1.0, 99.8)))
+            image_type=settings.get("image_type", "fluorescence"),
+            method=settings.get("method", "percentile"),
+            percentile=tuple(settings.get("percentile", (1.0, 99.8))),
         )
         return mbn.Parameters.from_columns(row, brick)
     if not row.get("normalization_offset"):
@@ -329,7 +373,11 @@ class PatchNormalization:
         return None if parameters is None else cls(parameters)
 
     def unapply(self, array, axes: str) -> np.ndarray:
-        """Map normalized values back to raw units per channel, as float32: ``values * scale + offset``."""
+        """Map normalized values back to raw units per channel, as float32: ``values * scale + offset``.
+
+        For RGB parameters the three channels share one offset and scale, so
+        this is the same mapping for each.
+        """
         array = np.asarray(array)
         axes = normalize_axes(axes, array.ndim)
         offsets, scales = self.parameters.offset, self.parameters.scale
@@ -465,6 +513,7 @@ class Normalizer:
         statistics, repeat_groups = None, None
         if settings.scope in CSV_SCOPES:
             statistics = cached_statistics(settings.plane_histograms, settings.manifest)
+            check_image_type(settings, statistics)
             warnings.warn(
                 "The group and image statistics of the preprocessing brick come from whole planes, "
                 "background included; in sparse images they describe the background more than the "
@@ -512,14 +561,17 @@ class Normalizer:
             If a check of contract §5 fails.
         ValueError
             If a group or patch has no finite pixels or zero spread, a CSV
-            scope lacks the images' ``source_relative_path``, or the images
-            have different numbers of channels (normalization brick N43).
+            scope lacks the images' ``source_relative_path``, the images
+            have different numbers of channels (normalization brick N43), or
+            ``"rgb"`` images are not three channels of an integer type.
         """
         by_image = defaultdict(list)
         for patch in patches:
             by_image[int(patch.image_id.rsplit("_", 1)[1])].append(patch)
         channel_planes = {index: _channel_planes(images[index], image_axes) for index in by_image}
         self._check_channel_counts(channel_planes, metadata)
+        if self.settings.image_type == "rgb":
+            self._check_rgb(channel_planes)
 
         if self.statistics is not None:
             records = self._check(channel_planes, metadata, labels, image_axes)
@@ -664,6 +716,18 @@ class Normalizer:
             from morphobricks_normalization.records import different_channel_counts
 
             raise ValueError(different_channel_counts(counts, "The images of this run"))
+
+    def _check_rgb(self, channel_planes) -> None:
+        """Refuse ``"rgb"`` images that are not three integer channels, before any fit.
+
+        The brick's ``fit`` checks this too, but at the patch scope its error
+        would read as a patch without spread and discard the patch (decision
+        D8) instead of stopping the run.
+        """
+        from morphobricks_normalization.rgb import check_rgb
+
+        for channels in channel_planes.values():
+            check_rgb(len(channels), [pixels.dtype for pixels in channels])
 
     # Patch scope -------------------------------------------------------------------------
 

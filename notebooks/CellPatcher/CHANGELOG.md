@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased] - RGB images (follow-up C3)
+
+### Added
+- `normalization.image_type`: `"fluorescence"` (default, unchanged behaviour) or `"rgb"`
+  (normalization brick decisions N33, N34). RGB images are normalized with StarDist's
+  percentile method, one offset and scale from the R, G and B pixels together, at every scope;
+  the result equals `csbdeep.utils.normalize(x, 1, 99.8, axis=(0, 1, 2))` at the patch scope.
+  `patches.csv` writes the shared value for `C0`, `C1` and `C2`, and the method as
+  `rgb percentile 1-99.8`. An RGB patch without spread becomes zeros and is kept.
+- With a preprocessing manifest that records the image type, a different
+  `normalization.image_type` stops the run before any image is read (`image_type_differs`).
+- `"rgb"` with a method other than `"percentile"`, with `extraction.split_channels=True`, or
+  with images that are not three 8- or 16-bit channels is refused.
+
 ## [Unreleased] - BREAKING: three normalization scopes (follow-up C2)
 
 ### Changed (breaking)
