@@ -34,6 +34,19 @@ CellPatcher helps you turn microscopy images into reproducible patch datasets wi
 | `grid` | You want deterministic tiling over the image. | No | Regular tiles (with optional overlap/partials) |
 | `whole_fov` | You want one patch representing the entire field of view. | No | One patch covering the full image |
 
+**Options shared with the MorphoBricks bricks (issue #33).**
+- `random.seed_scope` chooses which planes share rectangles:
+  - `"plane_channel"` is the default and today's behaviour: every plane and channel gets other rectangles;
+  - `"plane"`: every channel of a plane gets the same rectangles;
+  - `"position"`: every plane of a position gets the same rectangles.
+- `random.min_mask_fraction` is the least share of a draw's pixels that must lie in the sampling mask. The default, 0, accepts any overlap.
+- `whole_fov.square_cover=True` adds the squares covering the FOV for square-input models: mode `whole_fov_square`, id `<parent>/sq<N>`, with `parent_id`.
+
+Every region also records:
+- `requested_y0/y1/x0/x1`, the rectangle before clipping to the image;
+- `patch_touches_image_border`, and `object_touches_image_border` for cell patches;
+- with `run_patching(..., fraction_masks=[{name: mask}, ...])`, its share inside each named mask (`mask_fractions`, written as `mask_fraction_<name>` columns). Cell patches always carry `own_object`.
+
 ## Workflow at a glance
 
 ```text

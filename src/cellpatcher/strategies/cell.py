@@ -217,6 +217,7 @@ class CellSegmentationStrategy(BasePatchStrategy):
             y1 = y0 + patch_size
             x1 = x0 + patch_size
 
+            requested = {"requested_y0": y0, "requested_y1": y1, "requested_x0": x0, "requested_x1": x1}
             y0 = max(0, y0)
             x0 = max(0, x0)
             y1 = min(image_h, y1)
@@ -224,6 +225,7 @@ class CellSegmentationStrategy(BasePatchStrategy):
 
             if y1 <= y0 or x1 <= x0:
                 continue
+            own = float(np.count_nonzero(labeled[y0:y1, x0:x1] == label_id)) / ((y1 - y0) * (x1 - x0))
 
             patch_id = f"label{label_id}"
             patches.append(
@@ -240,6 +242,11 @@ class CellSegmentationStrategy(BasePatchStrategy):
                     center_x=center_x,
                     touches_border=touches_border,
                     area_px=area_px,
+                    **requested,
+                    patch_touches_image_border=y0 == 0 or x0 == 0 or y1 == image_h or x1 == image_w,
+                    # touches_border above is this one: the object's own pixels.
+                    object_touches_image_border=touches_border,
+                    mask_fractions={"own_object": own},
                 )
             )
 

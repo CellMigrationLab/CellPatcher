@@ -56,8 +56,14 @@ def test_exported_grid_patches_record_axes_padding_and_no_resize(tmp_path):
     with (tmp_path / "patches.csv").open(newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         rows = list(reader)
-    # object_set (decision D44) was appended after the geometry columns.
-    assert reader.fieldnames[-len(GEOMETRY_COLUMNS) - 1:] == [*GEOMETRY_COLUMNS, "object_set"]
+    # object_set (decision D44) was appended after the geometry columns, then the
+    # patch-geometry contract columns (CellPatcher#33).
+    contract = [
+        "requested_y0", "requested_y1", "requested_x0", "requested_x1",
+        "patch_touches_image_border", "object_touches_image_border", "parent_id", "square_index",
+    ]
+    tail = [*GEOMETRY_COLUMNS, "object_set", *contract]
+    assert reader.fieldnames[-len(tail):] == tail
     assert len(rows) == len(result.patches) == 6
     for row in rows:
         assert (row["image_height"], row["image_width"]) == ("40", "48")
@@ -69,11 +75,14 @@ def test_exported_grid_patches_record_axes_padding_and_no_resize(tmp_path):
 
 
 def test_earlier_columns_keep_their_order():
-    # normalization_parameters, the last field, is written as per-channel columns, not as itself.
-    header = [f.name for f in fields(PatchRegion)][:-1]
-    assert fields(PatchRegion)[-1].name == "normalization_parameters"
+    # mask_fractions and normalization_parameters, the last two fields, are written as
+    # columns of their own, not as themselves.
+    names = [f.name for f in fields(PatchRegion)]
+    assert names[-2:] == ["mask_fractions", "normalization_parameters"]
+    header = names[:-2]
     assert header.index("normalization_exact") + 1 == header.index("image_height")
-    assert header[-len(GEOMETRY_COLUMNS) - 1:] == [*GEOMETRY_COLUMNS, "object_set"]
+    first = header.index("requested_y0")
+    assert header[first - len(GEOMETRY_COLUMNS) - 1:first] == [*GEOMETRY_COLUMNS, "object_set"]
 
 
 def test_resized_is_true_only_where_resizing_changed_the_shape():

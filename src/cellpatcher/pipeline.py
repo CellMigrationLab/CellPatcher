@@ -11,6 +11,7 @@ from cellpatcher.config import CellPatcherConfig
 from cellpatcher.extract import extract_patches
 from cellpatcher.export import IMAGE_TABLE_FILENAME, export_patches
 from cellpatcher.filters import filter_regions
+from cellpatcher.fractions import check_fraction_masks, stamp_mask_fractions
 from cellpatcher.ids import assign_patch_ids, random_seed, resolve_object_set, resolve_position_id
 from cellpatcher.io import (
     SINGLE_BIOLOGICAL_REPEAT_LABEL,
@@ -494,7 +495,8 @@ def run_config_data(config: CellPatcherConfig) -> dict:
 
 
 def _build_result(
-    config: CellPatcherConfig, image_list, patches: list[PatchRegion], masks=None, image_metadata=None
+    config: CellPatcherConfig, image_list, patches: list[PatchRegion], masks=None, image_metadata=None,
+    fraction_masks=None,
 ) -> PatchingResult:
     """Filter, stamp, normalize, extract and export the regions generated in *image_list*."""
     if image_metadata is not None and len(image_metadata) != len(image_list):
@@ -507,6 +509,8 @@ def _build_result(
     n_regions = _count_by_image(patches)
     patches = _apply_filters(config, image_list, patches)
     n_kept = _count_by_image(patches)
+    if fraction_masks is not None:
+        stamp_mask_fractions(patches, fraction_masks)
     _stamp_run_context(config, patches)
     _stamp_image_metadata(image_list, image_metadata, patches)
     _stamp_image_size(config, image_list, patches)
@@ -747,7 +751,7 @@ def _refuse_masking_computed_labels(config: CellPatcherConfig, masks) -> None:
             )
 
 
-def run_patching(images=None, masks=None, config=None, image_metadata=None) -> PatchingResult:
+def run_patching(images=None, masks=None, config=None, image_metadata=None, fraction_masks=None) -> PatchingResult:
     """Generate patch regions (and optionally extract arrays) from in-memory images.
 
     This is the low-level entry point.  Use :func:`~cellpatcher.run_patching_pipeline`
@@ -787,6 +791,13 @@ def run_patching(images=None, masks=None, config=None, image_metadata=None) -> P
         keys ``"technical_repeat"``, ``"image_file"``, ``"mask_file"`` and
         ``"source_relative_path"`` are stamped onto the ``PatchRegion``
         fields of the same name.
+    fraction_masks:
+        Optional list, one entry per image, of ``{name: 2-D mask}`` with the
+        image's Y/X shape: each patch's ``mask_fractions[name]`` is then the
+        share of its rectangle in that mask's non-zero pixels
+        (:mod:`cellpatcher.fractions`). Names are letters, digits, ``.``,
+        ``_`` or ``-``, never ``"own_object"`` (the share a cell patch
+        always carries). Refused when ``z_policy``/``t_policy`` split planes.
     config:
         A :class:`~cellpatcher.CellPatcherConfig` instance.  Defaults to
         ``CellPatcherConfig()`` (cell mode with all defaults).
@@ -839,6 +850,12 @@ def run_patching(images=None, masks=None, config=None, image_metadata=None) -> P
         image_metadata = _identity_metadata(config, _normalize_images(images), image_metadata)
     if config.mode == "cell" and masks is not None:
         _refuse_masking_computed_labels(config, _normalize_masks(masks))
+    if fraction_masks is not None:
+        if splits_planes(config.common):
+            raise ValueError("fraction_masks need 2-D planes; they are refused when z_policy/t_policy split planes.")
+        if images is None:
+            raise ValueError("fraction_masks need images.")
+        fraction_masks = check_fraction_masks(fraction_masks, _normalize_images(images), config.common.image_axes)
     if splits_planes(config.common):
         if images is None:
             raise ValueError(f"images is required for mode '{config.mode}'.")
@@ -848,7 +865,7 @@ def run_patching(images=None, masks=None, config=None, image_metadata=None) -> P
         raise ValueError("images is required for mode 'whole_fov', 'grid', and 'random'.")
 
     if config.mode == "whole_fov":
-        strategy = WholeFOVStrategy()
+        strategy = WholeFOVStrategy(config.whole_fov)
         image_list = _normalize_images(images)
         patches: list[PatchRegion] = []
         for idx, image in enumerate(image_list):
@@ -858,7 +875,7 @@ def run_patching(images=None, masks=None, config=None, image_metadata=None) -> P
                     image_shape=image.shape, labels=None, image_id=image_id, axes=config.common.image_axes
                 )
             )
-        return _build_result(config, image_list, patches, masks=None, image_metadata=image_metadata)
+        return _build_result(config, image_list, patches, masks=None, image_metadata=image_metadata, fraction_masks=fraction_masks)
 
     if config.mode == "grid":
         strategy = GridStrategy(config.grid)
@@ -871,7 +888,7 @@ def run_patching(images=None, masks=None, config=None, image_metadata=None) -> P
                     image_shape=image.shape, labels=None, image_id=image_id, axes=config.common.image_axes
                 )
             )
-        return _build_result(config, image_list, patches, masks=None, image_metadata=image_metadata)
+        return _build_result(config, image_list, patches, masks=None, image_metadata=image_metadata, fraction_masks=fraction_masks)
 
     if config.mode == "cell":
         if images is None:
@@ -894,7 +911,7 @@ def run_patching(images=None, masks=None, config=None, image_metadata=None) -> P
                     image_shape=image.shape, labels=mask, image_id=image_id, axes=config.common.image_axes
                 )
             )
-        return _build_result(config, image_list, patches, masks=mask_list, image_metadata=image_metadata)
+        return _build_result(config, image_list, patches, masks=mask_list, image_metadata=image_metadata, fraction_masks=fraction_masks)
 
     if config.mode == "random":
         image_list = _normalize_images(images)
@@ -919,11 +936,12 @@ def run_patching(images=None, masks=None, config=None, image_metadata=None) -> P
         # with every image's position_id above.
         for idx, (image, mask) in enumerate(zip(image_list, mask_list)):
             image_id = f"image_{idx:04d}"
-            image_random_config = replace(config.random, seed=random_seed(config.random.seed, image_metadata[idx]))
+            seed = random_seed(config.random.seed, image_metadata[idx], config.random.seed_scope)
+            image_random_config = replace(config.random, seed=seed)
             strategy = RandomPatchStrategy(image_random_config)
             patches.extend(
                 strategy.generate_regions(
                     image_shape=image.shape, labels=mask, image_id=image_id, axes=config.common.image_axes
                 )
             )
-        return _build_result(config, image_list, patches, masks=mask_list, image_metadata=image_metadata)
+        return _build_result(config, image_list, patches, masks=mask_list, image_metadata=image_metadata, fraction_masks=fraction_masks)

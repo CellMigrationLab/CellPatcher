@@ -159,6 +159,30 @@ class PatchRegion:
     # patch_id (cellpatcher.ids). Appended last so earlier columns keep
     # their order.
     object_set: str | None = None
+    # The patch-geometry contract shared with the bricks (MorphoFeature
+    # decision D84, CellPatcher#33). Appended after every earlier field so
+    # existing CSV columns keep their order.
+    # requested_*: the rectangle intended before clipping to the image (the
+    # centred square of a cell patch, the full tile of a partial grid tile);
+    # equal to y0/y1/x0/x1 when nothing was clipped, so comparing them is the
+    # clipping test.
+    requested_y0: int | None = None
+    requested_y1: int | None = None
+    requested_x0: int | None = None
+    requested_x1: int | None = None
+    # Whether y0/y1/x0/x1 meet an image edge (every mode).
+    patch_touches_image_border: bool | None = None
+    # Cell mode only: whether the object's own pixels meet an image edge.
+    object_touches_image_border: bool | None = None
+    # whole_fov_square only: the patch_id of the whole-FOV region the square
+    # covers, and the square's place along the long side (0, 1, ...).
+    parent_id: str | None = None
+    square_index: int | None = None
+    # Mask name -> share of y0/y1/x0/x1 in that mask's foreground, for the
+    # fraction masks given to run_patching; cell patches also carry
+    # "own_object" (the share inside the object's own label). Not a column
+    # itself: to_dict() writes one mask_fraction_<name> column per mask.
+    mask_fractions: dict | None = field(default=None, repr=False)
     # The normalization brick's Parameters. Not a column itself: to_dict()
     # writes it as the per-channel Normalization_Offset_C<i>/
     # Normalization_Scale_C<i> columns, which export.save_metadata_csv places
@@ -218,12 +242,19 @@ class PatchRegion:
 
     def to_dict(self) -> dict:
         """The ``patches.csv`` row: every field, ``height``/``width``, and the per-channel parameter columns."""
-        data = {f.name: getattr(self, f.name) for f in fields(self) if f.name != "normalization_parameters"}
+        data = {f.name: getattr(self, f.name) for f in fields(self) if f.name not in _NOT_COLUMNS}
         data["height"] = self.height
         data["width"] = self.width
         if self.normalization_parameters is not None:
             data.update(normalization_channel_columns(self.normalization_parameters))
+        for name, fraction in (self.mask_fractions or {}).items():
+            data[f"{MASK_FRACTION_PREFIX}{name}"] = fraction
         return data
+
+
+# PatchRegion fields written as several columns of their own, not as one.
+_NOT_COLUMNS = ("normalization_parameters", "mask_fractions")
+MASK_FRACTION_PREFIX = "mask_fraction_"
 
 
 def normalization_channel_columns(parameters) -> dict[str, str]:

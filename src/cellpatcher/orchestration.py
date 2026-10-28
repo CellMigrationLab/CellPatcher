@@ -19,6 +19,7 @@ from cellpatcher.config import (
     MatchConfig,
     NormalizationConfig,
     RandomConfig,
+    WholeFOVConfig,
 )
 from cellpatcher.io import (
     SINGLE_TECHNICAL_REPEAT_LABEL,
@@ -275,6 +276,7 @@ def _config_from_dict(data: dict) -> CellPatcherConfig:
         cell=CellConfig(**data["cell"]) if "cell" in data else CellConfig(),
         random=RandomConfig(**data["random"]) if "random" in data else RandomConfig(),
         grid=GridConfig(**data["grid"]) if "grid" in data else GridConfig(),
+        whole_fov=WholeFOVConfig(**data["whole_fov"]) if "whole_fov" in data else WholeFOVConfig(),
         filters=FilterConfig(**data["filters"]) if "filters" in data else FilterConfig(),
         export=ExportConfig(**data["export"]) if "export" in data else ExportConfig(),
         extraction=ExtractionConfig(**data["extraction"]) if "extraction" in data else ExtractionConfig(),

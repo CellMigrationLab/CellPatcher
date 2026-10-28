@@ -105,17 +105,56 @@ class CellConfig:
             raise ValueError("max_area must be >= min_area when provided.")
 
 
+SEED_SCOPES = ("plane_channel", "plane", "position")
+
+
 @dataclass
 class RandomConfig:
+    """Parameters of ``mode='random'``.
+
+    ``seed_scope`` chooses the identity each image's seed is derived from
+    (:func:`cellpatcher.ids.random_seed`): ``"plane_channel"`` (the default,
+    the behaviour before the option existed) ``position_id``, t, z and c, so
+    every plane and channel gets other rectangles; ``"plane"`` ``position_id``,
+    t and z, so every channel of a plane gets the same rectangles;
+    ``"position"`` ``position_id`` only, so every plane of a position gets the
+    same rectangles (a position followed over time).
+
+    ``min_mask_fraction`` (with a sampling mask) is the least share of a
+    draw's pixels that must lie in the mask's foreground. 0 (the default)
+    keeps the behaviour before the option existed: any overlap is accepted.
+    """
+
     patch_size: int = 128
     n_patches: int = 100
     seed: int | None = 0
+    seed_scope: str = "plane_channel"
+    min_mask_fraction: float = 0.0
 
     def __post_init__(self) -> None:
         if self.patch_size <= 0:
             raise ValueError("patch_size must be > 0.")
         if self.n_patches <= 0:
             raise ValueError("n_patches must be > 0.")
+        if self.seed_scope not in SEED_SCOPES:
+            raise ValueError(f"seed_scope must be one of {list(SEED_SCOPES)}; got {self.seed_scope!r}.")
+        if not 0.0 <= self.min_mask_fraction <= 1.0:
+            raise ValueError("min_mask_fraction must satisfy 0 <= min_mask_fraction <= 1.")
+
+
+@dataclass
+class WholeFOVConfig:
+    """Parameters of ``mode='whole_fov'``.
+
+    ``square_cover`` adds, after each whole-FOV region, the squares that cover
+    it for square-input consumers: ⌈long side ÷ short side⌉ squares of the
+    short side, evenly spaced along the long side (the first at 0, the last
+    flush with the far edge), mode ``"whole_fov_square"``, each recording its
+    whole-FOV region in ``parent_id``. A square image gives one square equal
+    to the region.
+    """
+
+    square_cover: bool = False
 
 
 @dataclass
@@ -424,6 +463,8 @@ class CellPatcherConfig:
         Parameters for ``mode='random'`` (randomly sampled patches).
     grid:
         Parameters for ``mode='grid'`` (regular tiled grid).
+    whole_fov:
+        Parameters for ``mode='whole_fov'`` (the square cover).
     filters:
         Foreground-intensity filters applied after region generation.
     export:
@@ -444,6 +485,7 @@ class CellPatcherConfig:
     cell: CellConfig = field(default_factory=CellConfig)
     random: RandomConfig = field(default_factory=RandomConfig)
     grid: GridConfig = field(default_factory=GridConfig)
+    whole_fov: WholeFOVConfig = field(default_factory=WholeFOVConfig)
     filters: FilterConfig = field(default_factory=FilterConfig)
     export: ExportConfig = field(default_factory=ExportConfig)
     extraction: ExtractionConfig = field(default_factory=ExtractionConfig)

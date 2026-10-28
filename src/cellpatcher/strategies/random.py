@@ -36,6 +36,9 @@ class RandomPatchStrategy(BasePatchStrategy):
         # covers; without one, any position in [0, y_max] x [0, x_max] is
         # accepted immediately (see the "if mask is not None" check below).
         mask = None
+        min_fraction = float(getattr(self.config, "min_mask_fraction", 0.0))
+        if min_fraction > 0 and labels is None:
+            raise ValueError("min_mask_fraction needs a sampling mask (masks=...) in random mode.")
         if labels is not None:
             mask = np.asarray(labels).astype(bool)
             if mask.ndim != 2:
@@ -64,9 +67,12 @@ class RandomPatchStrategy(BasePatchStrategy):
 
             attempts += 1
             # Reject (without counting toward n_patches) any draw that
-            # doesn't overlap the sampling mask at all.
-            if mask is not None and not np.any(mask[y0:y1, x0:x1]):
-                continue
+            # doesn't overlap the sampling mask at all, or (min_mask_fraction
+            # > 0) whose share of mask pixels is below the minimum.
+            if mask is not None:
+                window = mask[y0:y1, x0:x1]
+                if not np.any(window) or (min_fraction > 0 and window.mean() < min_fraction):
+                    continue
 
             patch_id = f"random-y{y0}-x{x0}-h{patch_size}-w{patch_size}"
             touches_border = y0 == 0 or x0 == 0 or y1 == height or x1 == width
@@ -84,6 +90,11 @@ class RandomPatchStrategy(BasePatchStrategy):
                     center_x=(x0 + x1) / 2,
                     area_px=patch_size * patch_size,
                     touches_border=touches_border,
+                    requested_y0=y0,
+                    requested_y1=y1,
+                    requested_x0=x0,
+                    requested_x1=x1,
+                    patch_touches_image_border=touches_border,
                 )
             )
 

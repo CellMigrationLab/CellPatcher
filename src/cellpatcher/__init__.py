@@ -21,6 +21,7 @@ from cellpatcher.config import (
     MatchConfig,
     NormalizationConfig,
     RandomConfig,
+    WholeFOVConfig,
 )
 from cellpatcher.delivery import iter_exported_patches, iter_patch_arrays, load_exported_patch, patch_array
 from cellpatcher.export import export_patches, patch_metadata_to_rows, sanitize_filename, save_metadata_csv, save_patch_array
@@ -84,6 +85,7 @@ __all__ = [
     "CellConfig",
     "RandomConfig",
     "GridConfig",
+    "WholeFOVConfig",
     "MatchConfig",
     "NormalizationConfig",
     "FilterConfig",
