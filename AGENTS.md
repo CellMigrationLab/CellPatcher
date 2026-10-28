@@ -345,7 +345,8 @@ patches per channel at a biological-repeat (across conditions, from the
 preprocessing brick's `experiment_design.csv`), image or patch scope
 (follow-up C2 removed the condition and technical-repeat scopes; follow-up C3
 added `normalization.image_type="rgb"`, R, G and B sharing one offset and
-scale), and records
+scale; follow-up C4 offers the pooling choice and the image type, taken from
+the manifest by `statistics.recorded_image_type`, in the notebook), and records
 the parameters in six `normalization_*` columns after `source_relative_path`
 and in `run_config.json` (`normalization` section, `normalization_inputs`).
 Until each later part is merged, the inputs and

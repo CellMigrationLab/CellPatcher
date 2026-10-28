@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased] - Notebook: image type and pooling (follow-up C4)
+
+### Added
+- Normalization step: **Pool conditions** ("Every pixel counts once" or "Every condition weighs
+  the same", `normalization.pooling`), shown only for the biological-repeat scope.
+- Normalization step: **Image type** (`normalization.image_type`, fluorescence or RGB colour).
+  When the preprocessing `run_manifest.json` records the image type, it is set from it and
+  locked; otherwise you choose it. For RGB only the percentile method is offered, and
+  **Split channels** is refused.
+- `cellpatcher.statistics.recorded_image_type(plane_histograms, manifest=None)`: the image type
+  a preprocessing manifest records (None without one), read without loading the table.
+
 ## [Unreleased] - RGB images (follow-up C3)
 
 ### Added

@@ -15,7 +15,7 @@ from cellpatcher.config import CellPatcherConfig, GridConfig, NormalizationConfi
 from cellpatcher.delivery import iter_exported_patches, iter_patch_arrays
 from cellpatcher.orchestration import load_config, run_patching_condition_repeat_tree, run_patching_pipeline
 from cellpatcher.pipeline import RUN_CONFIG_FILENAME, run_patching
-from cellpatcher.statistics import PreprocessingCheckError
+from cellpatcher.statistics import PreprocessingCheckError, recorded_image_type
 
 pytestmark = [
     pytest.mark.skipif(
@@ -242,6 +242,23 @@ def test_the_manifest_image_type_must_match_the_configuration(tmp_path):
     fluorescence_csv = _preprocess(folder, tmp_path / "fluorescence", image_type="fluorescence")
     with pytest.raises(PreprocessingCheckError, match="confirmed for 'fluorescence' images"):
         run_patching_pipeline(folder, config=_config(fluorescence_csv, scope="image"))
+
+
+def test_recorded_image_type_reads_only_the_manifest(tmp_path):
+    folder = tmp_path / "images"
+    _write_tiff(folder / "img0.tif", _rgb_images(1)[0])
+    rgb_csv = _preprocess(folder, tmp_path / "rgb")
+    untyped_csv = _preprocess(folder, tmp_path / "untyped", image_type=None)
+
+    assert recorded_image_type(rgb_csv) == "rgb"
+    assert recorded_image_type(untyped_csv) is None
+    assert recorded_image_type(untyped_csv, rgb_csv.parent / "run_manifest.json") == "rgb"
+    lone = tmp_path / "lone" / "plane_histograms.csv"
+    lone.parent.mkdir()
+    lone.write_bytes(rgb_csv.read_bytes())
+    assert recorded_image_type(lone) is None  # no manifest next to the table
+    with pytest.raises(FileNotFoundError):
+        recorded_image_type(rgb_csv, tmp_path / "missing.json")
 
 
 def test_without_an_image_type_in_the_manifest_the_configuration_decides(tmp_path):

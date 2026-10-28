@@ -615,6 +615,45 @@ def check_planes(
     return matched
 
 
+def recorded_image_type(plane_histograms, manifest=None) -> str | None:
+    """The image type the preprocessing run recorded in its ``run_manifest.json``.
+
+    Reads only the manifest (not the table), so a notebook can show the type as
+    soon as a table is chosen. ``normalization.image_type`` must equal it
+    (normalization brick decision N34).
+
+    Parameters
+    ----------
+    plane_histograms
+        Path of ``plane_histograms.csv``; its manifest is the one next to it
+        unless ``manifest`` is given.
+    manifest
+        Path of the ``run_manifest.json``, or None to look next to the table.
+
+    Returns
+    -------
+    str or None
+        ``"fluorescence"`` or ``"rgb"``; None without a manifest or when the
+        manifest records no image type (written before the preprocessing brick
+        asked for it), so the configuration decides.
+
+    Raises
+    ------
+    PreprocessingUnavailableError
+        If the ``preprocessing`` extra is not installed.
+    FileNotFoundError
+        If an explicitly given manifest does not exist.
+    PreprocessingCheckError
+        If the manifest cannot be read or has an unsupported version.
+    """
+    mbp = require_preprocessing()
+    csv_path = Path(plane_histograms).expanduser()
+    manifest_path = _manifest_path(csv_path, manifest, mbp.MANIFEST_FILENAME)
+    if manifest_path is None:
+        return None
+    return getattr(_read_manifest(mbp, manifest_path), "image_type", None)
+
+
 def _manifest_path(csv_path: Path, manifest, default_name: str) -> Path | None:
     if manifest is not None:
         path = Path(manifest).expanduser()
