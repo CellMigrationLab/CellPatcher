@@ -25,7 +25,10 @@ before.
 
 In the CellPatcher notebook, normalization is the **Normalization (optional)** section of
 step 4; **Show parameters per group** lists the parameters before you run, and the preview in
-step 5 shows a few patches before and after normalization with their histograms.
+step 5 shows a few patches before and after normalization with their histograms. The
+**Pool conditions** choice appears only for the biological-repeat scope. **Image type** is taken
+from the preprocessing manifest, and locked, when the manifest records one; otherwise you choose
+it. For RGB only the percentile method is offered.
 
 In Python:
 

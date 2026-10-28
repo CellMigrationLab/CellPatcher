@@ -483,6 +483,12 @@ from GitHub at a pinned version) **[D1]**.
   preprocessing manifest that records an image type, `normalization.image_type` must be the
   same; otherwise the configuration decides (N34). An RGB patch without spread becomes zeros
   and is kept.
+- **Follow-up C4 — Notebook:** *Done (October 2026).* The normalization step offers the three
+  scopes, explains that `biological_repeat` keeps the differences between conditions and
+  removes those between repeats, and shows the pooling choice (`"pixels"` or `"conditions"`)
+  only for that scope. The image type comes from the preprocessing manifest when it records
+  one (read with `cellpatcher.statistics.recorded_image_type`, and locked); otherwise the user
+  chooses it. RGB offers only the percentile method and refuses split channels.
 - **Later:** reading only patch windows for planes too large to hold in memory (the
   preprocessing brick now computes statistics for those planes in blocks, but patching still
   needs the whole plane); reading the preprocessing OME-Zarr copies; reference parameters
