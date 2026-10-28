@@ -341,7 +341,9 @@ yet called by the pipeline. Milestone 2 adds plane splitting
 (`common.z_policy`/`t_policy`), OME-Zarr images and OME-NGFF label masks
 (`common.mask_source`) (see "Inputs" above). Milestone 3 adds
 `config.normalization` (`cellpatcher.normalization`): the pipeline normalizes
-patches per channel at a condition, repeat, image or patch scope, and records
+patches per channel at a biological-repeat (across conditions, from the
+preprocessing brick's `experiment_design.csv`), image or patch scope
+(follow-up C2 removed the condition and technical-repeat scopes), and records
 the parameters in six `normalization_*` columns after `source_relative_path`
 and in `run_config.json` (`normalization` section, `normalization_inputs`).
 Until each later part is merged, the inputs and
@@ -359,9 +361,10 @@ outputs above are the whole interface. In summary:
   `Normalization_Offset_C<i>`/`Normalization_Scale_C<i>` pair per channel
   (CellPatcher follow-up C1, normalization brick N41/N42; in memory
   `PatchRegion.normalization_parameters`, the brick's `Parameters`) — plus a
-  `normalization` config section, a `normalization_inputs` object and, for
-  the image and patch scopes, `normalization_settings` (the brick's
-  `NormalizationSettings.to_dict()`) in `run_config.json`.
+  `normalization` config section, a `normalization_inputs` object (with the
+  experiment design's name and SHA-256 at the `biological_repeat` scope) and
+  `normalization_settings` (the brick's `NormalizationSettings.to_dict()`) in
+  `run_config.json`.
 - **Reuse:** histograms, pooling, fitting (`fit`, `Parameters.apply`,
   `to_columns`/`from_columns`) and settings are imported
   from `morphobricks_normalization` (`normalization.clip` stays in

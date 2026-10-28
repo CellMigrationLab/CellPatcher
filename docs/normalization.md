@@ -73,14 +73,20 @@ channels never share parameters.
 | `scope` | Parameters from | Typical use |
 |---|---|---|
 | `"image"` (default) | All Z and T planes of the patch's source image | Correct per-image differences (exposure, illumination) |
-| `"technical_repeat"` | All images of the same well or dish | Correct per-well differences |
-| `"biological_repeat"` | All images of the same biological repeat (day) | Correct day-to-day differences |
-| `"condition"` | All images of the same condition | Rarely: removes differences between conditions |
+| `"biological_repeat"` | One biological repeat in every condition, all its wells or dishes together | Correct day-to-day differences while keeping the differences between conditions |
 | `"patch"` | The patch's own pixels | Cell-level normalization; no preprocessing table needed |
 
-- **Per-condition and per-repeat scopes remove real differences**: every group ends up on the
-  same intensity scale. Use them only when the differences between those groups are technical.
-- **Background:** the condition, repeat and image scopes use whole planes, so in sparse images
+- **`biological_repeat` keeps the differences between conditions and removes the differences
+  between repeats.** The repeats are paired across conditions in the preprocessing brick's
+  step 1 (`experiment_design.csv`, next to `plane_histograms.csv` or given in
+  `experiment_design`), where you also confirm that each repeat was prepared and acquired
+  under the same circumstances; without that confirmation the run stops before reading any
+  image. `pooling="conditions"` weighs every condition of a repeat equally instead of every
+  pixel (`"pixels"`, the default).
+- The former `"condition"` and `"technical_repeat"` scopes were removed (October 2026): they
+  put conditions, or wells, on the same scale and so removed real differences. Patches
+  exported with them still load.
+- **Background:** the repeat and image scopes use whole planes, so in sparse images
   the parameters describe the background more than the cells. For parameters from the cells
   only, use `scope="patch"` with `patch_region="mask"`.
 - **Time series:** `per_time_point=True` gives every time point its own parameters (for
@@ -112,7 +118,7 @@ undone:
 |---|---|
 | `normalization_method` | e.g. `percentile 1-99.8`, `min-max`, `z-score`, `robust z-score` |
 | `normalization_scope` | the scope used |
-| `normalization_group` | e.g. `control`, `control/2026_01_01`, `control/2026_01_01/a.tif`, or `<image>::<patch_id>` for the patch scope (`::t=<t>` with `per_time_point`) |
+| `normalization_group` | the repeat group (e.g. `2026_01_01`), the image (e.g. `control/2026_01_01/a.tif`), or `<image>::<patch_id>` for the patch scope (`::t=<t>` with `per_time_point`) |
 | `normalization_exact` | `true` for exact parameters (8- and 16-bit images), `false` for histogram approximations (float images) |
 | `Normalization_Offset_C<i>`, `Normalization_Scale_C<i>` | the offset and scale of channel `i`, one pair per channel; a split-channel patch fills only its own channel's pair |
 
@@ -156,8 +162,8 @@ planes and what to do:
 | *... needs the optional 'preprocessing' extra* | `pip install "cellpatcher[preprocessing]"`. |
 
 Warnings (the run continues): parameters that are approximations, background in group
-statistics, per-condition or per-repeat scopes, and patches discarded for having no intensity
-spread.
+statistics, the `biological_repeat` scope (what it keeps and removes), repeat groups without
+images from some condition, and patches discarded for having no intensity spread.
 
 The exact rules are in the [normalization contract](normalization_contract.md); the reasons
 behind them are in the [plan](plan.md).

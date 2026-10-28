@@ -4,6 +4,35 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased] - BREAKING: three normalization scopes (follow-up C2)
+
+### Changed (breaking)
+- **Scopes.** `normalization.scope` is `"biological_repeat"`, `"image"` (default) or `"patch"`
+  (normalization brick decisions N29, N30). `"condition"` and `"technical_repeat"` are refused,
+  with a message naming the three scopes; raw patches exported with them still normalize on
+  load.
+- **`biological_repeat`** now pools one repeat group across all conditions, technical repeats
+  merged, as paired in the preprocessing brick's `experiment_design.csv`, instead of one group
+  per condition and repeat. It keeps the differences between conditions and removes those
+  between repeats. `normalization_group` is the repeat group label (was
+  `<condition>/<biological_repeat>`).
+
+  | Images | Old groups | New group |
+  |---|---|---|
+  | `control/2026_01_01/*`, `treated/2026_01_01/*` | `control/2026_01_01`, `treated/2026_01_01` | `2026_01_01` |
+
+### Added
+- `normalization.experiment_design` (path of `experiment_design.csv`; default: next to
+  `plane_histograms.csv`). With `biological_repeat`, a missing file, an unconfirmed repeat
+  group, a file changed since preprocessing or an image not in the file stops the run before
+  any image is read.
+- `normalization.pooling`: `"pixels"` (default) or `"conditions"` (each condition weighs the
+  same), for `biological_repeat` (N32).
+- `run_config.json`: `experiment_design_file` and `experiment_design_sha256` in
+  `normalization_inputs`, and `normalization_settings` for every scope.
+- The normalization brick's warnings: what the `biological_repeat` scope keeps and removes,
+  and repeat groups without images from some condition.
+
 ## [Unreleased] - BREAKING: per-channel normalization columns (follow-up C1)
 
 ### Changed (breaking)

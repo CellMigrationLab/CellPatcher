@@ -259,6 +259,17 @@ def _row_patch(row: Mapping):
 
 
 def _run_config(data: Mapping):
+    """The config of a ``run_config.json``, for the axes of its patches.
+
+    A run normalized at a scope removed since (``condition``,
+    ``technical_repeat``; normalization brick N29) still loads here: its
+    parameters are in ``patches.csv``, and only the patch axes are needed.
+    """
+    from cellpatcher.config import REMOVED_NORMALIZATION_SCOPES
     from cellpatcher.orchestration import _config_from_dict
 
-    return _config_from_dict(dict(data))
+    data = dict(data)
+    normalization = data.get("normalization")
+    if isinstance(normalization, Mapping) and normalization.get("scope") in REMOVED_NORMALIZATION_SCOPES:
+        data["normalization"] = {**normalization, "scope": "image"}
+    return _config_from_dict(data)
