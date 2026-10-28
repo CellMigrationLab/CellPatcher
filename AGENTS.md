@@ -21,7 +21,7 @@
 
 Key dependencies: `numpy`, `scipy`, `tifffile`, `imageio` (core, required). Optional extras: `ipywidgets`, `matplotlib`, `pillow`, `tqdm`, `joblib`, `jl-hidecode` (notebook extra); `torch` (optional `cellpatcher.torch_dataset` adapter only — never a core dependency); `morphobricks-preprocessing[zarr]` from GitHub at a pinned tag, which brings `morphobricks-normalization` (no separate pin; MorphoFeature decision D79) (`preprocessing` extra, for `cellpatcher.statistics` and normalization — never a core dependency; histograms, the plane table, plane IDs, pooling and normalization parameters are imported from `morphobricks_normalization`, not from their deprecated preprocessing paths).
 
-Current health snapshot (2026-10-28, after reading `plane_histograms.csv` schema version 4 with preprocessing `v0.3.0`): 728 tests passing on Python 3.12 (Windows) with `torch` installed, plus `test_torch_dataset.py::test_exported_patch_torch_dataset_filename_column_and_relative_path`, which fails on Windows only (it compares a `/` path with a `\` one). Earlier (schema version 3, preprocessing `v0.2.0`): 717 passing on Python 3.11 with `torch`. Earlier (2026-10-26): 685 passing, 4 skipped, on Python 3.11 and 3.13.
+Current health snapshot (2026-10-29, after the normalization follow-ups C1–C5): 764 tests passing on Python 3.12 (Windows) with `torch` installed. Earlier (2026-10-28, schema version 4 with preprocessing `v0.3.0`): 728 passing, plus `test_torch_dataset.py::test_exported_patch_torch_dataset_filename_column_and_relative_path`, which failed on Windows only (it compared a `/` path with a `\` one; fixed on 2026-10-29). Earlier (schema version 3, preprocessing `v0.2.0`): 717 passing on Python 3.11 with `torch`. Earlier (2026-10-26): 685 passing, 4 skipped, on Python 3.11 and 3.13.
 
 ---
 
@@ -327,37 +327,40 @@ Two ways to point CellPatcher at input data:
   (an early starting point, expected to change), and in future by other
   MorphoBricks feature-extraction repos.
 
-### Planned: normalization with the preprocessing brick
+### Normalization with the preprocessing brick
 
-**Status: implemented (Milestones 1–5; user guide `docs/normalization.md`).** The rules are fixed in
-`docs/normalization_contract.md` (decisions in `docs/plan.md`) and land over
-Milestones 1–5. Implemented so far (Milestone 1): the optional
-`preprocessing` extra (pinned commit in `setup.py`), the
-`source_relative_path` `PatchRegion` field/`patches.csv` column (last
-column; filled by folder and tree runs from each image's path under the
-root, a linked image or folder keeping the link's path as in the brick), and `cellpatcher.statistics`, which loads `plane_histograms.csv` and
-the optional `run_manifest.json` and runs the checks of contract §5 — not
-yet called by the pipeline. Milestone 2 adds plane splitting
-(`common.z_policy`/`t_policy`), OME-Zarr images and OME-NGFF label masks
-(`common.mask_source`) (see "Inputs" above). Milestone 3 adds
-`config.normalization` (`cellpatcher.normalization`): the pipeline normalizes
-patches per channel at a biological-repeat (across conditions, from the
-preprocessing brick's `experiment_design.csv`), image or patch scope
-(follow-up C2 removed the condition and technical-repeat scopes; follow-up C3
-added `normalization.image_type="rgb"`, R, G and B sharing one offset and
-scale; follow-up C4 offers the pooling choice and the image type, taken from
-the manifest by `statistics.recorded_image_type`, in the notebook; follow-up
-C5 lets `extraction.split_channels` list the channels to patch), and records
-the parameters in six `normalization_*` columns after `source_relative_path`
-and in `run_config.json` (`normalization` section, `normalization_inputs`).
-Until each later part is merged, the inputs and
-outputs above are the whole interface. In summary:
+**Status: implemented** (Milestones 1–5 and the normalization brick's
+CellPatcher follow-ups C1–C5, all merged by 2026-10-29; user guide
+`docs/normalization.md`). The rules are in `docs/normalization_contract.md`,
+the decisions in `docs/plan.md`. With the optional `preprocessing` extra
+(pinned tag in `setup.py`), CellPatcher:
+
+- fills the `source_relative_path` `PatchRegion` field/`patches.csv` column
+  in folder and tree runs from each image's path under the root (a linked
+  image or folder keeps the link's path, as in the brick);
+- loads `plane_histograms.csv` and the optional `run_manifest.json`
+  (`cellpatcher.statistics`) and runs the checks of contract §5;
+- splits Z/T stacks into planes (`common.z_policy`/`t_policy`) and reads
+  OME-Zarr images and OME-NGFF label masks (`common.mask_source`) (see
+  "Inputs" above);
+- normalizes patches (`config.normalization`, `cellpatcher.normalization`)
+  at the biological-repeat scope (across conditions, from the preprocessing
+  brick's `experiment_design.csv`, pooled by `"pixels"` or `"conditions"`),
+  the image scope or the patch scope (follow-up C2 removed the condition and
+  technical-repeat scopes); per channel for `image_type="fluorescence"`, or
+  with R, G and B sharing one offset and scale for `image_type="rgb"`
+  (follow-up C3), which must equal the manifest's image type when it records
+  one;
+- lets `extraction.split_channels` list the channels to patch (follow-up
+  C5).
+
+The notebook offers all of these, with the image type taken from the
+manifest by `statistics.recorded_image_type` (follow-up C4). In summary:
 
 - **Inputs:** with the optional `preprocessing` extra, CellPatcher reads
   `plane_histograms.csv` from
   [morphobricks-preprocessing](https://github.com/CellMigrationLab/morphobricks-preprocessing)
-  (needed for the condition, biological-repeat, technical-repeat and image
-  scopes) and, optionally, its `run_manifest.json` for extra checks. It still
+(needed for the biological-repeat and image scopes) and, optionally, its `run_manifest.json` for extra checks. It still
   discovers images with its own folder rules. OME-Zarr images and their
   OME-NGFF `labels/` masks become readable.
 - **Outputs:** optional columns appended to `patches.csv` —
