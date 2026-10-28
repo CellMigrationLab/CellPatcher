@@ -19,6 +19,7 @@ from cellpatcher.pipeline import run_patching
 from cellpatcher.types import IMAGE_TABLE_COLUMNS, ImageRecord, PatchRegion
 
 from tests.helpers import make_synthetic_cell_image_and_labels
+from tests.helpers import named
 
 # image_id tells images apart in an in-memory run, which has no file names.
 IDENTITY = ("condition", "biological_repeat", "technical_repeat", "image_id", "image_file")
@@ -92,7 +93,7 @@ def test_folder_run_lists_images_with_and_without_patches(tmp_path):
         "image_id": "image_0000", "image_file": "a.tif", "mask_file": "a_mask.tif",
         "source_relative_path": "a.tif", "image_height": "96", "image_width": "128",
         "n_patches": "4", "status": "processed", "reason": "",
-        "position_id": "", "n_regions": "4", "n_kept": "4", "n_normalized": "4",
+        "position_id": "treated/2026_01_01/single/a", "n_regions": "4", "n_kept": "4", "n_normalized": "4",
     }
     # The image whose mask holds no cell is listed, not dropped.
     assert by_file["b.tif"]["n_patches"] == "0"
@@ -136,7 +137,7 @@ def test_filters_that_remove_every_region_are_the_reason(tmp_path):
         export=ExportConfig(enabled=True, image_format="npy"),
     )
     config.filters.min_mean_intensity = 50
-    result = run_patching(images=[bright, dark], config=config)
+    result = run_patching(images=[bright, dark], config=config, image_metadata=named([bright, dark]))
 
     _, image_rows = _assert_tables_join(tmp_path)
     assert [(row["image_id"], row["n_patches"], row["status"]) for row in image_rows] == [
@@ -159,13 +160,13 @@ def test_split_channels_count_one_row_per_channel_patch(tmp_path):
         export=ExportConfig(enabled=True, image_format="npy"),
     )
     config.extraction.split_channels = True
-    run_patching(images=[np.ones((3, 32, 16), np.uint8)], config=config)
+    run_patching(images=[np.ones((3, 32, 16), np.uint8)], config=config, image_metadata=[{"image_file": "img.tif"}])
 
     patch_rows, image_rows = _assert_tables_join(tmp_path)
     assert len(patch_rows) == 6
     assert [(row["n_patches"], row["image_height"], row["image_width"]) for row in image_rows] == [("6", "32", "16")]
     # Regions are counted before the split, patches after it.
-    assert (image_rows[0]["n_regions"], image_rows[0]["position_id"]) == ("2", "single/single/single/image_0000")
+    assert (image_rows[0]["n_regions"], image_rows[0]["position_id"]) == ("2", "single/single/single/img")
 
 
 def test_the_supplied_position_id_is_listed_also_for_images_without_patches(tmp_path):
@@ -177,16 +178,20 @@ def test_the_supplied_position_id_is_listed_also_for_images_without_patches(tmp_
     )
     config.filters.min_mean_intensity = 50
     images = [np.full((32, 32), 100, np.uint16), np.zeros((32, 32), np.uint16), np.zeros((32, 32), np.uint16)]
-    metadata = [{"position_id": "P1"}, {"position_id": "P2"}, {}]
+    metadata = [{"position_id": "P1"}, {"position_id": "P2"}, {"image_file": "c.tif"}]
     result = run_patching(images=images, config=config, image_metadata=metadata)
 
     patch_rows, image_rows = _assert_tables_join(tmp_path)
     assert {row["position_id"] for row in patch_rows} == {"P1"}
-    # Without split_channels, a position that was not supplied is not guessed.
+    # Supplied, or from the file name (one file is one position), also without patches.
     assert [(row["position_id"], row["status"]) for row in image_rows] == [
-        ("P1", "processed"), ("P2", "no_patches"), ("", "no_patches"),
+        ("P1", "processed"), ("P2", "no_patches"), ("single/single/single/c", "no_patches"),
     ]
-    assert [record.position_id for record in result.image_records] == ["P1", "P2", None]
+    assert [record.position_id for record in result.image_records] == ["P1", "P2", "single/single/single/c"]
+
+    # An in-memory image with neither is refused, not named by its place in the run.
+    with pytest.raises(ValueError, match="Image 2 of the run has neither a position_id nor an image_file"):
+        run_patching(images=images, config=config, image_metadata=[*metadata[:2], {}])
 
 
 def test_an_image_without_planes_is_skipped_with_a_reason(tmp_path):
@@ -198,7 +203,7 @@ def test_an_image_without_planes_is_skipped_with_a_reason(tmp_path):
     )
     stack = np.ones((2, 32, 32), np.uint8)
     empty = np.ones((0, 32, 32), np.uint8)
-    result = run_patching(images=[stack, empty], config=config)
+    result = run_patching(images=[stack, empty], config=config, image_metadata=named([stack, empty]))
 
     _, image_rows = _assert_tables_join(tmp_path)
     assert [(row["image_id"], row["n_patches"], row["status"]) for row in image_rows] == [
@@ -220,7 +225,8 @@ def test_no_table_without_the_metadata_csv(tmp_path):
         grid=GridConfig(tile_size=16),
         export=ExportConfig(enabled=True, image_format="npy", save_metadata_csv=False),
     )
-    result = run_patching(images=[np.ones((32, 32), np.uint8)], config=config)
+    result = run_patching(images=[np.ones((32, 32), np.uint8)], config=config,
+        image_metadata=named([np.ones((32, 32), np.uint8)]))
     assert not (tmp_path / IMAGE_TABLE_FILENAME).exists() and not (tmp_path / "patches.csv").exists()
     assert result.image_table_file is None
     # The records are still returned in memory.
@@ -229,7 +235,8 @@ def test_no_table_without_the_metadata_csv(tmp_path):
 
 def test_in_memory_run_returns_records_without_writing_files(tmp_path):
     config = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=16))
-    result = run_patching(images=[np.ones((32, 32), np.uint8), np.ones((8, 8), np.uint8)], config=config)
+    result = run_patching(images=[np.ones((32, 32), np.uint8), np.ones((8, 8), np.uint8)], config=config,
+        image_metadata=named([np.ones((32, 32), np.uint8), np.ones((8, 8), np.uint8)]))
     assert [(r.image_id, r.n_patches, r.status) for r in result.image_records] == [
         ("image_0000", 4, "processed"), ("image_0001", 0, "no_patches"),
     ]
@@ -356,7 +363,7 @@ def test_an_image_whose_patches_are_all_discarded_by_normalization(tmp_path):
     )
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        run_patching(images=[varied, constant], config=config)
+        run_patching(images=[varied, constant], config=config, image_metadata=named([varied, constant]))
 
     _, image_rows = _assert_tables_join(tmp_path)
     assert [(row["n_patches"], row["status"]) for row in image_rows] == [("4", "processed"), ("0", "no_patches")]

@@ -14,6 +14,7 @@ from cellpatcher.io import write_array
 from cellpatcher.orchestration import run_patching_condition_repeat_tree, run_patching_pipeline
 from cellpatcher.pipeline import run_patching
 from cellpatcher.types import PatchRegion
+from tests.helpers import named
 
 # patches.csv header before source_relative_path was added; existing columns
 # must keep these names and this order.
@@ -113,7 +114,7 @@ def test_combined_tree_csv_records_the_column(tmp_path):
 
 def test_run_patching_takes_it_from_image_metadata():
     images = [np.ones((16, 16), dtype=np.float32)] * 2
-    metadata = [{"source_relative_path": "control/a.tif"}, {}]
+    metadata = [{"source_relative_path": "control/a.tif", "position_id": "P1"}, {"position_id": "P2"}]
 
     result = run_patching(images=images, config=_grid_config(), image_metadata=metadata)
     paths = {patch.image_id: patch.source_relative_path for patch in result.patches}
@@ -121,7 +122,8 @@ def test_run_patching_takes_it_from_image_metadata():
 
 
 def test_run_patching_without_metadata_leaves_it_empty():
-    result = run_patching(images=[np.ones((16, 16), dtype=np.float32)], config=_grid_config())
+    result = run_patching(images=[np.ones((16, 16), dtype=np.float32)], config=_grid_config(),
+        image_metadata=named([np.ones((16, 16), dtype=np.float32)]))
     assert all(patch.source_relative_path is None for patch in result.patches)
 
 

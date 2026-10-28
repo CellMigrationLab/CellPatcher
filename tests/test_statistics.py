@@ -316,8 +316,27 @@ def test_check_planes_links_every_z_plane_to_its_row(stack_experiment):
 
     records = check_planes(statistics, _stack_planes(root))
     assert [record.plane_id for record in records] == [
-        f"{path}::z={z},c=0,t=0" for path in STACK_IMAGES for z in range(Z_PLANES)
+        f"{path}::z={z},t=0" for path in STACK_IMAGES for z in range(Z_PLANES)
     ]
+    # Each match is one channel of its row (schema version 3: a row holds every channel).
+    assert {record.c for record in records} == {0}
+    assert records[0].histogram is records[0].record.channel_histogram(0)
+
+
+@needs_preprocessing
+def test_a_channel_the_row_does_not_have_is_a_missing_row(stack_experiment):
+    import morphobricks_normalization as mbn
+
+    root, output = stack_experiment
+    statistics = load_plane_statistics(output / mbn.OUTPUT_FILENAME)
+    path = STACK_IMAGES[0]
+    pixels = _read_stack(root, path)[0]
+    plane = SourcePlane(path, *STACK_LABELS[path], z=0, c=1, axis_lengths=None)
+    assert statistics.find_record(plane) is None
+    with pytest.raises(PreprocessingCheckError) as error_info:
+        check_planes(statistics, [(plane, pixels)])
+    issue = error_info.value.issues[0]
+    assert (issue.code, issue.paths) == ("missing_plane_rows", (f"{path}::z=0,t=0 c=1",))
 
 
 @needs_preprocessing
@@ -334,7 +353,7 @@ def test_check_planes_detects_changed_pixels_without_a_manifest(stack_experiment
     with pytest.raises(PreprocessingCheckError, match="the images changed") as error_info:
         check_planes(statistics, [(plane, stack[1])])
     (issue,) = error_info.value.issues
-    assert (issue.code, issue.paths) == ("pixel_values_changed", (f"{path}::z=1,c=0,t=0",))
+    assert (issue.code, issue.paths) == ("pixel_values_changed", (f"{path}::z=1,t=0 c=0",))
 
 
 @needs_preprocessing
@@ -357,9 +376,9 @@ def test_check_planes_compares_dtype_size_and_labels(stack_experiment):
         ])
     issues = {issue.code: issue.paths for issue in error_info.value.issues}
     assert issues == {
-        "label_mismatch": (f"{path}::z=2,c=0,t=0 (CellPatcher treated/single/single, table control/single/single)",),
-        "dtype_mismatch": (f"{path}::z=0,c=0,t=0 (CellPatcher float32, table uint16)",),
-        "pixel_count_mismatch": (f"{path}::z=1,c=0,t=0 (CellPatcher 240 pixels, table 480)",),
+        "label_mismatch": (f"{path}::z=2,t=0 c=0 (CellPatcher treated/single/single, table control/single/single)",),
+        "dtype_mismatch": (f"{path}::z=0,t=0 c=0 (CellPatcher float32, table uint16)",),
+        "pixel_count_mismatch": (f"{path}::z=1,t=0 c=0 (CellPatcher 240 pixels, table 480)",),
     }
 
 
@@ -383,13 +402,15 @@ def test_check_planes_reports_planes_without_rows(stack_experiment):
 
 
 @needs_preprocessing
-def test_plane_id_always_has_all_three_coordinates():
-    # Absent or length-1 axes are coordinate 0, given as None or 0.
-    assert SourcePlane("a.tif", "c", "b", "t").plane_id == "a.tif::z=0,c=0,t=0"
-    assert SourcePlane("a.tif", "c", "b", "t", z=0, axis_lengths={"Z": 1}).plane_id == "a.tif::z=0,c=0,t=0"
+def test_plane_id_always_has_z_and_t():
+    # Absent or length-1 axes are coordinate 0, given as None or 0. The row (schema
+    # version 3) is the XYC plane, so its plane_id has no channel; the name has it.
+    assert SourcePlane("a.tif", "c", "b", "t").plane_id == "a.tif::z=0,t=0"
+    assert SourcePlane("a.tif", "c", "b", "t", z=0, axis_lengths={"Z": 1}).plane_id == "a.tif::z=0,t=0"
 
     stack_plane = SourcePlane("a.tif", "c", "b", "t", z=2, c=1, axis_lengths={"Z": 3, "C": 2})
-    assert stack_plane.plane_id == "a.tif::z=2,c=1,t=0"
+    assert stack_plane.plane_id == "a.tif::z=2,t=0"
+    assert stack_plane.name == "a.tif::z=2,t=0 c=1"
 
 
 def test_source_plane_reads_missing_labels_as_single():
@@ -421,7 +442,7 @@ def test_two_dimensional_images_match_with_or_without_a_z_axis(tmp_path):
     as_2d = SourcePlane("control/a.tif", "control", "single", "single")
     with_z = SourcePlane("control/a.tif", "control", "single", "single", z=0, axis_lengths={"Z": 1})
     records = check_planes(statistics, [(as_2d, image), (with_z, image)])
-    assert [record.plane_id for record in records] == ["control/a.tif::z=0,c=0,t=0"] * 2
+    assert [record.plane_id for record in records] == ["control/a.tif::z=0,t=0"] * 2
 
 
 # ---------------------------------------------------------------------------
@@ -460,4 +481,4 @@ def test_cellpatcher_patches_link_to_the_preprocessing_rows(tmp_path):
         assert (record.condition, record.biological_repeat, record.technical_repeat) == (
             patch.condition, patch.biological_repeat, patch.technical_repeat,
         )
-    assert {record.plane_id for record in records} == {f"{path}::z=0,c=0,t=0" for path in paths}
+    assert {record.plane_id for record in records} == {f"{path}::z=0,t=0" for path in paths}

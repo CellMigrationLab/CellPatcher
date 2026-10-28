@@ -14,7 +14,12 @@ CellPatcher helps you turn microscopy images into reproducible patch datasets wi
 - Generates patch regions (`PatchRegion`) for `cell`, `random`, `grid`, and `whole_fov` modes.
 - Optionally filters regions, extracts arrays, resizes outputs, and exports patch files.
 - Optionally clears pixels outside the selected segmented object in cell mode (`apply_mask=True`).
-- Writes patch metadata (CSV) alongside exported patch files when enabled.
+- Writes patch metadata (CSV) alongside exported patch files when enabled. Every patch has a run-independent
+  `patch_id` built from its position, object set, planes and label or rectangle, and a `position_id`
+  (see "Patch identity" in `docs/configuration_reference.md`). In-memory images given to `run_patching` need
+  `image_metadata=[{"position_id": ...}]` (or an `image_file`); unnamed images are refused.
+- Cell-mode masks are instance labels used as given; boolean masks are refused unless you opt in to
+  connected-component labelling (`CellConfig.binary_mask_policy="connected_components"`).
 - Reads TIFF and OME-Zarr images, patches Z-stacks and time series plane by plane, and optionally normalizes
   patches with the MorphoBricks preprocessing statistics (`config.normalization`, see `docs/normalization.md`).
 

@@ -40,14 +40,26 @@ def test_area_filtering():
 
 
 def test_binary_connected_components():
+    labels = np.zeros((6, 6), dtype=bool)
+    labels[1, 1] = True
+    labels[4, 4] = True
+
+    with pytest.warns(UserWarning, match="connected components"):
+        records = scan_cell_objects(
+            image_shape=(6, 6),
+            labels=labels,
+            config=CellConfig(exclude_border=False, binary_mask_policy="connected_components"),
+        )
+    assert len(records) == 2
+
+
+def test_integer_one_valued_mask_is_one_object_as_in_patching():
     labels = np.zeros((6, 6), dtype=np.uint8)
     labels[1, 1] = 1
     labels[4, 4] = 1
 
-    records = scan_cell_objects(
-        image_shape=(6, 6), labels=labels, config=CellConfig(exclude_border=False, binary_mask_policy="connected_components")
-    )
-    assert len(records) == 2
+    records = scan_cell_objects(image_shape=(6, 6), labels=labels, config=CellConfig(exclude_border=False))
+    assert [r.label_id for r in records] == [1]
 
 
 def test_non_contiguous_labels_preserved():
@@ -60,11 +72,18 @@ def test_non_contiguous_labels_preserved():
     assert [r.label_id for r in records] == [1, 5, 42]
 
 
-def test_float_binary_labels_accepted():
+def test_float_binary_labels_need_the_connected_components_opt_in():
     labels = np.zeros((5, 5), dtype=np.float32)
     labels[2:4, 2:4] = 1.0
 
-    records = scan_cell_objects(image_shape=(5, 5), labels=labels, config=CellConfig(exclude_border=False))
+    with pytest.raises(ValueError, match="binary"):
+        scan_cell_objects(image_shape=(5, 5), labels=labels, config=CellConfig(exclude_border=False))
+    with pytest.warns(UserWarning, match="connected components"):
+        records = scan_cell_objects(
+            image_shape=(5, 5),
+            labels=labels,
+            config=CellConfig(exclude_border=False, binary_mask_policy="connected_components"),
+        )
     assert len(records) == 1
     assert records[0].included is True
 

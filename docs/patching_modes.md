@@ -27,10 +27,10 @@ Treat this as explicit plane-by-plane preprocessing, **not** true volumetric 3D 
 
 ## Cell mode
 
-Cell mode creates one patch per segmented object/cell. It accepts either:
-
-- **labeled masks** (each nonzero label is a separate object), or
-- **binary masks** (foreground/background), interpreted according to `binary_mask_policy`.
+Cell mode creates one patch per segmented object/cell. Masks are **instance labels**: each non-zero
+integer value is one object, used as given (a 0/1 or 0/255 integer mask is one object). A **boolean** mask has
+no object ids and is refused, unless `binary_mask_policy="connected_components"` explicitly opts in to labelling
+its connected components (with a warning). Labels above the int32 maximum are refused.
 
 Key parameters to know:
 
@@ -56,7 +56,7 @@ Notes:
 Common pitfalls:
 
 - Wrong `image_axes` / `mask_axes`.
-- Expecting binary masks to preserve original instance IDs.
+- Passing a boolean mask: convert it to integer labels, or opt in to `binary_mask_policy="connected_components"` (whose computed labels are not the mask's values).
 - Picking a global patch size without scanning first.
 - Expecting border-touching objects when `exclude_border=True` (default): it skips objects whose *bounding boxes* touch the image border, not patches.
 
@@ -66,7 +66,9 @@ Common pitfalls:
 
 ## Random mode
 
-Random mode creates fixed-size random patches, with optional seeded reproducibility.
+Random mode creates fixed-size random patches, with optional seeded reproducibility. With a seed, each image (plane) is
+sampled from a seed derived from `random.seed` and its `position_id`/`t`/`z`/`c`, so its rectangles do not depend on
+which other files are in the run.
 
 - Optional `masks` can restrict sampling to allowed regions.
 - Sampling is **with replacement**, so duplicate regions are possible.

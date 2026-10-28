@@ -18,6 +18,7 @@ from cellpatcher.config import CellPatcherConfig, GridConfig, NormalizationConfi
 from cellpatcher.orchestration import load_config, run_patching_condition_repeat_tree, run_patching_pipeline
 from cellpatcher.pipeline import RUN_CONFIG_FILENAME, run_patching
 from cellpatcher.statistics import PreprocessingCheckError
+from tests.helpers import named
 
 pytestmark = [
     pytest.mark.skipif(
@@ -131,6 +132,11 @@ def test_config_defaults_and_validation():
         NormalizationConfig(patch_region="cell")
     with pytest.raises(ValueError, match="0 <= low < high <= 100"):
         NormalizationConfig(percentile=(99.0, 1.0))
+    assert settings.clip is None
+    assert NormalizationConfig(clip=[0, 1]).clip == (0.0, 1.0)  # as after a JSON round trip
+    for bad in ((1.0, 0.0), (0.0, float("inf")), ("low", 1.0), (0.0,)):
+        with pytest.raises(ValueError, match="normalization.clip must"):
+            NormalizationConfig(clip=bad)
 
 
 def test_a_run_config_without_normalization_loads_as_off(tmp_path):
@@ -141,11 +147,13 @@ def test_a_run_config_without_normalization_loads_as_off(tmp_path):
 
 def test_csv_scopes_need_the_table_and_regions_need_cell_mode():
     with pytest.raises(ValueError, match="needs the plane_histograms.csv"):
-        run_patching(images=np.ones((16, 16), np.uint8), config=_config(None, image_axes="YX"))
+        run_patching(images=np.ones((16, 16), np.uint8), config=_config(None, image_axes="YX"),
+            image_metadata=named(np.ones((16, 16), np.uint8)))
     with pytest.raises(ValueError, match="only mode='cell' has"):
         run_patching(
             images=np.ones((16, 16), np.uint8),
             config=_config(None, image_axes="YX", scope="patch", patch_region="mask"),
+                image_metadata=named(np.ones((16, 16), np.uint8)),
         )
 
 
@@ -182,7 +190,7 @@ def test_image_scope_pools_every_z_plane_of_the_image_per_channel(experiment, tm
     saved = json.loads((tmp_path / "out" / RUN_CONFIG_FILENAME).read_text(encoding="utf-8"))
     assert saved["normalization"]["scope"] == "image"
     inputs = saved["normalization_inputs"]
-    assert (inputs["schema_version"], inputs["manifest_used"], inputs["manifest_version"]) == ("2", True, "1")
+    assert (inputs["schema_version"], inputs["manifest_used"], inputs["manifest_version"]) == ("3", True, "1")
     assert len(inputs["plane_histograms_sha256"]) == 64
     assert load_config(tmp_path / "out" / RUN_CONFIG_FILENAME).normalization == config.normalization
 
@@ -269,7 +277,7 @@ def test_patch_regions_use_exactly_their_pixels(region, patch_size):
     config.common.mask_axes = "YX"
     config.cell.patch_size, config.cell.exclude_border = patch_size, False
 
-    (patch,) = run_patching(images=image, masks=labels, config=config).patches
+    (patch,) = run_patching(images=image, masks=labels, config=config, image_metadata=named(image)).patches
     rows, cols = slice(max(patch.y0, 0), patch.y1), slice(max(patch.x0, 0), patch.x1)
     if region == "mask":
         pixels = image[rows, cols][labels[rows, cols] == 1]
@@ -305,7 +313,7 @@ def test_patches_without_spread_are_discarded_and_reported(tmp_path):
 
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        result = run_patching(images=image, config=config)
+        result = run_patching(images=image, config=config, image_metadata=named(image))
     assert [(p.y0, p.x0) for p in result.patches] == [(0, 0), (0, 8)]
     assert len(result.patch_arrays) == len(result.exported_files) == 2
     (report,) = [w for w in caught if "discarded" in str(w.message)]
@@ -318,7 +326,8 @@ def test_patches_without_spread_are_discarded_and_reported(tmp_path):
 def test_patches_without_finite_pixels_are_discarded_too():
     image = np.arange(256, dtype=np.float32).reshape(16, 16)
     image[8:, 8:] = np.nan
-    result = run_patching(images=image, config=_config(None, image_axes="YX", scope="patch"))
+    result = run_patching(images=image, config=_config(None, image_axes="YX", scope="patch"),
+        image_metadata=named(image))
     assert (8, 8) not in [(p.y0, p.x0) for p in result.patches] and len(result.patches) == 3
 
 
@@ -336,7 +345,7 @@ def test_filters_see_raw_values_and_mask_fill_is_in_normalized_units():
     config.extraction.apply_mask, config.extraction.mask_fill_value = True, float("nan")
     config.extraction.output_size = 6
 
-    result = run_patching(images=image, masks=labels, config=config)
+    result = run_patching(images=image, masks=labels, config=config, image_metadata=named(image))
     (patch,), (array,) = result.patches, result.patch_arrays
     assert array.dtype == np.float32 and array.shape == (6, 6)
     assert np.isnan(array).any() and np.nanmin(array) >= -0.01 and np.nanmax(array) <= 1.01
@@ -399,11 +408,12 @@ def test_in_memory_runs_need_source_relative_path_for_csv_scopes(experiment):
     stack = stacks["control/bio1/a.tif"]
     config = _config(csv_path)
     with pytest.raises(ValueError, match="source_relative_path"):
-        run_patching(images=stack, config=config)
+        run_patching(images=stack, config=config, image_metadata=named(stack))
 
     # The labels must be the CSV's: run_patching does not read them from paths.
     config.common.condition, config.common.biological_repeat = "control", "bio1"
-    result = run_patching(images=stack, config=config, image_metadata=[{"source_relative_path": "control/bio1/a.tif"}])
+    metadata = [{"source_relative_path": "control/bio1/a.tif", "position_id": "a"}]
+    result = run_patching(images=stack, config=config, image_metadata=metadata)
     assert {p.normalization_group for p in result.patches} == {"control/bio1/a.tif"}
 
 
@@ -421,7 +431,7 @@ def test_warnings_explain_the_scope(experiment):
     image = np.arange(256, dtype=np.uint8).reshape(16, 16)
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        run_patching(images=image, config=_config(None, image_axes="YX", scope="patch"))
+        run_patching(images=image, config=_config(None, image_axes="YX", scope="patch"), image_metadata=named(image))
     assert not [w for w in caught if "background" in str(w.message)]
 
 
@@ -435,3 +445,21 @@ def test_a_flat_folder_run_normalizes_against_its_own_preprocessing(tmp_path):
     assert {(p.source_relative_path, p.normalization_offset, p.normalization_scale) for p in result.patches} == {
         ("a.tif", "0.0", "255.0")
     }
+
+
+def test_clip_comes_after_normalizing_and_before_resizing():
+    """Resizing interpolates clipped values, so no resized value leaves the clip range."""
+    from cellpatcher.resize import resize_patch
+
+    image, labels = _cell_image()
+    config = _config(None, mode="cell", image_axes="YX", scope="patch", patch_region="bbox", clip=(0.25, 0.75))
+    config.common.mask_axes = "YX"
+    config.cell.patch_size, config.cell.exclude_border = 10, False
+    (cropped,) = run_patching(images=image, masks=labels, config=config, image_metadata=named(image)).patch_arrays
+    assert cropped.min() == 0.25 and cropped.max() == 0.75  # both limits are reached
+    config.extraction.output_size, config.extraction.resize_order = 7, 1
+    (resized,) = run_patching(images=image, masks=labels, config=config, image_metadata=named(image)).patch_arrays
+    np.testing.assert_array_equal(resized, resize_patch(cropped, axes="YX", output_size=7, order=1))
+    config.normalization.clip = None
+    (unclipped,) = run_patching(images=image, masks=labels, config=config, image_metadata=named(image)).patch_arrays
+    assert not np.array_equal(np.clip(unclipped, 0.25, 0.75), resized)  # clipping after resizing differs

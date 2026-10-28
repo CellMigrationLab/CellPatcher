@@ -1,3 +1,4 @@
+import math
 from dataclasses import dataclass, field
 
 from cellpatcher._deprecation import accept_deprecated_repeat
@@ -6,6 +7,7 @@ from cellpatcher.io import (
     SINGLE_CONDITION_LABEL,
     SINGLE_TECHNICAL_REPEAT_LABEL,
 )
+from cellpatcher.ids import validate_object_set
 from cellpatcher.planes import validate_plane_policies
 
 MASK_SOURCES = ("tiff_tree", "ngff_labels")
@@ -50,6 +52,13 @@ class CommonConfig:
     # be left None when every image has exactly one).
     mask_source: str = "tiff_tree"
     mask_label_name: str | None = None
+    # The object set of cell-mode patches (the `object_set` column and a
+    # level of patch_id, cellpatcher.ids). None: folder and tree runs name it
+    # after the mask (its OME-NGFF label name, or its file name's suffix after
+    # the image's stem), and "mask" when the mask gives no name (in-memory
+    # run_patching, or a mask named like its image). Set it to name it
+    # explicitly; image_metadata["object_set"] overrides it per image.
+    object_set: str | None = None
 
     def __post_init__(self) -> None:
         validate_plane_policies(self)
@@ -57,23 +66,39 @@ class CommonConfig:
             raise ValueError(f"mask_source must be one of {list(MASK_SOURCES)}; got {self.mask_source!r}.")
         if self.mask_label_name is not None and not isinstance(self.mask_label_name, str):
             raise ValueError("mask_label_name must be a string or None.")
+        validate_object_set(self.object_set)
+
+
+BINARY_MASK_POLICIES = ("single_object", "connected_components")
 
 
 @dataclass
 class CellConfig:
+    """Parameters of ``mode='cell'``.
+
+    Masks are instance labels (decision D47, 2026-10-26): an integer mask is
+    used as given, each non-zero value one object (a 0/1 integer mask is one
+    object, label 1). ``binary_mask_policy`` only matters for a boolean mask
+    (or a float mask of 0.0/1.0), which has no object ids: ``"single_object"``
+    (default) refuses it; ``"connected_components"`` is the explicit opt-in
+    that labels its connected components (4-connected), with a warning, and
+    is recorded in ``run_config.json``. Labels above the int32 maximum are
+    refused.
+    """
+
     patch_size: int | str = "auto"
     mask_channel: int | None = None
     center_on: str = "bbox_center"
     exclude_border: bool = True
     min_area: int = 1
     max_area: int | None = None
-    binary_mask_policy: str = "connected_components"
+    binary_mask_policy: str = "single_object"
 
     def __post_init__(self) -> None:
         if self.center_on not in {"centroid", "bbox_center"}:
             raise ValueError("center_on must be either 'centroid' or 'bbox_center'.")
-        if self.binary_mask_policy not in {"connected_components", "single_object"}:
-            raise ValueError("binary_mask_policy must be either 'connected_components' or 'single_object'.")
+        if self.binary_mask_policy not in BINARY_MASK_POLICIES:
+            raise ValueError("binary_mask_policy must be either 'single_object' or 'connected_components'.")
         if self.min_area < 1:
             raise ValueError("min_area must be >= 1.")
         if self.max_area is not None and self.max_area < self.min_area:
@@ -213,6 +238,11 @@ class NormalizationConfig:
         ``"robust_zscore"`` (MAD x 1.4826).
     percentile
         Low and high percentile of ``"percentile"``, ``0 <= low < high <= 100``.
+    clip
+        ``(low, high)`` limits applied right after normalizing, before masking
+        and resizing (so resizing interpolates clipped values), or None (the
+        default: no clip). For example ``(0, 1)`` with ``"percentile"`` or
+        ``"minmax"``.
     scope
         Pixels the parameters come from: ``"condition"``,
         ``"biological_repeat"``, ``"technical_repeat"``, ``"image"`` (default:
@@ -240,6 +270,7 @@ class NormalizationConfig:
     manifest: str | None = None
     method: str = "percentile"
     percentile: tuple[float, float] = (1.0, 99.8)
+    clip: tuple[float, float] | None = None
     scope: str = "image"
     per_time_point: bool = False
     patch_region: str | None = None
@@ -267,6 +298,14 @@ class NormalizationConfig:
         if not 0 <= low < high <= 100:
             raise ValueError(f"normalization.percentile must satisfy 0 <= low < high <= 100; got ({low}, {high}).")
         self.percentile = (low, high)
+        if self.clip is not None:
+            try:
+                low, high = (float(value) for value in self.clip)
+            except (TypeError, ValueError):
+                raise ValueError("normalization.clip must be None or two numbers (low, high).") from None
+            if not (math.isfinite(low) and math.isfinite(high) and low < high):
+                raise ValueError(f"normalization.clip must be finite with low < high; got ({low}, {high}).")
+            self.clip = (low, high)
         if self.export_values not in EXPORT_VALUES:
             raise ValueError(
                 f"normalization.export_values must be one of {list(EXPORT_VALUES)}; got {self.export_values!r}."

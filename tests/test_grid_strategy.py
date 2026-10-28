@@ -58,11 +58,12 @@ def test_grid_include_partial_covers_edge():
 def test_grid_patch_ids_deterministic():
     s = GridStrategy(GridConfig(tile_size=50, overlap=0.0, include_partial=False))
     regions = s.generate_regions(image_shape=(100, 100), image_id="img")
+    # The last level of patch_id: the tile's own rectangle (cellpatcher.ids).
     assert [r.patch_id for r in regions] == [
-        "img_grid_00000",
-        "img_grid_00001",
-        "img_grid_00002",
-        "img_grid_00003",
+        "grid-y0-x0-h50-w50",
+        "grid-y0-x50-h50-w50",
+        "grid-y50-x0-h50-w50",
+        "grid-y50-x50-h50-w50",
     ]
 
 

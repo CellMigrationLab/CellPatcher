@@ -11,6 +11,7 @@ from cellpatcher.config import CellPatcherConfig
 from cellpatcher.extract import extract_patches
 from cellpatcher.export import IMAGE_TABLE_FILENAME, export_patches
 from cellpatcher.filters import filter_regions
+from cellpatcher.ids import assign_patch_ids, random_seed, resolve_object_set, resolve_position_id
 from cellpatcher.io import (
     SINGLE_BIOLOGICAL_REPEAT_LABEL,
     SINGLE_CONDITION_LABEL,
@@ -76,7 +77,8 @@ def _stamp_image_metadata(image_list, image_metadata, patches: list[PatchRegion]
     ``"mask_file"`` stamp source-file provenance, and
     ``"source_relative_path"`` the image's path relative to the experiment
     root; ``run_patching_pipeline``
-    supplies these automatically from the folders it read.
+    supplies these automatically from the folders it read. ``"object_set"``
+    names the mask of a ``cell``-mode patch (ignored in other modes).
     """
     if image_metadata is None:
         return
@@ -105,6 +107,8 @@ def _stamp_image_metadata(image_list, image_metadata, patches: list[PatchRegion]
             patch.mask_file = str(meta["mask_file"])
         if meta.get("source_relative_path") is not None:
             patch.source_relative_path = str(meta["source_relative_path"])
+        if meta.get("object_set") is not None and patch.mode == "cell":
+            patch.object_set = str(meta["object_set"])
 
 
 def _image_labels(config: CellPatcherConfig, meta) -> tuple[str, str, str]:
@@ -115,26 +119,31 @@ def _image_labels(config: CellPatcherConfig, meta) -> tuple[str, str, str]:
     return condition, biological_repeat, technical_repeat
 
 
-def _image_position_id(config: CellPatcherConfig, meta, image_id: str) -> str | None:
-    """The ``position_id`` every patch of an image carries.
+def _identity_metadata(config: CellPatcherConfig, image_list, image_metadata) -> list[dict]:
+    """One metadata dict per image (copies) with its ``position_id`` and, in cell mode, ``object_set``.
 
-    The one supplied in *meta*; otherwise, with ``split_channels``, the
-    default of :func:`_position_id`; otherwise None (not guessed).
+    Resolved once per source image, before any plane split, so every plane
+    and channel of an image shares them (:func:`cellpatcher.ids.resolve_position_id`,
+    :func:`cellpatcher.ids.resolve_object_set`); never from the image's place
+    in the run.
     """
-    if meta.get("position_id") is not None:
-        return str(meta["position_id"])
-    if not config.extraction.split_channels:
-        return None
-    condition, biological_repeat, technical_repeat = _image_labels(config, meta)
-    return _position_id(condition, biological_repeat, technical_repeat, meta.get("image_file"), image_id)
+    if image_metadata is not None and len(image_metadata) != len(image_list):
+        raise ValueError("image_metadata must have exactly one entry per image (or be None).")
+    filled = []
+    for index in range(len(image_list)):
+        meta = dict(image_metadata[index] or {}) if image_metadata is not None else {}
+        meta["position_id"] = resolve_position_id(_image_labels(config, meta), meta, image_index=index)
+        if config.mode == "cell":
+            meta["object_set"] = resolve_object_set(meta, config.common)
+        filled.append(meta)
+    return filled
 
 
 def _image_record(config: CellPatcherConfig, image_id: str, meta, image_shape=None) -> ImageRecord:
     """An image's :class:`ImageRecord` with the identity its patches get (no counts yet).
 
-    Labels and provenance follow :func:`_stamp_run_context` and
-    :func:`_stamp_image_metadata`, and ``position_id`` follows
-    :func:`_split_channel_patches`, so the record joins its patches' rows.
+    Labels, provenance and ``position_id`` follow :func:`_stamp_run_context`
+    and :func:`_stamp_image_metadata`, so the record joins its patches' rows.
     """
     meta = meta or {}
     condition, biological_repeat, technical_repeat = _image_labels(config, meta)
@@ -153,7 +162,7 @@ def _image_record(config: CellPatcherConfig, image_id: str, meta, image_shape=No
         ),
         image_height=height,
         image_width=width,
-        position_id=_image_position_id(config, meta, image_id),
+        position_id=None if meta.get("position_id") is None else str(meta["position_id"]),
     )
 
 
@@ -167,29 +176,12 @@ def _patch_array_axes(config: CellPatcherConfig) -> str:
     return axes.replace("C", "") if config.extraction.split_channels else axes
 
 
-def _default_position_id(patch: PatchRegion) -> str:
-    return _position_id(
-        patch.condition, patch.biological_repeat, patch.technical_repeat, patch.image_file, patch.image_id
-    )
-
-
-def _position_id(condition, biological_repeat, technical_repeat, image_file, image_id) -> str:
-    # One source image is one XY acquisition position, so all of its channel
-    # patches share this ID. The condition, biological and technical repeat
-    # keep it unique across a tree run: two wells may hold files of the same
-    # name (the canonical FOV key is these three labels plus position_id).
-    source = Path(image_file).stem if image_file else image_id
-    return "/".join(str(part) for part in (condition, biological_repeat, technical_repeat, source) if part)
-
-
 def _split_channel_patches(config: CellPatcherConfig, image_list, patches: list[PatchRegion], patch_arrays):
     """Replace each region by one region (and array) per channel of its source image.
 
-    Every channel patch keeps the parent's coordinates and provenance, gets
-    ``c`` set to its channel index and ``_c<index>`` appended to its
-    ``patch_id``, and shares one ``position_id`` (the supplied one, or a
-    default derived from condition/biological repeat/technical repeat/image
-    file).
+    Every channel patch keeps the parent's coordinates, provenance and
+    ``position_id``, and gets ``c`` set to its channel index (a ``c<index>``
+    level of its ``patch_id``, :mod:`cellpatcher.ids`).
     """
     axes = normalize_axes(config.common.image_axes)
     if "C" not in axes:
@@ -204,9 +196,8 @@ def _split_channel_patches(config: CellPatcherConfig, image_list, patches: list[
     for index, patch in enumerate(patches):
         image_shape = image_lookup[patch.image_id].shape
         normalize_axes(axes, ndim=len(image_shape))
-        position_id = patch.position_id or _default_position_id(patch)
         for channel in range(int(image_shape[channel_axis])):
-            channel_patch = replace(patch, patch_id=f"{patch.patch_id}_c{channel}", c=channel, position_id=position_id)
+            channel_patch = replace(patch, c=channel)
             split_channel_normalization(channel_patch, channel)
             split_patches.append(channel_patch)
             if split_arrays is not None:
@@ -385,7 +376,9 @@ def _maybe_extract_arrays(
             # mask fill value below and resizing work in normalized units
             # (docs/normalization_contract.md §9).
             per_image_arrays = [
-                normalizations[id(patch)].apply(array, config.common.image_axes)
+                normalizations[id(patch)].apply(
+                    array, config.common.image_axes, clip=config.normalization.clip
+                )
                 for patch, array in zip(image_patches, per_image_arrays)
             ]
 
@@ -546,6 +539,9 @@ def _finish_result(
     *export_arrays* are the file contents when they differ from the
     delivered arrays (``normalization.export_values="raw"``).
     """
+    # Every identity field is stamped by now (position, object set, planes,
+    # split channel), so the run-independent ids can be built.
+    assign_patch_ids(patches)
     if config.normalization.enabled:
         finish_patch_groups(patches, config.normalization.per_time_point)
     exported_files: list[str] = []
@@ -618,13 +614,16 @@ def _patch_planes(config: CellPatcherConfig, sources) -> PatchingResult:
     """Patch the planes of each image, one image at a time, and export once.
 
     *sources* yields ``(image metadata or None, iterable of ImagePlane)`` per
-    image, in image order. Every plane (with its mask plane) is patched as an
-    image of its own; the patches then get back their source image's
-    ``image_id``, with the plane recorded in ``z0``/``z1``/``t`` and, for a
-    split axis, appended to ``patch_id`` (``image_0000_grid_00003_z002``,
-    before a split channel's ``_c<n>``). Only one image's planes are held at
-    a time. Random seeds continue across images (plane *k* of the run gets
-    ``seed + k``), so the result does not depend on how the planes arrive.
+    image, in image order; the metadata of an image read from a file carries
+    its ``image_file``, which names its ``position_id`` when none is given.
+    Every plane (with its mask plane) is patched as an image of its own; the
+    patches then get back their source image's ``image_id``, with the plane
+    recorded in ``z0``/``z1``/``t`` (and so in ``patch_id``,
+    :mod:`cellpatcher.ids`). Only one image's planes are held at
+    a time. Random mode samples each plane with a seed derived from the run
+    seed and the plane's identity (:func:`cellpatcher.ids.random_seed`), so
+    the result depends neither on how the planes arrive nor on the image's
+    place in the run.
     """
     need_arrays = config.common.extract_arrays or config.export.enabled
     raw_export = config.normalization.enabled and config.normalization.export_values == "raw" and config.export.enabled
@@ -632,10 +631,15 @@ def _patch_planes(config: CellPatcherConfig, sources) -> PatchingResult:
     records: list[ImageRecord] = []
     patch_arrays = [] if need_arrays else None
     export_arrays = [] if raw_export else None
-    planes_done = 0
     held = 0
     for index, (image_meta, planes) in enumerate(sources):
         meta = dict(image_meta or {})
+        # The image's identity, shared by all of its planes (resolved here
+        # for folder runs, whose metadata names the file; in-memory runs
+        # resolved it in run_patching before splitting).
+        meta["position_id"] = resolve_position_id(_image_labels(config, meta), meta, image_index=index)
+        if config.mode == "cell":
+            meta["object_set"] = resolve_object_set(meta, config.common)
         planes = list(planes)
         plane_metadata = []
         for plane in planes:
@@ -651,10 +655,6 @@ def _patch_planes(config: CellPatcherConfig, sources) -> PatchingResult:
                 plane_meta["z"] = plane.z
             if plane.t is not None:
                 plane_meta["t"] = plane.t
-            if config.extraction.split_channels and plane_meta.get("position_id") is None:
-                # The planes of one image share its position (the default for
-                # split channels, from the source image rather than the plane).
-                plane_meta["position_id"] = _image_position_id(config, meta, f"image_{index:04d}")
             plane_metadata.append(plane_meta)
 
         image_id = f"image_{index:04d}"
@@ -666,9 +666,6 @@ def _patch_planes(config: CellPatcherConfig, sources) -> PatchingResult:
             continue
         plane_masks = [plane.mask for plane in planes]
         mask_axes = next((plane.mask_axes for plane in planes if plane.mask is not None), config.common.mask_axes)
-        random = config.random
-        if random.seed is not None:
-            random = replace(random, seed=int(random.seed) + planes_done)
         plane_config = replace(
             config,
             common=replace(
@@ -681,7 +678,6 @@ def _patch_planes(config: CellPatcherConfig, sources) -> PatchingResult:
                 t_policy="keep",
                 t_index=None,
             ),
-            random=random,
             export=replace(config.export, enabled=False),
         )
         token = _EAGER_BYTES_HELD.set(held if config.common.extract_arrays else None)
@@ -715,19 +711,31 @@ def _patch_planes(config: CellPatcherConfig, sources) -> PatchingResult:
             setattr(record, counter, sum(getattr(plane_record, counter) for plane_record in result.image_records))
         records.append(record)
         for patch in result.patches:
-            plane_id = patch.image_id
-            suffix = planes[int(plane_id.rsplit("_", 1)[1])].suffix
-            rest = patch.patch_id[len(plane_id):]
-            channel = f"_c{patch.c}" if config.extraction.split_channels else ""
-            if channel:
-                rest = rest[: -len(channel)]
-            patch.patch_id = f"{image_id}{rest}{suffix}{channel}"
+            # patch_id already names the plane (its t/z), not its index.
             patch.image_id = image_id
         patches.extend(result.patches)
         if patch_arrays is not None:
             patch_arrays.extend(result.patch_arrays)
-        planes_done += len(planes)
     return _finish_result(config, patches, patch_arrays, records, export_arrays)
+
+
+def _refuse_masking_computed_labels(config: CellPatcherConfig, masks) -> None:
+    """Refuse ``apply_mask`` on binary masks labelled by connected components.
+
+    Masking keeps the pixels whose mask value equals the patch's
+    ``label_id``; computed component labels are not the binary mask's
+    values, so every object but the first would be blanked.
+    """
+    if not (config.extraction.apply_mask and config.cell.binary_mask_policy == "connected_components"):
+        return
+    for mask in masks:
+        dtype = np.dtype(getattr(mask, "dtype", np.asarray(mask).dtype))
+        if dtype == bool or np.issubdtype(dtype, np.floating):
+            raise ValueError(
+                "extraction.apply_mask=True cannot mask by the labels that "
+                "cell.binary_mask_policy='connected_components' computes for a binary mask: the mask holds "
+                "0/1, not those labels. Label the mask first (integer instance labels), or turn apply_mask off."
+            )
 
 
 def run_patching(images=None, masks=None, config=None, image_metadata=None) -> PatchingResult:
@@ -746,7 +754,9 @@ def run_patching(images=None, masks=None, config=None, image_metadata=None) -> P
         A single label array or a list/tuple of label arrays, one per image.
 
         * ``mode='cell'`` — **required**.  Integer label map where each unique
-          non-zero value is a separate cell.
+          non-zero value is a separate cell, used as given (decision D47). A
+          boolean mask is refused unless ``cell.binary_mask_policy`` is
+          ``"connected_components"``; labels above the int32 maximum are refused.
         * ``mode='random'`` — **optional**.  When provided, patches are
           restricted to the spatial region covered by the mask.
         * ``mode='grid'`` / ``'whole_fov'`` — not consumed; pass ``None``.
@@ -754,7 +764,14 @@ def run_patching(images=None, masks=None, config=None, image_metadata=None) -> P
         Optional list of dicts, one per image, matching
         :class:`~cellpatcher.preprocess.PreparedPlane`/``PreparedPlanePair``
         ``.metadata`` (keys ``"t"``, ``"z"``, ``"c"``), optionally augmented
-        with ``"position_id"`` for the stable spatial acquisition position. When supplied, the
+        with ``"position_id"`` for the stable spatial acquisition position
+        and, in cell mode, ``"object_set"`` (the mask's name). Without a
+        ``position_id``, an image's is
+        ``<condition>/<biological_repeat>/<technical_repeat>/<stem>`` from
+        its ``"image_file"``; an image with neither is refused
+        (:func:`cellpatcher.ids.resolve_position_id`): its place in the run
+        is never its identity. ``patch_id`` is built from these (:mod:`cellpatcher.ids`),
+        and two patches with the same ``patch_id`` stop the run. When supplied, the
         selected plane indices are stamped onto every resulting patch's
         ``t``/``z0``/``z1``/``c`` fields so the exported metadata CSV records
         exactly which C/Z/T plane each patch came from. The provenance
@@ -771,7 +788,10 @@ def run_patching(images=None, masks=None, config=None, image_metadata=None) -> P
             cfg.grid.tile_size = 64
             cfg.export.enabled = True
             cfg.common.output_dir = "./patches"
-            result = run_patching(images=my_images, config=cfg)
+            result = run_patching(
+                images=my_images, config=cfg,
+                image_metadata=[{"position_id": f"fov{i}"} for i in range(len(my_images))],
+            )
 
     Returns
     -------
@@ -806,6 +826,10 @@ def run_patching(images=None, masks=None, config=None, image_metadata=None) -> P
             # under normalization; plane_choices says why.
             for image in _normalize_images(images):
                 plane_choices(image.shape, config.common.image_axes, None, None, config.common, single_planes=True)
+    if images is not None:
+        image_metadata = _identity_metadata(config, _normalize_images(images), image_metadata)
+    if config.mode == "cell" and masks is not None:
+        _refuse_masking_computed_labels(config, _normalize_masks(masks))
     if splits_planes(config.common):
         if images is None:
             raise ValueError(f"images is required for mode '{config.mode}'.")
@@ -878,16 +902,15 @@ def run_patching(images=None, masks=None, config=None, image_metadata=None) -> P
             mask_list = [masks]
 
         patches: list[PatchRegion] = []
-        # Offset the seed by image index so a multi-image batch run is both
-        # deterministic (same seed -> same patches) and non-degenerate
-        # (different images don't get identical sampling patterns).
+        # Each image (plane) is sampled with a seed derived from the run seed
+        # and its identity (position_id, t, z, c), so a run is deterministic
+        # (same seed -> same patches), different images get different
+        # samples, and an image gets the same rectangles wherever it is in
+        # the run (cellpatcher.ids.random_seed). image_metadata is filled
+        # with every image's position_id above.
         for idx, (image, mask) in enumerate(zip(image_list, mask_list)):
             image_id = f"image_{idx:04d}"
-            image_random_config = (
-                replace(config.random, seed=int(config.random.seed) + idx)
-                if config.random.seed is not None
-                else config.random
-            )
+            image_random_config = replace(config.random, seed=random_seed(config.random.seed, image_metadata[idx]))
             strategy = RandomPatchStrategy(image_random_config)
             patches.extend(
                 strategy.generate_regions(

@@ -32,7 +32,7 @@ def test_whole_fov_zero_size_dimensions_raise():
 def test_whole_fov_region_metadata_correct():
     strategy = WholeFOVStrategy()
     region = strategy.generate_regions(image_shape=(20, 10), image_id="a")[0]
-    assert region.patch_id == "a_whole_fov_0"
+    assert region.patch_id == "whole_fov"
     assert region.mode == "whole_fov"
     assert (region.y0, region.y1, region.x0, region.x1) == (0, 20, 0, 10)
     assert region.center_y == 10

@@ -14,6 +14,7 @@ from cellpatcher.io import (
 from cellpatcher.orchestration import load_config, run_patching_condition_repeat_tree
 from cellpatcher.pipeline import RUN_CONFIG_FILENAME, run_patching
 from tests.helpers import make_synthetic_cell_image_and_labels
+from tests.helpers import named
 
 
 def _write_image(path, shape=(16, 16)):
@@ -392,7 +393,8 @@ def test_save_run_config_false_skips_run_config_json(tmp_path):
     cfg.export.save_run_config = False
     cfg.common.output_dir = str(tmp_path)
 
-    result = run_patching(images=[np.ones((8, 8), dtype=np.float32)], config=cfg)
+    result = run_patching(images=[np.ones((8, 8), dtype=np.float32)], config=cfg,
+        image_metadata=named([np.ones((8, 8), dtype=np.float32)]))
     assert not (tmp_path / RUN_CONFIG_FILENAME).exists()
     assert (tmp_path / "patches.csv").exists()
     assert result.patches[0].config_file is None

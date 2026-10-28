@@ -268,7 +268,7 @@ def save_cell_mode(image_n, labels_rgb, image, labels):
         cell=CellConfig(patch_size=chosen, exclude_border=False, min_area=5),
         extraction=ExtractionConfig(output_size=64, apply_mask=True, mask_fill_value=0),
     )
-    result = run_patching(images=image, masks=labels, config=cfg)
+    result = run_patching(images=image, masks=labels, config=cfg, image_metadata=[{"position_id": "demo"}])
     n_patches = len(result.patches)
 
     fig = plt.figure(figsize=(11, 6), dpi=150)
@@ -336,7 +336,7 @@ def save_grid_mode(image_n, image):
         grid=GridConfig(tile_size=128, overlap=0.25, include_partial=True),
         extraction=ExtractionConfig(output_size=64),
     )
-    result = run_patching(images=image, config=cfg)
+    result = run_patching(images=image, config=cfg, image_metadata=[{"position_id": "demo"}])
     n_patches = len(result.patches)
 
     fig, axs = plt.subplots(1, 2, figsize=(11, 5), dpi=150)
@@ -378,7 +378,7 @@ def save_random_mode(image_n, image, labels):
         random=RandomConfig(patch_size=128, n_patches=8, seed=7),
         extraction=ExtractionConfig(output_size=64),
     )
-    result = run_patching(images=image, config=cfg)
+    result = run_patching(images=image, config=cfg, image_metadata=[{"position_id": "demo"}])
     n_patches = len(result.patches)
 
     fig, axs = plt.subplots(1, 2, figsize=(11, 5), dpi=150)
@@ -417,7 +417,7 @@ def save_whole_fov_mode(image_n, image):
         common=CommonConfig(image_axes="YX", extract_arrays=True),
         extraction=ExtractionConfig(output_size=output_sz),
     )
-    result = run_patching(images=image, config=cfg)
+    result = run_patching(images=image, config=cfg, image_metadata=[{"position_id": "demo"}])
 
     fig, axs = plt.subplots(1, 2, figsize=(10, 5), dpi=150)
 

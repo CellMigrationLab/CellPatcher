@@ -68,8 +68,7 @@ class RandomPatchStrategy(BasePatchStrategy):
             if mask is not None and not np.any(mask[y0:y1, x0:x1]):
                 continue
 
-            idx = len(patches)
-            patch_id = f"{image_id}_random_{idx:05d}" if image_id is not None else f"random_{idx:05d}"
+            patch_id = f"random-y{y0}-x{x0}-h{patch_size}-w{patch_size}"
             touches_border = y0 == 0 or x0 == 0 or y1 == height or x1 == width
 
             patches.append(

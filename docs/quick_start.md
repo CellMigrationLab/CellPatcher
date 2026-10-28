@@ -128,7 +128,7 @@ cfg = CellPatcherConfig(
     extraction=ExtractionConfig(output_size=128, apply_mask=True),
 )
 
-result = run_patching(images=image, masks=labels, config=cfg)
+result = run_patching(images=image, masks=labels, config=cfg, image_metadata=[{"position_id": "fov1"}])
 print(len(result.patches), len(result.patch_arrays or []))
 ```
 
@@ -147,7 +147,7 @@ cfg = CellPatcherConfig(
     extraction=ExtractionConfig(output_size=64),
 )
 
-result = run_patching(images=image, config=cfg)
+result = run_patching(images=image, config=cfg, image_metadata=[{"position_id": "fov1"}])
 print(len(result.patches), result.patch_arrays[0].shape)
 ```
 
@@ -172,7 +172,8 @@ from cellpatcher.torch_dataset import ExportedPatchTorchDataset, PatchTensorConf
 # Use explicit preprocessing to iterate 2D YX planes for cell patching.
 prepared_images = []
 prepared_labels = []
-for raw_image, raw_label in zip(raw_images, raw_labels):
+prepared_metadata = []  # each plane's position (one per raw image) and z: its patches' identity
+for index, (raw_image, raw_label) in enumerate(zip(raw_images, raw_labels)):
     for item in iter_cell_planes_for_patching(
         raw_image,
         "CZYX",   # image_axes (adjust to your real source axes)
@@ -182,6 +183,7 @@ for raw_image, raw_label in zip(raw_images, raw_labels):
     ):
         prepared_images.append(item.image)
         prepared_labels.append(item.labels)
+        prepared_metadata.append({**item.metadata, "position_id": f"fov{index}"})
 
 summary = scan_cell_patch_size(
     image_shapes=[img.shape for img in prepared_images],
@@ -206,7 +208,7 @@ cfg = CellPatcherConfig(
     export=ExportConfig(enabled=True, image_format="npy", save_metadata_csv=True),
 )
 
-result = run_patching(images=prepared_images, masks=prepared_labels, config=cfg)
+result = run_patching(images=prepared_images, masks=prepared_labels, config=cfg, image_metadata=prepared_metadata)
 # result.patch_arrays  -> masked, resized arrays in memory.
 # result.exported_files -> .npy patch files written to output_dir.
 # result.metadata_file  -> path to patches.csv in output_dir.

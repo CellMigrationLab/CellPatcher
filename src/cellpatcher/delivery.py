@@ -160,7 +160,10 @@ def _normalize_on_load(row: Mapping, array, run_config: Mapping | None) -> np.nd
     if settings.get("export_values") != "raw" or not row.get("normalization_offset"):
         return array
     patch = _row_patch(row)
-    return PatchNormalization.from_patch(patch).apply(array, patch_axes(_run_config(run_config), patch))
+    clip = settings.get("clip")
+    return PatchNormalization.from_patch(patch).apply(
+        array, patch_axes(_run_config(run_config), patch), clip=tuple(clip) if clip else None
+    )
 
 
 def raw_export_array(patch, plane, plane_axes: str, array, config) -> np.ndarray:
@@ -218,7 +221,7 @@ def _finish_patch(patch, plane, axes, mask_plane, mask_axes, config) -> np.ndarr
         image_axes = axes.replace("C", "")
     normalization = PatchNormalization.from_patch(patch)
     if normalization is not None:
-        array = normalization.apply(array, image_axes)
+        array = normalization.apply(array, image_axes, clip=config.normalization.clip)
     if extraction.apply_mask:
         if mask_plane is None:
             raise ValueError("extraction.apply_mask=True needs the images' masks (masks=...).")

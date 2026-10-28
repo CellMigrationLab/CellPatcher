@@ -5,6 +5,7 @@ import numpy as np
 from cellpatcher.config import CellPatcherConfig, GridConfig
 from cellpatcher.pipeline import run_patching
 from tests.helpers import make_synthetic_cell_image_and_labels
+from tests.helpers import named
 
 
 def test_cell_pipeline_extracts_expected_cells():
@@ -17,7 +18,7 @@ def test_cell_pipeline_extracts_expected_cells():
     cfg.common.extract_arrays = True
     cfg.extraction.output_size = None
 
-    result = run_patching(images=image, masks=labels, config=cfg)
+    result = run_patching(images=image, masks=labels, config=cfg, image_metadata=named(image))
     got_labels = sorted([p.label_id for p in result.patches])
     assert got_labels == meta["expected_valid_labels"]
     assert result.patch_arrays is not None
@@ -36,7 +37,7 @@ def test_cell_pipeline_resize():
     cfg.extraction.output_size = 64
     cfg.extraction.resize_order = 0
 
-    result = run_patching(images=image, masks=labels, config=cfg)
+    result = run_patching(images=image, masks=labels, config=cfg, image_metadata=named(image))
     assert result.patch_arrays is not None
     assert all(arr.shape == (64, 64) for arr in result.patch_arrays)
 
@@ -54,7 +55,7 @@ def test_cell_pipeline_export_metadata(tmp_path):
     cfg.export.image_format = "npy"
     cfg.export.save_metadata_csv = True
 
-    result = run_patching(images=image, masks=labels, config=cfg)
+    result = run_patching(images=image, masks=labels, config=cfg, image_metadata=named(image))
     assert len(result.exported_files) == len(meta["expected_valid_labels"])
     assert all(np.load(path).shape == (32, 32) for path in result.exported_files)
 
@@ -70,14 +71,14 @@ def test_background_filter_integration_reduces_grid_patches():
     image, _, _ = make_synthetic_cell_image_and_labels()
 
     base = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=16, overlap=0.0, include_partial=False))
-    unfiltered = run_patching(images=image, config=base)
+    unfiltered = run_patching(images=image, config=base, image_metadata=named(image))
 
     filtered_cfg = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=16, overlap=0.0, include_partial=False))
     filtered_cfg.filters.min_foreground_fraction = 0.1
     filtered_cfg.filters.foreground_threshold = "mean"
     filtered_cfg.common.extract_arrays = True
 
-    filtered = run_patching(images=image, config=filtered_cfg)
+    filtered = run_patching(images=image, config=filtered_cfg, image_metadata=named(image))
     assert len(filtered.patches) < len(unfiltered.patches)
     assert filtered.patch_arrays is not None
     img_mean = float(np.mean(image))

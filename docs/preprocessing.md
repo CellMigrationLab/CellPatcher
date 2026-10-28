@@ -89,7 +89,7 @@ config = CellPatcherConfig(mode="grid")
 config.common = CommonConfig(image_axes=planes[0].axes, extract_arrays=True)
 config.grid = GridConfig(tile_size=128)
 
-result = run_patching(images=images, config=config)
+result = run_patching(images=images, config=config, image_metadata=[{**p.metadata, "position_id": "fov1"} for p in planes])
 ```
 
 ## Example: cell mode over matched Z planes
@@ -118,14 +118,17 @@ config = CellPatcherConfig(mode="cell")
 config.common = CommonConfig(image_axes=pairs[0].image_axes, mask_axes="YX", extract_arrays=True)
 config.cell = CellConfig(patch_size="auto")
 
-result = run_patching(images=images, masks=labels_2d, config=config)
+result = run_patching(images=images, masks=labels_2d, config=config, image_metadata=[{**p.metadata, "position_id": "fov1"} for p in pairs])
 ```
 
 
 ## Keeping Z/T plane metadata with patch results
 
 `iter_image_planes_for_patching` and `iter_cell_planes_for_patching` return `metadata` and `plane_id` on each yielded item.
-When you pass a list of prepared planes into `run_patching`, image IDs are assigned as `image_0000`, `image_0001`, ... .
+When you pass a list of prepared planes into `run_patching`, image IDs are assigned as `image_0000`, `image_0001`, ... (the place in the run).
+Pass each plane's `metadata` too: its `t`/`z` indices become levels of `patch_id`, which is built from the
+position and the plane, not from the image ID (`configuration_reference.md`, "Patch identity"). Without them,
+planes of one image with the same pixels or the same `position_id` give the same `patch_id` and the run is refused.
 
 Pass that per-plane `metadata` straight through as `run_patching(..., image_metadata=...)` and it is stamped onto the
 matching `PatchRegion`'s `t`/`z0`/`z1`/`c` fields automatically — and therefore into the exported `patches.csv` too,

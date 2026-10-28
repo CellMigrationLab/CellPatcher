@@ -17,18 +17,60 @@ def test_pre_labeled_mask_returns_two_patches_sorted_and_ids():
     patches = s.generate_regions(image_shape=(5, 5), labels=labels, image_id="img")
     assert len(patches) == 2
     assert [p.label_id for p in patches] == [1, 2]
-    assert [p.patch_id for p in patches] == ["img_cell_00001", "img_cell_00002"]
+    # The strategy gives the last level of patch_id; run_patching prefixes the
+    # position, object set and planes (cellpatcher.ids).
+    assert [p.patch_id for p in patches] == ["label1", "label2"]
     assert patches[0].area_px == 4
     assert abs(patches[0].center_y - 2.0) < 1e-6
 
 
 def test_binary_connected_components_returns_two():
-    labels = np.zeros((6, 6), dtype=int)
-    labels[1:3, 1:3] = 1
-    labels[4:5, 4:6] = 1
+    labels = np.zeros((6, 6), dtype=bool)
+    labels[1:3, 1:3] = True
+    labels[4:5, 4:6] = True
     s = CellSegmentationStrategy(CellConfig(binary_mask_policy="connected_components", exclude_border=False))
-    patches = s.generate_regions(image_shape=(6, 6), labels=labels)
+    with pytest.warns(UserWarning, match="connected components"):
+        patches = s.generate_regions(image_shape=(6, 6), labels=labels)
     assert len(patches) == 2
+
+
+def test_bool_mask_is_refused_by_default():
+    labels = np.zeros((6, 6), dtype=bool)
+    labels[1:3, 1:3] = True
+    s = CellSegmentationStrategy(CellConfig(exclude_border=False))
+    with pytest.raises(ValueError, match="binary_mask_policy='connected_components'"):
+        s.generate_regions(image_shape=(6, 6), labels=labels)
+
+
+@pytest.mark.parametrize("policy", ["single_object", "connected_components"])
+def test_integer_mask_holding_one_value_is_kept_as_given(policy):
+    # Decision D47: an integer mask is instance labels whatever the policy;
+    # 0/255 is one object labelled 255, two separate blobs of 1 one object.
+    labels = np.zeros((6, 6), dtype=np.uint8)
+    labels[1:3, 1:3] = 255
+    labels[4:5, 4:6] = 255
+    s = CellSegmentationStrategy(CellConfig(binary_mask_policy=policy, exclude_border=False))
+    patches = s.generate_regions(image_shape=(6, 6), labels=labels)
+    assert [p.label_id for p in patches] == [255]
+
+
+def test_default_policy_is_single_object():
+    assert CellConfig().binary_mask_policy == "single_object"
+
+
+def test_labels_above_int32_max_are_refused_not_wrapped():
+    labels = np.zeros((4, 4), dtype=np.uint32)
+    labels[1:3, 1:3] = 2**31
+    s = CellSegmentationStrategy(CellConfig(exclude_border=False))
+    with pytest.raises(ValueError, match="int32 maximum"):
+        s.generate_regions(image_shape=(4, 4), labels=labels)
+
+
+def test_largest_int32_label_is_kept():
+    labels = np.zeros((4, 4), dtype=np.int64)
+    labels[1:3, 1:3] = 2**31 - 1
+    s = CellSegmentationStrategy(CellConfig(exclude_border=False))
+    assert [p.label_id for p in s.generate_regions(image_shape=(4, 4), labels=labels)] == [2**31 - 1]
 
 
 def test_binary_single_object_returns_one():
@@ -211,7 +253,8 @@ def test_float_binary_mask_works():
     labels = np.zeros((6, 6), dtype=float)
     labels[2:4, 2:4] = 1.0
     s = CellSegmentationStrategy(CellConfig(exclude_border=False, binary_mask_policy="connected_components"))
-    patches = s.generate_regions(image_shape=(6, 6), labels=labels)
+    with pytest.warns(UserWarning, match="connected components"):
+        patches = s.generate_regions(image_shape=(6, 6), labels=labels)
     assert len(patches) == 1
 
 

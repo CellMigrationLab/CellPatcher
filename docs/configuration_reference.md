@@ -28,14 +28,15 @@ Shared settings that apply to every run, regardless of mode.
 | `biological_repeat` | `str \| None` | `"single"` | Biological replicate identifier (e.g. `"YYYY_MM_DD"`, or `cellpatcher.SINGLE_BIOLOGICAL_REPEAT_LABEL`/`"single"` for a condition folder with no biological-repeat subfolder), stamped onto every `PatchRegion`/CSV row for this run. Same status as `condition`. Formerly `repeat`, which still works as a deprecated alias (see "Renamed: `repeat` → `biological_repeat`" below). |
 | `technical_repeat` | `str \| None` | `"single"` | Technical replicate within the biological repeat: a well, a dish or a coverslip, never a biological repeat. Stamped onto every `PatchRegion`/CSV row for this run; a per-image `image_metadata=[{"technical_repeat": ...}]` entry overrides it for that image. `run_patching_condition_repeat_tree` derives it per leaf from an optional `<condition>/<biological_repeat>/<technical_repeat>/` level, and stamps `cellpatcher.SINGLE_TECHNICAL_REPEAT_LABEL` (`"single"`) when a biological-repeat folder holds its images directly. |
 
-| `z_policy` | `str` | `"keep"` | How a Z axis of the images becomes 2D planes before patching. `"keep"`: every patch keeps all Z planes (the behaviour before this option). `"all"`: one patch per Z plane, with `z0`/`z1` set and `_z<NNN>` appended to `patch_id` (e.g. `image_0000_grid_00003_z002`, before a split channel's `_c<n>`). `"first"`/`"select"` (with `z_index`): one plane, with `z0`/`z1` set. `"max"`/`"mean"`/`"sum"`: a projection (no `z0`). Images without a Z axis are not affected. |
+| `z_policy` | `str` | `"keep"` | How a Z axis of the images becomes 2D planes before patching. `"keep"`: every patch keeps all Z planes (the behaviour before this option). `"all"`: one patch per Z plane, with `z0`/`z1` set and a `z<NNN>` level in `patch_id` (e.g. `<position_id>/z002/grid-y0-x8-h8-w8`; see "Patch identity" below). `"first"`/`"select"` (with `z_index`): one plane, with `z0`/`z1` set. `"max"`/`"mean"`/`"sum"`: a projection (no `z0`). Images without a Z axis are not affected. |
 | `z_index` | `int \| None` | `None` | Z plane for `z_policy="select"`. |
-| `t_policy` | `str` | `"keep"` | As `z_policy` for a T axis: `"keep"`, `"all"` (sets `t`, appends `_t<NNN>`), `"first"` or `"select"`; no projections. With both split, planes come in T-then-Z order (`..._t001_z002`). |
+| `t_policy` | `str` | `"keep"` | As `z_policy` for a T axis: `"keep"`, `"all"` (sets `t`, a `t<NNNN>` level of `patch_id`), `"first"` or `"select"`; no projections. With both split, planes come in T-then-Z order (`.../t0001/z002/...`). |
 | `t_index` | `int \| None` | `None` | Time point for `t_policy="select"`. |
 | `mask_source` | `str` | `"tiff_tree"` | Where folder and tree runs read masks. `"tiff_tree"`: a mask folder (or tree) mirroring the images, matched by file name with `config.matching`. `"ngff_labels"`: the label image of each OME-Zarr image's own `labels` group (no mask folder; every image must be OME-Zarr). See "OME-Zarr images" below. |
 | `mask_label_name` | `str \| None` | `None` | With `mask_source="ngff_labels"`, the label image to use (e.g. `"cells"`); may stay `None` when every image has exactly one. |
+| `object_set` | `str \| None` | `None` | Cell mode: the name of the object set (mask) written to the `object_set` column and to `patch_id`. `None`: named after the mask (see "Patch identity" below), `"mask"` when the mask gives no name. Letters, digits, `.`, `_`, `-` only. |
 
-**Masks with split planes:** a mask's Z or T axis with the image's length follows the image's planes (one label plane per image plane); a mask without that axis, or with length 1, is shared by every plane. Any other length is an error, and so is a Z projection with masks that follow the Z planes. Image ids stay one per source image; with `extraction.split_channels`, every plane and channel patch of an image shares one `position_id`.
+**Masks with split planes:** a mask's Z or T axis with the image's length follows the image's planes (one label plane per image plane); a mask without that axis, or with length 1, is shared by every plane. Any other length is an error, and so is a Z projection with masks that follow the Z planes. Image ids stay one per source image, and every plane and channel patch of an image shares one `position_id`.
 
 **Reading planes:** folder and tree runs that split or select planes (`"all"`, `"first"`, `"select"`) handle one image at a time. With the `preprocessing` extra, TIFF and OME-Zarr images are then read one 2D plane at a time with the preprocessing brick's reader, so only the chosen planes are decoded (channels and kept axes are read plane by plane and stacked back); a plane that cannot be read whole within the brick's memory limit (1 GiB) stops the run, because CellPatcher needs each plane whole to patch it. `"keep"`, projections and other formats read the whole image, as before. The patches are the same either way, and the same as `run_patching` on the whole arrays.
 
@@ -55,7 +56,7 @@ Settings for cell/object-centred patching. A mask is required in this mode.
 | `exclude_border` | `bool` | `True` | When `True`, objects whose bounding box touches the image border are skipped. |
 | `min_area` | `int` | `1` | Minimum object area in pixels. Objects smaller than this are skipped. Must be `>= 1`. |
 | `max_area` | `int \| None` | `None` | Maximum object area in pixels. Objects larger than this are skipped. Must be `>= min_area` when set. |
-| `binary_mask_policy` | `str` | `"connected_components"` | How to handle binary (0/1) masks: `"connected_components"` labels each contiguous region separately; `"single_object"` treats the entire foreground as one object. |
+| `binary_mask_policy` | `str` | `"single_object"` | Masks are instance labels (decision D47): an **integer** mask is used as given, whatever this setting, each non-zero value one object (a 0/1 or 0/255 mask is one object, label 1 or 255). Only a **boolean** mask (or a float mask of 0.0/1.0), which has no object ids, depends on it: `"single_object"` (default) refuses it with an error; `"connected_components"` is the explicit opt-in that labels its 4-connected components, emits a `UserWarning` and is recorded in `run_config.json` (`cell.binary_mask_policy`). It cannot be combined with `extraction.apply_mask` (the mask does not hold the computed labels). Labels above the int32 maximum (2147483647) are refused instead of wrapping. Before 2026-10-26 the default was `"connected_components"`, which also relabelled 0/1 **integer** masks. |
 
 ---
 
@@ -67,7 +68,7 @@ Settings for randomly sampled patches of a fixed size.
 |---|---|---|---|
 | `patch_size` | `int` | `128` | Side length of each square patch in pixels. Must be `> 0`. |
 | `n_patches` | `int` | `100` | Number of patches to sample per image. Must be `> 0`. |
-| `seed` | `int \| None` | `0` | Random seed for reproducibility. Set to `None` for non-deterministic sampling. When processing multiple images the seed is incremented per image (`seed + image_index`). |
+| `seed` | `int \| None` | `0` | Random seed for reproducibility. Set to `None` for non-deterministic sampling. Each image (each plane with split planes) is sampled with a seed derived from this seed and its identity — `position_id` and its `t`/`z`/`c` indices — never from its place in the run, so an image gets the same rectangles alone or among other files (see "Patch identity" below). Must be `>= 0`. |
 
 ---
 
@@ -118,7 +119,7 @@ Controls how patch arrays are extracted from images and optionally resized.
 | `resize_order` | `int` | `1` | Spline interpolation order for resizing (0 = nearest, 1 = bilinear, 3 = bicubic). Must be `>= 0`. |
 | `apply_mask` | `bool` | `False` | **Cell mode only.** When `True`, pixels outside the selected cell label are set to `mask_fill_value` before resize/export. |
 | `mask_fill_value` | `float` | `0.0` | Fill value for pixels outside the selected label when `apply_mask=True`. |
-| `split_channels` | `bool` | `False` | When `True`, every region becomes one single-channel patch per channel of its image instead of one multichannel patch (requires a `C` axis in `common.image_axes`). Channel patches keep the region's coordinates, get `c` = channel index and a `_c<index>` suffix on `patch_id`, and share one `position_id`: the one supplied via `image_metadata`, or by default `<condition>/<biological_repeat>/<technical_repeat>/<image file stem>` (`image_id` replaces the stem when no `image_file` is known; labels not given are `single`, e.g. `single/single/single/image_0000`). The technical repeat keeps equal file names in two wells apart; defaults written before it was added lack that part (`<condition>/<biological_repeat>/<stem>`). Filters are evaluated on the whole multichannel region before splitting; masking and resizing are applied before splitting too. Without `split_channels`, `position_id` is only set when supplied. |
+| `split_channels` | `bool` | `False` | When `True`, every region becomes one single-channel patch per channel of its image instead of one multichannel patch (requires a `C` axis in `common.image_axes`). Channel patches keep the region's coordinates and `position_id`, and get `c` = channel index (a `c<index>` level of `patch_id`; see "Patch identity" below). Filters are evaluated on the whole multichannel region before splitting; masking and resizing are applied before splitting too. |
 
 > `apply_mask=True` is only supported in `mode="cell"` and requires masks to be provided.
 
@@ -173,7 +174,7 @@ Normalization with the statistics of the preprocessing brick, following the [nor
 | Field | Type | Default | Notes |
 |---|---|---|---|
 | `enabled` | `bool` | `False` | Normalize every patch. |
-| `plane_histograms` | `str \| None` | `None` | Path of the preprocessing brick's `plane_histograms.csv` (schema version 2); required for every scope except `"patch"`. Give CellPatcher the same experiment root as the preprocessing brick. |
+| `plane_histograms` | `str \| None` | `None` | Path of the preprocessing brick's `plane_histograms.csv` (schema version 3); required for every scope except `"patch"`. Give CellPatcher the same experiment root as the preprocessing brick. |
 | `manifest` | `str \| None` | `None` | Path of its `run_manifest.json` for extra checks (file sizes and times, CSV hash, axis roles); `None` uses the one next to the CSV when there is one. |
 | `method` | `str` | `"percentile"` | `"minmax"`, `"percentile"`, `"zscore"` or `"robust_zscore"` (MAD × 1.4826). |
 | `percentile` | `(float, float)` | `(1.0, 99.8)` | Low and high percentile for `"percentile"`, `0 ≤ low < high ≤ 100`. |
@@ -235,19 +236,53 @@ The table below shows which config sections are written by `save_config_for_mode
 
 ---
 
+## Patch identity (`patch_id`, `position_id`, `object_set`)
+
+Owner decisions D44, D45 and D47 (2026-10-26). A patch's identity comes only from its field of view and its own coordinates, never from the place of its image in the run, so the same file gives the same `patch_id` alone, in a folder of ten files, after a file that sorts first, or in a tree run beside other wells; a rerun writes a byte-identical `patches.csv`. The code is `cellpatcher.ids`.
+
+**`position_id`** (always filled; D45). The one supplied with `image_metadata=[{"position_id": ...}]` wins. Otherwise one file is taken as one XY position: `<condition>/<biological_repeat>/<technical_repeat>/<file stem>` (the stem of `image_file`, `img.ome.zarr` giving `img`; labels not given are `single`). An in-memory image passed to `run_patching` with neither a `position_id` nor an `image_file` is **refused** with an error naming its place in the run: pass `image_metadata=[{"position_id": ...}, ...]`, one entry per image (an `{"image_file": ...}` entry also works: its stem then names the position). Folder and tree runs read one image per file: a file holding several images (an OME-Zarr plate or multi-position store, a TIFF with several series) is refused, whether its planes are read one at a time (`z_policy`/`t_policy` `"all"`, `"first"` or `"select"` with the `preprocessing` extra) or the file is read whole (`"keep"`, projections, or without the extra), with an error naming the file and its number of images/series. Give one file per position, or pass `position_id` (with the plane indices) through `run_patching`.
+
+**`object_set`** (cell mode; `None` in other modes). Precedence: `image_metadata[i]["object_set"]`; then `common.object_set`; then, in folder and tree runs, the mask's own name — the OME-NGFF label image name with `mask_source="ngff_labels"` (e.g. `cells`), or the part of the mask file's stem after the image's stem without leading `_`, `-`, `.` (`img_cells.tif` → `cells`, `img_mask.tif` → `mask`); finally `"mask"` (the mask role) when nothing names it (in-memory runs, a mask named like its image, or a mask whose name does not start with the image's stem). Characters other than letters, digits, `.`, `_`, `-` in a derived name become `_`.
+
+**`patch_id` grammar.** Levels are joined by `/`; absent levels are omitted:
+
+```text
+patch_id := position_id "/" [object_set "/"] ["t" T "/"] ["z" Z "/"] ["c" C "/"] token
+token    := "label" LABEL                                (cell)
+          | "grid-y" Y0 "-x" X0 "-h" H "-w" W            (grid)
+          | "random-y" Y0 "-x" X0 "-h" H "-w" W ["-n" K] (random)
+          | "whole_fov"                                  (whole_fov)
+```
+
+`T` is `t` with 4 digits, `Z` is `z0` with 3 digits, `C` is `c` (no padding); each is present when the patch has that index (a plane split or selected by `t_policy`/`z_policy`, an index from `image_metadata`, or a split channel). `LABEL` is the object's own `label_id`; `Y0`/`X0`/`H`/`W` the rectangle's top-left corner and size in pixels. `K` (2, 3, ...) numbers repeated draws of the same rectangle in one random plane, in sampling order. Examples:
+
+| Run | `patch_id` | Exported file |
+|---|---|---|
+| Cell mode, `ctrl/2026_01_01/B02/img.tif` with mask `img_cells.tif` | `ctrl/2026_01_01/B02/img/cells/label42` | `ctrl_2026_01_01_B02_img_cells_label42.tif` |
+| Grid mode, `img.tif` in a flat folder | `single/single/single/img/grid-y0-x128-h128-w128` | `single_single_single_img_grid-y0-x128-h128-w128.tif` |
+| Cell mode, time series with `t_policy="all"`, `split_channels=True`, label image `nuclei` | `ctrl/2026_01_01/B02/fov1/nuclei/t0003/c1/label7` | `ctrl_2026_01_01_B02_fov1_nuclei_t0003_c1_label7.tif` |
+
+Exported files are named `sanitize_filename(patch_id)` plus the extension: `/` and any other character outside letters, digits, `.`, `_`, `-` become `_`. The export refuses two ids that give the same file name, and every run refuses two patches with the same `patch_id` (other than repeated random draws): for example two images given the same `position_id` without different `t`/`z`/`c` indices.
+
+**Random mode is seeded per FOV.** Each image, or each plane with split planes, is sampled with its own seed: `numpy.random.SeedSequence([random.seed, *w])` with `w` the eight 32-bit little-endian words of the SHA-256 of the canonical identity string `<position_id>|t=<t>|z=<z>|c=<c>` (`-` for an absent index), from which one 64-bit state word is the generator's seed (`cellpatcher.ids.random_seed`; Python's salted `hash()` is not used). The same image therefore gets the same rectangles, and ids, alone, in a folder of ten files or after a file that sorts first; another `random.seed`, position or plane gets others. Channels split with `split_channels` share their region's rectangles. `random.seed=None` stays unseeded (different on every run).
+
+**`image_id`** (`image_0000`, ...) is still the image's place in the run (sorted file order in a folder run, restarting in every leaf of a tree run). It joins `patches.csv` to `images.csv` and indexes a run's image list for lazy delivery; it is not an identity across runs.
+
+**Before 2026-10-26** (breaking change): `patch_id` was `<image_id>_<mode>_<index>` (`image_0000_cell_00042`, `image_0000_grid_00003`, `image_0000_random_00007`, `image_0000_whole_fov_0`) plus `_t<NNN>`/`_z<NNN>` for split planes and `_c<n>` for split channels, so it changed with the run; `position_id` was only filled with `split_channels`; `binary_mask_policy` defaulted to `"connected_components"`; random mode sampled image *k* of a run with `random.seed + k` (plane *k* with split planes); unnamed in-memory images were accepted; and a multi-series TIFF was read from its first series.
+
 ## `PatchRegion` fields
 
 Every generated patch is a `PatchRegion` dataclass. The fields below are populated for all modes; `to_dict()`/the exported `patches.csv` also include the `height`/`width` computed properties as extra convenience columns.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `patch_id` | `str` | Unique identifier for the patch (used as the export filename stem). |
-| `image_id` | `str \| None` | Identifier of the source image (e.g. `"image_0000"`). |
+| `patch_id` | `str` | Run-independent identifier of the patch: its `position_id`, object set, plane indices and label or rectangle (see "Patch identity" above). Its sanitized form is the export filename stem. |
+| `image_id` | `str \| None` | The source image's place in the run (e.g. `"image_0000"`); joins `images.csv`, not an identity across runs. |
 | `mode` | `str \| None` | Patching mode that generated this patch. |
 | `condition` | `str \| None` | From `config.common.condition`. See the shared CSV contract below. |
 | `biological_repeat` | `str \| None` | From `config.common.biological_repeat`. See the shared CSV contract below. Formerly `repeat` (deprecated alias). |
 | `technical_repeat` | `str \| None` | From `config.common.technical_repeat`, or per image from `image_metadata`. See the shared CSV contract below. |
-| `position_id` | `str \| None` | Optional stable spatial acquisition-position identifier. Use the same value for all Z/C/T planes from one XY position. Filled automatically for channel patches when `extraction.split_channels=True` (see above). |
+| `position_id` | `str \| None` | Stable spatial acquisition-position identifier, shared by all Z/C/T planes from one XY position. Always filled: supplied via `image_metadata`, else `<condition>/<biological_repeat>/<technical_repeat>/<file stem>` (see "Patch identity" above). |
 | `image_file` | `str \| None` | Source image filename. Populated automatically by `run_patching_pipeline`; `None` for direct `run_patching()` calls unless supplied via `image_metadata`. |
 | `mask_file` | `str \| None` | Source mask filename (cell/random mode only, when a mask was loaded). Same population rule as `image_file`. |
 | `y0`, `y1` | `int` | Vertical extent of the patch in pixels (`y0` inclusive, `y1` exclusive). |
@@ -269,8 +304,9 @@ Every generated patch is a `PatchRegion` dataclass. The fields below are populat
 | `pad_top`, `pad_bottom`, `pad_left`, `pad_right` | `int \| None` | Rows/columns of `extraction.constant_values` added on each side where the rectangle extends past the image (`extraction.pad_mode="constant"`), counted before resizing; `0` when nothing was padded (`"clip"` never pads, and the built-in modes keep every rectangle inside the image). `None` unless arrays were extracted. |
 | `resized` | `bool \| None` | Whether `extraction.output_size` changed the patch's Y/X shape: `False` without an output size, and for a patch that already had it (resizing then leaves the pixels unchanged). `None` unless arrays were extracted. |
 | `output_axes` | `str \| None` | Axes of the delivered/exported array, in order: `common.image_axes` without the Z/T axes a plane policy resolved and, for split channels, without `C` (e.g. `"CYX"`, `"YX"`, `"ZCYX"` with `z_policy="keep"`). Exported TIFF/NPY files carry no axes of their own. `None` unless arrays were extracted. |
+| `object_set` | `str \| None` | Cell mode: the object set (mask) the patch's `label_id` belongs to (see "Patch identity" above); `None` in other modes. Last column. |
 
-These last eight columns come after every earlier one, so the order of the existing columns does not change.
+The geometry columns come after every earlier one, and `object_set` after them, so the order of the existing columns does not change.
 
 ### Shared MorphoBricks CSV contract
 
@@ -278,6 +314,7 @@ These last eight columns come after every earlier one, so the order of the exist
 
 - `condition`/`biological_repeat` — either set `config.common.condition`/`config.common.biological_repeat` explicitly and call `run_patching_pipeline` on a single folder, or call `run_patching_condition_repeat_tree(image_root_path, ...)` on a `raw_data/<condition>/<biological_repeat>/` root and let both be derived per leaf from the folder path (see below). A label that is not given, or set to `None`, is written as `"single"` (`SINGLE_CONDITION_LABEL`, `SINGLE_BIOLOGICAL_REPEAT_LABEL`, `SINGLE_TECHNICAL_REPEAT_LABEL`), as for a missing folder level, so the label columns are never empty.
 - `technical_repeat` — the well, dish or coverslip within the biological repeat. Tree runs derive it from an optional `<condition>/<biological_repeat>/<technical_repeat>/` level and write `"single"` when a biological-repeat folder holds its images directly, so the column is never empty in a tree run. For a single folder set `config.common.technical_repeat`; when one folder holds several wells, pass `image_metadata=[{"technical_repeat": ...}, ...]` to `run_patching`.
+- `position_id` — always filled (see "Patch identity" above): supplied per image via `image_metadata`, else `<condition>/<biological_repeat>/<technical_repeat>/<file stem>`. The canonical MorphoBricks FOV key is `condition` + `biological_repeat` + `technical_repeat` + `position_id`.
 - `image_file`/`mask_file`/`patch_file` are populated automatically by `run_patching_pipeline` (folder-based runs, including each leaf of `run_patching_condition_repeat_tree`) and `export_patches` respectively.
 
 ### Per-image table (`images.csv`)
@@ -293,7 +330,7 @@ Wherever `patches.csv` is written (`export.enabled=True` with `save_metadata_csv
 | `n_patches` | The image's number of rows in `patches.csv` (one per channel patch with `split_channels`). |
 | `status` | `processed`: `n_patches` > 0. `no_patches`: the image was read and patched, but no patch was kept. `skipped`: the image had nothing to patch. |
 | `reason` | Empty for `processed`. For `no_patches`, the step that left none: `the patch mode generated no region in this image` (e.g. no labeled object in its mask, every object excluded by border or area), `the filters removed all <n> region(s)`, or `normalization discarded all <n> patch(es): they cannot be normalized from their own pixels` (decision D8). For `skipped`: `the image has no plane to patch along the axes split by z_policy/t_policy` (a Z or T axis of length 0 with `"all"`). |
-| `position_id` | The `position_id` every patch of the image carries in `patches.csv`, also for an image without patches: supplied via `image_metadata`, the `split_channels` default (see `config.extraction`), or empty. Never guessed otherwise: without either, a file is not assumed to be one position. |
+| `position_id` | The `position_id` every patch of the image carries in `patches.csv`, also for an image without patches: supplied via `image_metadata`, or the default of "Patch identity" above (one file is one position). Never empty since 2026-10-26. |
 | `n_regions`, `n_kept`, `n_normalized` | Regions the patch mode generated, those left by the filters, and those left by normalization (equal to `n_kept` without it), counted before `split_channels`; they tell the three `no_patches` reasons apart without reading `reason`. `0` for a skipped image. |
 
 `position_id`, `n_regions`, `n_kept` and `n_normalized` were added after the first release of the table, as its last columns, so earlier columns keep their positions.

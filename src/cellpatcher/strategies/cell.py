@@ -1,3 +1,4 @@
+import warnings
 from collections import deque
 
 import numpy as np
@@ -6,6 +7,8 @@ from cellpatcher.axes import axis_index, normalize_axes
 from cellpatcher.config import CellConfig
 from cellpatcher.strategies.base import BasePatchStrategy, _spatial_shape_from_axes
 from cellpatcher.types import PatchRegion
+
+_INT32_MAX = int(np.iinfo(np.int32).max)
 
 
 class CellSegmentationStrategy(BasePatchStrategy):
@@ -52,6 +55,56 @@ class CellSegmentationStrategy(BasePatchStrategy):
                             labeled[ny, nx] = current_label
                             queue.append((ny, nx))
         return labeled
+
+    def label_objects(self, selected: np.ndarray, *, image_id=None) -> tuple[np.ndarray, bool]:
+        """The object labels of a 2D mask plane as int32, and whether they were computed.
+
+        Decision D47: an integer mask is instance labels, used as given (a
+        0/1 or 0/255 mask is one object). A boolean mask, or a float mask
+        of 0.0/1.0, has no object ids: it is refused unless
+        ``binary_mask_policy="connected_components"``, which labels its
+        connected components with a warning (the second value is then
+        True: the labels are not the mask's values).
+
+        Raises
+        ------
+        ValueError
+            For negative labels, labels above the int32 maximum, a float
+            mask with other values than 0.0/1.0, a binary mask without the
+            opt-in, or another dtype.
+        """
+        where = f" (image {image_id})" if image_id is not None else ""
+        if selected.dtype == bool or np.issubdtype(selected.dtype, np.floating):
+            if selected.dtype != bool and not np.all(np.isin(np.unique(selected), [0.0, 1.0])):
+                raise ValueError(
+                    f"Non-binary float label arrays are ambiguous{where}. Float masks must contain only 0.0 "
+                    "and 1.0. For labeled masks, use an integer dtype."
+                )
+            if self.config.binary_mask_policy != "connected_components":
+                raise ValueError(
+                    f"The mask{where} is binary ({selected.dtype}), so it has no object ids. Give integer "
+                    "instance labels (each object its own value; mask.astype(np.uint8) makes the whole "
+                    "foreground one object, label 1), or opt in to connected-component labelling with "
+                    "cell.binary_mask_policy='connected_components'."
+                )
+            warnings.warn(
+                f"The binary mask{where} is labelled by 4-connected components "
+                "(cell.binary_mask_policy='connected_components'): its label_id values are computed, "
+                "not taken from the mask.",
+                UserWarning,
+                stacklevel=3,
+            )
+            return self._label_connected_components(selected.astype(bool)), True
+        if not np.issubdtype(selected.dtype, np.integer):
+            raise ValueError(f"labels must hold integers (instance labels){where}; got dtype {selected.dtype}.")
+        if selected.min() < 0:
+            raise ValueError("labels must be non-negative. Found negative values in the label array.")
+        if int(selected.max()) > _INT32_MAX:
+            raise ValueError(
+                f"The mask{where} holds label {int(selected.max())}, above the int32 maximum ({_INT32_MAX}) "
+                "CellPatcher stores labels in; relabel the mask with smaller values."
+            )
+        return selected.astype(np.int32, copy=False), False
 
     def _select_label_plane(self, labels):
         # A plain 2D label array needs no channel handling at all.
@@ -106,34 +159,7 @@ class CellSegmentationStrategy(BasePatchStrategy):
         if selected.size == 0:
             raise ValueError("labels must not be empty.")
 
-        unique_values = np.unique(selected)
-        foreground_mask = selected.astype(bool)
-
-        if np.any(unique_values < 0):
-            raise ValueError(
-                "labels must be non-negative. Found negative values in the label array."
-            )
-
-        if np.issubdtype(selected.dtype, np.floating):
-            if np.any((unique_values != 0.0) & (unique_values != 1.0)):
-                raise ValueError(
-                    "Non-binary float label arrays are ambiguous. "
-                    "Float masks must contain only 0.0 and 1.0. "
-                    "For labeled masks, use an integer dtype."
-                )
-
-        # A binary mask has no per-object ids yet and must be labeled first
-        # (see the same logic in cell_scan._prepare_labeled_plane); a mask
-        # that's already multi-valued is assumed to be pre-labeled.
-        if np.all(np.isin(unique_values, [0, 1, False, True])):
-            if self.config.binary_mask_policy == "connected_components":
-                labeled = self._label_connected_components(foreground_mask)
-            elif self.config.binary_mask_policy == "single_object":
-                labeled = foreground_mask.astype(np.int32)
-            else:
-                raise ValueError(f"Unsupported binary_mask_policy: {self.config.binary_mask_policy}")
-        else:
-            labeled = selected.astype(np.int32)
+        labeled, _ = self.label_objects(selected, image_id=image_id)
 
         object_ids = [int(v) for v in np.unique(labeled) if int(v) != 0]
         patches: list[PatchRegion] = []
@@ -199,7 +225,7 @@ class CellSegmentationStrategy(BasePatchStrategy):
             if y1 <= y0 or x1 <= x0:
                 continue
 
-            patch_id = f"{image_id}_cell_{label_id:05d}" if image_id is not None else f"cell_{label_id:05d}"
+            patch_id = f"label{label_id}"
             patches.append(
                 PatchRegion(
                     patch_id=patch_id,

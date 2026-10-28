@@ -97,7 +97,7 @@ def test_t_and_z_split_from_a_tiff_with_a_kept_channel(tmp_path, read_planes):
 
 
 @needs_preprocessing
-def test_random_seeds_continue_across_images(tmp_path, read_planes):
+def test_random_planes_match_between_folder_and_memory_runs(tmp_path, read_planes):
     stacks = [_stack((2, 32, 32), seed) for seed in range(3)]
     for index, stack in enumerate(stacks):
         _write_tiff(tmp_path / f"{index}.tif", stack, "ZYX")

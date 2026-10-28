@@ -71,7 +71,21 @@ def _cell_config(csv_path):
     return config
 
 
-CONFIGS = {"grid": _grid_config, "cell, masked, resized, split": _cell_config}
+def _clipped(make, clip):
+    def config(csv_path):
+        config = make(csv_path)
+        config.normalization.clip = clip
+        return config
+
+    return config
+
+
+CONFIGS = {
+    "grid": _grid_config,
+    "cell, masked, resized, split": _cell_config,
+    "grid, clipped": _clipped(_grid_config, (0.2, 0.8)),
+    "cell, masked, resized, split, clipped": _clipped(_cell_config, (-1.0, 1.0)),
+}
 
 
 def _run(root, masks, config, **options):
@@ -117,7 +131,11 @@ def test_files_raw_files_and_the_lazy_iterator_equal_eager_delivery(experiment, 
 
     _same(_exported(root, masks, config, tmp_path / "normalized", "normalized"), eager)
     # Raw files of masked/resized patches are float32 raw values (owner decision): equal up to rounding.
-    _same(_exported(root, masks, config, tmp_path / "raw", "raw"), eager, exact=(name == "grid"))
+    _same(_exported(root, masks, config, tmp_path / "raw", "raw"), eager, exact=name.startswith("grid"))
+    clip = config.normalization.clip
+    if clip is not None:
+        finite = [array[np.isfinite(array)] for array in eager.values()]  # NaN mask fill aside
+        assert all(values.min() >= clip[0] and values.max() <= clip[1] for values in finite)
 
     lazy_from_paths, lazy_from_arrays = {}, {}
     for leaf in _run(root, masks, config):

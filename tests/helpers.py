@@ -1,6 +1,19 @@
 import numpy as np
 
 
+def named(images, prefix="pos"):
+    """One ``image_metadata`` entry with a ``position_id`` per in-memory image (``pos0``, ``pos1``, ...).
+
+    ``run_patching`` refuses an image with neither a ``position_id`` nor an
+    ``image_file`` (decision D45); tests that do not test identity name
+    their images with this. None for ``images=None``.
+    """
+    if images is None:
+        return None
+    count = len(images) if isinstance(images, (list, tuple)) else 1
+    return [{"position_id": f"{prefix}{index}"} for index in range(count)]
+
+
 def make_synthetic_cell_image_and_labels(shape=(96, 128), seed=0):
     rng = np.random.default_rng(seed)
     h, w = shape

@@ -14,6 +14,7 @@ from tests.fixtures.helpers import (
     load_real_tiff_fixture,
     summarize_real_tiff_fixture,
 )
+from tests.helpers import named
 
 EXPECTED_FIXTURE_SUMMARY = {
     "image_shape": (1024, 1024),
@@ -76,7 +77,8 @@ def test_real_tiff_fixture_loads_and_has_expected_properties():
 
 def test_real_tiff_cell_mode_auto_extract():
     image, labels = load_real_tiff_fixture()
-    result = run_patching(images=image, masks=labels, config=_cell_config(exclude_border=True))
+    result = run_patching(images=image, masks=labels, config=_cell_config(exclude_border=True),
+        image_metadata=named(image))
 
     assert result.patch_arrays is not None
     assert len(result.patch_arrays) == len(result.patches) == EXPECTED_CELL_PATCH_COUNT_EXCLUDE_BORDER
@@ -86,7 +88,8 @@ def test_real_tiff_cell_mode_auto_extract():
 
 def test_real_tiff_cell_mode_all_labels_when_border_included():
     image, labels = load_real_tiff_fixture()
-    result = run_patching(images=image, masks=labels, config=_cell_config(exclude_border=False))
+    result = run_patching(images=image, masks=labels, config=_cell_config(exclude_border=False),
+        image_metadata=named(image))
     label_ids = {int(p.label_id) for p in result.patches if p.label_id is not None}
 
     assert len(result.patches) == EXPECTED_CELL_PATCH_COUNT_INCLUDE_BORDER
@@ -98,7 +101,8 @@ def test_real_tiff_cell_mode_scan_global_size_apply_mask():
     summary = scan_cell_patch_size(image_shapes=image.shape, labels_list=labels, config=_cell_config().cell, image_axes="YX", mask_axes="YX")
     chosen_size = summary.recommended_size("p95") if summary.recommended_size("p95") > 0 else summary.recommended_size("max")
 
-    result = run_patching(images=image, masks=labels, config=_cell_config(patch_size=chosen_size, apply_mask=True))
+    result = run_patching(images=image, masks=labels, config=_cell_config(patch_size=chosen_size, apply_mask=True),
+        image_metadata=named(image))
 
     assert summary.n_included == EXPECTED_CELL_PATCH_COUNT_EXCLUDE_BORDER
     assert len(result.patches) == summary.n_included
@@ -111,7 +115,8 @@ def test_real_tiff_cell_mode_scan_global_size_apply_mask():
 @pytest.mark.parametrize("center_on", ["bbox_center", "centroid"])
 def test_real_tiff_cell_mode_centroid_and_bbox_center_both_work(center_on):
     image, labels = load_real_tiff_fixture()
-    result = run_patching(images=image, masks=labels, config=_cell_config(center_on=center_on, exclude_border=True))
+    result = run_patching(images=image, masks=labels, config=_cell_config(center_on=center_on, exclude_border=True),
+        image_metadata=named(image))
 
     assert len(result.patches) == EXPECTED_CELL_PATCH_COUNT_EXCLUDE_BORDER
     assert result.patch_arrays is not None
@@ -121,7 +126,9 @@ def test_real_tiff_cell_mode_centroid_and_bbox_center_both_work(center_on):
 def test_real_tiff_cell_mode_binary_policy_connected_components():
     image, labels = load_real_tiff_fixture()
     binary = labels > 0
-    result = run_patching(images=image, masks=binary, config=_cell_config(exclude_border=False, binary_mask_policy="connected_components"))
+    with pytest.warns(UserWarning, match="connected components"):
+        config = _cell_config(exclude_border=False, binary_mask_policy="connected_components")
+        result = run_patching(images=image, masks=binary, config=config, image_metadata=named(image))
 
     # Both binary CCs in this fixture touch the image border; exclude_border=False
     # means they are kept, giving EXPECTED_BINARY_CC_PATCH_COUNT patches.
@@ -137,7 +144,7 @@ def test_real_tiff_resize_orders_smoke(resize_order):
     image, labels = load_real_tiff_fixture()
     cfg = _cell_config(exclude_border=True)
     cfg.extraction.resize_order = resize_order
-    result = run_patching(images=image, masks=labels, config=cfg)
+    result = run_patching(images=image, masks=labels, config=cfg, image_metadata=named(image))
 
     assert len(result.patches) == EXPECTED_CELL_PATCH_COUNT_EXCLUDE_BORDER
     assert result.patch_arrays is not None
@@ -151,8 +158,8 @@ def test_real_tiff_random_mode_unconstrained():
     cfg.common.extract_arrays = True
     cfg.extraction.output_size = 32
 
-    r1 = run_patching(images=image, config=cfg)
-    r2 = run_patching(images=image, config=cfg)
+    r1 = run_patching(images=image, config=cfg, image_metadata=named(image))
+    r2 = run_patching(images=image, config=cfg, image_metadata=named(image))
 
     assert len(r1.patches) == len(r1.patch_arrays) == 8
     assert all(arr.shape == (32, 32) for arr in r1.patch_arrays)
@@ -168,7 +175,7 @@ def test_real_tiff_random_mode_label_constrained():
     cfg.extraction.output_size = 32
 
     mask = labels > 0
-    result = run_patching(images=image, masks=mask, config=cfg)
+    result = run_patching(images=image, masks=mask, config=cfg, image_metadata=named(image))
     assert len(result.patches) == len(result.patch_arrays) == 4
     assert all(arr.shape == (32, 32) for arr in result.patch_arrays)
     # Every patch must overlap the foreground mask (mask-constrained sampling).
@@ -182,7 +189,7 @@ def test_real_tiff_grid_mode_no_overlap():
     cfg.common.extract_arrays = True
     cfg.extraction.output_size = 32
 
-    result = run_patching(images=image, config=cfg)
+    result = run_patching(images=image, config=cfg, image_metadata=named(image))
     expected_count = (image.shape[0] // 64) * (image.shape[1] // 64)
     assert len(result.patches) == expected_count == EXPECTED_GRID_COUNT_64_NO_OVERLAP
     assert all(arr.shape == (32, 32) for arr in result.patch_arrays)
@@ -197,8 +204,8 @@ def test_real_tiff_grid_mode_overlap_partial():
     over.common.extract_arrays = True
     over.extraction.output_size = 32
 
-    base_result = run_patching(images=image, config=base)
-    result = run_patching(images=image, config=over)
+    base_result = run_patching(images=image, config=base, image_metadata=named(image))
+    result = run_patching(images=image, config=over, image_metadata=named(image))
 
     coords = [(p.y0, p.x0, p.y1, p.x1) for p in result.patches]
     assert len(result.patches) > len(base_result.patches)
@@ -213,7 +220,7 @@ def test_real_tiff_whole_fov_mode():
     cfg.common.image_axes = "YX"
     cfg.common.extract_arrays = True
     cfg.extraction.output_size = 64
-    result = run_patching(images=image, config=cfg)
+    result = run_patching(images=image, config=cfg, image_metadata=named(image))
 
     assert len(result.patches) == len(result.patch_arrays) == 1
     assert result.patch_arrays[0].shape == (64, 64)
@@ -225,7 +232,7 @@ def test_real_tiff_filtering_smoke():
     image, labels = load_real_tiff_fixture()
     unfiltered = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=64, overlap=0.0, include_partial=True))
     unfiltered.common.image_axes = "YX"
-    base_result = run_patching(images=image, config=unfiltered)
+    base_result = run_patching(images=image, config=unfiltered, image_metadata=named(image))
 
     filtered = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=64, overlap=0.0, include_partial=True))
     filtered.common.image_axes = "YX"
@@ -233,7 +240,7 @@ def test_real_tiff_filtering_smoke():
     filtered.filters.min_mean_intensity = float(np.mean(image) + 10.0)
     filtered.filters.min_foreground_fraction = 0.05
     filtered.filters.foreground_threshold = "mean"
-    filtered_result = run_patching(images=image, masks=(labels > 0), config=filtered)
+    filtered_result = run_patching(images=image, masks=(labels > 0), config=filtered, image_metadata=named(image))
 
     # The intensity threshold (mean + 10) must eliminate a meaningful fraction of
     # patches — require strictly fewer, not merely ≤, to confirm filtering is active.
@@ -274,7 +281,7 @@ def test_real_tiff_export_all_modes_npy(tmp_path, mode):
     cfg.export.save_metadata_csv = True
     cfg.extraction.output_size = 32 if mode != "whole_fov" else 64
 
-    result = run_patching(images=image, masks=masks, config=cfg)
+    result = run_patching(images=image, masks=masks, config=cfg, image_metadata=named(image))
     assert len(result.patches) == expected
     assert result.patch_arrays is None  # extract_arrays=False; arrays written to disk, not returned
     assert len(result.exported_files) == len(result.patches)
@@ -287,7 +294,8 @@ def test_real_tiff_cell_mode_single_object_and_area_filters():
     cfg = _cell_config(exclude_border=False, binary_mask_policy="single_object")
     cfg.cell.min_area = 10000
     cfg.cell.max_area = 800000
-    result = run_patching(images=image, masks=(labels > 0), config=cfg)
+    # A binary mask as integers is one object (decision D47: a bool mask is refused).
+    result = run_patching(images=image, masks=(labels > 0).astype(np.uint8), config=cfg, image_metadata=named(image))
     assert len(result.patches) == 1
     assert result.patch_arrays is not None
     assert result.patch_arrays[0].shape == (32, 32)
@@ -297,7 +305,7 @@ def test_real_tiff_cell_mode_mask_channel_noop_for_2d_labels():
     image, labels = load_real_tiff_fixture()
     cfg = _cell_config(exclude_border=True)
     cfg.cell.mask_channel = 0
-    result = run_patching(images=image, masks=labels, config=cfg)
+    result = run_patching(images=image, masks=labels, config=cfg, image_metadata=named(image))
     assert len(result.patches) == EXPECTED_CELL_PATCH_COUNT_EXCLUDE_BORDER
 
 
@@ -307,7 +315,7 @@ def test_real_tiff_padding_modes_smoke(pad_mode, constant_values):
     cfg = _cell_config(exclude_border=True)
     cfg.extraction.pad_mode = pad_mode
     cfg.extraction.constant_values = constant_values
-    result = run_patching(images=image, masks=labels, config=cfg)
+    result = run_patching(images=image, masks=labels, config=cfg, image_metadata=named(image))
     # Smoke test: verify the config is accepted and patches are produced.
     # Note: run_patching clips all PatchRegion coordinates to image bounds before
     # extraction, so constant padding (constant_values) is never triggered through
@@ -321,7 +329,7 @@ def test_real_tiff_output_size_tuple_smoke():
     image, labels = load_real_tiff_fixture()
     cfg = _cell_config(exclude_border=True)
     cfg.extraction.output_size = (24, 40)
-    result = run_patching(images=image, masks=labels, config=cfg)
+    result = run_patching(images=image, masks=labels, config=cfg, image_metadata=named(image))
     assert result.patch_arrays is not None
     assert all(arr.shape == (24, 40) for arr in result.patch_arrays)
 
@@ -335,7 +343,7 @@ def test_real_tiff_export_tiff_and_no_metadata_csv(tmp_path):
     cfg.export.enabled = True
     cfg.export.image_format = "tiff"
     cfg.export.save_metadata_csv = False
-    result = run_patching(images=image, config=cfg)
+    result = run_patching(images=image, config=cfg, image_metadata=named(image))
     assert len(result.patches) == 1
     assert len(result.exported_files) == 1
     assert Path(result.exported_files[0]).suffix in {".tif", ".tiff"}

@@ -299,10 +299,24 @@ def _plane_reader(path, common):
 
 
 def _file_layout(mbp, path: Path, target: str):
-    """The preprocessing ``AxisMapping`` of a file, and its shape and dtype in *target* order."""
+    """The preprocessing ``AxisMapping`` of a file, and its shape and dtype in *target* order.
+
+    Raises
+    ------
+    ValueError
+        If the file cannot be read, or holds more than one image (several
+        series, positions or wells): its planes would be read from the first
+        one only, as when reading it whole (``io.read_ome_zarr``).
+    """
     meta = mbp.inspect_image(path, path.name)
     if not meta.readable:
         raise ValueError(f"{path.name} cannot be read: {meta.error}")
+    if meta.series_count > 1:
+        raise ValueError(
+            f"{path} holds {meta.series_count} images (several series, positions or wells); CellPatcher reads "
+            "one image per file or OME-Zarr folder and would patch only the first. Save each image in its own "
+            "file or folder."
+        )
     if meta.kind == "ome-zarr":
         # OME-Zarr axes come from the metadata and are matched by role, as in
         # io.conform_axes: an axis the configured axes lack must have length 1.
