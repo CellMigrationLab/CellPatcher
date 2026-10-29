@@ -45,6 +45,7 @@ from cellpatcher.pipeline import (
     PatchingResult,
     _patch_planes,
     check_config_identity,
+    check_source_identities,
     run_config_data,
     run_patching,
 )
@@ -589,6 +590,7 @@ def _run_folder_patching(
     image_files = list_supported_files(image_folder_path)
     if len(image_files) == 0:
         raise ValueError("No supported image files found in image folder.")
+    check_source_identities(config, image_files)  # from the names, before any read
     # image_files' sorted order fixes the image_0000, image_0001, ...
     # image_id values (a run-local index); patch_id does not use them.
     loaders = _mask_loaders(
@@ -779,10 +781,7 @@ def run_patching_condition_repeat_tree(
         replace(config.export, save_metadata_csv=False, save_run_config=False) if combine_metadata else config.export
     )
 
-    results: list[ConditionRepeatResult] = []
-    for index, leaf in enumerate(leaves):
-        if progress_callback is not None:
-            progress_callback(index, len(leaves), leaf)
+    def leaf_config_of(leaf):
         # Derive this leaf's config from the shared base: same settings
         # everywhere, but condition/biological_repeat/technical_repeat/
         # output_dir specific to this leaf.
@@ -794,7 +793,20 @@ def run_patching_condition_repeat_tree(
         )
         if base_output_dir is not None:
             leaf_common.output_dir = str(base_output_dir / leaf.relative_folder)
-        leaf_config = replace(config, common=leaf_common, export=leaf_export)
+        return replace(config, common=leaf_common, export=leaf_export)
+
+    # Every leaf's identity first (D85), from names only: a refusal in a later leaf
+    # comes before any leaf's image or mask is read.
+    for leaf in leaves:
+        leaf_config = leaf_config_of(leaf)  # its labels are the folder names, object_set the base's
+        check_config_identity(leaf_config)
+        check_source_identities(leaf_config, list_supported_files(leaf.image_folder))
+
+    results: list[ConditionRepeatResult] = []
+    for index, leaf in enumerate(leaves):
+        if progress_callback is not None:
+            progress_callback(index, len(leaves), leaf)
+        leaf_config = leaf_config_of(leaf)
 
         # Only pass a mask folder through if the mode can use one AND it
         # actually exists -- e.g. random mode treats a missing mask folder

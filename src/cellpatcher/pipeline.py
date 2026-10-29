@@ -81,6 +81,22 @@ def check_config_identity(config: CellPatcherConfig) -> None:
         validate_object_set(config.common.object_set)
 
 
+def check_source_identities(config: CellPatcherConfig, image_files) -> None:
+    """Refuse the D85 identity of a folder's images from their names alone, before any read.
+
+    Each image file is one source: its labels, its ``position_id`` (the image name) and the
+    uniqueness of ``position_id`` within the technical repeat, ignoring case, are checked
+    exactly as ``run_patching`` checks them later, so two images ``Img.tif`` and ``img.tiff``
+    are refused before either (or a mask) is read.
+    """
+    seen: dict = {}
+    for index, path in enumerate(image_files):
+        meta = {"image_file": Path(path).name}
+        labels = _image_labels(config, meta)
+        meta["position_id"] = resolve_position_id(labels, meta, image_index=index)
+        check_unique_position(seen, labels, meta, index)
+
+
 def _stamp_run_context(config: CellPatcherConfig, patches: list[PatchRegion]) -> None:
     condition, biological_repeat, technical_repeat = _run_labels(config)
     for patch in patches:

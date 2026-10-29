@@ -569,3 +569,41 @@ def test_a_folder_run_refuses_config_identity_before_reading(tmp_path, monkeypat
     path.write_text(json.dumps(data))
     with pytest.raises(ValueError, match=f"{field} must be"):
         run_patching_pipeline(images, mask_folder_path=masks, config=load_config(path))
+
+
+@pytest.mark.parametrize("planes", ["keep", "all"])
+def test_colliding_positions_are_refused_before_any_read(tmp_path, monkeypatch, planes):
+    """Re-audit of #41: Img.tif and img.tiff collide (D85); the refusal comes from the names,
+    before any image or mask is read, on the eager and the plane-split routes."""
+    from cellpatcher import orchestration
+
+    def no_read(*args, **kwargs):
+        raise AssertionError("a file was read before the identity refusal")
+
+    images, masks = tmp_path / "images", tmp_path / "masks"
+    for name in ("Img.tif", "img.tiff"):
+        write_array(images / name, _image(0))
+        write_array(masks / name, _labels(0))
+    monkeypatch.setattr(orchestration, "read_image", no_read)
+    monkeypatch.setattr(orchestration, "_mask_loaders", no_read)
+    config = _cell_config()
+    config.common.z_policy = planes
+    with pytest.raises(ValueError, match="same position_id"):
+        run_patching_pipeline(images, mask_folder_path=masks, config=config)
+
+
+def test_a_tree_refuses_a_later_leaf_before_reading_any_leaf(tmp_path, monkeypatch):
+    """Every leaf's identity is checked before the first leaf is read."""
+    from cellpatcher import orchestration
+
+    def no_read(*args, **kwargs):
+        raise AssertionError("a leaf was read before the identity refusal")
+
+    write_array(tmp_path / "ctrl" / "r1" / "a.tif", _image(0))
+    for name in ("Img.tif", "img.tiff"):
+        write_array(tmp_path / "ctrl" / "r2" / name, _image(1))
+    monkeypatch.setattr(orchestration, "read_image", no_read)
+    monkeypatch.setattr(orchestration, "_run_folder_patching", no_read)
+    config = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=8))
+    with pytest.raises(ValueError, match="same position_id"):
+        run_patching_condition_repeat_tree(tmp_path, config=config)
