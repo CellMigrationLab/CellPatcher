@@ -497,3 +497,29 @@ def test_a_supplied_channel_is_refused_with_split_channels(mode, monkeypatch):
     image = np.zeros((2, 16, 16), dtype=np.uint16)
     with pytest.raises(ValueError, match="split_channels=True generates c"):
         run_patching(images=[image], config=config, image_metadata=[{"position_id": "p1", "c": 5}])
+
+
+@pytest.mark.parametrize("policy", ["max", "mean", "all", "first"])
+def test_a_supplied_z_is_refused_with_a_z_policy(policy, monkeypatch):
+    """Re-audit of #41: a projection is no single plane, so a supplied z with z_policy="max"
+    would label it one; any policy but "keep" with a supplied z is refused before seeding."""
+    from cellpatcher import pipeline
+
+    def no_seed(*args, **kwargs):
+        raise AssertionError("the random seed was computed before the refusal")
+
+    monkeypatch.setattr(pipeline, "random_seed", no_seed)
+    config = CellPatcherConfig(mode="random")
+    config.random.patch_size, config.random.n_patches = 8, 2
+    config.common.image_axes, config.common.z_policy = "ZYX", policy
+    image = np.zeros((3, 16, 16), dtype=np.uint16)
+    with pytest.raises(ValueError, match="z_policy=.* also decides its planes"):
+        run_patching(images=[image], config=config, image_metadata=[{"position_id": "p1", "z": 2}])
+
+
+def test_a_supplied_t_is_refused_with_a_t_policy():
+    config = CellPatcherConfig(mode="whole_fov")
+    config.common.image_axes, config.common.t_policy = "TYX", "all"
+    with pytest.raises(ValueError, match="t_policy='all' also decides its planes"):
+        run_patching(images=[np.zeros((2, 8, 8))], config=config,
+                     image_metadata=[{"position_id": "p1", "t": 0}])
