@@ -197,7 +197,9 @@ def discover_condition_repeat_folders(
       technical repeat, labeled ``SINGLE_TECHNICAL_REPEAT_LABEL``
       (``"single"``). The technical level needs the biological-repeat level
       above it: ``<condition>/<well>/<images>`` reads the wells as biological
-      repeats.
+      repeats. Whether a level is flat is read from the folder's contents,
+      never from its name: a biological-repeat folder named ``single`` can
+      hold technical-repeat subfolders like any other.
 
     If *root_path* itself holds the image files and has no subfolders, the
     whole dataset is one leaf labeled ``SINGLE_CONDITION_LABEL`` /
@@ -254,10 +256,12 @@ def discover_condition_repeat_folders(
         for biological_repeat, repeat_folder in _classify_condition_subfolders(condition_dir, exts):
             # A flat condition folder is its own (single) biological repeat and
             # holds images, so only an explicit biological-repeat folder can
-            # nest wells.
+            # nest wells. Flatness comes from the folder, not its label: a
+            # biological-repeat subfolder literally named "single" can hold
+            # technical-repeat subfolders like any other.
             technical = (
                 [(SINGLE_TECHNICAL_REPEAT_LABEL, repeat_folder)]
-                if biological_repeat == SINGLE_BIOLOGICAL_REPEAT_LABEL
+                if repeat_folder == condition_dir
                 else _classify_repeat_subfolders(repeat_folder, exts)
             )
             for technical_repeat, image_folder in technical:
