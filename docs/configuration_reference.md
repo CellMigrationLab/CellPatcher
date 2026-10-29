@@ -68,7 +68,17 @@ Settings for randomly sampled patches of a fixed size.
 |---|---|---|---|
 | `patch_size` | `int` | `128` | Side length of each square patch in pixels. Must be `> 0`. |
 | `n_patches` | `int` | `100` | Number of patches to sample per image. Must be `> 0`. |
+| `seed_scope` | `str` | `"plane_channel"` | Which identity the seed is derived from (issue #33): `"plane_channel"` (the default, as before: `position_id`, `t`, `z`, `c`), `"plane"` (`position_id`, `t`, `z`: every channel given as its own image gets the same rectangles) or `"position"` (`position_id` only: every plane of a position gets the same rectangles). `c` enters the seed only when an image's metadata gives a channel; channels split with `split_channels` always share their region's rectangles. |
+| `min_mask_fraction` | `float` | `0.0` | With a sampling mask, the least share of a draw's pixels in the mask's foreground. `0` keeps the any-overlap rule. Needs a mask when `> 0`. |
 | `seed` | `int \| None` | `0` | Random seed for reproducibility. Set to `None` for non-deterministic sampling. Each image (each plane with split planes) is sampled with a seed derived from this seed and its identity — `position_id` and its `t`/`z`/`c` indices — never from its place in the run, so an image gets the same rectangles alone or among other files (see "Patch identity" below). Must be `>= 0`. |
+
+---
+
+## `config.whole_fov` (`WholeFOVConfig`, used for `mode="whole_fov"`)
+
+| Field | Type | Default | Notes |
+|---|---|---|---|
+| `square_cover` | `bool` | `False` | Also return, after each whole-FOV region, the ⌈long ÷ short⌉ squares of the short side that cover it, evenly spaced (mode `whole_fov_square`, `patch_id` `<parent>/sq<N>`, `parent_id` set; issue #33). |
 
 ---
 
@@ -233,7 +243,7 @@ The table below shows which config sections are written by `save_config_for_mode
 | `"cell"` | `common`, `filters`, `export`, `extraction` | `cell`, `matching` |
 | `"random"` | `common`, `filters`, `export`, `extraction` | `random`, `matching` |
 | `"grid"` | `common`, `filters`, `export`, `extraction` | `grid` |
-| `"whole_fov"` | `common`, `filters`, `export`, `extraction` | *(none)* |
+| `"whole_fov"` | `common`, `filters`, `export`, `extraction` | `whole_fov` |
 
 `save_default_config(path)` writes all sections regardless of mode.
 

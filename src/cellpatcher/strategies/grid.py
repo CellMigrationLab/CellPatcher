@@ -78,6 +78,12 @@ class GridStrategy(BasePatchStrategy):
                         center_x=(x0 + x1) / 2,
                         area_px=tile_h * tile_w,
                         touches_border=touches_border,
+                        # A partial tile is the full tile clipped to the image.
+                        requested_y0=y0,
+                        requested_y1=y0 + tile_size,
+                        requested_x0=x0,
+                        requested_x1=x0 + tile_size,
+                        patch_touches_image_border=touches_border,
                     )
                 )
 

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import numpy as np
 
-from cellpatcher.types import IMAGE_TABLE_COLUMNS, ImageRecord, PatchRegion
+from cellpatcher.types import IMAGE_TABLE_COLUMNS, MASK_FRACTION_PREFIX, ImageRecord, PatchRegion
 
 # The per-image table written beside every patches.csv (see save_image_table_csv).
 IMAGE_TABLE_FILENAME = "images.csv"
@@ -30,11 +30,12 @@ def save_metadata_csv(patches, csv_path):
     # The CSV header follows PatchRegion's own field order, with the
     # computed height/width convenience columns inserted right after the
     # x1 coordinate they're derived from (rather than tacked on at the end).
-    header = [f.name for f in fields(PatchRegion) if f.name != "normalization_parameters"]
+    header = [f.name for f in fields(PatchRegion) if f.name not in ("normalization_parameters", "mask_fractions")]
     x1_index = header.index("x1")
     header = header[: x1_index + 1] + ["height", "width"] + header[x1_index + 1 :]
     exact_index = header.index("normalization_exact")
     header = header[: exact_index + 1] + normalization_columns(patches) + header[exact_index + 1 :]
+    header += mask_fraction_columns(patches)
     rows = patch_metadata_to_rows(patches)
 
     with path.open("w", newline="", encoding="utf-8") as f:
@@ -45,6 +46,12 @@ def save_metadata_csv(patches, csv_path):
             if isinstance(row.get("normalization_exact"), bool):
                 row["normalization_exact"] = "true" if row["normalization_exact"] else "false"
             writer.writerow({k: row.get(k) for k in header})
+
+
+def mask_fraction_columns(patches) -> list[str]:
+    """One ``mask_fraction_<name>`` column per mask any patch has a fraction for, in first-seen order."""
+    names = dict.fromkeys(name for patch in patches for name in (patch.mask_fractions or {}))
+    return [f"{MASK_FRACTION_PREFIX}{name}" for name in names]
 
 
 def normalization_columns(patches) -> list[str]:

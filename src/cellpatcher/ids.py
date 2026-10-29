@@ -10,6 +10,7 @@ ten images, or in a tree with other wells (owner decision D44, 2026-10-26)::
                | "grid-y" Y0 "-x" X0 "-h" H "-w" W            (grid)
                | "random-y" Y0 "-x" X0 "-h" H "-w" W ["-n" K] (random)
                | "whole_fov"                                  (whole_fov)
+               | "whole_fov/sq" N                             (whole_fov_square)
 
 - ``position_id`` is the patch's ``position_id`` (decision D45; see
   :func:`resolve_position_id`); it may itself contain ``/``.
@@ -23,6 +24,9 @@ ten images, or in a tree with other wells (owner decision D44, 2026-10-26)::
   rectangle's top-left corner and size in pixels.
 - ``K`` (from 2) numbers repeated draws of the same rectangle in one random
   plane, in sampling order; the first draw has no ``-n``.
+- ``N`` (from 0) is a whole-FOV square's place along the long side
+  (``whole_fov.square_cover``); its ``patch_id`` is its parent's plus
+  ``/sq<N>``, and ``parent_id`` is the parent's ``patch_id``.
 
 Exported files are named ``sanitize_filename(patch_id)`` plus the extension,
 which turns every ``/`` into ``_``; the export refuses ids that become the same
@@ -130,7 +134,11 @@ def resolve_position_id(labels, meta, *, image_index=None) -> str:
     )
 
 
-def random_seed(seed, meta) -> int | None:
+# The plane indices each random seed scope includes (config.RandomConfig.seed_scope).
+SEED_SCOPE_AXES = {"plane_channel": ("t", "z", "c"), "plane": ("t", "z"), "position": ()}
+
+
+def random_seed(seed, meta, scope: str = "plane_channel") -> int | None:
     """The seed random mode samples one image (plane) with, from the run seed and the image's identity.
 
     Derived from ``seed`` and the canonical identity string
@@ -139,11 +147,16 @@ def random_seed(seed, meta) -> int | None:
     ``numpy.random.SeedSequence``, so the same image (plane) gets the same
     rectangles in every run, whatever its place in the run, and another
     ``seed`` gives others. None when ``seed`` is None (unseeded sampling).
+    *scope* (``RandomConfig.seed_scope``) keeps only some indices:
+    ``"plane_channel"`` all three (the default, unchanged), ``"plane"`` t and
+    z (``position_id|t=<t>|z=<z>``), ``"position"`` none (``position_id``).
     """
     if seed is None:
         return None
+    if scope not in SEED_SCOPE_AXES:  # e.g. set after the config was validated
+        raise ValueError(f"random.seed_scope must be one of {list(SEED_SCOPE_AXES)}; got {scope!r}.")
     parts = [str(meta["position_id"])]
-    parts += [f"{axis}={'-' if meta.get(axis) is None else int(meta[axis])}" for axis in ("t", "z", "c")]
+    parts += [f"{axis}={'-' if meta.get(axis) is None else int(meta[axis])}" for axis in SEED_SCOPE_AXES[scope]]
     digest = hashlib.sha256("|".join(parts).encode("utf-8")).digest()
     words = [int.from_bytes(digest[i:i + 4], "little") for i in range(0, len(digest), 4)]
     return int(np.random.SeedSequence([int(seed), *words]).generate_state(1, dtype=np.uint64)[0])
@@ -155,6 +168,10 @@ def patch_token(patch) -> str:
         return f"label{patch.label_id}"
     if patch.mode == "whole_fov":
         return "whole_fov"
+    if patch.mode == "whole_fov_square":
+        if patch.square_index is None:
+            raise ValueError("A whole_fov_square patch needs its square_index to build its patch_id.")
+        return f"whole_fov/sq{int(patch.square_index)}"
     if patch.mode in ("grid", "random"):
         return f"{patch.mode}-y{patch.y0}-x{patch.x0}-h{patch.y1 - patch.y0}-w{patch.x1 - patch.x0}"
     raise ValueError(f"Unknown patch mode {patch.mode!r} of a patch; cannot build its patch_id.")
@@ -196,6 +213,8 @@ def assign_patch_ids(patches) -> None:
         counts[base] += 1
         owners.setdefault(base, set()).add(patch.image_id)
         patch.patch_id = base if counts[base] == 1 or patch.mode != "random" else f"{base}-n{counts[base]}"
+        if patch.mode == "whole_fov_square":
+            patch.parent_id = base.rsplit("/", 1)[0]
     duplicates = sorted(
         base
         for base, count in counts.items()
