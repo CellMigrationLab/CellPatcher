@@ -128,12 +128,20 @@ def resolve_position_id(labels, meta, *, image_index=None) -> str:
     Raises
     ------
     ValueError
-        If neither a ``position_id`` nor an ``image_file`` is given: an
+        If a given ``position_id`` is not non-empty text (it is never coerced), or
+        if neither a ``position_id`` nor an ``image_file`` is given: an
         in-memory image has no identity of its own, and its place in the run
         (*image_index*, named in the message) is not one.
     """
     if meta.get("position_id") is not None:
-        return str(meta["position_id"])
+        value = meta["position_id"]
+        if not isinstance(value, str) or not value.strip():
+            which = "an image" if image_index is None else f"image {image_index} of the run"
+            raise ValueError(
+                f"The position_id given for {which} must be non-empty text (kept verbatim, D85); "
+                f"got {value!r}."
+            )
+        return value
     if meta.get("image_file"):
         from morphobricks_preprocessing.discovery import position_id
 
@@ -146,6 +154,16 @@ def resolve_position_id(labels, meta, *, image_index=None) -> str:
     )
 
 
+def plane_index(meta, axis: str) -> int | None:
+    """The plane index *meta* gives along *axis* (``"t"``, ``"z"`` or ``"c"``) as patches carry it.
+
+    ``None`` when absent, else ``int(value)``: the one representation stamped on patches,
+    hashed into random seeds and compared for uniqueness, so ``1`` and ``"1"`` are one plane.
+    """
+    value = meta.get(axis)
+    return None if value is None else int(value)
+
+
 def check_unique_position(seen: dict, labels, meta, index) -> None:
     """Refuse a source image whose FOV key another image of the run already has (D85).
 
@@ -156,7 +174,7 @@ def check_unique_position(seen: dict, labels, meta, index) -> None:
     geometry or filter, so an image that yields no patch is checked too. *seen* maps the
     keys met so far to their image index and is updated.
     """
-    key = (*map(str, labels), str(meta["position_id"]).casefold(), *(meta.get(axis) for axis in ("t", "z", "c")))
+    key = (*map(str, labels), str(meta["position_id"]).casefold(), *(plane_index(meta, axis) for axis in "tzc"))
     if key in seen:
         raise ValueError(
             f"Images {seen[key]} and {index} of the run have the same position_id within technical repeat "
@@ -193,7 +211,8 @@ def random_seed(seed, meta, scope: str = "plane_channel", labels=None) -> int | 
     if labels is None:
         raise ValueError("random_seed needs the image's (condition, biological_repeat, technical_repeat).")
     parts = [*(str(label) for label in labels), str(meta["position_id"])]
-    parts += [f"{axis}={'-' if meta.get(axis) is None else int(meta[axis])}" for axis in SEED_SCOPE_AXES[scope]]
+    indices = {axis: plane_index(meta, axis) for axis in SEED_SCOPE_AXES[scope]}
+    parts += [f"{axis}={'-' if value is None else value}" for axis, value in indices.items()]
     canonical = json.dumps(parts, ensure_ascii=False, separators=(",", ":"))
     digest = hashlib.sha256(canonical.encode("utf-8")).digest()
     words = [int.from_bytes(digest[i:i + 4], "little") for i in range(0, len(digest), 4)]

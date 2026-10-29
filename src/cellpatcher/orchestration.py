@@ -668,8 +668,8 @@ def run_patching_condition_repeat_tree(
     or ``<output_dir>/<condition>/<biological_repeat>/<technical_repeat>`` for a
     technical-repeat subfolder, mirroring the input layout. ``image_id``
     restarts at ``image_0000`` in every leaf; ``patch_id`` starts with the
-    image's ``position_id`` (``<condition>/<biological_repeat>/<technical_repeat>/<stem>``),
-    so it is unique across the whole tree.
+    image's FOV key (``<condition>/<biological_repeat>/<technical_repeat>/<position_id>``,
+    D85), so it is unique across the whole tree.
 
     Parameters
     ----------

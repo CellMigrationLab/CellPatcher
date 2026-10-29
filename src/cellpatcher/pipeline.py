@@ -15,6 +15,7 @@ from cellpatcher.fractions import check_fraction_masks, stamp_mask_fractions
 from cellpatcher.ids import (
     assign_patch_ids,
     check_unique_position,
+    plane_index,
     random_seed,
     resolve_object_set,
     resolve_position_id,
@@ -98,13 +99,13 @@ def _stamp_image_metadata(image_list, image_metadata, patches: list[PatchRegion]
         meta = per_image.get(patch.image_id)
         if not meta:
             continue
-        if meta.get("t") is not None:
-            patch.t = int(meta["t"])
-        if meta.get("z") is not None:
-            z = int(meta["z"])
+        t, z, c = (plane_index(meta, axis) for axis in "tzc")
+        if t is not None:
+            patch.t = t
+        if z is not None:
             patch.z0, patch.z1 = z, z + 1
-        if meta.get("c") is not None:
-            patch.c = int(meta["c"])
+        if c is not None:
+            patch.c = c
         if meta.get("position_id") is not None:
             patch.position_id = str(meta["position_id"])
         if meta.get("technical_repeat") is not None:
@@ -792,9 +793,8 @@ def run_patching(images=None, masks=None, config=None, image_metadata=None, frac
         ``.metadata`` (keys ``"t"``, ``"z"``, ``"c"``), optionally augmented
         with ``"position_id"`` for the stable spatial acquisition position
         and, in cell mode, ``"object_set"`` (the mask's name). Without a
-        ``position_id``, an image's is
-        ``<condition>/<biological_repeat>/<technical_repeat>/<stem>`` from
-        its ``"image_file"``; an image with neither is refused
+        ``position_id``, an image's is the name of its ``"image_file"``
+        without the extension (D85); an image with neither is refused
         (:func:`cellpatcher.ids.resolve_position_id`): its place in the run
         is never its identity. ``patch_id`` is built from these (:mod:`cellpatcher.ids`),
         and two patches with the same ``patch_id`` stop the run. When supplied, the

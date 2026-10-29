@@ -441,3 +441,22 @@ def test_only_the_position_is_case_insensitive():
     assert [p.patch_id for p in result.patches] == ["single/single/A/img/whole_fov", "single/single/a/img/whole_fov"]
     planes = [{"position_id": "img", "t": 0}, {"position_id": "IMG", "t": 1}]
     assert len(run_patching(images=[np.zeros((4, 4))] * 2, config=config, image_metadata=planes).patches) == 2
+
+
+@pytest.mark.parametrize("axis", ["t", "z", "c"])
+def test_plane_indices_given_as_text_are_the_same_plane(axis):
+    """Re-audit of #41: uniqueness compares the indices as patches carry them (int), so 1 and "1"
+    are one plane and two case-differing positions there are refused."""
+    config = CellPatcherConfig(mode="whole_fov")
+    metadata = [{"position_id": "Img", axis: 1}, {"position_id": "img", axis: "1"}]
+    with pytest.raises(ValueError, match="same position_id"):
+        run_patching(images=[np.zeros((4, 4))] * 2, config=config, image_metadata=metadata)
+
+
+@pytest.mark.parametrize("value", [7, "", "  ", 1.5])
+def test_a_supplied_position_id_must_be_text(value):
+    """D85: a supplied position_id is kept verbatim, so a number or an empty one is refused, not
+    converted (also for an image yielding no patch)."""
+    with pytest.raises(ValueError, match="must be non-empty text"):
+        run_patching(images=[_image(0)], masks=[np.zeros((32, 32), np.uint16)], config=_cell_config(),
+                     image_metadata=[{"position_id": value}])

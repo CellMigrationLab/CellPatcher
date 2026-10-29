@@ -479,9 +479,9 @@ columns: `patch_id`, `image_id`, `mode`, `y0`/`y1`/`x0`/`x1`, `height`/
   `sanitize_filename(patch_id)` (`/` → `_`). Formerly
   `<image_id>_<mode>_<index>[_t<NNN>][_z<NNN>][_c<n>]`, which changed with
   the run. Random mode samples each image (plane) with
-  `ids.random_seed(random.seed, identity)`: SHA-256 of
-  `<condition>|<biological_repeat>|<technical_repeat>|<position_id>|t=..|z=..|c=..`
-  (the whole FOV key, D85) combined with the seed in a numpy
+  `ids.random_seed(random.seed, identity)`: SHA-256 of the compact JSON
+  array `["<condition>","<biological_repeat>","<technical_repeat>","<position_id>","t=..","z=..","c=.."]`
+  (the whole FOV key, D85; plane indices as integers) combined with the seed in a numpy
   `SeedSequence` (never Python's `hash()`, never the run index), so the
   rectangles do not depend on run order either.
 - `object_set` — cell mode only: `image_metadata["object_set"]`, else
