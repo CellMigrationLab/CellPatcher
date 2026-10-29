@@ -17,6 +17,7 @@ from cellpatcher.ids import (
     check_unique_position,
     identity_text,
     plane_index,
+    validate_object_set,
     random_seed,
     resolve_object_set,
     resolve_position_id,
@@ -66,6 +67,18 @@ def _run_labels(config: CellPatcherConfig) -> tuple[str, str, str]:
         value = getattr(common, name)
         labels.append(single if value is None else identity_text(value, f"common.{name}"))
     return tuple(labels)
+
+
+def check_config_identity(config: CellPatcherConfig) -> None:
+    """Refuse the config's identity labels before any file is read (D85).
+
+    ``common.condition``, ``biological_repeat`` and ``technical_repeat`` (``_run_labels``) and
+    ``common.object_set`` must be text; folder routes call this before listing or reading any
+    image or mask, so an invalid label never costs a read.
+    """
+    _run_labels(config)
+    if config.common.object_set is not None:
+        validate_object_set(config.common.object_set)
 
 
 def _stamp_run_context(config: CellPatcherConfig, patches: list[PatchRegion]) -> None:

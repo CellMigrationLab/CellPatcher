@@ -542,3 +542,30 @@ def test_config_fov_labels_must_be_text(field):
     setattr(config.common, field, 2026)
     with pytest.raises(ValueError, match=f"common.{field} must be non-empty text"):
         run_patching(images=[np.zeros((4, 4))], config=config, image_metadata=[{"position_id": "p1"}])
+
+
+@pytest.mark.parametrize("field", ["condition", "biological_repeat", "technical_repeat", "object_set"])
+@pytest.mark.parametrize("split", [False, True])
+def test_a_folder_run_refuses_config_identity_before_reading(tmp_path, monkeypatch, field, split):
+    """Re-audit of #41: an invalid config label (also from a reloaded JSON config) is refused
+    before any image or mask is listed or read, on the eager and the plane-split routes."""
+    from cellpatcher import orchestration
+    from cellpatcher.orchestration import load_config, save_config_for_mode
+
+    def no_read(*args, **kwargs):
+        raise AssertionError("a file was read before the identity refusal")
+
+    images, masks = tmp_path / "images", tmp_path / "masks"
+    write_array(images / "img.tif", _image(0))
+    write_array(masks / "img.tif", _labels(0))
+    monkeypatch.setattr(orchestration, "read_image", no_read)
+    monkeypatch.setattr(orchestration, "list_supported_files", no_read)
+    monkeypatch.setattr(orchestration, "_mask_loaders", no_read)
+    path = save_config_for_mode("cell", tmp_path / "config.json")
+    data = json.loads(path.read_text())
+    data["common"][field] = 7
+    if split:
+        data["common"]["z_policy"] = "all"
+    path.write_text(json.dumps(data))
+    with pytest.raises(ValueError, match=f"{field} must be"):
+        run_patching_pipeline(images, mask_folder_path=masks, config=load_config(path))

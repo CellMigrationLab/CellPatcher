@@ -40,7 +40,14 @@ from cellpatcher.normalization import (
     load_experiment_design,
     validate_normalization,
 )
-from cellpatcher.pipeline import RUN_CONFIG_FILENAME, PatchingResult, _patch_planes, run_config_data, run_patching
+from cellpatcher.pipeline import (
+    RUN_CONFIG_FILENAME,
+    PatchingResult,
+    _patch_planes,
+    check_config_identity,
+    run_config_data,
+    run_patching,
+)
 from cellpatcher.statistics import check_images
 from cellpatcher.planes import iter_file_planes, splits_planes
 
@@ -549,6 +556,7 @@ def run_patching_pipeline(
         raise TypeError("config must be a CellPatcherConfig instance.")
     if overrides:
         config = apply_overrides(config, overrides)
+    check_config_identity(config)  # before any image or mask is listed or read (D85)
     _check_preprocessing_inputs(config, image_folder_path, list_supported_files(image_folder_path))
     return _run_folder_patching(
         image_folder_path,
@@ -577,6 +585,7 @@ def _run_folder_patching(
     relative to: the image folder itself for a flat run, the tree root for
     :func:`run_patching_condition_repeat_tree`.
     """
+    check_config_identity(config)  # before any image or mask is listed or read (D85)
     image_files = list_supported_files(image_folder_path)
     if len(image_files) == 0:
         raise ValueError("No supported image files found in image folder.")
