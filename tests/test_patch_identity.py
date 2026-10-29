@@ -460,3 +460,21 @@ def test_a_supplied_position_id_must_be_text(value):
     with pytest.raises(ValueError, match="must be non-empty text"):
         run_patching(images=[_image(0)], masks=[np.zeros((32, 32), np.uint16)], config=_cell_config(),
                      image_metadata=[{"position_id": value}])
+
+
+@pytest.mark.parametrize("value", [True, 1.5, 1.0, -1, "1.0", "-1", "01", " 1"])
+@pytest.mark.parametrize("axis", ["t", "z", "c"])
+def test_a_plane_index_is_never_coerced(axis, value):
+    """Re-audit of #41: a plane index is a non-negative integer or its decimal text; anything
+    int() would round or convert is refused rather than becoming another plane."""
+    config = CellPatcherConfig(mode="whole_fov")
+    with pytest.raises(ValueError, match="plane index is a non-negative integer"):
+        run_patching(images=[np.zeros((4, 4))], config=config,
+                     image_metadata=[{"position_id": "p1", axis: value}])
+
+
+def test_integer_plane_indices_of_numpy_and_text_are_accepted():
+    config = CellPatcherConfig(mode="whole_fov")
+    metadata = [{"position_id": "p1", "t": np.int64(2)}, {"position_id": "p1", "t": "3"}]
+    result = run_patching(images=[np.zeros((4, 4))] * 2, config=config, image_metadata=metadata)
+    assert [patch.t for patch in result.patches] == [2, 3]

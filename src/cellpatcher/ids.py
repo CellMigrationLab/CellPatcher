@@ -157,11 +157,23 @@ def resolve_position_id(labels, meta, *, image_index=None) -> str:
 def plane_index(meta, axis: str) -> int | None:
     """The plane index *meta* gives along *axis* (``"t"``, ``"z"`` or ``"c"``) as patches carry it.
 
-    ``None`` when absent, else ``int(value)``: the one representation stamped on patches,
-    hashed into random seeds and compared for uniqueness, so ``1`` and ``"1"`` are one plane.
+    ``None`` when absent, else the integer: the one representation stamped on patches, hashed
+    into random seeds and compared for uniqueness, so ``1`` and ``"1"`` are one plane. Only a
+    non-negative integer (not a bool) or its canonical decimal text is accepted; ``True``,
+    ``1.5``, ``1.0``, ``"1.0"``, ``"01"`` and negatives raise ``ValueError`` (identity is never
+    coerced, D85).
     """
     value = meta.get(axis)
-    return None if value is None else int(value)
+    if value is None:
+        return None
+    if isinstance(value, str) and re.fullmatch(r"0|[1-9][0-9]*", value):
+        return int(value)
+    if isinstance(value, (int, np.integer)) and not isinstance(value, (bool, np.bool_)) and value >= 0:
+        return int(value)
+    raise ValueError(
+        f"image_metadata gives {axis}={value!r}: a plane index is a non-negative integer (or its "
+        "decimal text, e.g. 1 or \"1\"); it is never rounded or converted from another value."
+    )
 
 
 def check_unique_position(seen: dict, labels, meta, index) -> None:
