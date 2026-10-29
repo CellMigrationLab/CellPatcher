@@ -15,6 +15,7 @@ from cellpatcher.fractions import check_fraction_masks, stamp_mask_fractions
 from cellpatcher.ids import (
     assign_patch_ids,
     check_unique_position,
+    identity_text,
     plane_index,
     random_seed,
     resolve_object_set,
@@ -54,13 +55,17 @@ RUN_CONFIG_FILENAME = "run_config.json"
 def _run_labels(config: CellPatcherConfig) -> tuple[str, str, str]:
     # A missing label is "single", as for a missing folder level (AGENTS.md
     # §5), also when a config or an older run_config.json sets it to None.
+    # A given label is text, used unchanged (identity_text: never converted, D85).
     common = config.common
-    condition = SINGLE_CONDITION_LABEL if common.condition is None else common.condition
-    biological_repeat = (
-        SINGLE_BIOLOGICAL_REPEAT_LABEL if common.biological_repeat is None else common.biological_repeat
-    )
-    technical_repeat = SINGLE_TECHNICAL_REPEAT_LABEL if common.technical_repeat is None else common.technical_repeat
-    return condition, biological_repeat, technical_repeat
+    labels = []
+    for name, single in (
+        ("condition", SINGLE_CONDITION_LABEL),
+        ("biological_repeat", SINGLE_BIOLOGICAL_REPEAT_LABEL),
+        ("technical_repeat", SINGLE_TECHNICAL_REPEAT_LABEL),
+    ):
+        value = getattr(common, name)
+        labels.append(single if value is None else identity_text(value, f"common.{name}"))
+    return tuple(labels)
 
 
 def _stamp_run_context(config: CellPatcherConfig, patches: list[PatchRegion]) -> None:
@@ -107,9 +112,9 @@ def _stamp_image_metadata(image_list, image_metadata, patches: list[PatchRegion]
         if c is not None:
             patch.c = c
         if meta.get("position_id") is not None:
-            patch.position_id = str(meta["position_id"])
+            patch.position_id = meta["position_id"]  # text, checked by resolve_position_id
         if meta.get("technical_repeat") is not None:
-            patch.technical_repeat = str(meta["technical_repeat"])
+            patch.technical_repeat = meta["technical_repeat"]  # text, checked by _image_labels
         if meta.get("image_file") is not None:
             patch.image_file = str(meta["image_file"])
         if meta.get("mask_file") is not None:
@@ -117,14 +122,14 @@ def _stamp_image_metadata(image_list, image_metadata, patches: list[PatchRegion]
         if meta.get("source_relative_path") is not None:
             patch.source_relative_path = str(meta["source_relative_path"])
         if meta.get("object_set") is not None and patch.mode == "cell":
-            patch.object_set = str(meta["object_set"])
+            patch.object_set = meta["object_set"]  # text, checked by resolve_object_set
 
 
 def _image_labels(config: CellPatcherConfig, meta) -> tuple[str, str, str]:
     """An image's condition, biological and technical repeat, as :func:`_stamp_image_metadata` sets them."""
     condition, biological_repeat, technical_repeat = _run_labels(config)
     if meta.get("technical_repeat") is not None:
-        technical_repeat = str(meta["technical_repeat"])
+        technical_repeat = identity_text(meta["technical_repeat"], 'image_metadata["technical_repeat"]')
     return condition, biological_repeat, technical_repeat
 
 

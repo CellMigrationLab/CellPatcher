@@ -57,6 +57,17 @@ _OBJECT_SET_PATTERN = re.compile(r"[A-Za-z0-9._-]+")
 _SEPARATORS = "_-. "
 
 
+def identity_text(value, name: str) -> str:
+    """Return *value* unchanged if it is non-empty text, else raise ``ValueError``.
+
+    FOV labels, ``position_id`` and ``object_set`` are identity: they are never converted (a
+    number ``7`` is not the label ``"7"``, D85), so a value of another type is refused.
+    """
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{name} must be non-empty text (identity is never converted, D85); got {value!r}.")
+    return value
+
+
 def validate_object_set(value, *, name: str = "common.object_set") -> None:
     """Raise ``ValueError`` unless *value* is None or a non-empty ``[A-Za-z0-9._-]`` name.
 
@@ -102,8 +113,8 @@ def resolve_object_set(meta, common) -> str:
     ``common.object_set``, then :data:`DEFAULT_OBJECT_SET` (``"mask"``).
     """
     if meta.get("object_set") is not None:
-        value = str(meta["object_set"])
-        validate_object_set(value, name='image_metadata["object_set"]')
+        value = meta["object_set"]
+        validate_object_set(value, name='image_metadata["object_set"]')  # text only, unchanged
         return value
     if common.object_set is not None:
         # Checked again here: an attribute set after construction is not validated.
@@ -249,12 +260,12 @@ def patch_token(patch) -> str:
 def _fov_key(patch) -> list[str]:
     """The patch's FOV key: condition, biological and technical repeat, position_id (D85)."""
     key = [patch.condition, patch.biological_repeat, patch.technical_repeat, patch.position_id]
-    if not all(key):
+    if not all(isinstance(part, str) and part for part in key):
         raise ValueError(
             "A patch needs its condition, biological_repeat, technical_repeat and position_id "
-            f"to build its patch_id; got {key}."
+            f"as text to build its patch_id (never converted, D85); got {key}."
         )
-    return [str(part) for part in key]
+    return key
 
 
 def build_patch_id(patch) -> str:

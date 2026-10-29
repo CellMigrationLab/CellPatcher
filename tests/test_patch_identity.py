@@ -523,3 +523,22 @@ def test_a_supplied_t_is_refused_with_a_t_policy():
     with pytest.raises(ValueError, match="t_policy='all' also decides its planes"):
         run_patching(images=[np.zeros((2, 8, 8))], config=config,
                      image_metadata=[{"position_id": "p1", "t": 0}])
+
+
+@pytest.mark.parametrize(
+    ("where", "value"),
+    [("technical_repeat", 7), ("object_set", 7), ("technical_repeat", "")],
+)
+def test_supplied_identity_labels_must_be_text(where, value):
+    """Re-audit of #41: a per-image label is identity, never converted (7 is not "7")."""
+    with pytest.raises(ValueError, match="must be"):
+        run_patching(images=[_image(0)], masks=[_labels(0)], config=_cell_config(),
+                     image_metadata=[{"position_id": "p1", where: value}])
+
+
+@pytest.mark.parametrize("field", ["condition", "biological_repeat", "technical_repeat"])
+def test_config_fov_labels_must_be_text(field):
+    config = CellPatcherConfig(mode="whole_fov")
+    setattr(config.common, field, 2026)
+    with pytest.raises(ValueError, match=f"common.{field} must be non-empty text"):
+        run_patching(images=[np.zeros((4, 4))], config=config, image_metadata=[{"position_id": "p1"}])
