@@ -11,6 +11,12 @@ setup(
         "scipy",
         "tifffile",
         "imageio",
+        # The image name every MorphoBricks brick uses as position_id
+        # (discovery.position_id, MorphoBricks decision D85): one function, no
+        # copy here. The same tag as the ``preprocessing`` extra below, without
+        # its zarr reader.
+        "morphobricks-preprocessing @ git+https://github.com/CellMigrationLab/"
+        "morphobricks-preprocessing@47de788cc60c72be048ec5f3ea543e056168def0",
     ],
     extras_require={
         "test": [
@@ -36,7 +42,7 @@ setup(
         # installs one version (MorphoFeature decision D79).
         "preprocessing": [
             "morphobricks-preprocessing[zarr] @ git+https://github.com/CellMigrationLab/"
-            "morphobricks-preprocessing@v0.2.0",
+            "morphobricks-preprocessing@47de788cc60c72be048ec5f3ea543e056168def0",
         ],
     },
 )

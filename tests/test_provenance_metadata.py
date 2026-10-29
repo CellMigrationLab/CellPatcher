@@ -231,10 +231,10 @@ def test_technical_repeat_from_config_and_per_image_metadata():
         config=cfg,
         image_metadata=[{"technical_repeat": "B02", "image_file": "a.tif"}, {"image_file": "a.tif"}],
     )
-    # The same file name in two wells is two positions.
-    assert [p.position_id.rsplit("/", 1)[0] for p in result.patches] == [
-        "control/2026_02_02/B02", "control/2026_02_02/dish_1"
-    ]
+    # The same file name in two wells is two positions: one position_id (the image name, D85),
+    # two technical repeats, two patch_ids.
+    assert [p.position_id for p in result.patches] == ["a", "a"]
+    assert len({p.patch_id for p in result.patches}) == len(result.patches)
     assert [p.technical_repeat for p in result.patches] == ["B02", "dish_1"]
     # Unset, it is "single", as condition and biological_repeat are.
     unset = run_patching(images=images[0], config=CellPatcherConfig(mode="whole_fov"), image_metadata=named(images[0]))

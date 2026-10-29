@@ -112,8 +112,10 @@ def test_two_wells_with_the_same_file_names_get_unique_ids_in_a_tree_run(tmp_pat
 
     ids = [patch.patch_id for leaf in leaves for patch in leaf.result.patches]
     assert len(ids) == len(set(ids)) == 4
-    assert {patch.position_id for leaf in leaves for patch in leaf.result.patches} == {
-        "control/2026_01_01/B02/img", "control/2026_01_01/B03/img"
+    # D85: position_id is the image name; the two wells differ by technical_repeat, and the
+    # patch_id, led by the four FOV key fields, stays unique across the tree.
+    assert {(p.technical_repeat, p.position_id) for leaf in leaves for p in leaf.result.patches} == {
+        ("B02", "img"), ("B03", "img")
     }
     assert ids[0] == "control/2026_01_01/B02/img/cells/label4"
     rows = (tmp_path / "out" / "patches.csv").read_text(encoding="utf-8").splitlines()
@@ -161,7 +163,7 @@ def test_repeated_random_draws_are_numbered_in_sampling_order():
     ids = [patch.patch_id for patch in result.patches]
     assert len(set(ids)) == 40
     first = ids[0]
-    assert first == f"P/random-y{result.patches[0].y0}-x{result.patches[0].x0}-h8-w8"
+    assert first == f"single/single/single/P/random-y{result.patches[0].y0}-x{result.patches[0].x0}-h8-w8"
     assert ids.count(first) == 1 and f"{first}-n2" in ids
 
 
@@ -182,7 +184,9 @@ def test_object_set_set_after_construction_is_checked():
 def test_whole_fov_and_supplied_position_id():
     config = CellPatcherConfig(mode="whole_fov")
     result = run_patching(images=np.zeros((4, 4)), config=config, image_metadata=[{"position_id": "plate1/A01/f3"}])
-    assert [patch.patch_id for patch in result.patches] == ["plate1/A01/f3/whole_fov"]
+    # A supplied position_id is kept verbatim; the FOV key leads the patch_id (D85).
+    assert [patch.position_id for patch in result.patches] == ["plate1/A01/f3"]
+    assert [patch.patch_id for patch in result.patches] == ["single/single/single/plate1/A01/f3/whole_fov"]
 
 
 # ---------------------------------------------------------------------------
@@ -194,8 +198,10 @@ def test_folder_runs_fill_position_id_without_split_channels(tmp_path):
     write_array(tmp_path / "img.ome.tif", _image(0))
     config = CellPatcherConfig(mode="whole_fov", common=CommonConfig(condition="treated", biological_repeat="r1"))
     result = run_patching_pipeline(tmp_path, config=config)
-    assert [patch.position_id for patch in result.patches] == ["treated/r1/single/img.ome"]
-    assert [record.position_id for record in result.image_records] == ["treated/r1/single/img.ome"]
+    # D85: the image name without its whole extension (preprocessing's rule: .ome.tif -> img).
+    assert [patch.position_id for patch in result.patches] == ["img"]
+    assert [record.position_id for record in result.image_records] == ["img"]
+    assert [patch.patch_id for patch in result.patches] == ["treated/r1/single/img/whole_fov"]
 
 
 def test_an_in_memory_image_without_position_id_or_file_name_is_refused():
@@ -382,3 +388,14 @@ def test_a_store_with_several_images_is_refused_when_reading_planes(tmp_path):
     config.common.image_axes, config.common.z_policy = "ZYX", "all"
     with pytest.raises(ValueError, match="plate.ome.zarr holds 2 images"):
         run_patching_pipeline(tmp_path, config=config)
+
+
+def test_positions_differing_only_in_case_are_refused_in_one_repeat():
+    """D85: position_id is unique within its technical repeat whatever its case."""
+    config = CellPatcherConfig(mode="whole_fov")
+    with pytest.raises(ValueError, match="position_id"):
+        run_patching(images=[np.zeros((4, 4))] * 2, config=config,
+                     image_metadata=[{"position_id": "Img"}, {"position_id": "img"}])
+    other_wells = [{"position_id": "img", "technical_repeat": "A"}, {"position_id": "img", "technical_repeat": "B"}]
+    result = run_patching(images=[np.zeros((4, 4))] * 2, config=config, image_metadata=other_wells)
+    assert [p.patch_id for p in result.patches] == ["single/single/A/img/whole_fov", "single/single/B/img/whole_fov"]

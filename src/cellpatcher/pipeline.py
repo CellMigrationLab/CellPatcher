@@ -936,7 +936,8 @@ def run_patching(images=None, masks=None, config=None, image_metadata=None, frac
         # with every image's position_id above.
         for idx, (image, mask) in enumerate(zip(image_list, mask_list)):
             image_id = f"image_{idx:04d}"
-            seed = random_seed(config.random.seed, image_metadata[idx], config.random.seed_scope)
+            labels = _image_labels(config, image_metadata[idx])
+            seed = random_seed(config.random.seed, image_metadata[idx], config.random.seed_scope, labels)
             image_random_config = replace(config.random, seed=seed)
             strategy = RandomPatchStrategy(image_random_config)
             patches.extend(

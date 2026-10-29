@@ -5,15 +5,20 @@ and its own coordinates, never from the position of its image in a run, so
 the same image gives the same ids whether it is patched alone, in a folder of
 ten images, or in a tree with other wells (owner decision D44, 2026-10-26)::
 
-    patch_id  := position_id "/" [object_set "/"] ["t" T "/"] ["z" Z "/"] ["c" C "/"] token
+    patch_id  := condition "/" biological_repeat "/" technical_repeat "/" position_id "/"
+                 [object_set "/"] ["t" T "/"] ["z" Z "/"] ["c" C "/"] token
     token     := "label" LABEL                                (cell)
                | "grid-y" Y0 "-x" X0 "-h" H "-w" W            (grid)
                | "random-y" Y0 "-x" X0 "-h" H "-w" W ["-n" K] (random)
                | "whole_fov"                                  (whole_fov)
                | "whole_fov/sq" N                             (whole_fov_square)
 
-- ``position_id`` is the patch's ``position_id`` (decision D45; see
-  :func:`resolve_position_id`); it may itself contain ``/``.
+- ``condition``, ``biological_repeat``, ``technical_repeat`` and
+  ``position_id`` are the patch's FOV key (MorphoBricks decision D85,
+  2026-10-29): ``position_id`` is the image name without its extension
+  (:func:`resolve_position_id`), unique within its technical repeat, so the
+  four levels make ``patch_id`` unique across a whole run or tree. Ids are
+  never parsed: every level is also a field of the patch.
 - ``object_set`` is present in ``cell`` mode only (:func:`resolve_object_set`).
 - ``T`` (4 digits), ``Z`` (3 digits) and ``C`` are the patch's ``t``, ``z0``
   and ``c`` when set: a plane split or selected by ``t_policy``/``z_policy``,
@@ -26,7 +31,8 @@ ten images, or in a tree with other wells (owner decision D44, 2026-10-26)::
   plane, in sampling order; the first draw has no ``-n``.
 - ``N`` (from 0) is a whole-FOV square's place along the long side
   (``whole_fov.square_cover``); its ``patch_id`` is its parent's plus
-  ``/sq<N>``, and ``parent_id`` is the parent's ``patch_id``.
+  ``/sq<N>``, and ``parent_id`` is the parent's ``patch_id``, built from the
+  parent's fields (:func:`parent_patch_id`), not cut out of the square's id.
 
 Exported files are named ``sanitize_filename(patch_id)`` plus the extension,
 which turns every ``/`` into ``_``; the export refuses ids that become the same
@@ -106,14 +112,17 @@ def resolve_object_set(meta, common) -> str:
 
 
 def resolve_position_id(labels, meta, *, image_index=None) -> str:
-    """The ``position_id`` every patch of an image carries (decision D45).
+    """The ``position_id`` every patch of an image carries (MorphoBricks D85, amending D45).
 
-    *labels* is the image's ``(condition, biological_repeat,
-    technical_repeat)``. A ``position_id`` given in *meta*
-    (``image_metadata``) wins. Otherwise one file is taken as one XY
-    position: ``<condition>/<biological_repeat>/<technical_repeat>/<file
-    stem>`` from ``meta["image_file"]`` (``io.image_stem``, so
-    ``img.ome.zarr`` gives ``img``).
+    A ``position_id`` given in *meta* (``image_metadata``) is kept verbatim.
+    Otherwise one file is taken as one XY position, named by the image name
+    without its extension, as **every** brick names it: computed by
+    ``morphobricks_preprocessing.discovery.position_id`` (``.ome.tiff``,
+    ``.ome.tif``, ``.ome.zarr``, ``.tiff``, ``.tif`` and ``.zarr``, any
+    case: ``ctrl/rep1/img_01.ome.tif`` gives ``img_01``). The image's
+    *labels* (``condition``, ``biological_repeat``, ``technical_repeat``)
+    are not packed into it: they are the other three fields of the FOV key,
+    and lead the ``patch_id`` (:func:`build_patch_id`).
 
     Raises
     ------
@@ -125,7 +134,9 @@ def resolve_position_id(labels, meta, *, image_index=None) -> str:
     if meta.get("position_id") is not None:
         return str(meta["position_id"])
     if meta.get("image_file"):
-        return "/".join(str(part) for part in (*labels, image_stem(meta["image_file"])))
+        from morphobricks_preprocessing.discovery import position_id
+
+        return position_id(str(meta["image_file"]))
     which = "An image" if image_index is None else f"Image {image_index} of the run"
     raise ValueError(
         f"{which} has neither a position_id nor an image_file, so its patches have no identity (its place "
@@ -138,24 +149,27 @@ def resolve_position_id(labels, meta, *, image_index=None) -> str:
 SEED_SCOPE_AXES = {"plane_channel": ("t", "z", "c"), "plane": ("t", "z"), "position": ()}
 
 
-def random_seed(seed, meta, scope: str = "plane_channel") -> int | None:
+def random_seed(seed, meta, scope: str = "plane_channel", labels=None) -> int | None:
     """The seed random mode samples one image (plane) with, from the run seed and the image's identity.
 
     Derived from ``seed`` and the canonical identity string
-    ``position_id|t=<t>|z=<z>|c=<c>`` (from *meta*, the image's metadata;
-    ``-`` for an absent index) through SHA-256 and
+    ``condition|biological_repeat|technical_repeat|position_id|t=<t>|z=<z>|c=<c>``
+    (*labels* and *meta*, the image's metadata; ``-`` for an absent index;
+    the whole FOV key, so two repeats' images of one name differ, D85) through SHA-256 and
     ``numpy.random.SeedSequence``, so the same image (plane) gets the same
     rectangles in every run, whatever its place in the run, and another
     ``seed`` gives others. None when ``seed`` is None (unseeded sampling).
     *scope* (``RandomConfig.seed_scope``) keeps only some indices:
     ``"plane_channel"`` all three (the default, unchanged), ``"plane"`` t and
-    z (``position_id|t=<t>|z=<z>``), ``"position"`` none (``position_id``).
+    z, ``"position"`` none (the FOV key alone).
     """
     if seed is None:
         return None
     if scope not in SEED_SCOPE_AXES:  # e.g. set after the config was validated
         raise ValueError(f"random.seed_scope must be one of {list(SEED_SCOPE_AXES)}; got {scope!r}.")
-    parts = [str(meta["position_id"])]
+    if labels is None:
+        raise ValueError("random_seed needs the image's (condition, biological_repeat, technical_repeat).")
+    parts = [*(str(label) for label in labels), str(meta["position_id"])]
     parts += [f"{axis}={'-' if meta.get(axis) is None else int(meta[axis])}" for axis in SEED_SCOPE_AXES[scope]]
     digest = hashlib.sha256("|".join(parts).encode("utf-8")).digest()
     words = [int.from_bytes(digest[i:i + 4], "little") for i in range(0, len(digest), 4)]
@@ -177,11 +191,20 @@ def patch_token(patch) -> str:
     raise ValueError(f"Unknown patch mode {patch.mode!r} of a patch; cannot build its patch_id.")
 
 
+def _fov_key(patch) -> list[str]:
+    """The patch's FOV key: condition, biological and technical repeat, position_id (D85)."""
+    key = [patch.condition, patch.biological_repeat, patch.technical_repeat, patch.position_id]
+    if not all(key):
+        raise ValueError(
+            "A patch needs its condition, biological_repeat, technical_repeat and position_id "
+            f"to build its patch_id; got {key}."
+        )
+    return [str(part) for part in key]
+
+
 def build_patch_id(patch) -> str:
     """The ``patch_id`` of *patch* from its identity fields, without the random draw number."""
-    if not patch.position_id:
-        raise ValueError("A patch needs a position_id to build its patch_id.")
-    levels = [patch.position_id]
+    levels = _fov_key(patch)
     if patch.mode == "cell":
         levels.append(patch.object_set or DEFAULT_OBJECT_SET)
     if patch.t is not None:
@@ -192,6 +215,15 @@ def build_patch_id(patch) -> str:
         levels.append(f"c{patch.c}")
     levels.append(patch_token(patch))
     return "/".join(levels)
+
+
+def parent_patch_id(patch) -> str:
+    """The ``patch_id`` of a whole-FOV square's parent, from the square's own fields."""
+    levels = _fov_key(patch)
+    levels += [f"t{patch.t:04d}"] if patch.t is not None else []
+    levels += [f"z{patch.z0:03d}"] if patch.z0 is not None else []
+    levels += [f"c{patch.c}"] if patch.c is not None else []
+    return "/".join([*levels, "whole_fov"])
 
 
 def assign_patch_ids(patches) -> None:
@@ -207,18 +239,25 @@ def assign_patch_ids(patches) -> None:
         ``position_id`` without different plane indices.
     """
     counts: Counter = Counter()
+    folded: Counter = Counter()
     owners: dict[str, set] = {}
+    random_bases: set[str] = set()
     for patch in patches:
         base = build_patch_id(patch)
         counts[base] += 1
-        owners.setdefault(base, set()).add(patch.image_id)
+        # Duplicates are told apart case-insensitively (position_id is unique within its
+        # technical repeat whatever its case, D85), repeated random draws excepted.
+        folded[base.casefold()] += 1
+        owners.setdefault(base.casefold(), set()).add(patch.image_id)
+        if patch.mode == "random":
+            random_bases.add(base.casefold())
         patch.patch_id = base if counts[base] == 1 or patch.mode != "random" else f"{base}-n{counts[base]}"
         if patch.mode == "whole_fov_square":
-            patch.parent_id = base.rsplit("/", 1)[0]
+            patch.parent_id = parent_patch_id(patch)
     duplicates = sorted(
         base
-        for base, count in counts.items()
-        if count > 1 and (len(owners[base]) > 1 or not base.rsplit("/", 1)[-1].startswith("random-"))
+        for base, count in folded.items()
+        if count > 1 and (len(owners[base]) > 1 or base not in random_bases)
     )
     if duplicates:
         raise ValueError(

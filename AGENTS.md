@@ -453,11 +453,13 @@ columns: `patch_id`, `image_id`, `mode`, `y0`/`y1`/`x0`/`x1`, `height`/
   (`export.enabled=True`); `None` when a patch isn't exported to a file.
 - `position_id` — always filled (owner decision D45, 2026-10-26), in every
   run type: taken from `image_metadata` when supplied (a user-given value
-  wins); otherwise one file is one position, as
-  `<condition>/<biological_repeat>/<technical_repeat>/<image file stem>`
-  (`single/single/single/<stem>` when no labels are given; `io.image_stem`,
-  so `img.ome.zarr` gives `img`), so every plane and channel patch of one
-  image shares it and equal file names in two wells stay distinct. An
+  wins, kept verbatim); otherwise one file is one position, named by the
+  **image name without its extension**, computed by
+  `morphobricks_preprocessing.discovery.position_id` (MorphoBricks decision
+  D85, 2026-10-29, amending D45: `img.ome.tif` gives `img`; no copy of the
+  rule here), so every plane and channel patch of one image shares it. It is
+  unique within its technical repeat, compared case-insensitively; equal
+  file names in two wells are two FOVs through `technical_repeat`. An
   in-memory image given to `run_patching` with neither a `position_id`
   nor an `image_file` is refused (owner decision, 2026-10-26): never a
   run-order value. A file holding several images or series (OME-Zarr plate,
@@ -466,7 +468,11 @@ columns: `patch_id`, `image_id`, `mode`, `y0`/`y1`/`x0`/`x1`, `height`/
   `technical_repeat` + `position_id` (MorphoBricks decision D02, 2026-10-26).
 - `patch_id` — run-independent (owner decision D44, 2026-10-26), built by
   `cellpatcher.ids`:
-  `position_id "/" [object_set "/"] ["t"NNNN "/"] ["z"NNN "/"] ["c"N "/"] token`,
+  `condition "/" biological_repeat "/" technical_repeat "/" position_id "/"
+  [object_set "/"] ["t"NNNN "/"] ["z"NNN "/"] ["c"N "/"] token` (the four
+  FOV key fields lead it, so it is unique across a run or tree, D85; never
+  parsed: every level is a field of the patch, and `parent_id` is built
+  from the square's fields),
   token `label<label_id>` (cell), `grid-y<y0>-x<x0>-h<h>-w<w>` (grid),
   `random-y<y0>-x<x0>-h<h>-w<w>[-n<k>]` (random; `-n` numbers repeated
   draws of one rectangle) or `whole_fov`. Exported file names are
@@ -474,7 +480,8 @@ columns: `patch_id`, `image_id`, `mode`, `y0`/`y1`/`x0`/`x1`, `height`/
   `<image_id>_<mode>_<index>[_t<NNN>][_z<NNN>][_c<n>]`, which changed with
   the run. Random mode samples each image (plane) with
   `ids.random_seed(random.seed, identity)`: SHA-256 of
-  `<position_id>|t=..|z=..|c=..` combined with the seed in a numpy
+  `<condition>|<biological_repeat>|<technical_repeat>|<position_id>|t=..|z=..|c=..`
+  (the whole FOV key, D85) combined with the seed in a numpy
   `SeedSequence` (never Python's `hash()`, never the run index), so the
   rectangles do not depend on run order either.
 - `object_set` — cell mode only: `image_metadata["object_set"]`, else

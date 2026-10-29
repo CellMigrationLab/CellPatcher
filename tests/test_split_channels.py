@@ -72,8 +72,8 @@ def test_split_channel_patches_share_a_default_position_id():
     for patch in result.patches:
         by_image.setdefault(patch.image_file, set()).add(patch.position_id)
     assert by_image == {
-        "img0.tif": {"treated/2026_01_01/single/img0"},
-        "img1.tif": {"treated/2026_01_01/single/img1"},
+        "img0.tif": {"img0"},
+        "img1.tif": {"img1"},
     }
 
 
@@ -94,7 +94,7 @@ def test_without_split_channels_position_id_is_filled_and_patches_stay_multichan
     result = run_patching(images=[_channel_image()], config=config, image_metadata=[{"image_file": "img.tif"}])
 
     assert len(result.patches) == 4
-    assert all(patch.position_id == "single/single/single/img" and patch.c is None for patch in result.patches)
+    assert all(patch.position_id == "img" and patch.c is None for patch in result.patches)
     assert all(array.shape == (3, 8, 8) for array in result.patch_arrays)
 
 
@@ -147,7 +147,7 @@ def test_split_channels_export_writes_one_file_and_row_per_channel(tmp_path):
     with (tmp_path / "patches.csv").open("r", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
     assert len(rows) == 12
-    assert {row["position_id"] for row in rows} == {"single/single/single/img0"}
+    assert {row["position_id"] for row in rows} == {"img0"}
     assert sorted({row["c"] for row in rows}) == ["0", "1", "2"]
     for row in rows:
         array = np.load(tmp_path / row["patch_file"])
@@ -171,7 +171,7 @@ def test_split_channels_in_combined_tree_run(tmp_path):
     with (tmp_path / "out" / "patches.csv").open("r", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
     assert len(rows) == 2 * 4 * 2  # conditions x tiles x channels
-    assert {row["position_id"] for row in rows} == {"control/single/single/img0", "treated/single/single/img0"}
+    assert {row["position_id"] for row in rows} == {"img0"}
     assert all((tmp_path / "out" / row["patch_file"]).exists() for row in rows)
 
 
@@ -188,15 +188,14 @@ def test_same_file_name_in_two_wells_gives_two_positions(tmp_path):
     config.common.output_dir = str(tmp_path / "out")
     run_patching_condition_repeat_tree(image_root, config=config, combine_metadata=True)
 
-    expected = {"control/2026_01_01/B02/img0", "control/2026_01_01/B03/img0"}
     with (tmp_path / "out" / "patches.csv").open("r", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
-    assert {row["position_id"] for row in rows} == expected
-    assert all(row["position_id"].split("/")[2] == row["technical_repeat"] for row in rows)
+    # D85: one position_id (the image name); the wells are the technical_repeat field.
+    assert {(row["technical_repeat"], row["position_id"]) for row in rows} == {("B02", "img0"), ("B03", "img0")}
     with (tmp_path / "out" / "images.csv").open("r", encoding="utf-8") as f:
         image_rows = list(csv.DictReader(f))
     assert sorted((row["technical_repeat"], row["position_id"]) for row in image_rows) == [
-        ("B02", "control/2026_01_01/B02/img0"), ("B03", "control/2026_01_01/B03/img0"),
+        ("B02", "img0"), ("B03", "img0"),
     ]
 
 
@@ -210,7 +209,7 @@ def test_default_position_id_takes_a_per_image_technical_repeat():
         ],
     )
 
-    assert {patch.position_id for patch in result.patches} == {"single/single/wellA/img0", "single/single/wellB/img0"}
-    assert [record.position_id for record in result.image_records] == [
-        "single/single/wellA/img0", "single/single/wellB/img0",
+    assert {patch.position_id for patch in result.patches} == {"img0"}
+    assert [(record.technical_repeat, record.position_id) for record in result.image_records] == [
+        ("wellA", "img0"), ("wellB", "img0"),
     ]
