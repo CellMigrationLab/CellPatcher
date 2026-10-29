@@ -424,7 +424,8 @@ def test_exported_patch_torch_dataset_filename_column_and_relative_path(tmp_path
 
     ds = ExportedPatchTorchDataset(csv_path, filename_column="filename")
     sample = ds[0]
-    assert sample["path"].endswith("nested/custom.npy")
+    # Compare path parts, not text: the path uses the platform's separator.
+    assert Path(sample["path"]).parts[-2:] == ("nested", "custom.npy")
 
 
 def test_exported_patch_torch_dataset_error_cases(tmp_path):

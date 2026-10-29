@@ -76,12 +76,12 @@ index per plane:
 |---|---|---|
 | Z | `z_policy="all"` (each slice its own plane), `"select"`, `"first"` | `"keep"` (all slices in one patch, the default) and `"max"`, `"mean"`, `"sum"` projections |
 | T | `t_policy="all"`, `"select"`, `"first"` | `"keep"` (all time points in one patch, the default) |
-| C | `split_channels=True` (one patch per channel), `channel_policy="select"`/`"first"`, or channels kept together in one patch | `channel_policy="max"`/`"mean"` (merged channels) and `"repeat_to_rgb"` in the preparation helpers |
+| C | `split_channels=True` (one patch per channel) or a list of channel indices (one patch per selected channel), `channel_policy="select"`/`"first"`, or channels kept together in one patch | `channel_policy="max"`/`"mean"` (merged channels) and `"repeat_to_rgb"` in the preparation helpers |
 
 Repeating a normalized grayscale patch to RGB stays available in the torch adapters
 (`PatchTensorConfig.channel_policy="repeat_to_rgb"`), which run after normalization.
 
-**Plane identity.** A row of `plane_histograms.csv` (schema version 3) is an XYC plane: every
+**Plane identity.** A row of `plane_histograms.csv` (schema version 4) is an XYC plane: every
 channel of an image at one Z and T, each channel's histogram in its own columns. It is
 identified by `make_plane_id(source_relative_path, z=..., t=...)`, with CellPatcher's `z0` as
 `z`. Both bricks always write both coordinates: an axis the image does not have, or has with
@@ -141,7 +141,11 @@ or added later) is reported with all such images in one message.
 - each patched image's `manifest.source_fingerprint()` (size and modification time) equals its
   manifest entry;
 - CellPatcher's image axes give the same role for every axis as the manifest's
-  `axis_mapping`.
+  `axis_mapping`;
+- the manifest's `image_type`, when it records one, equals `normalization.image_type`
+  (otherwise `image_type_differs`, checked before any image is read). A manifest without an
+  image type (written before the preprocessing brick asked for it), or no manifest, leaves
+  the choice to the configuration (normalization brick decision N34).
 
 ## 6. Methods
 
@@ -158,6 +162,16 @@ Non-finite input pixels stay non-finite. Parameters are **exact** when every poo
 has a zero representative error (`PooledHistogram.max_representative_error == 0`: integer
 images with one bin per value), and histogram approximations otherwise (always for float
 images).
+
+**RGB images (follow-up C3).** With `normalization.image_type="rgb"` the images must have
+exactly three channels of an 8- or 16-bit integer type, checked before any parameters are
+fitted, and the only method is `"percentile"`: StarDist's
+`csbdeep.utils.normalize(x, low, high, axis=(0, 1, 2))`. At every scope the R, G and B pixels of
+the group are pooled together into one histogram, giving one shared `offset = P(low)` and
+`scale = P(high) − P(low) + 1e−20` (linear percentiles), applied to the three channels with
+CSBDeep's float32 arithmetic (normalization brick N33, N40, N48). The method is written as
+`rgb percentile 1-99.8`. Because of the `1e−20` term, a group or patch without spread gives
+zeros instead of an error. `normalization.clip` still applies afterwards.
 
 ## 7. Scopes
 
@@ -207,6 +221,8 @@ plane before resizing:
   one value), or whose region has no finite pixels, is discarded: it is dropped before
   extraction and never exported or delivered, and one warning lists every discarded patch and
   suggests another method, region or scope.
+- With `image_type="rgb"`, the region selects the same pixels in R, G and B, pooled together
+  (§6). An RGB patch without spread becomes zeros and is kept.
 
 ## 9. Pipeline order
 
@@ -238,7 +254,11 @@ empty and there are no channel pairs.
 The pairs are written by the normalization brick's `Parameters.to_columns()`, with full
 precision (Python `repr` of the float). A table has one pair for every channel any of its
 patches holds. A patch that keeps several channels fills every pair, and its `c` stays empty;
-a split-channel patch (`c` = `i`) fills only its own pair and leaves the others blank.
+a split-channel patch (`c` = `i`), including one of a channel selection
+(`split_channels=[i, ...]`, follow-up C5), fills only its own pair, from the group's
+`Parameters.select([i])` (normalization brick N46), and leaves the others blank; a table whose
+patches all come from one channel has only that channel's pair.
+An RGB patch (§6) fills `C0`, `C1` and `C2` with the same shared offset and scale.
 
 Tables written before 2026-10-28 have `;`-separated `normalization_offset` and
 `normalization_scale` columns instead (one value per channel of the patch, in channel order);
@@ -294,6 +314,7 @@ In memory, `PatchRegion.normalization_parameters` holds the brick's `Parameters`
 | `memory_limit` | `int` | `4 * 1024**3` | Bytes, for eager delivery (§12) |
 | `experiment_design` | `str \| None` | `None` | Path of `experiment_design.csv` (§5); `None` looks next to the CSV |
 | `pooling` | `str` | `"pixels"` | §7: `"pixels"` or `"conditions"` |
+| `image_type` | `str` | `"fluorescence"` | §6: `"fluorescence"` (each channel separately) or `"rgb"` (R, G and B together, `"percentile"` only, `extraction.split_channels=False`); must equal the manifest's image type when it records one (§5) |
 
 `config.common` gains `mask_source` (`"tiff_tree"` or `"ngff_labels"`, default `"tiff_tree"`)
 and `mask_label_name` (`str | None`, default `None`) (§4), and `z_policy`/`t_policy`
@@ -308,7 +329,7 @@ and suggests an action, in the preprocessing brick's style. Technical details go
 
 | Severity | Situations |
 |---|---|
-| Error (run blocked) | Extra not installed; CSV missing for a group or image scope; unsupported CSV or manifest version; explicitly given manifest missing; any check of §5 failing; image without CSV rows at a group or image scope; experiment design missing, unreadable, not confirmed, changed since preprocessing, or without an image's repeat (§5); a removed scope (§7); projection, merged channels or `repeat_to_rgb` under normalization (§3); plane over the memory limit; `"ngff_labels"` on a TIFF image, a missing or ambiguous label name, or a label image whose dimensions do not fit (§4); `"mask"`/`"bbox"` region outside `cell` mode; zero or non-finite scale, or no finite pixels, for a group; deprecated normalization arguments combined with normalization (§15); eager delivery over the memory limit; OME-Zarr input without `zarr` |
+| Error (run blocked) | Extra not installed; CSV missing for a group or image scope; unsupported CSV or manifest version; explicitly given manifest missing; any check of §5 failing; image without CSV rows at a group or image scope; experiment design missing, unreadable, not confirmed, changed since preprocessing, or without an image's repeat (§5); a removed scope (§7); an `image_type` other than the manifest's, `"rgb"` with a method other than `"percentile"` or with `split_channels`, or `"rgb"` images that are not three 8- or 16-bit channels (§5, §6); projection, merged channels or `repeat_to_rgb` under normalization (§3); plane over the memory limit; `"ngff_labels"` on a TIFF image, a missing or ambiguous label name, or a label image whose dimensions do not fit (§4); `"mask"`/`"bbox"` region outside `cell` mode; zero or non-finite scale, or no finite pixels, for a group; deprecated normalization arguments combined with normalization (§15); eager delivery over the memory limit; OME-Zarr input without `zarr` |
 | Warning (run continues) | Patches discarded without spread or finite pixels (§8, D8); approximate parameters; group statistics include background pixels (once per run); the `biological_repeat` scope (removes differences between repeats, keeps those between conditions); a repeat group without images from some condition; use of a deprecated normalization argument |
 
 ## 15. Deprecations

@@ -71,6 +71,12 @@ def _cell_config(csv_path):
     return config
 
 
+def _selected_channel_config(csv_path):
+    config = _cell_config(csv_path)
+    config.extraction.split_channels = [1]  # one channel of two (CellPatcher follow-up C5)
+    return config
+
+
 def _clipped(make, clip):
     def config(csv_path):
         config = make(csv_path)
@@ -83,6 +89,7 @@ def _clipped(make, clip):
 CONFIGS = {
     "grid": _grid_config,
     "cell, masked, resized, split": _cell_config,
+    "cell, masked, resized, channel 1 selected": _selected_channel_config,
     "grid, clipped": _clipped(_grid_config, (0.2, 0.8)),
     "cell, masked, resized, split, clipped": _clipped(_cell_config, (-1.0, 1.0)),
 }

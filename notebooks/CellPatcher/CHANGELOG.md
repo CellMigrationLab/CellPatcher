@@ -4,6 +4,61 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased] - Channel selection for single-channel patches (follow-up C5)
+
+### Added
+- `extraction.split_channels` also accepts a list of channel indices (for example `[1]`): one
+  single-channel patch and `patches.csv` row per selected channel of each region, in channel
+  order. `True` (every channel) and `False` (one multichannel patch) are unchanged. An index
+  the images do not have stops the run before any patch is made or written, naming the image's
+  channel count. A selected channel keeps its normalization parameters (only its
+  `Normalization_Offset_C<i>`/`Normalization_Scale_C<i>` pair is filled).
+- Notebook, **Channels**: with **Split channels**, one checkbox per channel (`C0`, `C1`, ...,
+  with the channel names an OME-TIFF or OME-Zarr header records). All ticked gives every
+  channel, as before; ticking some gives only those.
+- `cellpatcher.io.channel_names(path)`: the channel names an OME-TIFF or OME-Zarr image
+  records, read from its header (`()` when unknown).
+
+## [Unreleased] - Notebook: image type and pooling (follow-up C4)
+
+### Added
+- Normalization step: **Pool conditions** ("Every pixel counts once" or "Every condition weighs
+  the same", `normalization.pooling`), shown only for the biological-repeat scope.
+- Normalization step: **Image type** (`normalization.image_type`, fluorescence or RGB colour).
+  When the preprocessing `run_manifest.json` records the image type, it is set from it and
+  locked; otherwise you choose it. For RGB only the percentile method is offered, and
+  **Split channels** is refused.
+- `cellpatcher.statistics.recorded_image_type(plane_histograms, manifest=None)`: the image type
+  a preprocessing manifest records (None without one), read without loading the table.
+
+## [Unreleased] - RGB images (follow-up C3)
+
+### Added
+- `normalization.image_type`: `"fluorescence"` (default, unchanged behaviour) or `"rgb"`
+  (normalization brick decisions N33, N34). RGB images are normalized with StarDist's
+  percentile method, one offset and scale from the R, G and B pixels together, at every scope;
+  the result equals `csbdeep.utils.normalize(x, 1, 99.8, axis=(0, 1, 2))` at the patch scope.
+  `patches.csv` writes the shared value for `C0`, `C1` and `C2`, and the method as
+  `rgb percentile 1-99.8`. An RGB patch without spread becomes zeros and is kept.
+- With a preprocessing manifest that records the image type, a different
+  `normalization.image_type` stops the run before any image is read (`image_type_differs`).
+- `"rgb"` with a method other than `"percentile"`, with `extraction.split_channels=True`, or
+  with images that are not three 8- or 16-bit channels is refused.
+
+## [Unreleased] - preprocessing v0.3.0: tables of schema version 4
+
+### Changed
+- The `preprocessing` extra installs `morphobricks-preprocessing` at its tag `v0.3.0`, which
+  brings `morphobricks-normalization` `v0.3.1` (MorphoFeature decision D79: one preprocessing
+  tag per brick).
+- `plane_histograms.csv` schema version 4 is read: each channel also has its underflow and
+  overflow, which the preprocessing brick writes with its robust histogram range (its
+  follow-up P6). The normalization brick's pooling and fitting use them, so a hot pixel no
+  longer squeezes a float plane into a few bins when the table was written with that range.
+  Tables of schema version 3 or earlier are refused, asking to run the preprocessing brick
+  again; normalization parameters from a version-3 table and a version-4 table of the default
+  range are the same.
+
 ## [Unreleased] - BREAKING: three normalization scopes (follow-up C2)
 
 ### Changed (breaking)

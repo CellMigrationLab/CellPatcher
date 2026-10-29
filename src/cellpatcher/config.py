@@ -1,5 +1,6 @@
 import math
 from dataclasses import dataclass, field
+from numbers import Integral
 
 from cellpatcher._deprecation import accept_deprecated_repeat
 from cellpatcher.io import (
@@ -217,8 +218,10 @@ class ExtractionConfig:
     apply_mask: bool = False
     mask_fill_value: float = 0.0
     # Export one single-channel patch per channel of each region instead of
-    # one multichannel patch (requires a "C" axis in common.image_axes).
-    split_channels: bool = False
+    # one multichannel patch (requires a "C" axis in common.image_axes):
+    # True for every channel, or a list of channel indices for only those
+    # (CellPatcher follow-up C5).
+    split_channels: bool | list[int] = False
 
     def __post_init__(self) -> None:
         if self.pad_mode not in {"clip", "constant"}:
@@ -243,8 +246,57 @@ class ExtractionConfig:
             raise ValueError("apply_mask must be a bool.")
         if not isinstance(self.mask_fill_value, (int, float)):
             raise ValueError("mask_fill_value must be a scalar number.")
-        if not isinstance(self.split_channels, bool):
-            raise ValueError("split_channels must be a bool.")
+        channel_selection(self.split_channels)
+
+    def split_channel_indices(self, channel_count: int) -> tuple[int, ...]:
+        """The channels that get a single-channel patch of their own, for an image with *channel_count* channels.
+
+        Every channel for ``split_channels=True``, the selected ones (in
+        increasing order) for a list, and none for False.
+
+        Raises
+        ------
+        ValueError
+            If a selected index is not a channel of the image.
+        """
+        selection = channel_selection(self.split_channels)
+        if selection is None:
+            return tuple(range(channel_count)) if self.split_channels else ()
+        outside = [channel for channel in selection if channel >= channel_count]
+        if outside:
+            raise ValueError(
+                f"extraction.split_channels selects channel {', '.join(map(str, outside))}, but the image has "
+                f"{channel_count} channel{'' if channel_count == 1 else 's'} (indices 0 to {channel_count - 1}). "
+                "Select channels the images have, or True for every channel."
+            )
+        return selection
+
+
+def channel_selection(split_channels) -> tuple[int, ...] | None:
+    """The channel indices a list ``split_channels`` selects, sorted; None for True or False.
+
+    Raises
+    ------
+    ValueError
+        If *split_channels* is neither a bool nor a non-empty list of distinct
+        non-negative channel indices.
+    """
+    if isinstance(split_channels, bool):
+        return None
+    if (
+        not isinstance(split_channels, (list, tuple))
+        or not split_channels
+        or any(isinstance(channel, bool) or not isinstance(channel, Integral) or channel < 0
+               for channel in split_channels)
+    ):
+        raise ValueError(
+            "split_channels must be a bool or a non-empty list of channel indices (0, 1, ...): True gives one "
+            "patch per channel, a list one patch per selected channel, False one multichannel patch; got "
+            f"{split_channels!r}."
+        )
+    if len(set(split_channels)) != len(split_channels):
+        raise ValueError(f"split_channels lists a channel more than once: {list(split_channels)!r}.")
+    return tuple(sorted(int(channel) for channel in split_channels))
 
 
 NORMALIZATION_METHODS = ("minmax", "percentile", "zscore", "robust_zscore")
@@ -252,6 +304,9 @@ NORMALIZATION_SCOPES = ("biological_repeat", "image", "patch")
 # Removed without a deprecation period (normalization brick decision N29).
 REMOVED_NORMALIZATION_SCOPES = ("condition", "technical_repeat")
 POOLING_WEIGHTS = ("pixels", "conditions")
+IMAGE_TYPES = ("fluorescence", "rgb")
+# StarDist's percentile normalization is the one RGB method (normalization brick decision N33).
+RGB_METHODS = ("percentile",)
 PATCH_REGIONS = ("mask", "bbox", "patch")
 EXPORT_VALUES = ("normalized", "raw")
 
@@ -291,7 +346,8 @@ class NormalizationConfig:
         next to the CSV when there is one.
     method
         ``"minmax"``, ``"percentile"`` (default), ``"zscore"`` or
-        ``"robust_zscore"`` (MAD x 1.4826).
+        ``"robust_zscore"`` (MAD x 1.4826); only ``"percentile"`` for
+        ``image_type="rgb"``.
     percentile
         Low and high percentile of ``"percentile"``, ``0 <= low < high <= 100``.
     clip
@@ -304,9 +360,9 @@ class NormalizationConfig:
         group: the same biological repeat in every condition, technical
         repeats merged, as paired in the preprocessing brick's
         ``experiment_design.csv``), ``"image"`` (default: all Z and T planes
-        of the source image) or ``"patch"`` (the patch's own pixels). Always
-        per channel. The former ``"condition"`` and ``"technical_repeat"``
-        scopes are refused.
+        of the source image) or ``"patch"`` (the patch's own pixels). Per
+        channel, except for ``image_type="rgb"``. The former ``"condition"``
+        and ``"technical_repeat"`` scopes are refused.
     per_time_point
         Normalize each time point separately (adds ``t`` to the group).
     patch_region
@@ -330,6 +386,14 @@ class NormalizationConfig:
         For ``scope="biological_repeat"``: how much each condition weighs in
         its repeat group, ``"pixels"`` (default: each pixel once) or
         ``"conditions"`` (each condition equally).
+    image_type
+        ``"fluorescence"`` (default: each channel normalized separately) or
+        ``"rgb"``: colour images of three 8- or 16-bit channels, normalized
+        with StarDist's percentile method, one offset and scale from the R, G
+        and B pixels pooled together (normalization brick decisions N33, N34).
+        With a preprocessing manifest that records the image type, this must
+        be the same type. ``"rgb"`` keeps the three channels in one patch, so
+        ``extraction.split_channels`` must be False.
     """
 
     enabled: bool = False
@@ -346,6 +410,7 @@ class NormalizationConfig:
     # Appended after the earlier fields so run_config.json keeps their order.
     experiment_design: str | None = None
     pooling: str = "pixels"
+    image_type: str = "fluorescence"
 
     def __post_init__(self) -> None:
         if not isinstance(self.enabled, bool):
@@ -358,6 +423,16 @@ class NormalizationConfig:
             raise ValueError(
                 f"normalization.pooling must be 'pixels' (each pixel counts once) or 'conditions' (each "
                 f"condition weighs the same); got {self.pooling!r}."
+            )
+        if self.image_type not in IMAGE_TYPES:
+            raise ValueError(
+                f"normalization.image_type must be 'fluorescence' (each channel normalized separately) or 'rgb' "
+                f"(colour images); got {self.image_type!r}."
+            )
+        if self.image_type == "rgb" and self.method not in RGB_METHODS:
+            raise ValueError(
+                "normalization.image_type='rgb' is normalized with StarDist's percentile method only, which scales "
+                f"the three colour channels together; got method={self.method!r}. Use method='percentile'."
             )
         if self.patch_region is not None and self.patch_region not in PATCH_REGIONS:
             raise ValueError(

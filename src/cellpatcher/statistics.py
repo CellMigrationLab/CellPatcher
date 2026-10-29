@@ -43,10 +43,12 @@ INSTALL_COMMAND = 'pip install "cellpatcher[preprocessing]"'
 
 # Versions of plane_histograms.csv and run_manifest.json this CellPatcher reads
 # (contract §1). The installed preprocessing package must read the same ones.
-# Table version 3 has one row per XYC plane (an image at one Z and T), each
-# channel's histogram in its own columns, and always writes z and t, so
-# plane_id matches exactly; a channel is found inside its row.
-SUPPORTED_SCHEMA_VERSION = "3"
+# Table version 4 has one row per XYC plane (an image at one Z and T), each
+# channel's histogram in its own columns (with the underflow and overflow of
+# the robust histogram range, which the brick's pooling and fitting use), and
+# always writes z and t, so plane_id matches exactly; a channel is found
+# inside its row. Version 3 lacked the underflow and overflow columns.
+SUPPORTED_SCHEMA_VERSION = "4"
 SUPPORTED_MANIFEST_VERSION = "1"
 
 _PLANE_ROLES = ("Z", "C", "T")
@@ -138,7 +140,7 @@ class SourcePlane:
         the image does not have, or has with length 1, has coordinate 0; None
         is stored as 0, as in the preprocessing table (contract §3). A patch
         that keeps several channels is one ``SourcePlane`` per channel; its
-        row in the table holds every channel (schema version 3).
+        row in the table holds every channel (schema version 4).
     axis_lengths
         Length of each Z, C and T axis the image has, e.g. ``{"Z": 5}``. An
         axis left out has length 1. None when the lengths are not known (for
@@ -223,7 +225,7 @@ class SourcePlane:
 class ChannelRecord:
     """One channel of one row of ``plane_histograms.csv``.
 
-    A row (schema version 3) is an XYC plane holding one histogram per
+    A row (schema version 4) is an XYC plane holding one histogram per
     channel; CellPatcher links and pools one channel at a time.
 
     Attributes
@@ -611,6 +613,45 @@ def check_planes(
     if failures:
         raise PreprocessingCheckError(_plane_issues(statistics.plane_histograms.name, failures))
     return matched
+
+
+def recorded_image_type(plane_histograms, manifest=None) -> str | None:
+    """The image type the preprocessing run recorded in its ``run_manifest.json``.
+
+    Reads only the manifest (not the table), so a notebook can show the type as
+    soon as a table is chosen. ``normalization.image_type`` must equal it
+    (normalization brick decision N34).
+
+    Parameters
+    ----------
+    plane_histograms
+        Path of ``plane_histograms.csv``; its manifest is the one next to it
+        unless ``manifest`` is given.
+    manifest
+        Path of the ``run_manifest.json``, or None to look next to the table.
+
+    Returns
+    -------
+    str or None
+        ``"fluorescence"`` or ``"rgb"``; None without a manifest or when the
+        manifest records no image type (written before the preprocessing brick
+        asked for it), so the configuration decides.
+
+    Raises
+    ------
+    PreprocessingUnavailableError
+        If the ``preprocessing`` extra is not installed.
+    FileNotFoundError
+        If an explicitly given manifest does not exist.
+    PreprocessingCheckError
+        If the manifest cannot be read or has an unsupported version.
+    """
+    mbp = require_preprocessing()
+    csv_path = Path(plane_histograms).expanduser()
+    manifest_path = _manifest_path(csv_path, manifest, mbp.MANIFEST_FILENAME)
+    if manifest_path is None:
+        return None
+    return getattr(_read_manifest(mbp, manifest_path), "image_type", None)
 
 
 def _manifest_path(csv_path: Path, manifest, default_name: str) -> Path | None:

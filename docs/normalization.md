@@ -25,7 +25,10 @@ before.
 
 In the CellPatcher notebook, normalization is the **Normalization (optional)** section of
 step 4; **Show parameters per group** lists the parameters before you run, and the preview in
-step 5 shows a few patches before and after normalization with their histograms.
+step 5 shows a few patches before and after normalization with their histograms. The
+**Pool conditions** choice appears only for the biological-repeat scope. **Image type** is taken
+from the preprocessing manifest, and locked, when the manifest records one; otherwise you choose
+it. For RGB only the percentile method is offered.
 
 In Python:
 
@@ -61,6 +64,14 @@ scale come from one of four methods, applied to the pooled intensities of the ch
 | `"zscore"` | mean | standard deviation | Centring and scaling for statistics or models expecting z-scores |
 | `"robust_zscore"` | median | MAD × 1.4826 | Z-scores that resist outliers |
 
+**RGB images** (`image_type="rgb"`, for example brightfield histology): the three colour
+channels are normalized together with StarDist's percentile method, which is the only method
+offered. One offset and scale come from the R, G and B pixels pooled together, so the colours
+keep their balance; the result equals `csbdeep.utils.normalize(x, 1, 99.8, axis=(0, 1, 2))`.
+The images must have three 8- or 16-bit channels, kept in one patch
+(`extraction.split_channels=False`). When the preprocessing brick was told the image type, its
+manifest records it and CellPatcher's `image_type` must match.
+
 The pipeline order is generate → filter → extract → **normalize** → mask → resize → export:
 filters (`min_mean_intensity`, foreground thresholds) still see raw values, `mask_fill_value`
 is in normalized units (`NaN` works), and resizing works on the normalized values.
@@ -68,7 +79,7 @@ is in normalized units (`NaN` works), and resizing works on the normalized value
 ## Choosing a scope
 
 `scope` decides which pixels the parameters come from. Every group gets its own parameters, and
-channels never share parameters.
+channels never share parameters (except the three channels of an RGB image).
 
 | `scope` | Parameters from | Typical use |
 |---|---|---|
@@ -96,7 +107,8 @@ channels never share parameters.
   `"patch"` all pixels of the patch. Padding added by `pad_mode="constant"` is never used.
   A patch without any intensity spread (for example an empty background tile, or for robust
   z-score a patch where more than half the pixels share one value) cannot be normalized from
-  its own pixels: it is **discarded** and listed in a warning.
+  its own pixels: it is **discarded** and listed in a warning. An RGB patch without spread is
+  kept and becomes zeros, as in StarDist.
 
 ## Stacks, channels and OME-Zarr images
 
@@ -104,7 +116,9 @@ channels never share parameters.
   `common.z_policy`/`t_policy` to `"all"` (one patch per plane), `"first"` or `"select"`;
   `"keep"` and Z projections stop the run. Each Z slice is its own plane.
 - **Channels** may be kept together in one patch (each channel gets its own parameters, listed
-  in channel order) or split with `extraction.split_channels=True`.
+  in channel order) or split with `extraction.split_channels=True`, or `[i, ...]` for only the
+  selected channels. A single-channel patch keeps the parameters of its channel in the image's
+  group, so selecting channels never changes their values.
 - **OME-Zarr images** (folders ending in `.zarr`) are read like TIFF files; their masks can be a
   mask folder or the label images inside them (`common.mask_source="ngff_labels"`, with
   `common.mask_label_name`).

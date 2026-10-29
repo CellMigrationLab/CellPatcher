@@ -33,7 +33,13 @@ from cellpatcher.io import (
 )
 from cellpatcher.export import IMAGE_TABLE_FILENAME, save_image_table_csv, save_metadata_csv
 from cellpatcher.ids import object_set_from_label_path, object_set_from_mask_file
-from cellpatcher.normalization import CSV_SCOPES, cached_statistics, load_experiment_design, validate_normalization
+from cellpatcher.normalization import (
+    CSV_SCOPES,
+    cached_statistics,
+    check_image_type,
+    load_experiment_design,
+    validate_normalization,
+)
 from cellpatcher.pipeline import RUN_CONFIG_FILENAME, PatchingResult, _patch_planes, run_config_data, run_patching
 from cellpatcher.statistics import check_images
 from cellpatcher.planes import iter_file_planes, splits_planes
@@ -353,7 +359,8 @@ def _check_preprocessing_inputs(config: CellPatcherConfig, experiment_root, imag
 
     Only with normalization at a CSV scope: every image must have rows in
     ``plane_histograms.csv`` (all images without rows in one message) and,
-    with a manifest, the size, modification time and axes recorded for it.
+    with a manifest, the size, modification time and axes recorded for it,
+    and the image type it records.
     The planes themselves are checked as they are patched.
     """
     settings = config.normalization
@@ -361,6 +368,7 @@ def _check_preprocessing_inputs(config: CellPatcherConfig, experiment_root, imag
         return
     validate_normalization(config)
     statistics = cached_statistics(settings.plane_histograms, settings.manifest)
+    check_image_type(settings, statistics)
     if settings.scope == "biological_repeat":
         load_experiment_design(settings, statistics)  # a design problem stops the run before any image is read
     image_axes = {_source_relative_path(path, experiment_root): config.common.image_axes for path in image_files}
