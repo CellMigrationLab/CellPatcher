@@ -9,6 +9,7 @@ from cellpatcher.io import (
     SINGLE_CONDITION_LABEL,
     SINGLE_TECHNICAL_REPEAT_LABEL,
     discover_condition_repeat_folders,
+    list_supported_files,
     write_array,
 )
 from cellpatcher.orchestration import load_config, run_patching_condition_repeat_tree
@@ -509,3 +510,23 @@ def test_tree_cell_mode_finds_masks_in_mirrored_technical_repeat_folders(tmp_pat
         assert r.result.patches
         assert {p.mask_file for p in r.result.patches} == {"img_mask.npy"}
         assert {p.technical_repeat for p in r.result.patches} == {r.technical_repeat}
+
+
+def test_discover_skips_system_files_and_folders_like_preprocessing(tmp_path):
+    # Issue #46: "._img.tif" and __MACOSX are not images or conditions (preprocessing's is_system_name).
+    root = tmp_path / "raw_data"
+    _write_image(root / "ctrl" / "r1" / "a.npy")
+    _write_image(root / "ctrl" / "r1" / "._a.npy")
+    _write_image(root / "__MACOSX" / "ctrl" / "r1" / "._a.npy")
+    (root / "ctrl" / "Thumbs.db").write_bytes(b"x")
+    leaves = discover_condition_repeat_folders(root)
+    assert [(leaf.condition, leaf.biological_repeat) for leaf in leaves] == [("ctrl", "r1")]
+    assert [p.name for p in list_supported_files(leaves[0].image_folder)] == ["a.npy"]
+
+
+def test_discover_a_resource_fork_does_not_make_a_condition_look_mixed(tmp_path):
+    root = tmp_path / "raw_data"
+    _write_image(root / "ctrl" / "r1" / "a.npy")
+    _write_image(root / "ctrl" / "._stray.npy")
+    leaves = discover_condition_repeat_folders(root)
+    assert [(leaf.condition, leaf.biological_repeat) for leaf in leaves] == [("ctrl", "r1")]

@@ -41,9 +41,23 @@ def list_supported_files(folder_path, supported_extensions=None) -> list[Path]:
     exts = supported_extensions if supported_extensions is not None else SUPPORTED_EXTENSIONS
     exts = {e.lower() for e in exts}
 
-    entries = list(folder.iterdir())
+    entries = _visible_entries(folder)
     _refuse_broken_image_links(entries, exts)
     return sorted(p for p in entries if _is_image(p, exts))
+
+
+def _is_system_name(name: str) -> bool:
+    # The preprocessing brick's rule, so both bricks see the same images:
+    # dot-files and dot-folders (.DS_Store, macOS "._img.tif" resource forks,
+    # .ipynb_checkpoints), Thumbs.db, desktop.ini and __MACOSX (issue #46).
+    from morphobricks_preprocessing.discovery import is_system_name
+
+    return is_system_name(name)
+
+
+def _visible_entries(folder: Path) -> list[Path]:
+    """The entries of *folder*, without system files and folders (:func:`_is_system_name`)."""
+    return [entry for entry in folder.iterdir() if not _is_system_name(entry.name)]
 
 
 def _refuse_broken_image_links(entries, exts: set[str]) -> None:
@@ -121,13 +135,13 @@ class ConditionRepeatFolder:
 
 
 def _split_folder_entries(folder: Path, exts: set[str]) -> tuple[list[Path], list[Path]]:
-    # Hidden folders (e.g. Jupyter's .ipynb_checkpoints) are never
-    # conditions or biological repeats, so they must not make a flat folder
-    # look mixed.
-    entries = list(folder.iterdir())
+    # System files and folders (e.g. Jupyter's .ipynb_checkpoints, __MACOSX,
+    # "._img.tif") are never images, conditions or biological repeats, so
+    # they must not make a flat folder look mixed.
+    entries = _visible_entries(folder)
     _refuse_broken_image_links(entries, exts)
     loose_images = [p for p in entries if _is_image(p, exts)]
-    subdirs = [p for p in entries if p.is_dir() and not p.name.startswith(".") and p not in loose_images]
+    subdirs = [p for p in entries if p.is_dir() and p not in loose_images]
     return loose_images, subdirs
 
 
@@ -205,8 +219,10 @@ def discover_condition_repeat_folders(
     ``image_folder`` set to *root_path*.
 
     A root, condition or repeat folder mixing loose image files with
-    subfolders is ambiguous and raises ``ValueError``. Hidden subfolders
-    (names starting with ``"."``) are ignored.
+    subfolders is ambiguous and raises ``ValueError``. System files and
+    folders are ignored, as in the preprocessing brick: names starting with
+    ``"."`` (``.ipynb_checkpoints``, ``._img.tif``), ``Thumbs.db``,
+    ``desktop.ini`` and ``__MACOSX``.
 
     When *mask_root_path* is given, the same ``<condition>/<biological_repeat>``
     (or ``<condition>``, ``<condition>/<biological_repeat>/<technical_repeat>``,
@@ -575,8 +591,8 @@ def find_candidate_matches(
     mask_names = {Path(m): normalize(image_stem(m)) for m in mask_files}
     out = {}
     # For each image, collect every mask whose stem matches under the
-    # chosen strategy -- possibly more than one, which is exactly what
-    # filter_shared_matches/validate_image_and_mask_folders resolve next.
+    # chosen strategy -- possibly more than one, which
+    # validate_image_and_mask_folders then refuses.
     for image in image_files:
         image = Path(image)
         key = normalize(image_stem(image))
@@ -603,8 +619,9 @@ def filter_shared_matches(candidate_matches) -> dict[Path, list[Path]]:
     also has at least one exclusive (image-unique) candidate. This pruning is
     repeated until stable.
 
-    Any remaining ambiguity is handled later by
-    ``validate_image_and_mask_folders``.
+    Kept for callers that use it directly. :func:`validate_image_and_mask_folders`
+    no longer applies it: it refuses every ambiguous pairing instead of
+    resolving it by this heuristic (issue #45).
     """
     filtered = {img: list(matches) for img, matches in candidate_matches.items()}
 
@@ -682,6 +699,10 @@ def validate_image_and_mask_folders(
 ) -> dict[Path, Path]:
     """Match every image to exactly one mask by file name, or raise listing every problem.
 
+    The pairing must be one to one among the candidates: an image with
+    several candidate masks, or a mask that is a candidate of several images,
+    is refused rather than resolved by a heuristic.
+
     With *ignore_unrequested_masks* (default False), masks whose stem ends in
     none of *mask_suffixes* are left out before matching
     (:func:`select_requested_masks`), so a folder holding several masks per
@@ -714,25 +735,27 @@ def validate_image_and_mask_folders(
         mask_suffixes=mask_suffixes,
         case_sensitive=case_sensitive,
     )
-    filtered = filter_shared_matches(candidate)
 
-    # After pruning, only images with exactly one candidate are safe to
-    # resolve automatically; zero or multiple candidates are collected
-    # below as validation errors instead of guessing.
-    no_match = [img for img, matches in filtered.items() if len(matches) == 0]
-    ambiguous = [img for img, matches in filtered.items() if len(matches) > 1]
+    # Only a one-to-one pairing is accepted: an image with zero or several
+    # candidate masks, or a mask that is a candidate of several images
+    # (img1 and img10 both matching img10_mask under "substring"), is
+    # refused, never resolved by a heuristic such as filter_shared_matches
+    # (issue #45): the wrong pairing would give one image another's objects.
+    no_match = [img for img, matches in candidate.items() if len(matches) == 0]
+    ambiguous = [img for img, matches in candidate.items() if len(matches) > 1]
 
-    selected = {img: matches[0] for img, matches in filtered.items() if len(matches) == 1}
-
-    # A mask can still end up selected by more than one image (pruning only
-    # removes shared candidates when an exclusive alternative exists), so
-    # check for that explicitly, along with masks nothing selected at all.
     mask_to_images = {}
-    for img, mask in selected.items():
-        mask_to_images.setdefault(mask, []).append(img)
-
+    for img, matches in candidate.items():
+        for mask in matches:
+            mask_to_images.setdefault(mask, []).append(img)
     shared_masks = [mask for mask, imgs in mask_to_images.items() if len(imgs) > 1]
-    unmatched_masks = [mask for mask in mask_files if mask not in selected.values()]
+
+    selected = {
+        img: matches[0]
+        for img, matches in candidate.items()
+        if len(matches) == 1 and len(mask_to_images[matches[0]]) == 1
+    }
+    unmatched_masks = [mask for mask in mask_files if mask not in mask_to_images]
 
     errors = []
     if no_match:
@@ -740,7 +763,12 @@ def validate_image_and_mask_folders(
     if ambiguous:
         errors.append("Images with multiple mask matches: " + ", ".join(p.name for p in ambiguous[:10]))
     if shared_masks:
-        errors.append("Masks linked to multiple images: " + ", ".join(p.name for p in shared_masks[:10]))
+        errors.append(
+            "Masks linked to multiple images: "
+            + ", ".join(
+                f"{mask.name} ({', '.join(img.name for img in mask_to_images[mask])})" for mask in shared_masks[:10]
+            )
+        )
     if unmatched_masks:
         message = "Masks with no matching image: " + ", ".join(p.name for p in unmatched_masks[:10])
         other_suffix = [mask for mask in unmatched_masks if not _ends_with_suffix(mask, mask_suffixes, case_sensitive)]
