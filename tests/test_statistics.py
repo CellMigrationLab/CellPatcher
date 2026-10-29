@@ -482,3 +482,26 @@ def test_cellpatcher_patches_link_to_the_preprocessing_rows(tmp_path):
             patch.condition, patch.biological_repeat, patch.technical_repeat,
         )
     assert {record.plane_id for record in records} == {f"{path}::z=0,t=0" for path in paths}
+
+
+@needs_preprocessing
+def test_check_planes_compares_position_id(stack_experiment):
+    # Issue #46: a position_id other than the row's is refused; the image name is accepted.
+    import morphobricks_normalization as mbn
+
+    root, output = stack_experiment
+    statistics = load_plane_statistics(output / mbn.OUTPUT_FILENAME)
+    path = "control/img1.tif"
+    stack = _read_stack(root, path)
+
+    def plane(position_id):
+        return SourcePlane(
+            path, "control", "single", "single", z=0, axis_lengths={"Z": Z_PLANES}, position_id=position_id
+        )
+
+    assert len(check_planes(statistics, [(plane("img1"), stack[0])])) == 1
+    assert len(check_planes(statistics, [(plane(None), stack[0])])) == 1  # not known: not compared
+    with pytest.raises(PreprocessingCheckError, match="another position_id") as error_info:
+        check_planes(statistics, [(plane("OTHER_FOV"), stack[0])])
+    issues = {issue.code: issue.paths for issue in error_info.value.issues}
+    assert issues == {"position_mismatch": (f"{path}::z=0,t=0 c=0 (CellPatcher 'OTHER_FOV', table 'img1')",)}
