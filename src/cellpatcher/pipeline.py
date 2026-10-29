@@ -12,7 +12,13 @@ from cellpatcher.extract import extract_patches
 from cellpatcher.export import IMAGE_TABLE_FILENAME, export_patches
 from cellpatcher.filters import filter_regions
 from cellpatcher.fractions import check_fraction_masks, stamp_mask_fractions
-from cellpatcher.ids import assign_patch_ids, random_seed, resolve_object_set, resolve_position_id
+from cellpatcher.ids import (
+    assign_patch_ids,
+    check_unique_position,
+    random_seed,
+    resolve_object_set,
+    resolve_position_id,
+)
 from cellpatcher.io import (
     SINGLE_BIOLOGICAL_REPEAT_LABEL,
     SINGLE_CONDITION_LABEL,
@@ -127,14 +133,18 @@ def _identity_metadata(config: CellPatcherConfig, image_list, image_metadata) ->
     Resolved once per source image, before any plane split, so every plane
     and channel of an image shares them (:func:`cellpatcher.ids.resolve_position_id`,
     :func:`cellpatcher.ids.resolve_object_set`); never from the image's place
-    in the run.
+    in the run. Two images with one FOV key (case-insensitive ``position_id``) and no
+    different plane indices are refused here, before any geometry (D85).
     """
     if image_metadata is not None and len(image_metadata) != len(image_list):
         raise ValueError("image_metadata must have exactly one entry per image (or be None).")
     filled = []
+    seen: dict = {}
     for index in range(len(image_list)):
         meta = dict(image_metadata[index] or {}) if image_metadata is not None else {}
-        meta["position_id"] = resolve_position_id(_image_labels(config, meta), meta, image_index=index)
+        labels = _image_labels(config, meta)
+        meta["position_id"] = resolve_position_id(labels, meta, image_index=index)
+        check_unique_position(seen, labels, meta, index)
         if config.mode == "cell":
             meta["object_set"] = resolve_object_set(meta, config.common)
         filled.append(meta)
@@ -645,12 +655,15 @@ def _patch_planes(config: CellPatcherConfig, sources) -> PatchingResult:
     patch_arrays = [] if need_arrays else None
     export_arrays = [] if raw_export else None
     held = 0
+    seen: dict = {}
     for index, (image_meta, planes) in enumerate(sources):
         meta = dict(image_meta or {})
         # The image's identity, shared by all of its planes (resolved here
         # for folder runs, whose metadata names the file; in-memory runs
-        # resolved it in run_patching before splitting).
-        meta["position_id"] = resolve_position_id(_image_labels(config, meta), meta, image_index=index)
+        # resolved it in run_patching before splitting), unique per source (D85).
+        labels = _image_labels(config, meta)
+        meta["position_id"] = resolve_position_id(labels, meta, image_index=index)
+        check_unique_position(seen, labels, meta, index)
         if config.mode == "cell":
             meta["object_set"] = resolve_object_set(meta, config.common)
         planes = list(planes)

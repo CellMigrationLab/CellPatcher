@@ -291,7 +291,7 @@ def test_object_set_precedence(tmp_path):
     config = _cell_config()
     config.common.object_set = "cytoplasm"
     result = run_patching_pipeline(images, mask_folder_path=masks, config=config)
-    assert {patch.patch_id.split("/")[4] for patch in result.patches} == {"cytoplasm"}
+    assert {patch.object_set for patch in result.patches} == {"cytoplasm"}
 
     # In memory, image_metadata wins over the config; other modes have none.
     result = run_patching(
@@ -399,3 +399,45 @@ def test_positions_differing_only_in_case_are_refused_in_one_repeat():
     other_wells = [{"position_id": "img", "technical_repeat": "A"}, {"position_id": "img", "technical_repeat": "B"}]
     result = run_patching(images=[np.zeros((4, 4))] * 2, config=config, image_metadata=other_wells)
     assert [p.patch_id for p in result.patches] == ["single/single/A/img/whole_fov", "single/single/B/img/whole_fov"]
+
+
+def test_a_duplicate_position_is_refused_even_when_it_yields_no_patch():
+    """Audit of #41: D85's uniqueness is checked per source image, before geometry; the first
+    image (empty mask) gives no patch, so patch ids alone would never collide."""
+    images, masks = [_image(0), _image(1)], [np.zeros((32, 32), np.uint16), _labels(1)]
+    with pytest.raises(ValueError, match="same position_id"):
+        run_patching(images=images, masks=masks, config=_cell_config(),
+                     image_metadata=[{"position_id": "Img"}, {"position_id": "img"}])
+
+
+def test_a_duplicate_position_is_refused_whatever_tokens_its_patches_get():
+    """Cell labels or random rectangles that differ between the two images do not hide the duplicate."""
+    with pytest.raises(ValueError, match="same position_id"):
+        run_patching(images=[_image(0), _image(1)], masks=[_labels(0), _labels(1)], config=_cell_config(),
+                     image_metadata=[{"position_id": "Img"}, {"position_id": "img"}])
+    config = CellPatcherConfig(mode="random")
+    config.random.patch_size, config.random.n_patches, config.random.seed = 8, 2, 3
+    with pytest.raises(ValueError, match="same position_id"):
+        run_patching(images=[_image(0), _image(1)], config=config,
+                     image_metadata=[{"position_id": "Img"}, {"position_id": "img"}])
+
+
+def test_a_duplicate_position_is_refused_in_a_folder_run(tmp_path):
+    """The lazily read folder route (one source at a time) checks it too, before the image's planes."""
+    write_array(tmp_path / "Img.tif", _image(0))
+    write_array(tmp_path / "img.tiff", _image(1))
+    config = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=8))
+    config.common.z_policy = "all"
+    with pytest.raises(ValueError, match="same position_id"):
+        run_patching_pipeline(tmp_path, config=config)
+
+
+def test_only_the_position_is_case_insensitive():
+    """Technical repeats "A" and "a" are distinct labels: one position name in each is legal, and
+    images of one position told apart by their planes are legal too."""
+    config = CellPatcherConfig(mode="whole_fov")
+    wells = [{"position_id": "img", "technical_repeat": "A"}, {"position_id": "img", "technical_repeat": "a"}]
+    result = run_patching(images=[np.zeros((4, 4))] * 2, config=config, image_metadata=wells)
+    assert [p.patch_id for p in result.patches] == ["single/single/A/img/whole_fov", "single/single/a/img/whole_fov"]
+    planes = [{"position_id": "img", "t": 0}, {"position_id": "IMG", "t": 1}]
+    assert len(run_patching(images=[np.zeros((4, 4))] * 2, config=config, image_metadata=planes).patches) == 2

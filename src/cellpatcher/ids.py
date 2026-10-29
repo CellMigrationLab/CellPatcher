@@ -42,6 +42,7 @@ file name.
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from collections import Counter
 
@@ -145,6 +146,27 @@ def resolve_position_id(labels, meta, *, image_index=None) -> str:
     )
 
 
+def check_unique_position(seen: dict, labels, meta, index) -> None:
+    """Refuse a source image whose FOV key another image of the run already has (D85).
+
+    ``position_id`` is unique within its technical repeat whatever its case, so the key is
+    ``(condition, biological_repeat, technical_repeat, position_id.casefold())`` plus the
+    plane indices (``t``, ``z``, ``c``) *meta* gives, if any: images of one position told
+    apart by their planes are legal. Called once per source image, before any plane split,
+    geometry or filter, so an image that yields no patch is checked too. *seen* maps the
+    keys met so far to their image index and is updated.
+    """
+    key = (*map(str, labels), str(meta["position_id"]).casefold(), *(meta.get(axis) for axis in ("t", "z", "c")))
+    if key in seen:
+        raise ValueError(
+            f"Images {seen[key]} and {index} of the run have the same position_id within technical repeat "
+            f"{key[:3]!r} ({meta['position_id']!r}; position_id is unique within its technical repeat "
+            "whatever its case, D85) and no different t/z/c plane indices. Give each image its own "
+            'position_id (image_metadata[i]["position_id"]) or its plane indices ("t", "z", "c").'
+        )
+    seen[key] = index
+
+
 # The plane indices each random seed scope includes (config.RandomConfig.seed_scope).
 SEED_SCOPE_AXES = {"plane_channel": ("t", "z", "c"), "plane": ("t", "z"), "position": ()}
 
@@ -152,9 +174,10 @@ SEED_SCOPE_AXES = {"plane_channel": ("t", "z", "c"), "plane": ("t", "z"), "posit
 def random_seed(seed, meta, scope: str = "plane_channel", labels=None) -> int | None:
     """The seed random mode samples one image (plane) with, from the run seed and the image's identity.
 
-    Derived from ``seed`` and the canonical identity string
-    ``condition|biological_repeat|technical_repeat|position_id|t=<t>|z=<z>|c=<c>``
-    (*labels* and *meta*, the image's metadata; ``-`` for an absent index;
+    Derived from ``seed`` and the canonical identity, the compact JSON array
+    ``["condition","biological_repeat","technical_repeat","position_id","t=<t>","z=<z>","c=<c>"]``
+    (*labels* and *meta*, the image's metadata; ``-`` for an absent index; JSON, so a
+    label holding any character, ``|`` or ``,`` included, never reads as two;
     the whole FOV key, so two repeats' images of one name differ, D85) through SHA-256 and
     ``numpy.random.SeedSequence``, so the same image (plane) gets the same
     rectangles in every run, whatever its place in the run, and another
@@ -171,7 +194,8 @@ def random_seed(seed, meta, scope: str = "plane_channel", labels=None) -> int | 
         raise ValueError("random_seed needs the image's (condition, biological_repeat, technical_repeat).")
     parts = [*(str(label) for label in labels), str(meta["position_id"])]
     parts += [f"{axis}={'-' if meta.get(axis) is None else int(meta[axis])}" for axis in SEED_SCOPE_AXES[scope]]
-    digest = hashlib.sha256("|".join(parts).encode("utf-8")).digest()
+    canonical = json.dumps(parts, ensure_ascii=False, separators=(",", ":"))
+    digest = hashlib.sha256(canonical.encode("utf-8")).digest()
     words = [int.from_bytes(digest[i:i + 4], "little") for i in range(0, len(digest), 4)]
     return int(np.random.SeedSequence([int(seed), *words]).generate_state(1, dtype=np.uint64)[0])
 
@@ -239,24 +263,22 @@ def assign_patch_ids(patches) -> None:
         ``position_id`` without different plane indices.
     """
     counts: Counter = Counter()
-    folded: Counter = Counter()
     owners: dict[str, set] = {}
     random_bases: set[str] = set()
     for patch in patches:
         base = build_patch_id(patch)
         counts[base] += 1
-        # Duplicates are told apart case-insensitively (position_id is unique within its
-        # technical repeat whatever its case, D85), repeated random draws excepted.
-        folded[base.casefold()] += 1
-        owners.setdefault(base.casefold(), set()).add(patch.image_id)
+        # Exact duplicates, repeated random draws excepted; positions differing only in
+        # case were refused per source image before any geometry (check_unique_position, D85).
+        owners.setdefault(base, set()).add(patch.image_id)
         if patch.mode == "random":
-            random_bases.add(base.casefold())
+            random_bases.add(base)
         patch.patch_id = base if counts[base] == 1 or patch.mode != "random" else f"{base}-n{counts[base]}"
         if patch.mode == "whole_fov_square":
             patch.parent_id = parent_patch_id(patch)
     duplicates = sorted(
         base
-        for base, count in folded.items()
+        for base, count in counts.items()
         if count > 1 and (len(owners[base]) > 1 or base not in random_bases)
     )
     if duplicates:
