@@ -88,7 +88,7 @@ def test_pipeline_refuses_unnamed_images_and_images_sharing_a_position():
     masks = [np.pad(np.ones((2, 2), dtype=int), 2)] * 2
     with pytest.raises(ValueError, match="Image 0 of the run has neither a position_id nor an image_file"):
         run_patching(images=images, masks=masks, config=cfg)
-    with pytest.raises(ValueError, match="occur more than once"):
+    with pytest.raises(ValueError, match="same position_id"):
         run_patching(images=images, masks=masks, config=cfg, image_metadata=[{"position_id": "P"}] * 2)
 
 

@@ -53,8 +53,8 @@ def test_all_gives_one_patch_per_plane_with_its_z():
     result = run_patching(images=stack, config=_grid_config(z_policy="all"), image_metadata=[{"position_id": "P"}])
 
     assert len(result.patches) == 3 * 4
-    assert result.patches[0].patch_id == "P/z000/grid-y0-x0-h8-w8"
-    assert result.patches[-1].patch_id == "P/z002/grid-y8-x8-h8-w8"
+    assert result.patches[0].patch_id == "single/single/single/P/z000/grid-y0-x0-h8-w8"
+    assert result.patches[-1].patch_id == "single/single/single/P/z002/grid-y8-x8-h8-w8"
     assert {p.image_id for p in result.patches} == {"image_0000"}
     for patch, array in zip(result.patches, result.patch_arrays):
         assert (patch.z1 - patch.z0) == 1
@@ -68,7 +68,7 @@ def test_t_and_z_split_together_in_t_then_z_order():
     )
 
     assert [p.patch_id for p in result.patches] == [
-        f"P/t{t:04d}/z{z:03d}/grid-y0-x0-h8-w8" for t in range(2) for z in range(3)
+        f"single/single/single/P/t{t:04d}/z{z:03d}/grid-y0-x0-h8-w8" for t in range(2) for z in range(3)
     ]
     assert [(p.t, p.z0) for p in result.patches] == [(t, z) for t in range(2) for z in range(3)]
     np.testing.assert_array_equal(result.patch_arrays[4], stack[1, 1])
@@ -139,7 +139,7 @@ def test_split_channels_follow_the_plane_suffix_and_share_one_position():
     assert [p.patch_id for p in result.patches] == [
         f"single/single/single/s/z{z:03d}/c{c}/grid-y0-x0-h8-w8" for z in range(3) for c in range(2)
     ]
-    assert {p.position_id for p in result.patches} == {"single/single/single/s"}
+    assert {p.position_id for p in result.patches} == {"s"}
     np.testing.assert_array_equal(result.patch_arrays[3], stack[1, 1])
 
 
@@ -172,7 +172,8 @@ def test_cell_masks_with_the_image_z_length_follow_its_planes():
         image_metadata=[{"position_id": "P"}],
     )
     assert [(p.z0, p.label_id) for p in result.patches] == [(0, 1), (1, 2), (2, 3)]
-    assert [p.patch_id for p in result.patches] == ["P/mask/z000/label1", "P/mask/z001/label2", "P/mask/z002/label3"]
+    assert [p.patch_id for p in result.patches] == ["single/single/single/P/mask/z000/label1", "single/single/single/P/mask/z001/label2",
+        "single/single/single/P/mask/z002/label3"]
 
 
 def test_a_2d_or_length_one_mask_is_shared_by_every_plane():

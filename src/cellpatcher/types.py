@@ -52,9 +52,9 @@ class PatchRegion:
       list; it is not an identity across runs.
     - ``position_id``: stable spatial acquisition-position identifier, shared
       by all Z/C/T planes from one XY position. Always filled by
-      ``run_patching``: the one supplied in ``image_metadata``, otherwise
-      ``<condition>/<biological_repeat>/<technical_repeat>/<file stem>``
-      (one file is one position); an in-memory image with neither is
+      ``run_patching``: the one supplied in ``image_metadata`` (non-empty
+      text, kept verbatim), otherwise the image name without its extension
+      (one file is one position, D85); an in-memory image with neither is
       refused.
     - ``object_set``: the mask a ``cell``-mode patch's ``label_id`` belongs
       to (the OME-NGFF label name, the mask file's suffix, or

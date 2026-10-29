@@ -12,7 +12,16 @@ from cellpatcher.extract import extract_patches
 from cellpatcher.export import IMAGE_TABLE_FILENAME, export_patches
 from cellpatcher.filters import filter_regions
 from cellpatcher.fractions import check_fraction_masks, stamp_mask_fractions
-from cellpatcher.ids import assign_patch_ids, random_seed, resolve_object_set, resolve_position_id
+from cellpatcher.ids import (
+    assign_patch_ids,
+    check_unique_position,
+    identity_text,
+    plane_index,
+    validate_object_set,
+    random_seed,
+    resolve_object_set,
+    resolve_position_id,
+)
 from cellpatcher.io import (
     SINGLE_BIOLOGICAL_REPEAT_LABEL,
     SINGLE_CONDITION_LABEL,
@@ -47,13 +56,45 @@ RUN_CONFIG_FILENAME = "run_config.json"
 def _run_labels(config: CellPatcherConfig) -> tuple[str, str, str]:
     # A missing label is "single", as for a missing folder level (AGENTS.md
     # §5), also when a config or an older run_config.json sets it to None.
+    # A given label is text, used unchanged (identity_text: never converted, D85).
     common = config.common
-    condition = SINGLE_CONDITION_LABEL if common.condition is None else common.condition
-    biological_repeat = (
-        SINGLE_BIOLOGICAL_REPEAT_LABEL if common.biological_repeat is None else common.biological_repeat
-    )
-    technical_repeat = SINGLE_TECHNICAL_REPEAT_LABEL if common.technical_repeat is None else common.technical_repeat
-    return condition, biological_repeat, technical_repeat
+    labels = []
+    for name, single in (
+        ("condition", SINGLE_CONDITION_LABEL),
+        ("biological_repeat", SINGLE_BIOLOGICAL_REPEAT_LABEL),
+        ("technical_repeat", SINGLE_TECHNICAL_REPEAT_LABEL),
+    ):
+        value = getattr(common, name)
+        labels.append(single if value is None else identity_text(value, f"common.{name}"))
+    return tuple(labels)
+
+
+def check_config_identity(config: CellPatcherConfig) -> None:
+    """Refuse the config's identity labels before any file is read (D85).
+
+    ``common.condition``, ``biological_repeat`` and ``technical_repeat`` (``_run_labels``) and
+    ``common.object_set`` must be text; folder routes call this before listing or reading any
+    image or mask, so an invalid label never costs a read.
+    """
+    _run_labels(config)
+    if config.common.object_set is not None:
+        validate_object_set(config.common.object_set)
+
+
+def check_source_identities(config: CellPatcherConfig, image_files) -> None:
+    """Refuse the D85 identity of a folder's images from their names alone, before any read.
+
+    Each image file is one source: its labels, its ``position_id`` (the image name) and the
+    uniqueness of ``position_id`` within the technical repeat, ignoring case, are checked
+    exactly as ``run_patching`` checks them later, so two images ``Img.tif`` and ``img.tiff``
+    are refused before either (or a mask) is read.
+    """
+    seen: dict = {}
+    for index, path in enumerate(image_files):
+        meta = {"image_file": Path(path).name}
+        labels = _image_labels(config, meta)
+        meta["position_id"] = resolve_position_id(labels, meta, image_index=index)
+        check_unique_position(seen, labels, meta, index)
 
 
 def _stamp_run_context(config: CellPatcherConfig, patches: list[PatchRegion]) -> None:
@@ -92,17 +133,17 @@ def _stamp_image_metadata(image_list, image_metadata, patches: list[PatchRegion]
         meta = per_image.get(patch.image_id)
         if not meta:
             continue
-        if meta.get("t") is not None:
-            patch.t = int(meta["t"])
-        if meta.get("z") is not None:
-            z = int(meta["z"])
+        t, z, c = (plane_index(meta, axis) for axis in "tzc")
+        if t is not None:
+            patch.t = t
+        if z is not None:
             patch.z0, patch.z1 = z, z + 1
-        if meta.get("c") is not None:
-            patch.c = int(meta["c"])
+        if c is not None:
+            patch.c = c
         if meta.get("position_id") is not None:
-            patch.position_id = str(meta["position_id"])
+            patch.position_id = meta["position_id"]  # text, checked by resolve_position_id
         if meta.get("technical_repeat") is not None:
-            patch.technical_repeat = str(meta["technical_repeat"])
+            patch.technical_repeat = meta["technical_repeat"]  # text, checked by _image_labels
         if meta.get("image_file") is not None:
             patch.image_file = str(meta["image_file"])
         if meta.get("mask_file") is not None:
@@ -110,15 +151,42 @@ def _stamp_image_metadata(image_list, image_metadata, patches: list[PatchRegion]
         if meta.get("source_relative_path") is not None:
             patch.source_relative_path = str(meta["source_relative_path"])
         if meta.get("object_set") is not None and patch.mode == "cell":
-            patch.object_set = str(meta["object_set"])
+            patch.object_set = meta["object_set"]  # text, checked by resolve_object_set
 
 
 def _image_labels(config: CellPatcherConfig, meta) -> tuple[str, str, str]:
     """An image's condition, biological and technical repeat, as :func:`_stamp_image_metadata` sets them."""
     condition, biological_repeat, technical_repeat = _run_labels(config)
     if meta.get("technical_repeat") is not None:
-        technical_repeat = str(meta["technical_repeat"])
+        technical_repeat = identity_text(meta["technical_repeat"], 'image_metadata["technical_repeat"]')
     return condition, biological_repeat, technical_repeat
+
+
+def _check_channel_identity(config: CellPatcherConfig, meta, index: int) -> None:
+    """Refuse a supplied plane index that a setting would replace or contradict (D85).
+
+    ``c`` either names the channel plane an image already is, or is generated by
+    ``extraction.split_channels`` for each channel of a multichannel image; never both, since
+    the split would silently overwrite the identity the caller gave (and seeded with). Likewise
+    ``t``/``z`` either name the plane an image is, or come from ``t_policy``/``z_policy``
+    (one plane per index, a chosen plane, or a projection over the axis, which is no single
+    plane): a supplied index with any policy but ``"keep"`` is refused.
+    """
+    for axis in ("t", "z"):
+        policy = getattr(config.common, f"{axis}_policy")
+        if policy != "keep" and plane_index(meta, axis) is not None:
+            raise ValueError(
+                f"image_metadata gives {axis}={meta[axis]!r} for image {index}, but "
+                f"{axis}_policy={policy!r} also decides its planes (a projection is no single "
+                "plane); use one or the other."
+            )
+    if config.extraction.split_channels and plane_index(meta, "c") is not None:
+        raise ValueError(
+            f"image_metadata gives c={meta['c']!r} for image {index}, but "
+            "extraction.split_channels=True generates c for every channel of the image; "
+            "c either names the channel plane an image already is, or comes from the split, "
+            "not both."
+        )
 
 
 def _identity_metadata(config: CellPatcherConfig, image_list, image_metadata) -> list[dict]:
@@ -127,14 +195,19 @@ def _identity_metadata(config: CellPatcherConfig, image_list, image_metadata) ->
     Resolved once per source image, before any plane split, so every plane
     and channel of an image shares them (:func:`cellpatcher.ids.resolve_position_id`,
     :func:`cellpatcher.ids.resolve_object_set`); never from the image's place
-    in the run.
+    in the run. Two images with one FOV key (case-insensitive ``position_id``) and no
+    different plane indices are refused here, before any geometry (D85).
     """
     if image_metadata is not None and len(image_metadata) != len(image_list):
         raise ValueError("image_metadata must have exactly one entry per image (or be None).")
     filled = []
+    seen: dict = {}
     for index in range(len(image_list)):
         meta = dict(image_metadata[index] or {}) if image_metadata is not None else {}
-        meta["position_id"] = resolve_position_id(_image_labels(config, meta), meta, image_index=index)
+        labels = _image_labels(config, meta)
+        meta["position_id"] = resolve_position_id(labels, meta, image_index=index)
+        check_unique_position(seen, labels, meta, index)
+        _check_channel_identity(config, meta, index)
         if config.mode == "cell":
             meta["object_set"] = resolve_object_set(meta, config.common)
         filled.append(meta)
@@ -664,12 +737,16 @@ def _patch_planes(config: CellPatcherConfig, sources) -> PatchingResult:
     patch_arrays = [] if need_arrays else None
     export_arrays = [] if raw_export else None
     held = 0
+    seen: dict = {}
     for index, (image_meta, planes) in enumerate(sources):
         meta = dict(image_meta or {})
         # The image's identity, shared by all of its planes (resolved here
         # for folder runs, whose metadata names the file; in-memory runs
-        # resolved it in run_patching before splitting).
-        meta["position_id"] = resolve_position_id(_image_labels(config, meta), meta, image_index=index)
+        # resolved it in run_patching before splitting), unique per source (D85).
+        labels = _image_labels(config, meta)
+        meta["position_id"] = resolve_position_id(labels, meta, image_index=index)
+        check_unique_position(seen, labels, meta, index)
+        _check_channel_identity(config, meta, index)
         if config.mode == "cell":
             meta["object_set"] = resolve_object_set(meta, config.common)
         planes = list(planes)
@@ -798,9 +875,8 @@ def run_patching(images=None, masks=None, config=None, image_metadata=None, frac
         ``.metadata`` (keys ``"t"``, ``"z"``, ``"c"``), optionally augmented
         with ``"position_id"`` for the stable spatial acquisition position
         and, in cell mode, ``"object_set"`` (the mask's name). Without a
-        ``position_id``, an image's is
-        ``<condition>/<biological_repeat>/<technical_repeat>/<stem>`` from
-        its ``"image_file"``; an image with neither is refused
+        ``position_id``, an image's is the name of its ``"image_file"``
+        without the extension (D85); an image with neither is refused
         (:func:`cellpatcher.ids.resolve_position_id`): its place in the run
         is never its identity. ``patch_id`` is built from these (:mod:`cellpatcher.ids`),
         and two patches with the same ``patch_id`` stop the run. When supplied, the
@@ -956,7 +1032,8 @@ def run_patching(images=None, masks=None, config=None, image_metadata=None, frac
         # with every image's position_id above.
         for idx, (image, mask) in enumerate(zip(image_list, mask_list)):
             image_id = f"image_{idx:04d}"
-            seed = random_seed(config.random.seed, image_metadata[idx], config.random.seed_scope)
+            labels = _image_labels(config, image_metadata[idx])
+            seed = random_seed(config.random.seed, image_metadata[idx], config.random.seed_scope, labels)
             image_random_config = replace(config.random, seed=seed)
             strategy = RandomPatchStrategy(image_random_config)
             patches.extend(

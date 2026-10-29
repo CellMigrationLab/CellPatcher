@@ -26,6 +26,10 @@ def _run(mode, image, masks=None, metadata=None, fraction_masks=None, **sections
     ).patches
 
 
+# The run's labels when none are configured: the first three levels of every patch_id (D85).
+KEY = "single/single/single"
+
+
 def _rectangles(patches):
     return [(p.y0, p.y1, p.x0, p.x1) for p in patches]
 
@@ -33,12 +37,25 @@ def _rectangles(patches):
 # --- seed scope ---------------------------------------------------------------------------------
 
 
-def test_default_seed_is_the_seed_before_the_option():
+def test_the_seed_hashes_the_whole_fov_key_and_the_plane():
+    """D85: the identity string is the four FOV key fields and the plane indices, so two repeats
+    holding an image of the same name are sampled differently."""
     meta = {"position_id": "pos0", "t": 3, "z": 1, "c": 2}
-    digest = hashlib.sha256(b"pos0|t=3|z=1|c=2").digest()
+    labels = ("ctrl", "r1", "w1")
+    digest = hashlib.sha256(b'["ctrl","r1","w1","pos0","t=3","z=1","c=2"]').digest()
     words = [int.from_bytes(digest[i:i + 4], "little") for i in range(0, len(digest), 4)]
-    before = int(np.random.SeedSequence([7, *words]).generate_state(1, dtype=np.uint64)[0])
-    assert random_seed(7, meta) == random_seed(7, meta, "plane_channel") == before
+    expected = int(np.random.SeedSequence([7, *words]).generate_state(1, dtype=np.uint64)[0])
+    assert random_seed(7, meta, labels=labels) == random_seed(7, meta, "plane_channel", labels) == expected
+    assert random_seed(7, meta, labels=("ctrl", "r2", "w1")) != expected
+    with pytest.raises(ValueError, match="condition, biological_repeat, technical_repeat"):
+        random_seed(7, meta)
+
+
+def test_labels_holding_the_separator_do_not_share_a_seed():
+    """Audit of #41: the FOV key is serialized unambiguously, so ("A|B", "C") and ("A", "B|C") differ."""
+    meta = {"position_id": "img"}
+    assert random_seed(7, meta, labels=("A|B", "C", "D")) != random_seed(7, meta, labels=("A", "B|C", "D"))
+    assert random_seed(7, meta, labels=("A,B", "C", "D")) != random_seed(7, meta, labels=("A", "B,C", "D"))
 
 
 @pytest.mark.parametrize(
@@ -113,12 +130,12 @@ def test_square_cover_regions_cover_the_image_with_squares(shape):
     patches = _run("whole_fov", np.zeros(shape), whole_fov=WholeFOVConfig(square_cover=True))
     parent, squares = patches[0], patches[1:]
     side = min(shape)
-    assert parent.mode == "whole_fov" and parent.patch_id == "pos0/whole_fov"
+    assert parent.mode == "whole_fov" and parent.patch_id == f"{KEY}/pos0/whole_fov"
     covered = np.zeros(shape, dtype=bool)
     for index, square in enumerate(squares):
         assert square.mode == "whole_fov_square"
         assert (square.y1 - square.y0, square.x1 - square.x0) == (side, side)
-        assert square.patch_id == f"pos0/whole_fov/sq{index}" == build_patch_id(square)
+        assert square.patch_id == f"{KEY}/pos0/whole_fov/sq{index}" == build_patch_id(square)
         assert square.parent_id == parent.patch_id and square.square_index == index
         covered[square.y0:square.y1, square.x0:square.x1] = True
     assert covered.all()

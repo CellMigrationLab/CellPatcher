@@ -93,7 +93,7 @@ def test_folder_run_lists_images_with_and_without_patches(tmp_path):
         "image_id": "image_0000", "image_file": "a.tif", "mask_file": "a_mask.tif",
         "source_relative_path": "a.tif", "image_height": "96", "image_width": "128",
         "n_patches": "4", "status": "processed", "reason": "",
-        "position_id": "treated/2026_01_01/single/a", "n_regions": "4", "n_kept": "4", "n_normalized": "4",
+        "position_id": "a", "n_regions": "4", "n_kept": "4", "n_normalized": "4",
     }
     # The image whose mask holds no cell is listed, not dropped.
     assert by_file["b.tif"]["n_patches"] == "0"
@@ -166,7 +166,7 @@ def test_split_channels_count_one_row_per_channel_patch(tmp_path):
     assert len(patch_rows) == 6
     assert [(row["n_patches"], row["image_height"], row["image_width"]) for row in image_rows] == [("6", "32", "16")]
     # Regions are counted before the split, patches after it.
-    assert (image_rows[0]["n_regions"], image_rows[0]["position_id"]) == ("2", "single/single/single/img")
+    assert (image_rows[0]["n_regions"], image_rows[0]["position_id"]) == ("2", "img")
 
 
 def test_the_supplied_position_id_is_listed_also_for_images_without_patches(tmp_path):
@@ -185,9 +185,9 @@ def test_the_supplied_position_id_is_listed_also_for_images_without_patches(tmp_
     assert {row["position_id"] for row in patch_rows} == {"P1"}
     # Supplied, or from the file name (one file is one position), also without patches.
     assert [(row["position_id"], row["status"]) for row in image_rows] == [
-        ("P1", "processed"), ("P2", "no_patches"), ("single/single/single/c", "no_patches"),
+        ("P1", "processed"), ("P2", "no_patches"), ("c", "no_patches"),
     ]
-    assert [record.position_id for record in result.image_records] == ["P1", "P2", "single/single/single/c"]
+    assert [record.position_id for record in result.image_records] == ["P1", "P2", "c"]
 
     # An in-memory image with neither is refused, not named by its place in the run.
     with pytest.raises(ValueError, match="Image 2 of the run has neither a position_id nor an image_file"):

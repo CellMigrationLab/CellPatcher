@@ -112,8 +112,10 @@ def test_two_wells_with_the_same_file_names_get_unique_ids_in_a_tree_run(tmp_pat
 
     ids = [patch.patch_id for leaf in leaves for patch in leaf.result.patches]
     assert len(ids) == len(set(ids)) == 4
-    assert {patch.position_id for leaf in leaves for patch in leaf.result.patches} == {
-        "control/2026_01_01/B02/img", "control/2026_01_01/B03/img"
+    # D85: position_id is the image name; the two wells differ by technical_repeat, and the
+    # patch_id, led by the four FOV key fields, stays unique across the tree.
+    assert {(p.technical_repeat, p.position_id) for leaf in leaves for p in leaf.result.patches} == {
+        ("B02", "img"), ("B03", "img")
     }
     assert ids[0] == "control/2026_01_01/B02/img/cells/label4"
     rows = (tmp_path / "out" / "patches.csv").read_text(encoding="utf-8").splitlines()
@@ -161,7 +163,7 @@ def test_repeated_random_draws_are_numbered_in_sampling_order():
     ids = [patch.patch_id for patch in result.patches]
     assert len(set(ids)) == 40
     first = ids[0]
-    assert first == f"P/random-y{result.patches[0].y0}-x{result.patches[0].x0}-h8-w8"
+    assert first == f"single/single/single/P/random-y{result.patches[0].y0}-x{result.patches[0].x0}-h8-w8"
     assert ids.count(first) == 1 and f"{first}-n2" in ids
 
 
@@ -182,7 +184,9 @@ def test_object_set_set_after_construction_is_checked():
 def test_whole_fov_and_supplied_position_id():
     config = CellPatcherConfig(mode="whole_fov")
     result = run_patching(images=np.zeros((4, 4)), config=config, image_metadata=[{"position_id": "plate1/A01/f3"}])
-    assert [patch.patch_id for patch in result.patches] == ["plate1/A01/f3/whole_fov"]
+    # A supplied position_id is kept verbatim; the FOV key leads the patch_id (D85).
+    assert [patch.position_id for patch in result.patches] == ["plate1/A01/f3"]
+    assert [patch.patch_id for patch in result.patches] == ["single/single/single/plate1/A01/f3/whole_fov"]
 
 
 # ---------------------------------------------------------------------------
@@ -194,8 +198,10 @@ def test_folder_runs_fill_position_id_without_split_channels(tmp_path):
     write_array(tmp_path / "img.ome.tif", _image(0))
     config = CellPatcherConfig(mode="whole_fov", common=CommonConfig(condition="treated", biological_repeat="r1"))
     result = run_patching_pipeline(tmp_path, config=config)
-    assert [patch.position_id for patch in result.patches] == ["treated/r1/single/img.ome"]
-    assert [record.position_id for record in result.image_records] == ["treated/r1/single/img.ome"]
+    # D85: the image name without its whole extension (preprocessing's rule: .ome.tif -> img).
+    assert [patch.position_id for patch in result.patches] == ["img"]
+    assert [record.position_id for record in result.image_records] == ["img"]
+    assert [patch.patch_id for patch in result.patches] == ["treated/r1/single/img/whole_fov"]
 
 
 def test_an_in_memory_image_without_position_id_or_file_name_is_refused():
@@ -285,7 +291,7 @@ def test_object_set_precedence(tmp_path):
     config = _cell_config()
     config.common.object_set = "cytoplasm"
     result = run_patching_pipeline(images, mask_folder_path=masks, config=config)
-    assert {patch.patch_id.split("/")[4] for patch in result.patches} == {"cytoplasm"}
+    assert {patch.object_set for patch in result.patches} == {"cytoplasm"}
 
     # In memory, image_metadata wins over the config; other modes have none.
     result = run_patching(
@@ -382,3 +388,222 @@ def test_a_store_with_several_images_is_refused_when_reading_planes(tmp_path):
     config.common.image_axes, config.common.z_policy = "ZYX", "all"
     with pytest.raises(ValueError, match="plate.ome.zarr holds 2 images"):
         run_patching_pipeline(tmp_path, config=config)
+
+
+def test_positions_differing_only_in_case_are_refused_in_one_repeat():
+    """D85: position_id is unique within its technical repeat whatever its case."""
+    config = CellPatcherConfig(mode="whole_fov")
+    with pytest.raises(ValueError, match="position_id"):
+        run_patching(images=[np.zeros((4, 4))] * 2, config=config,
+                     image_metadata=[{"position_id": "Img"}, {"position_id": "img"}])
+    other_wells = [{"position_id": "img", "technical_repeat": "A"}, {"position_id": "img", "technical_repeat": "B"}]
+    result = run_patching(images=[np.zeros((4, 4))] * 2, config=config, image_metadata=other_wells)
+    assert [p.patch_id for p in result.patches] == ["single/single/A/img/whole_fov", "single/single/B/img/whole_fov"]
+
+
+def test_a_duplicate_position_is_refused_even_when_it_yields_no_patch():
+    """Audit of #41: D85's uniqueness is checked per source image, before geometry; the first
+    image (empty mask) gives no patch, so patch ids alone would never collide."""
+    images, masks = [_image(0), _image(1)], [np.zeros((32, 32), np.uint16), _labels(1)]
+    with pytest.raises(ValueError, match="same position_id"):
+        run_patching(images=images, masks=masks, config=_cell_config(),
+                     image_metadata=[{"position_id": "Img"}, {"position_id": "img"}])
+
+
+def test_a_duplicate_position_is_refused_whatever_tokens_its_patches_get():
+    """Cell labels or random rectangles that differ between the two images do not hide the duplicate."""
+    with pytest.raises(ValueError, match="same position_id"):
+        run_patching(images=[_image(0), _image(1)], masks=[_labels(0), _labels(1)], config=_cell_config(),
+                     image_metadata=[{"position_id": "Img"}, {"position_id": "img"}])
+    config = CellPatcherConfig(mode="random")
+    config.random.patch_size, config.random.n_patches, config.random.seed = 8, 2, 3
+    with pytest.raises(ValueError, match="same position_id"):
+        run_patching(images=[_image(0), _image(1)], config=config,
+                     image_metadata=[{"position_id": "Img"}, {"position_id": "img"}])
+
+
+def test_a_duplicate_position_is_refused_in_a_folder_run(tmp_path):
+    """The lazily read folder route (one source at a time) checks it too, before the image's planes."""
+    write_array(tmp_path / "Img.tif", _image(0))
+    write_array(tmp_path / "img.tiff", _image(1))
+    config = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=8))
+    config.common.z_policy = "all"
+    with pytest.raises(ValueError, match="same position_id"):
+        run_patching_pipeline(tmp_path, config=config)
+
+
+def test_only_the_position_is_case_insensitive():
+    """Technical repeats "A" and "a" are distinct labels: one position name in each is legal, and
+    images of one position told apart by their planes are legal too."""
+    config = CellPatcherConfig(mode="whole_fov")
+    wells = [{"position_id": "img", "technical_repeat": "A"}, {"position_id": "img", "technical_repeat": "a"}]
+    result = run_patching(images=[np.zeros((4, 4))] * 2, config=config, image_metadata=wells)
+    assert [p.patch_id for p in result.patches] == ["single/single/A/img/whole_fov", "single/single/a/img/whole_fov"]
+    planes = [{"position_id": "img", "t": 0}, {"position_id": "IMG", "t": 1}]
+    assert len(run_patching(images=[np.zeros((4, 4))] * 2, config=config, image_metadata=planes).patches) == 2
+
+
+@pytest.mark.parametrize("axis", ["t", "z", "c"])
+def test_plane_indices_given_as_text_are_the_same_plane(axis):
+    """Re-audit of #41: uniqueness compares the indices as patches carry them (int), so 1 and "1"
+    are one plane and two case-differing positions there are refused."""
+    config = CellPatcherConfig(mode="whole_fov")
+    metadata = [{"position_id": "Img", axis: 1}, {"position_id": "img", axis: "1"}]
+    with pytest.raises(ValueError, match="same position_id"):
+        run_patching(images=[np.zeros((4, 4))] * 2, config=config, image_metadata=metadata)
+
+
+@pytest.mark.parametrize("value", [7, "", "  ", 1.5])
+def test_a_supplied_position_id_must_be_text(value):
+    """D85: a supplied position_id is kept verbatim, so a number or an empty one is refused, not
+    converted (also for an image yielding no patch)."""
+    with pytest.raises(ValueError, match="must be non-empty text"):
+        run_patching(images=[_image(0)], masks=[np.zeros((32, 32), np.uint16)], config=_cell_config(),
+                     image_metadata=[{"position_id": value}])
+
+
+@pytest.mark.parametrize("value", [True, 1.5, 1.0, -1, "1.0", "-1", "01", " 1"])
+@pytest.mark.parametrize("axis", ["t", "z", "c"])
+def test_a_plane_index_is_never_coerced(axis, value):
+    """Re-audit of #41: a plane index is a non-negative integer or its decimal text; anything
+    int() would round or convert is refused rather than becoming another plane."""
+    config = CellPatcherConfig(mode="whole_fov")
+    with pytest.raises(ValueError, match="plane index is a non-negative integer"):
+        run_patching(images=[np.zeros((4, 4))], config=config,
+                     image_metadata=[{"position_id": "p1", axis: value}])
+
+
+def test_integer_plane_indices_of_numpy_and_text_are_accepted():
+    config = CellPatcherConfig(mode="whole_fov")
+    metadata = [{"position_id": "p1", "t": np.int64(2)}, {"position_id": "p1", "t": "3"}]
+    result = run_patching(images=[np.zeros((4, 4))] * 2, config=config, image_metadata=metadata)
+    assert [patch.t for patch in result.patches] == [2, 3]
+
+
+@pytest.mark.parametrize("mode", ["grid", "random"])
+def test_a_supplied_channel_is_refused_with_split_channels(mode, monkeypatch):
+    """Re-audit of #41: split_channels generates c and would overwrite a supplied c (D85); the
+    pair is refused before any geometry, so a supplied c never seeds random rectangles."""
+    from cellpatcher import pipeline
+
+    def no_seed(*args, **kwargs):
+        raise AssertionError("the random seed was computed before the refusal")
+
+    monkeypatch.setattr(pipeline, "random_seed", no_seed)
+    config = CellPatcherConfig(mode=mode, grid=GridConfig(tile_size=8))
+    config.random.patch_size, config.random.n_patches = 8, 2
+    config.common.image_axes = "CYX"
+    config.extraction.split_channels = True
+    image = np.zeros((2, 16, 16), dtype=np.uint16)
+    with pytest.raises(ValueError, match="split_channels=True generates c"):
+        run_patching(images=[image], config=config, image_metadata=[{"position_id": "p1", "c": 5}])
+
+
+@pytest.mark.parametrize("policy", ["max", "mean", "all", "first"])
+def test_a_supplied_z_is_refused_with_a_z_policy(policy, monkeypatch):
+    """Re-audit of #41: a projection is no single plane, so a supplied z with z_policy="max"
+    would label it one; any policy but "keep" with a supplied z is refused before seeding."""
+    from cellpatcher import pipeline
+
+    def no_seed(*args, **kwargs):
+        raise AssertionError("the random seed was computed before the refusal")
+
+    monkeypatch.setattr(pipeline, "random_seed", no_seed)
+    config = CellPatcherConfig(mode="random")
+    config.random.patch_size, config.random.n_patches = 8, 2
+    config.common.image_axes, config.common.z_policy = "ZYX", policy
+    image = np.zeros((3, 16, 16), dtype=np.uint16)
+    with pytest.raises(ValueError, match="z_policy=.* also decides its planes"):
+        run_patching(images=[image], config=config, image_metadata=[{"position_id": "p1", "z": 2}])
+
+
+def test_a_supplied_t_is_refused_with_a_t_policy():
+    config = CellPatcherConfig(mode="whole_fov")
+    config.common.image_axes, config.common.t_policy = "TYX", "all"
+    with pytest.raises(ValueError, match="t_policy='all' also decides its planes"):
+        run_patching(images=[np.zeros((2, 8, 8))], config=config,
+                     image_metadata=[{"position_id": "p1", "t": 0}])
+
+
+@pytest.mark.parametrize(
+    ("where", "value"),
+    [("technical_repeat", 7), ("object_set", 7), ("technical_repeat", "")],
+)
+def test_supplied_identity_labels_must_be_text(where, value):
+    """Re-audit of #41: a per-image label is identity, never converted (7 is not "7")."""
+    with pytest.raises(ValueError, match="must be"):
+        run_patching(images=[_image(0)], masks=[_labels(0)], config=_cell_config(),
+                     image_metadata=[{"position_id": "p1", where: value}])
+
+
+@pytest.mark.parametrize("field", ["condition", "biological_repeat", "technical_repeat"])
+def test_config_fov_labels_must_be_text(field):
+    config = CellPatcherConfig(mode="whole_fov")
+    setattr(config.common, field, 2026)
+    with pytest.raises(ValueError, match=f"common.{field} must be non-empty text"):
+        run_patching(images=[np.zeros((4, 4))], config=config, image_metadata=[{"position_id": "p1"}])
+
+
+@pytest.mark.parametrize("field", ["condition", "biological_repeat", "technical_repeat", "object_set"])
+@pytest.mark.parametrize("split", [False, True])
+def test_a_folder_run_refuses_config_identity_before_reading(tmp_path, monkeypatch, field, split):
+    """Re-audit of #41: an invalid config label (also from a reloaded JSON config) is refused
+    before any image or mask is listed or read, on the eager and the plane-split routes."""
+    from cellpatcher import orchestration
+    from cellpatcher.orchestration import load_config, save_config_for_mode
+
+    def no_read(*args, **kwargs):
+        raise AssertionError("a file was read before the identity refusal")
+
+    images, masks = tmp_path / "images", tmp_path / "masks"
+    write_array(images / "img.tif", _image(0))
+    write_array(masks / "img.tif", _labels(0))
+    monkeypatch.setattr(orchestration, "read_image", no_read)
+    monkeypatch.setattr(orchestration, "list_supported_files", no_read)
+    monkeypatch.setattr(orchestration, "_mask_loaders", no_read)
+    path = save_config_for_mode("cell", tmp_path / "config.json")
+    data = json.loads(path.read_text())
+    data["common"][field] = 7
+    if split:
+        data["common"]["z_policy"] = "all"
+    path.write_text(json.dumps(data))
+    with pytest.raises(ValueError, match=f"{field} must be"):
+        run_patching_pipeline(images, mask_folder_path=masks, config=load_config(path))
+
+
+@pytest.mark.parametrize("planes", ["keep", "all"])
+def test_colliding_positions_are_refused_before_any_read(tmp_path, monkeypatch, planes):
+    """Re-audit of #41: Img.tif and img.tiff collide (D85); the refusal comes from the names,
+    before any image or mask is read, on the eager and the plane-split routes."""
+    from cellpatcher import orchestration
+
+    def no_read(*args, **kwargs):
+        raise AssertionError("a file was read before the identity refusal")
+
+    images, masks = tmp_path / "images", tmp_path / "masks"
+    for name in ("Img.tif", "img.tiff"):
+        write_array(images / name, _image(0))
+        write_array(masks / name, _labels(0))
+    monkeypatch.setattr(orchestration, "read_image", no_read)
+    monkeypatch.setattr(orchestration, "_mask_loaders", no_read)
+    config = _cell_config()
+    config.common.z_policy = planes
+    with pytest.raises(ValueError, match="same position_id"):
+        run_patching_pipeline(images, mask_folder_path=masks, config=config)
+
+
+def test_a_tree_refuses_a_later_leaf_before_reading_any_leaf(tmp_path, monkeypatch):
+    """Every leaf's identity is checked before the first leaf is read."""
+    from cellpatcher import orchestration
+
+    def no_read(*args, **kwargs):
+        raise AssertionError("a leaf was read before the identity refusal")
+
+    write_array(tmp_path / "ctrl" / "r1" / "a.tif", _image(0))
+    for name in ("Img.tif", "img.tiff"):
+        write_array(tmp_path / "ctrl" / "r2" / name, _image(1))
+    monkeypatch.setattr(orchestration, "read_image", no_read)
+    monkeypatch.setattr(orchestration, "_run_folder_patching", no_read)
+    config = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=8))
+    with pytest.raises(ValueError, match="same position_id"):
+        run_patching_condition_repeat_tree(tmp_path, config=config)
