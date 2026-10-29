@@ -91,6 +91,7 @@ Settings for regular tiled patches covering the full image.
 | `tile_size` | `int` | `128` | Side length of each square tile in pixels. Must be `> 0`. |
 | `overlap` | `float` | `0.0` | Fractional overlap between adjacent tiles. Must satisfy `0 <= overlap < 1`. For example, `0.1` means 10% overlap. |
 | `include_partial` | `bool` | `False` | When `True`, edge tiles that are smaller than `tile_size` are included. When `False`, only full-sized tiles are returned. |
+| `partial_mode` | `str` | `"flush"` | Which edge tiles `include_partial=True` adds. `"flush"` (default, the behaviour before this option existed): the tiles clipped by the far edge **and**, when the stride does not already end there, one full tile flush with the far edge, which overlaps its neighbours. `"clipped"`: only the clipped edge tiles (each records its full `requested_y1`/`requested_x1`); with `overlap=0` no two tiles overlap and every pixel is in exactly one tile. `"clipped"` requires `include_partial=True`. |
 
 ---
 

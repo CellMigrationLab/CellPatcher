@@ -10,7 +10,9 @@ class GridStrategy(BasePatchStrategy):
         self.config = config if config is not None else GridConfig()
 
     @staticmethod
-    def _starts(size: int, tile_size: int, stride: int, include_partial: bool) -> list[int]:
+    def _starts(
+        size: int, tile_size: int, stride: int, include_partial: bool, partial_mode: str = "flush"
+    ) -> list[int]:
         # A single tile already covers (or exceeds) the whole dimension.
         if include_partial and tile_size >= size:
             return [0]
@@ -20,10 +22,17 @@ class GridStrategy(BasePatchStrategy):
             # anything past `size - tile_size` would run off the edge.
             return list(range(0, size - tile_size + 1, stride))
 
-        # include_partial=True: step across the whole dimension, then make
-        # sure the last (possibly partial) tile flush with the far edge is
-        # always included even if the regular stride would skip over it.
+        # include_partial=True: step across the whole dimension. The tiles
+        # past `size - tile_size` are clipped by the far edge.
         starts = list(range(0, size, stride))
+        if partial_mode == "clipped":
+            # Clipped edge tiles only: no extra full tile flush with the far
+            # edge, so with overlap=0 the tiles partition the dimension.
+            return starts
+
+        # partial_mode="flush": also make sure the full tile flush with the
+        # far edge is always included even if the regular stride would skip
+        # over it (it overlaps its neighbours).
         final_start = max(0, size - tile_size)
         if final_start not in starts:
             starts.append(final_start)
@@ -43,8 +52,11 @@ class GridStrategy(BasePatchStrategy):
         if not self.config.include_partial and (tile_size > height or tile_size > width):
             return []
 
-        y_starts = self._starts(height, tile_size, stride, self.config.include_partial)
-        x_starts = self._starts(width, tile_size, stride, self.config.include_partial)
+        self.config.check_partial_mode()
+        include_partial = self.config.include_partial
+        partial_mode = self.config.partial_mode
+        y_starts = self._starts(height, tile_size, stride, include_partial, partial_mode)
+        x_starts = self._starts(width, tile_size, stride, include_partial, partial_mode)
 
         patches: list[PatchRegion] = []
         for y0 in y_starts:
