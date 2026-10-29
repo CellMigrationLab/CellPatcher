@@ -32,7 +32,7 @@ from cellpatcher.io import (
     validate_image_and_mask_folders,
 )
 from cellpatcher.export import IMAGE_TABLE_FILENAME, save_image_table_csv, save_metadata_csv
-from cellpatcher.ids import object_set_from_label_path, object_set_from_mask_file
+from cellpatcher.ids import object_set_from_label_path, object_set_from_mask_file, validate_object_set
 from cellpatcher.normalization import (
     CSV_SCOPES,
     cached_statistics,
@@ -305,7 +305,10 @@ def _config_from_dict(data: dict) -> CellPatcherConfig:
 def _mask_loaders(image_folder_path, mask_folder_path, image_files, config, strategy, mask_suffixes, case_sensitive):
     """Resolve the mask of every image, without reading any: one loader per image, or None.
 
-    Each loader returns ``(mask, mask_file name)``. Masks come from a mask
+    Returns ``(loaders, mask_files)``: each loader returns ``(mask, mask_file
+    name)``; *mask_files* holds each mask's file name when the matching gives
+    it without a read (a mask folder), else None (an OME-NGFF label image,
+    whose name may need its metadata). Both are None without masks. Masks come from a mask
     folder matched by file name (``common.mask_source='tiff_tree'``, with
     ``config.matching`` unless *strategy*/*mask_suffixes*/*case_sensitive*
     override it), or from each OME-Zarr image's own label image
@@ -324,7 +327,7 @@ def _mask_loaders(image_folder_path, mask_folder_path, image_files, config, stra
                 f"mask_folder_path is not supported for mode='{config.mode}'. "
                 "Remove it, or switch to 'cell' or 'random' mode."
             )
-        return None
+        return None, None
     if config.common.mask_source == "ngff_labels":
         if mask_folder_path is not None:
             raise ValueError(
@@ -338,14 +341,15 @@ def _mask_loaders(image_folder_path, mask_folder_path, image_files, config, stra
                 f"{len(not_zarr)} image(s) are not OME-Zarr: {', '.join(not_zarr[:10])}. Use "
                 "common.mask_source='tiff_tree' with a mask folder for them."
             )
-        return [
+        loaders = [
             functools.partial(read_ngff_mask, image, config.common.mask_label_name, config.common.mask_axes)
             for image in image_files
         ]
+        return loaders, [None] * len(image_files)
     if mask_folder_path is None:
         if config.mode == "cell":
             raise ValueError("mask_folder_path is required when config.mode='cell'.")
-        return None  # random mode: masks are optional
+        return None, None  # random mode: masks are optional
     matching = config.matching
     selected = validate_image_and_mask_folders(
         image_folder_path,
@@ -355,7 +359,8 @@ def _mask_loaders(image_folder_path, mask_folder_path, image_files, config, stra
         case_sensitive=matching.case_sensitive if case_sensitive is None else case_sensitive,
         ignore_unrequested_masks=matching.ignore_unrequested_masks,
     )
-    return [functools.partial(_read_mask_file, selected[image], config.common.mask_axes) for image in image_files]
+    loaders = [functools.partial(_read_mask_file, selected[image], config.common.mask_axes) for image in image_files]
+    return loaders, [selected[image].name for image in image_files]
 
 
 def _read_mask_file(path: Path, axes: str):
@@ -423,6 +428,18 @@ def _mask_object_set(config: CellPatcherConfig, image_path: Path, mask_file: str
     if config.common.mask_source == "ngff_labels":
         return object_set_from_label_path(mask_file)
     return object_set_from_mask_file(image_path.name, mask_file)
+
+
+def _check_mask_object_sets(config: CellPatcherConfig, image_files, mask_files) -> None:
+    """Refuse an invalid ``object_set`` taken from a matched mask's name before any image or mask is read.
+
+    *mask_files* are the matched mask names (None where only the read gives
+    the name, an OME-NGFF label image); the object set is derived exactly as
+    :func:`_image_metadata` derives it later (issue #42).
+    """
+    for image_path, mask_file in zip(image_files, mask_files):
+        object_set = _mask_object_set(config, Path(image_path), mask_file)
+        validate_object_set(object_set, name=f"The object set from mask {mask_file!r} of image {Path(image_path).name!r}")
 
 
 def _image_metadata(image_path: Path, mask_file: str | None, experiment_root, config: CellPatcherConfig) -> dict:
@@ -593,9 +610,11 @@ def _run_folder_patching(
     check_source_identities(config, image_files)  # from the names, before any read
     # image_files' sorted order fixes the image_0000, image_0001, ...
     # image_id values (a run-local index); patch_id does not use them.
-    loaders = _mask_loaders(
+    loaders, matched_mask_files = _mask_loaders(
         image_folder_path, mask_folder_path, image_files, config, strategy, mask_suffixes, case_sensitive
     )
+    if matched_mask_files is not None:
+        _check_mask_object_sets(config, image_files, matched_mask_files)  # from the names, before any read
     common = config.common
 
     if splits_planes(common):
@@ -795,12 +814,29 @@ def run_patching_condition_repeat_tree(
             leaf_common.output_dir = str(base_output_dir / leaf.relative_folder)
         return replace(config, common=leaf_common, export=leaf_export)
 
+    def leaf_mask_folder_of(leaf):
+        # Only pass a mask folder through if the mode can use one AND it
+        # actually exists -- e.g. random mode treats a missing mask folder
+        # as "no mask" rather than an error, same as calling
+        # run_patching_pipeline directly without mask_folder_path.
+        if masks_allowed and leaf.mask_folder is not None and leaf.mask_folder.exists():
+            return str(leaf.mask_folder)
+        return None
+
     # Every leaf's identity first (D85), from names only: a refusal in a later leaf
-    # comes before any leaf's image or mask is read.
+    # comes before any leaf's image or mask is read. That includes the mask
+    # pairing and the object set a matched mask's name gives (issue #42).
     for leaf in leaves:
         leaf_config = leaf_config_of(leaf)  # its labels are the folder names, object_set the base's
         check_config_identity(leaf_config)
-        check_source_identities(leaf_config, list_supported_files(leaf.image_folder))
+        image_files = list_supported_files(leaf.image_folder)
+        check_source_identities(leaf_config, image_files)
+        _, matched_mask_files = _mask_loaders(
+            str(leaf.image_folder), leaf_mask_folder_of(leaf), image_files, leaf_config,
+            strategy, mask_suffixes, case_sensitive,
+        )
+        if matched_mask_files is not None:
+            _check_mask_object_sets(leaf_config, image_files, matched_mask_files)
 
     results: list[ConditionRepeatResult] = []
     for index, leaf in enumerate(leaves):
@@ -808,13 +844,7 @@ def run_patching_condition_repeat_tree(
             progress_callback(index, len(leaves), leaf)
         leaf_config = leaf_config_of(leaf)
 
-        # Only pass a mask folder through if the mode can use one AND it
-        # actually exists -- e.g. random mode treats a missing mask folder
-        # as "no mask" rather than an error, same as calling
-        # run_patching_pipeline directly without mask_folder_path.
-        leaf_mask_folder = None
-        if masks_allowed and leaf.mask_folder is not None and leaf.mask_folder.exists():
-            leaf_mask_folder = str(leaf.mask_folder)
+        leaf_mask_folder = leaf_mask_folder_of(leaf)
 
         # source_relative_path is relative to the tree root, as in the
         # preprocessing brick, not to the leaf folder.
