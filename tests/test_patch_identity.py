@@ -478,3 +478,22 @@ def test_integer_plane_indices_of_numpy_and_text_are_accepted():
     metadata = [{"position_id": "p1", "t": np.int64(2)}, {"position_id": "p1", "t": "3"}]
     result = run_patching(images=[np.zeros((4, 4))] * 2, config=config, image_metadata=metadata)
     assert [patch.t for patch in result.patches] == [2, 3]
+
+
+@pytest.mark.parametrize("mode", ["grid", "random"])
+def test_a_supplied_channel_is_refused_with_split_channels(mode, monkeypatch):
+    """Re-audit of #41: split_channels generates c and would overwrite a supplied c (D85); the
+    pair is refused before any geometry, so a supplied c never seeds random rectangles."""
+    from cellpatcher import pipeline
+
+    def no_seed(*args, **kwargs):
+        raise AssertionError("the random seed was computed before the refusal")
+
+    monkeypatch.setattr(pipeline, "random_seed", no_seed)
+    config = CellPatcherConfig(mode=mode, grid=GridConfig(tile_size=8))
+    config.random.patch_size, config.random.n_patches = 8, 2
+    config.common.image_axes = "CYX"
+    config.extraction.split_channels = True
+    image = np.zeros((2, 16, 16), dtype=np.uint16)
+    with pytest.raises(ValueError, match="split_channels=True generates c"):
+        run_patching(images=[image], config=config, image_metadata=[{"position_id": "p1", "c": 5}])
