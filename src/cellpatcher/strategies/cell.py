@@ -5,6 +5,7 @@ import numpy as np
 
 from cellpatcher.axes import axis_index, normalize_axes
 from cellpatcher.config import CellConfig
+from cellpatcher.errors import LabelRangeError
 from cellpatcher.strategies.base import BasePatchStrategy, _spatial_shape_from_axes
 from cellpatcher.types import PatchRegion
 
@@ -68,8 +69,11 @@ class CellSegmentationStrategy(BasePatchStrategy):
 
         Raises
         ------
+        LabelRangeError
+            (a ``ValueError``) for negative labels or labels above the int32
+            maximum.
         ValueError
-            For negative labels, labels above the int32 maximum, a float
+            For a float
             mask with other values than 0.0/1.0, a binary mask without the
             opt-in, or another dtype.
         """
@@ -98,11 +102,15 @@ class CellSegmentationStrategy(BasePatchStrategy):
         if not np.issubdtype(selected.dtype, np.integer):
             raise ValueError(f"labels must hold integers (instance labels){where}; got dtype {selected.dtype}.")
         if selected.min() < 0:
-            raise ValueError("labels must be non-negative. Found negative values in the label array.")
+            raise LabelRangeError(
+                "labels must be non-negative. Found negative values in the label array.",
+                label=int(selected.min()),
+            )
         if int(selected.max()) > _INT32_MAX:
-            raise ValueError(
+            raise LabelRangeError(
                 f"The mask{where} holds label {int(selected.max())}, above the int32 maximum ({_INT32_MAX}) "
-                "CellPatcher stores labels in; relabel the mask with smaller values."
+                "CellPatcher stores labels in; relabel the mask with smaller values.",
+                label=int(selected.max()),
             )
         return selected.astype(np.int32, copy=False), False
 
