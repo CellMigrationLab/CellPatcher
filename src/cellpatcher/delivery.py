@@ -32,7 +32,7 @@ import numpy as np
 
 from cellpatcher.axes import normalize_axes
 from cellpatcher.extract import extract_patch
-from cellpatcher.io import read_array, read_image
+from cellpatcher.io import read_array, read_image, refuse_image_header_axes, refuse_mask_header_axes
 from cellpatcher.masking import apply_label_mask_to_patch
 from cellpatcher.normalization import PatchNormalization, parameters_from_row
 from cellpatcher.planes import apply_plane_choice, patch_plane_choice, read_file_plane, select_mask_plane
@@ -199,6 +199,7 @@ def _splits_channel(config, patch, axes: str) -> bool:
 def _image_plane(image, choice, config):
     common = config.common
     if isinstance(image, (str, os.PathLike)):
+        refuse_image_header_axes([image], common.image_axes)
         return read_file_plane(image, common.image_axes, choice, common)
     return apply_plane_choice(image, common.image_axes, choice)
 
@@ -207,7 +208,11 @@ def _mask_plane(mask, choice, config):
     if mask is None:
         return None, None
     common = config.common
-    mask = read_image(mask, common.mask_axes) if isinstance(mask, (str, os.PathLike)) else np.asarray(mask)
+    if isinstance(mask, (str, os.PathLike)):
+        refuse_mask_header_axes([mask], common.mask_axes)
+        mask = read_image(mask, common.mask_axes)
+    else:
+        mask = np.asarray(mask)
     return select_mask_plane(mask, normalize_axes(common.mask_axes, mask.ndim), choice)
 
 

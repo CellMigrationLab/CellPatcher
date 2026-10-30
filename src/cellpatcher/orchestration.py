@@ -31,6 +31,8 @@ from cellpatcher.io import (
     read_image,
     check_legacy_matching,
     pair_masks,
+    refuse_image_header_axes,
+    refuse_mask_header_axes,
     read_ngff_mask,
     refuse_mask_channel_axis,
     source_relative_path,
@@ -360,6 +362,7 @@ def _mask_loaders(experiment_root, mask_folder_path, image_files, config, pairin
     if pairing is None:
         pairing = pair_masks(experiment_root, image_files, mask_folder_path, mask_type=config.matching.mask_type)
     selected = pairing.masks
+    refuse_mask_header_axes([selected[image] for image in image_files], config.common.mask_axes)
     loaders = [functools.partial(_read_mask_file, selected[image], config.common.mask_axes) for image in image_files]
     return loaders, [selected[image].name for image in image_files], pairing.mask_type
 
@@ -594,6 +597,7 @@ def _run_folder_patching(
     if len(image_files) == 0:
         raise ValueError("No supported image files found in image folder.")
     check_source_identities(config, image_files)  # from the names, before any read
+    refuse_image_header_axes(image_files, config.common.image_axes)  # headers only, before any pixel is read
     # image_files' sorted order fixes the image_0000, image_0001, ...
     # image_id values (a run-local index); patch_id does not use them.
     loaders, matched_mask_files, mask_type = _mask_loaders(
@@ -834,6 +838,7 @@ def run_patching_condition_repeat_tree(
         )
     for leaf, image_files in zip(leaves, leaf_images):
         leaf_config = leaf_config_of(leaf)
+        refuse_image_header_axes(image_files, leaf_config.common.image_axes)
         _, matched_mask_files, mask_type = _mask_loaders(
             image_root_path, leaf_mask_folder, image_files, leaf_config, pairing
         )

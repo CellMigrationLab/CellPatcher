@@ -896,6 +896,79 @@ def refuse_mask_channel_axis(mask_axes) -> None:
         )
 
 
+def header_axes_disagreement(path, declared_axes: str) -> str | None:
+    """Say how *declared_axes* disagree with the axes a TIFF file's header names, or None.
+
+    The header is read with the preprocessing brick's ``inspect_image`` and its
+    ``tifffile`` letters are given roles with its ``prefill_mapping`` (``S``
+    becomes C when there is no C; ``Q``, ``I`` and other letters get none). A
+    TIFF file is read in its stored order, so the declared letter of every
+    dimension must be the role its header names for it: a ZYX mask declared
+    TYX would read its depth slices as time points. Y and X need only be Y
+    or X (a file declared transposed, ``XY``), and dimensions the header names
+    no role for are not compared. A header naming no role besides Y and X (a
+    plain TIFF: ``tifffile`` calls any page's two axes Y and X) names no axes,
+    and the declared axes are kept, as before. Returns None for a file whose
+    header cannot be read (it is refused where it is read) and for an OME-Zarr
+    image, whose own axes are matched by role when it is read (:func:`conform_axes`).
+    """
+    from morphobricks_preprocessing import inspect_image, prefill_mapping
+
+    meta = inspect_image(path)
+    if not meta.readable or meta.is_ome_zarr:
+        return None  # OME-Zarr axes are matched by role when read (conform_axes), not by position
+    declared = normalize_axes(declared_axes)
+    roles = prefill_mapping(meta.axes).roles
+    if all(role in (None, "Y", "X") for role in roles):
+        return None  # no axis named besides tifffile's Y and X, which a plain page always has
+    disagree = len(roles) != len(declared) or any(
+        role is not None and (axis not in "YX" if role in "YX" else axis != role)
+        for role, axis in zip(roles, declared)
+    )
+    if not disagree:
+        return None
+    return f"{Path(path).name}: declared axes {declared!r}, header axes {meta.axes!r}"
+
+
+def refuse_header_axes(paths, declared_axes, *, setting: str, what: str) -> None:
+    """Refuse *declared_axes* (the setting named *setting*) that disagree with the header axes of *paths*.
+
+    Every file is checked before any is read; all disagreements are listed in
+    one message. See :func:`header_axes_disagreement`.
+    """
+    problems = [p for p in (header_axes_disagreement(path, declared_axes) for path in paths) if p]
+    if problems:
+        raise ValueError(
+            f"{setting}={declared_axes!r} disagrees with the axes named in the header of "
+            f"{len(problems)} {what} file(s): {'; '.join(problems[:10])}{'; ...' if len(problems) > 10 else ''}. "
+            f"Axes are never reinterpreted: set {setting} to the {what}s' header axes, or fix the "
+            f"{what}s' metadata."
+        )
+
+
+def refuse_image_header_axes(image_paths, image_axes) -> None:
+    """Refuse ``common.image_axes`` that disagree with an image file's own header axes.
+
+    A TIFF image is read in its stored order and then interpreted with
+    *image_axes*, so an image whose header names its axes ZYX would, with
+    ``image_axes='TYX'``, have its depth slices read as time points (or, with
+    ``'CYX'``, as channels). See :func:`header_axes_disagreement`.
+    """
+    refuse_header_axes(image_paths, image_axes, setting="common.image_axes", what="image")
+
+
+def refuse_mask_header_axes(mask_paths, mask_axes) -> None:
+    """Refuse ``common.mask_axes`` that disagree with a mask file's own header axes.
+
+    A mask TIFF is read in its stored order and then interpreted with
+    *mask_axes*, so a mask whose header names its axes ZYX would, with
+    ``mask_axes='TYX'``, have its depth slices read as time points: a guessed
+    axis. Every mask is checked before any is read; all disagreements are
+    listed in one message. See :func:`header_axes_disagreement`.
+    """
+    refuse_header_axes(mask_paths, mask_axes, setting="common.mask_axes", what="mask")
+
+
 def source_relative_path(image_path, experiment_root) -> str:
     """Path of *image_path* relative to *experiment_root*, with ``/`` separators.
 
