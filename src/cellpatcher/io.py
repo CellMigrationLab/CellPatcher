@@ -918,8 +918,8 @@ def header_axes_disagreement(path, declared_axes: str) -> str | None:
     roles = prefill_mapping(meta.axes).roles
     if len(roles) == len(declared):
         disagree = any(role is not None and role != axis for role, axis in zip(roles, declared))
-    else:  # the declaration cannot describe the file unless the header names no axis
-        disagree = any(role is not None for role in roles)
+    else:  # another length fits no header naming an axis besides Y and X (a page's own)
+        disagree = any(role not in (None, "Y", "X") for role in roles)
     if not disagree:
         return None
     return f"{Path(path).name}: declared axes {declared!r}, header axes {meta.axes!r}"
