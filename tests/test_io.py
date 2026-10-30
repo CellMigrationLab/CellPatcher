@@ -592,3 +592,53 @@ def test_load_config_is_usable_for_patching(tmp_path):
 
     result = run_patching_pipeline(img_dir, config=loaded)
     assert len(result.patches) == 4
+
+
+# ---------------------------------------------------------------------------
+# Issue #45/#46: ambiguous pairs are refused; system files are skipped
+# ---------------------------------------------------------------------------
+
+
+def test_validate_refuses_a_mask_that_several_images_match(tmp_path):
+    # Under "substring", img10_mask matches img1 and img10. The old pruning
+    # silently gave img1 the img1_mask and img10 the img10_mask; a mask that
+    # is a candidate of two images is ambiguous and is refused.
+    img_dir, mask_dir = tmp_path / "images", tmp_path / "masks"
+    img_dir.mkdir()
+    mask_dir.mkdir()
+    for name in ("img1.npy", "img10.npy"):
+        (img_dir / name).write_bytes(b"x")
+    for name in ("img1_mask.npy", "img10_mask.npy"):
+        (mask_dir / name).write_bytes(b"x")
+    with pytest.raises(ValueError, match=r"Masks linked to multiple images: img10_mask.npy \(img1.npy, img10.npy\)"):
+        validate_image_and_mask_folders(img_dir, mask_dir, strategy="substring")
+
+
+def test_validate_refuses_an_exact_name_that_is_also_another_images_suffix(tmp_path):
+    # Image "a_mask" exists, so mask "a_mask" fits image "a" (suffix) and image "a_mask" (exact).
+    img_dir, mask_dir = tmp_path / "images", tmp_path / "masks"
+    img_dir.mkdir()
+    mask_dir.mkdir()
+    for name in ("a.npy", "a_mask.npy"):
+        (img_dir / name).write_bytes(b"x")
+        (mask_dir / name).write_bytes(b"x")
+    with pytest.raises(ValueError, match="Images with multiple mask matches: a.npy"):
+        validate_image_and_mask_folders(img_dir, mask_dir)
+
+
+@pytest.mark.parametrize("name", ["._a.tif", ".hidden.tif"])
+def test_list_supported_files_skips_system_files(tmp_path, name):
+    (tmp_path / "a.tif").write_bytes(b"x")
+    (tmp_path / name).write_bytes(b"x")
+    assert [p.name for p in list_supported_files(tmp_path)] == ["a.tif"]
+
+
+def test_validate_ignores_macos_resource_forks_in_both_folders(tmp_path):
+    img_dir, mask_dir = tmp_path / "images", tmp_path / "masks"
+    img_dir.mkdir()
+    mask_dir.mkdir()
+    for folder in (img_dir, mask_dir):
+        (folder / "a.npy").write_bytes(b"x")
+        (folder / "._a.npy").write_bytes(b"x")
+    out = validate_image_and_mask_folders(img_dir, mask_dir, strategy="exact")
+    assert {image.name: mask.name for image, mask in out.items()} == {"a.npy": "a.npy"}
