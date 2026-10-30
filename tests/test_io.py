@@ -11,6 +11,7 @@ from cellpatcher.io import (
     validate_image_and_mask_folders,
     write_array,
 )
+from tests.helpers import write_tiff
 
 
 def test_list_supported_files_sorted_and_filtered(tmp_path):
@@ -554,3 +555,57 @@ def test_validate_ignores_macos_resource_forks_in_both_folders(tmp_path):
     (mask_dir / "__MACOSX" / "._a_cells.tif").write_bytes(b"x")
     out = validate_image_and_mask_folders(img_dir, mask_dir)
     assert {image.name: mask.name for image, mask in out.items()} == {"a.tif": "a_cells.tif"}
+
+
+# ---------------------------------------------------------------------------
+# find_masks' header checks (preprocessing v0.3.2): refused for the mask type
+# the run uses, ignored for the types it does not use (owner decision).
+# ---------------------------------------------------------------------------
+
+
+def _header_codes(img_dir, mask_dir):
+    import morphobricks_preprocessing as mbp
+    from morphobricks_preprocessing.metadata import inspect_images
+
+    discovery = mbp.discover_experiment(img_dir)
+    images = inspect_images(img_dir, discovery.images).files
+    inventory = mbp.find_masks(mask_dir, discovery, images, ome_zarr_labels=False)
+    return {issue.code for issue in inventory.issues if issue.is_error}
+
+
+def test_differing_planes_of_an_unused_mask_type_do_not_block_the_type_used(tmp_path):
+    # a.tif has a 2D cells mask and a nuclei mask of 3 depth slices (named Z axis):
+    # find_masks reports mask_planes_differ for a.tif, which concerns nuclei only.
+    img_dir, mask_dir = _folders(tmp_path, ["a.tif"], ["a_cells.tif"])
+    write_tiff(mask_dir / "a_nuclei.tif", np.ones((3, 4, 4), np.uint16), "ZYX")
+    assert _header_codes(img_dir, mask_dir) == {"mask_planes_differ"}
+    out = validate_image_and_mask_folders(img_dir, mask_dir, mask_type="cells")
+    assert [mask.name for mask in out.values()] == ["a_cells.tif"]
+    out = validate_image_and_mask_folders(img_dir, mask_dir, mask_type="nuclei")
+    assert [mask.name for mask in out.values()] == ["a_nuclei.tif"]
+
+
+def test_a_header_problem_is_refused_for_the_type_used_only(tmp_path):
+    # The nuclei mask has the wrong size and the mito mask is not integer: refused when
+    # used, ignored when another type is used. Former code (v0.3.1 pairing): never refused.
+    img_dir, mask_dir = _folders(tmp_path, ["a.tif"], ["a_cells.tif"])
+    write_array(mask_dir / "a_nuclei.tif", np.ones((5, 5), np.uint16))
+    write_array(mask_dir / "a_mito.tif", np.ones((4, 4), np.float32))
+    assert _header_codes(img_dir, mask_dir) == {"mask_size_mismatch", "mask_pixel_type"}
+    out = validate_image_and_mask_folders(img_dir, mask_dir, mask_type="cells")
+    assert [mask.name for mask in out.values()] == ["a_cells.tif"]
+    with pytest.raises(ValueError, match=r"'nuclei' masks cannot be used: \[mask_size_mismatch\].*\(a_nuclei.tif\)"):
+        validate_image_and_mask_folders(img_dir, mask_dir, mask_type="nuclei")
+    with pytest.raises(ValueError, match=r"'mito' masks cannot be used: \[mask_pixel_type\].*\(a_mito.tif\)"):
+        validate_image_and_mask_folders(img_dir, mask_dir, mask_type="mito")
+
+
+def test_a_mask_with_unnamed_extra_axes_is_refused_when_used(tmp_path):
+    # Three planes with no axes in the header: find_masks' mask_not_2d. Former code: read with
+    # common.mask_axes. Owner decision (v0.3.2): refused for the type used.
+    img_dir, mask_dir = _folders(tmp_path, ["a.tif"], ["a_cells.tif"])
+    write_array(mask_dir / "a_stack.tif", np.ones((3, 4, 4), np.uint16))
+    assert _header_codes(img_dir, mask_dir) == {"mask_not_2d"}
+    assert validate_image_and_mask_folders(img_dir, mask_dir, mask_type="cells")
+    with pytest.raises(ValueError, match=r"'stack' masks cannot be used: \[mask_not_2d\].*\(a_stack.tif\)"):
+        validate_image_and_mask_folders(img_dir, mask_dir, mask_type="stack")

@@ -172,12 +172,11 @@ class ConditionRepeatFolder:
         return path
 
 
-# The preprocessing brick only warns about these; CellPatcher refuses them.
-# "tiff_outside_leaf": images in a folder that also holds subfolders would not
-# be analysed (owner decision of 2026-10-30: refused in every brick).
-# "non_tiff_file" is refused for the former image formats only
+# Every error of discover_experiment is a refusal, "tiff_outside_leaf" (images
+# in a folder that also holds subfolders) among them: an error since
+# preprocessing v0.3.2 (owner decision of 2026-10-30, refused in every brick).
+# Its warning "non_tiff_file" is refused for the former image formats only
 # (_refuse_unsupported_images); other files were never read and stay ignored.
-_REFUSED_DISCOVERY_WARNINGS = frozenset({"tiff_outside_leaf"})
 _EMPTY_FOLDER_CODE = "empty_folder"
 _NO_IMAGES_CODE = "no_images"
 
@@ -201,19 +200,6 @@ def _refuse_masks_inside(image_root: Path, mask_folder) -> None:
         )
 
 
-def _discovery_refusal_text(issue) -> str:
-    if issue.code != "tiff_outside_leaf":
-        return _issue_text(issue)
-    # The brick's text says these images "will not be analysed"; here they stop the run.
-    paths = list(issue.paths)
-    return (
-        f"[{issue.code}] Images in a folder that also holds subfolders are refused, never left out "
-        f"({', '.join(paths[:10])}{', ...' if len(paths) > 10 else ''}). A folder holds either its "
-        "images or the subfolders of the next level (condition, biological repeat, technical repeat), "
-        "not both: move these images into a subfolder of their own, or out of the image folder"
-    )
-
-
 def discover_images(root_path, *, mask_folder_path=None):
     """Discover the images under *root_path* with the preprocessing brick's ``discover_experiment``.
 
@@ -228,8 +214,8 @@ def discover_images(root_path, *, mask_folder_path=None):
     - every error ``discover_experiment`` reports (for example
       ``duplicate_position_id``, ``case_conflict``, ``folder_too_deep``,
       ``reserved_folder_name``), except ``no_images``, which gives no leaves;
-    - images in a folder that also holds subfolders (the brick's warning
-      ``tiff_outside_leaf``);
+    - images in a folder that also holds subfolders (the brick's error
+      ``tiff_outside_leaf``, a warning before preprocessing v0.3.2);
     - PNG, JPEG, BMP, GIF and NumPy images (:data:`UNSUPPORTED_IMAGE_EXTENSIONS`);
     - a link to a missing image;
     - a mask folder (*mask_folder_path*) that is *root_path* or inside it.
@@ -255,9 +241,9 @@ def discover_images(root_path, *, mask_folder_path=None):
     if "non_tiff_file" in by_code:
         _refuse_unsupported_images(root, by_code["non_tiff_file"].paths)
     problems = [
-        _discovery_refusal_text(issue)
+        _issue_text(issue)
         for issue in result.issues
-        if (issue.is_error and issue.code != _NO_IMAGES_CODE) or issue.code in _REFUSED_DISCOVERY_WARNINGS
+        if issue.is_error and issue.code != _NO_IMAGES_CODE
     ]
     if problems:
         raise ValueError(f"The image folder '{root}' cannot be used: {'; '.join(problems)}.")
@@ -855,12 +841,15 @@ class MaskPairing:
     masks: dict
 
 
-# find_masks issue codes about a mask's header (shape, axes, pixel type), not
-# about which image it belongs to. CellPatcher reads each mask with its own
-# common.mask_axes (which may hold Z, T or C axes that the v0.3.1 header check
-# refuses as "not 2D") and checks it against its image when it reads it, so
-# these codes do not decide the pairing here.
-_MASK_HEADER_CODES = frozenset({"unreadable_mask", "mask_not_2d", "mask_size_mismatch", "mask_pixel_type"})
+# find_masks issue codes about a mask's header (axes, shape, pixel type, planes),
+# not about which image it belongs to. They are refused for the masks of the
+# type the run uses and ignored for the other types, which are never read
+# (owner decision, preprocessing v0.3.2). CellPatcher still checks each mask
+# against its image when it reads it.
+_MASK_HEADER_CODES = frozenset(
+    {"unreadable_mask", "mask_not_2d", "mask_size_mismatch", "mask_pixel_type", "mask_planes_differ"}
+)
+_MASK_PLANES_CODE = "mask_planes_differ"
 
 # Reported per mask type; CellPatcher checks the type it uses itself.
 _MASK_MISSING_CODE = "mask_missing"
@@ -941,9 +930,13 @@ def pair_masks(experiment_root, image_files, mask_folder_path, *, mask_type=None
       not found;
     - an image without a mask of the type used.
 
-    The header checks of ``find_masks`` are not applied (see
-    ``_MASK_HEADER_CODES``); each mask is checked against its image when it
-    is read.
+    - a header problem ``find_masks`` reports about a mask of the type used
+      (``_MASK_HEADER_CODES``: ``unreadable_mask``, ``mask_not_2d``,
+      ``mask_size_mismatch``, ``mask_pixel_type``; ``mask_planes_differ``
+      between masks of the type used). The same problems of masks of other
+      types are ignored: those masks are never read.
+
+    Each mask is also checked against its image when it is read.
 
     Parameters
     ----------
@@ -959,16 +952,16 @@ def pair_masks(experiment_root, image_files, mask_folder_path, *, mask_type=None
         The mask type to use (``config.matching.mask_type``), or None when the
         mask folder holds exactly one type.
     """
-    from morphobricks_preprocessing import TiffMetadata, find_masks
+    from morphobricks_preprocessing import find_masks
+    from morphobricks_preprocessing.metadata import inspect_images
 
     if mask_type is not None and (not isinstance(mask_type, str) or not mask_type.strip()):
         raise ValueError(f"mask_type must be None or a non-empty name; got {mask_type!r}.")
     image_files = [Path(image) for image in image_files]
     relative = {image: source_relative_path(image, experiment_root) for image in image_files}
     discovery = _discovery_of(experiment_root, relative.values())
-    # Headers are not inspected here (see _MASK_HEADER_CODES); the record says so.
-    not_inspected = "not inspected: CellPatcher checks each mask against its image when it reads them"
-    images = [TiffMetadata(relative_path=path, readable=False, error=not_inspected) for path in relative.values()]
+    # The images' headers give the Y and X sizes each mask's header is checked against.
+    images = inspect_images(Path(experiment_root).expanduser(), list(relative.values())).files
     inventory = find_masks(Path(mask_folder_path).expanduser(), discovery, images, ome_zarr_labels=False)
 
     problems = [
@@ -993,6 +986,7 @@ def pair_masks(experiment_root, image_files, mask_folder_path, *, mask_type=None
             f"No mask of type {mask_type!r} pairs with an image; the mask folder holds the types "
             f"{', '.join(types)} (names are compared exactly). {MASK_LAYOUT_HELP}"
         )
+    _refuse_header_problems(inventory, mask_type)
     by_image = {f.image: f for f in inventory.files if f.mask_type == mask_type}
     missing = [relative[image] for image in image_files if relative[image] not in by_image]
     if missing:
@@ -1002,6 +996,39 @@ def pair_masks(experiment_root, image_files, mask_folder_path, *, mask_type=None
         )
     folder = Path(mask_folder_path).expanduser()
     return MaskPairing(mask_type, {image: folder / by_image[relative[image]].path for image in image_files})
+
+
+def _refuse_header_problems(inventory, mask_type: str) -> None:
+    """Refuse the header problems ``find_masks`` reports about masks of *mask_type*, the type used.
+
+    Its ``mask_planes_differ`` compares every mask of an image, whatever its
+    type; it is recomputed between the masks of *mask_type* only, so a mask
+    type the run does not use never blocks it.
+    """
+    used = [f for f in inventory.files if f.mask_type == mask_type]
+    used_paths = {f.path for f in used}
+    problems = []
+    for issue in inventory.issues:
+        if issue.code not in _MASK_HEADER_CODES or issue.code == _MASK_PLANES_CODE:
+            continue
+        paths = sorted(path for path in issue.paths if path in used_paths)
+        if paths:
+            problems.append(f"[{issue.code}] {issue.message.rstrip('.')} ({', '.join(paths[:10])}). {issue.action}")
+    by_image: dict[str, list] = {}
+    for mask in used:
+        if mask.axes:
+            by_image.setdefault(mask.image, []).append(mask)
+    differ = sorted(
+        mask.path
+        for masks in by_image.values()
+        if len({tuple(m.planes.items()) for m in masks}) > 1
+        for mask in masks
+    )
+    if differ:
+        planes = next(issue for issue in inventory.issues if issue.code == _MASK_PLANES_CODE)
+        problems.append(f"[{_MASK_PLANES_CODE}] {planes.message.rstrip('.')} ({', '.join(differ[:10])}). {planes.action}")
+    if problems:
+        raise ValueError(f"The {mask_type!r} masks cannot be used: {'; '.join(problems)}")
 
 
 def validate_image_and_mask_folders(

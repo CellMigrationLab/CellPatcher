@@ -24,6 +24,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   their names (convert them to TIFF), never skipped. A folder holding both images and subfolders
   is refused in folder runs too; so are a fourth folder level, folder names that differ only in
   case and a misused `single` folder. Empty folders are left out with a warning.
+- CellPatcher requires `morphobricks-preprocessing` `v0.3.2` (core dependency and
+  `preprocessing` extra; it brings `morphobricks-normalization` `v0.3.2`). Its discovery
+  reports a folder of images and subfolders as an error (`tiff_outside_leaf`). `find_masks`'
+  header checks are refused for the mask type used (unreadable, not 2D apart from named Z/T
+  axes, another Y/X size than the image, non-integer pixels, different planes between masks of
+  that type) and ignored for the other types.
 
 ## [Unreleased] - Channel selection for single-channel patches (follow-up C5)
 

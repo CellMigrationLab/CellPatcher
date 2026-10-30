@@ -71,8 +71,8 @@ def test_discover_mixing_loose_images_and_subfolders_raises(tmp_path):
     _write_image(root / "treated" / "loose.tif")
     _write_image(root / "treated" / "2026_01_01" / "a.tif")
 
-    # The preprocessing brick's discovery only warns about it ("tiff_outside_leaf"); refused here.
-    with pytest.raises(ValueError, match=r"\[tiff_outside_leaf\] Images in a folder that also holds subfolders are refused.*treated/loose.tif"):
+    # The preprocessing brick's discovery error "tiff_outside_leaf" (a warning before v0.3.2).
+    with pytest.raises(ValueError, match=r"\[tiff_outside_leaf\] 1 image is in folders that also contain subfolders.*treated/loose.tif"):
         discover_condition_repeat_folders(root)
 
 

@@ -244,7 +244,8 @@ mask is a TIFF file `<mask type>/<image's folders>/<image name>.tif` or
 `<image's folders>/<image name>_<mask type>.tif` in a mask folder outside the
 image root, the image name being its `position_id` (D85);
 `config.matching.mask_type` picks the type (None: the only one). Its header
-checks are not used (CellPatcher checks masks with its own axes on reading).
+checks (preprocessing v0.3.2) are refused for the type used and ignored for the
+other types; CellPatcher also checks masks with its own axes on reading.
 
 Two ways to point CellPatcher at input data:
 
@@ -272,7 +273,7 @@ Two ways to point CellPatcher at input data:
   `SINGLE_BIOLOGICAL_REPEAT_LABEL` (both `"single"`), exported to
   `<output_dir>/single/single/`. Any folder that mixes image files with
   subfolders raises `ValueError` rather than guessing, in folder and tree
-  runs (the brick's `tiff_outside_leaf` warning is a refusal here), and so
+  runs (the brick's `tiff_outside_leaf` error, since preprocessing v0.3.2), and so
   does every error `discover_experiment` reports (fourth level, case
   conflicts, `single` misuse, duplicate position ids). Empty folders are
   left out with a `UserWarning`. System files and folders are
