@@ -904,10 +904,12 @@ def header_axes_disagreement(path, declared_axes: str) -> str | None:
     becomes C when there is no C; ``Q``, ``I`` and other letters get none). A
     TIFF file is read in its stored order, so the declared letter of every
     dimension must be the role its header names for it: a ZYX mask declared
-    TYX would read its depth slices as time points. Dimensions the header
-    names no role for are not compared, so a file without axis metadata keeps
-    its declared axes. Returns None for a file whose header cannot be read
-    (it is refused where it is read).
+    TYX would read its depth slices as time points. Y and X need only be Y
+    or X (a file declared transposed, ``XY``), and dimensions the header names
+    no role for are not compared. A header naming no role besides Y and X (a
+    plain TIFF: ``tifffile`` calls any page's two axes Y and X) names no axes,
+    and the declared axes are kept, as before. Returns None for a file whose
+    header cannot be read (it is refused where it is read).
     """
     from morphobricks_preprocessing import inspect_image, prefill_mapping
 
@@ -916,10 +918,12 @@ def header_axes_disagreement(path, declared_axes: str) -> str | None:
         return None
     declared = normalize_axes(declared_axes)
     roles = prefill_mapping(meta.axes).roles
-    if len(roles) == len(declared):
-        disagree = any(role is not None and role != axis for role, axis in zip(roles, declared))
-    else:  # another length fits no header naming an axis besides Y and X (a page's own)
-        disagree = any(role not in (None, "Y", "X") for role in roles)
+    if all(role in (None, "Y", "X") for role in roles):
+        return None  # no axis named besides tifffile's Y and X, which a plain page always has
+    disagree = len(roles) != len(declared) or any(
+        role is not None and (axis not in "YX" if role in "YX" else axis != role)
+        for role, axis in zip(roles, declared)
+    )
     if not disagree:
         return None
     return f"{Path(path).name}: declared axes {declared!r}, header axes {meta.axes!r}"
