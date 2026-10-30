@@ -158,17 +158,43 @@ class WholeFOVConfig:
     square_cover: bool = False
 
 
+GRID_PARTIAL_MODES = ("flush", "clipped")
+
+
 @dataclass
 class GridConfig:
     tile_size: int = 128
     overlap: float = 0.0
     include_partial: bool = False
+    # How include_partial=True covers the far edge. "flush" (the historical
+    # behaviour) keeps the clipped edge tiles and adds a full tile flush with
+    # the far edge, which overlaps its neighbours. "clipped" keeps only the
+    # clipped edge tiles: with overlap=0 every pixel is in exactly one tile.
+    partial_mode: str = "flush"
 
     def __post_init__(self) -> None:
         if self.tile_size <= 0:
             raise ValueError("tile_size must be > 0.")
         if not (0 <= self.overlap < 1):
             raise ValueError("overlap must satisfy 0 <= overlap < 1.")
+        self.check_partial_mode()
+
+    def check_partial_mode(self) -> None:
+        """Refuse an unknown ``partial_mode``, or ``"clipped"`` without ``include_partial``.
+
+        Also called by the grid strategy, since fields edited after
+        construction (``apply_overrides``, attribute assignment) skip
+        ``__post_init__``.
+        """
+        if self.partial_mode not in GRID_PARTIAL_MODES:
+            raise ValueError(
+                f"partial_mode must be one of {GRID_PARTIAL_MODES}; got {self.partial_mode!r}."
+            )
+        if self.partial_mode == "clipped" and not self.include_partial:
+            raise ValueError(
+                "partial_mode='clipped' chooses which edge tiles include_partial adds; "
+                "set include_partial=True with it (include_partial=False keeps full tiles only)."
+            )
 
 
 @dataclass
