@@ -32,6 +32,7 @@ from cellpatcher.io import (
     check_legacy_matching,
     pair_masks,
     read_ngff_mask,
+    refuse_mask_channel_axis,
     source_relative_path,
 )
 from cellpatcher.export import IMAGE_TABLE_FILENAME, save_image_table_csv, save_metadata_csv
@@ -355,6 +356,7 @@ def _mask_loaders(experiment_root, mask_folder_path, image_files, config, pairin
         if config.mode == "cell":
             raise ValueError("mask_folder_path is required when config.mode='cell'.")
         return None, None, None  # random mode: masks are optional
+    refuse_mask_channel_axis(config.common.mask_axes)
     if pairing is None:
         pairing = pair_masks(experiment_root, image_files, mask_folder_path, mask_type=config.matching.mask_type)
     selected = pairing.masks
@@ -823,6 +825,7 @@ def run_patching_condition_repeat_tree(
         leaf_images.append(image_files)
     pairing = None
     if leaf_mask_folder is not None and config.common.mask_source == "tiff_tree":
+        refuse_mask_channel_axis(config.common.mask_axes)
         pairing = pair_masks(
             image_root_path,
             [image for images in leaf_images for image in images],

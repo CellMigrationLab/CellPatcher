@@ -30,6 +30,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   header checks are refused for the mask type used (unreadable, not 2D apart from named Z/T
   axes, another Y/X size than the image, non-integer pixels, different planes between masks of
   that type) and ignored for the other types.
+- Mask files with a channel (C) axis, or saved without axis metadata, are refused; no axis is
+  guessed, and *Mask axes* with a `C` is refused for mask files (it used to read a mask's other
+  axes as label channels, with *Mask channel*). Save each label channel as its own mask type,
+  for example `<image>_cells.tif` and `<image>_nuclei.tif`, and save a Z or T stack with its
+  Z/T axes named (ImageJ hyperstack or OME-TIFF).
 
 ## [Unreleased] - Channel selection for single-channel patches (follow-up C5)
 

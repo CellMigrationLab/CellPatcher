@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 import numpy as np
@@ -609,3 +610,56 @@ def test_a_mask_with_unnamed_extra_axes_is_refused_when_used(tmp_path):
     assert validate_image_and_mask_folders(img_dir, mask_dir, mask_type="cells")
     with pytest.raises(ValueError, match=r"'stack' masks cannot be used: \[mask_not_2d\].*\(a_stack.tif\)"):
         validate_image_and_mask_folders(img_dir, mask_dir, mask_type="stack")
+
+
+
+def test_pairing_uses_no_deprecated_preprocessing_name(tmp_path):
+    # preprocessing v0.3.2 deprecates morphobricks_preprocessing.SINGLE (moved to the
+    # normalization brick) and will remove it in its next version.
+    import warnings
+
+    img_dir, mask_dir = _folders(tmp_path, ["a.tif"], ["a_cells.tif"])
+    with warnings.catch_warnings():
+        warnings.filterwarnings("error", message=".*morphobricks_preprocessing", category=DeprecationWarning)
+        assert validate_image_and_mask_folders(img_dir, mask_dir)
+
+_MASK_CHANNEL_ADVICE = r"Save each label channel as its own mask type, for example <image>_cells\.tif and <image>_nuclei\.tif"
+
+
+@pytest.mark.parametrize("axes", ["CYX", None], ids=["channel_axis", "no_axes"])
+def test_a_refused_multi_axis_mask_says_how_to_save_it(tmp_path, axes):
+    # Owner decision (2026-10-30): masks with a C axis or without axis metadata are refused,
+    # and the refusal says what to do: one mask type per file, or named Z/T axes.
+    img_dir, mask_dir = _folders(tmp_path, ["a.tif"], [])
+    data = np.ones((2, 4, 4), np.uint16)
+    if axes is None:
+        write_array(mask_dir / "a_cells.tif", data)
+    else:
+        write_tiff(mask_dir / "a_cells.tif", data, axes)
+    assert _header_codes(img_dir, mask_dir) == {"mask_not_2d"}
+    with pytest.raises(ValueError, match=r"\[mask_not_2d\]") as refused:
+        validate_image_and_mask_folders(img_dir, mask_dir)
+    message = str(refused.value)
+    assert re.search(_MASK_CHANNEL_ADVICE, message)
+    assert "Z/T axes named" in message
+
+
+@pytest.mark.parametrize("mask_axes", ["CYX", "YXC"])
+def test_mask_axes_cannot_read_a_named_z_stack_as_label_channels(tmp_path, mask_axes):
+    # A mask whose header names a Z axis passes find_masks. common.mask_axes with a C axis
+    # used to override that header and read the Z slices as label channels (with
+    # cell.mask_channel); a C axis is now refused for mask files (owner decision 2026-10-30).
+    from cellpatcher import CellPatcherConfig
+
+    img_dir, mask_dir = _folders(tmp_path, ["a.tif"], [])
+    labels = np.zeros((4, 4), np.uint16)
+    labels[1:3, 1:3] = 1
+    write_tiff(mask_dir / "a_cells.tif", np.stack([labels, labels]), "ZYX")
+    assert _header_codes(img_dir, mask_dir) == set()
+    config = CellPatcherConfig(mode="cell")
+    config.common.mask_axes = mask_axes
+    config.cell.mask_channel = 0
+    config.cell.exclude_border = False
+    with pytest.raises(ValueError, match=r"common\.mask_axes=.*channel \(C\) axis") as refused:
+        run_patching_pipeline(img_dir, config=config, mask_folder_path=mask_dir)
+    assert re.search(_MASK_CHANNEL_ADVICE, str(refused.value))

@@ -853,6 +853,34 @@ _MASK_PLANES_CODE = "mask_planes_differ"
 
 # Reported per mask type; CellPatcher checks the type it uses itself.
 _MASK_MISSING_CODE = "mask_missing"
+_MASK_NOT_2D_CODE = "mask_not_2d"
+
+# What to do with a mask file that has a channel (C) axis or unnamed extra
+# axes, both refused (owner decision of 2026-10-30): no axis is guessed, and
+# common.mask_axes cannot declare a C axis for mask files. One mask type per file.
+MASK_CHANNEL_HELP = (
+    "Mask files may hold only Y and X, plus the Z/T axes their metadata names; a channel (C) axis "
+    "or an axis without a name is never guessed. Save each label channel as its own mask type, for "
+    "example <image>_cells.tif and <image>_nuclei.tif (or cells/<image>.tif and nuclei/<image>.tif), "
+    "and choose one with matching.mask_type; save a stack of Z slices or time points with its Z/T "
+    "axes named (an ImageJ hyperstack or an OME-TIFF)."
+)
+
+
+def refuse_mask_channel_axis(mask_axes) -> None:
+    """Refuse ``common.mask_axes`` with a C axis for masks read from a mask folder.
+
+    The preprocessing brick's ``find_masks`` refuses mask files with a channel
+    axis (``mask_not_2d``), so a C in *mask_axes* could only re-read a Z or T
+    axis the mask's metadata names, or an axis it does not name, as channels:
+    a guessed axis. Refused, never overridden (owner decision of 2026-10-30).
+    """
+    if mask_axes is not None and "C" in normalize_axes(mask_axes):
+        raise ValueError(
+            f"common.mask_axes={mask_axes!r} has a channel (C) axis, which mask files from a mask folder "
+            f"cannot have; it would read the mask's other axes as label channels. {MASK_CHANNEL_HELP} "
+            "Then set common.mask_axes to the mask's own axes (for example 'YX' or 'ZYX')."
+        )
 
 
 def source_relative_path(image_path, experiment_root) -> str:
@@ -886,7 +914,9 @@ def _discovery_of(experiment_root, relative_paths):
     are the folder names, ``single`` for missing levels; ``find_masks`` reads
     only the folders and image names.
     """
-    from morphobricks_preprocessing import SINGLE, DiscoveryResult, LeafFolder
+    # SINGLE lives in the normalization brick (preprocessing v0.3.2 deprecates its re-export).
+    from morphobricks_normalization.records import SINGLE
+    from morphobricks_preprocessing import DiscoveryResult, LeafFolder
 
     by_folder: dict[str, list[str]] = {}
     for relative in relative_paths:
@@ -1013,7 +1043,10 @@ def _refuse_header_problems(inventory, mask_type: str) -> None:
             continue
         paths = sorted(path for path in issue.paths if path in used_paths)
         if paths:
-            problems.append(f"[{issue.code}] {issue.message.rstrip('.')} ({', '.join(paths[:10])}). {issue.action}")
+            text = f"[{issue.code}] {issue.message.rstrip('.')} ({', '.join(paths[:10])}). {issue.action}"
+            if issue.code == _MASK_NOT_2D_CODE:
+                text = f"{text.rstrip()} {MASK_CHANNEL_HELP}"
+            problems.append(text)
     by_image: dict[str, list] = {}
     for mask in used:
         if mask.axes:

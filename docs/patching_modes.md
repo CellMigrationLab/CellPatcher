@@ -41,7 +41,7 @@ Key parameters to know:
 - `binary_mask_policy`
 - `apply_mask` (in `ExtractionConfig`)
 - `mask_fill_value` (fill value used when `apply_mask=True`)
-- `mask_channel` (required for multi-channel label arrays)
+- `mask_channel` (required for multi-channel label arrays in memory; mask files with a channel axis are refused: save one mask type per file, e.g. `<image>_cells.tif` and `<image>_nuclei.tif`)
 - labels must resolve to one 2D `YX` plane (use preprocessing helpers for C/Z/T labels)
 
 Notes:
