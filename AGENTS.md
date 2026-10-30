@@ -190,7 +190,7 @@ CellPatcher-specific conventions:
 * Cell-mode masks are instance labels used as given (decision D47):
   boolean masks are refused unless `CellConfig.binary_mask_policy=
   "connected_components"` (warns; recorded in `run_config.json`); labels
-  above the int32 maximum are refused. `cell_scan` shares the rule
+  above the int32 maximum are refused (`cellpatcher.LabelRangeError`). `cell_scan` shares the rule
   (`CellSegmentationStrategy.label_objects`).
 * Strategies generate strictly 2D Y/X regions. Z/T stacks become planes
   either with `common.z_policy`/`t_policy` in the pipeline

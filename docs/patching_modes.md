@@ -102,11 +102,15 @@ Key parameters:
 - `tile_size`
 - `overlap`
 - `include_partial`
+- `partial_mode` (`"flush"` default, or `"clipped"`)
 
 Common pitfalls:
 
 - `overlap` changes stride (higher overlap → more patches).
 - `include_partial` controls edge coverage.
+- With `include_partial=True`, the default `partial_mode="flush"` adds a full tile flush with the
+  far edge next to the clipped edge tiles, so edge tiles overlap. `partial_mode="clipped"` keeps
+  only the clipped edge tiles: with `overlap=0` the tiles cover every pixel exactly once.
 - Large images and small tiles can produce many patches quickly.
 
 For C/Z/T data, patching modes are 2D Y/X; see `preprocessing.md`.

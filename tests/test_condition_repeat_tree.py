@@ -530,3 +530,35 @@ def test_discover_a_resource_fork_does_not_make_a_condition_look_mixed(tmp_path)
     _write_image(root / "ctrl" / "._stray.npy")
     leaves = discover_condition_repeat_folders(root)
     assert [(leaf.condition, leaf.biological_repeat) for leaf in leaves] == [("ctrl", "r1")]
+
+
+def test_discover_wells_inside_a_biological_repeat_folder_named_single(tmp_path):
+    # Issue #43: a real biological-repeat folder named "single" is a normal
+    # level; its well subfolders are technical repeats (as in preprocessing).
+    root = tmp_path / "raw_data"
+    _write_image(root / "ctrl" / "single" / "wellA" / "img1.npy")
+    _write_image(root / "ctrl" / "single" / "wellB" / "img2.npy")
+
+    (tmp_path / "masks_root").mkdir()
+    leaves = discover_condition_repeat_folders(root, mask_root_path=tmp_path / "masks_root")
+    found = [(leaf.condition, leaf.biological_repeat, leaf.technical_repeat) for leaf in leaves]
+    assert found == [("ctrl", "single", "wellA"), ("ctrl", "single", "wellB")]
+    assert leaves[0].image_folder == root / "ctrl" / "single" / "wellA"
+    assert leaves[0].mask_folder == tmp_path / "masks_root" / "ctrl" / "single" / "wellA"
+    assert leaves[0].relative_folder.as_posix() == "ctrl/single/wellA"
+
+
+def test_tree_runs_wells_inside_a_biological_repeat_folder_named_single(tmp_path):
+    image_root = tmp_path / "raw_data"
+    _write_image(image_root / "ctrl" / "single" / "wellA" / "img1.npy")
+    _write_image(image_root / "ctrl" / "single" / "wellB" / "img2.npy")
+
+    results = run_patching_condition_repeat_tree(image_root, config=CellPatcherConfig(mode="whole_fov"))
+    stamped = {
+        (r.condition, r.biological_repeat, r.technical_repeat): {p.image_file for p in r.result.patches}
+        for r in results
+    }
+    assert stamped == {
+        ("ctrl", "single", "wellA"): {"img1.npy"},
+        ("ctrl", "single", "wellB"): {"img2.npy"},
+    }
