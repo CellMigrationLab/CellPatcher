@@ -31,6 +31,7 @@ from cellpatcher.io import (
     read_image,
     check_legacy_matching,
     pair_masks,
+    refuse_mask_header_axes,
     read_ngff_mask,
     refuse_mask_channel_axis,
     source_relative_path,
@@ -360,6 +361,7 @@ def _mask_loaders(experiment_root, mask_folder_path, image_files, config, pairin
     if pairing is None:
         pairing = pair_masks(experiment_root, image_files, mask_folder_path, mask_type=config.matching.mask_type)
     selected = pairing.masks
+    refuse_mask_header_axes([selected[image] for image in image_files], config.common.mask_axes)
     loaders = [functools.partial(_read_mask_file, selected[image], config.common.mask_axes) for image in image_files]
     return loaders, [selected[image].name for image in image_files], pairing.mask_type
 

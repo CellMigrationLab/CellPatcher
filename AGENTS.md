@@ -246,7 +246,10 @@ mask is a TIFF file `<mask type>/<image's folders>/<image name>.tif` or
 image root, the image name being its `position_id` (D85);
 `config.matching.mask_type` picks the type (None: the only one). Its header
 checks (preprocessing v0.3.2) are refused for the type used and ignored for the
-other types; CellPatcher also checks masks with its own axes on reading. Mask
+other types; CellPatcher also checks masks with its own axes on reading, and
+refuses `common.mask_axes` that disagree with the axes a mask's header names
+(`io.refuse_mask_header_axes`, read with preprocessing `inspect_image`; a ZYX mask
+declared TYX would read Z slices as time points). Mask
 files with a channel (C) axis or without axis metadata are refused, never
 guessed, and `common.mask_axes` with a `C` is refused for mask-folder masks
 (owner decision of 2026-10-30): users save one mask type per file

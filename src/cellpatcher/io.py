@@ -896,6 +896,54 @@ def refuse_mask_channel_axis(mask_axes) -> None:
         )
 
 
+def header_axes_disagreement(path, declared_axes: str) -> str | None:
+    """Say how *declared_axes* disagree with the axes a TIFF file's header names, or None.
+
+    The header is read with the preprocessing brick's ``inspect_image`` and its
+    ``tifffile`` letters are given roles with its ``prefill_mapping`` (``S``
+    becomes C when there is no C; ``Q``, ``I`` and other letters get none). A
+    TIFF file is read in its stored order, so the declared letter of every
+    dimension must be the role its header names for it: a ZYX mask declared
+    TYX would read its depth slices as time points. Dimensions the header
+    names no role for are not compared, so a file without axis metadata keeps
+    its declared axes. Returns None for a file whose header cannot be read
+    (it is refused where it is read).
+    """
+    from morphobricks_preprocessing import inspect_image, prefill_mapping
+
+    meta = inspect_image(path)
+    if not meta.readable:
+        return None
+    declared = normalize_axes(declared_axes)
+    roles = prefill_mapping(meta.axes).roles
+    if len(roles) == len(declared):
+        disagree = any(role is not None and role != axis for role, axis in zip(roles, declared))
+    else:  # the declaration cannot describe the file unless the header names no axis
+        disagree = any(role is not None for role in roles)
+    if not disagree:
+        return None
+    return f"{Path(path).name}: declared axes {declared!r}, header axes {meta.axes!r}"
+
+
+def refuse_mask_header_axes(mask_paths, mask_axes) -> None:
+    """Refuse ``common.mask_axes`` that disagree with a mask file's own header axes.
+
+    A mask TIFF is read in its stored order and then interpreted with
+    *mask_axes*, so a mask whose header names its axes ZYX would, with
+    ``mask_axes='TYX'``, have its depth slices read as time points: a guessed
+    axis. Every mask is checked before any is read; all disagreements are
+    listed in one message. See :func:`header_axes_disagreement`.
+    """
+    problems = [p for p in (header_axes_disagreement(path, mask_axes) for path in mask_paths) if p]
+    if problems:
+        raise ValueError(
+            f"common.mask_axes={mask_axes!r} disagrees with the axes named in the header of "
+            f"{len(problems)} mask file(s): {'; '.join(problems[:10])}{'; ...' if len(problems) > 10 else ''}. "
+            "Axes are never reinterpreted: set common.mask_axes to the masks' header axes, or fix the "
+            "masks' metadata."
+        )
+
+
 def source_relative_path(image_path, experiment_root) -> str:
     """Path of *image_path* relative to *experiment_root*, with ``/`` separators.
 

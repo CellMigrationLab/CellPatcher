@@ -234,3 +234,29 @@ def test_folder_run_exports_one_file_and_row_per_plane(tmp_path):
     assert rows[0]["patch_file"] == "single_single_single_a_z000_grid-y0-x0-h8-w8.tif"
     saved = json.loads((tmp_path / "out" / RUN_CONFIG_FILENAME).read_text(encoding="utf-8"))
     assert saved["common"]["z_policy"] == "all"
+
+
+def test_mask_axes_that_disagree_with_the_mask_header_are_refused(tmp_path):
+    # A ZYX mask (its ImageJ header names Z) declared TYX would have its depth slices read as
+    # time points: a guessed axis, refused naming both the declared and the header axes.
+    image_folder, mask_folder = tmp_path / "exp", tmp_path / "masks"
+    write_tiff(image_folder / "a.tif", np.random.default_rng(0).integers(0, 100, (3, 32, 32), dtype=np.uint16), "TYX")
+    mask = np.zeros((3, 32, 32), dtype=np.uint16)
+    mask[:, 5:15, 5:15] = 1
+    write_tiff(mask_folder / "a_cells.tif", mask, "ZYX")
+    config = _cell_config(image_axes="TYX", mask_axes="TYX", t_policy="all")
+
+    with pytest.raises(ValueError, match=r"declared axes 'TYX', header axes 'ZYX'"):
+        run_patching_pipeline(str(image_folder), config=config, mask_folder_path=str(mask_folder))
+
+
+def test_mask_axes_that_agree_with_the_mask_header_are_accepted(tmp_path):
+    image_folder, mask_folder = tmp_path / "exp", tmp_path / "masks"
+    write_tiff(image_folder / "a.tif", np.random.default_rng(0).integers(0, 100, (3, 32, 32), dtype=np.uint16), "TYX")
+    mask = np.zeros((3, 32, 32), dtype=np.uint16)
+    mask[:, 5:15, 5:15] = 1
+    write_tiff(mask_folder / "a_cells.tif", mask, "TYX")
+    config = _cell_config(image_axes="TYX", mask_axes="TYX", t_policy="all")
+
+    result = run_patching_pipeline(str(image_folder), config=config, mask_folder_path=str(mask_folder))
+    assert [p.t for p in result.patches] == [0, 1, 2]
