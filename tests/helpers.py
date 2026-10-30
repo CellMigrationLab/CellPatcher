@@ -1,6 +1,18 @@
 import numpy as np
 
 
+def write_tiff(path, data, axes):
+    """Write *data* as an ImageJ TIFF whose header names its *axes* (``"ZYX"``, ``"CYX"``, ...).
+
+    Images are discovered as TIFF or OME-Zarr only (issue #45); the axes in
+    the header keep a stack of three planes from being read as RGB.
+    """
+    import tifffile
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tifffile.imwrite(path, data, imagej=True, metadata={"axes": axes})
+
+
 def named(images, prefix="pos"):
     """One ``image_metadata`` entry with a ``position_id`` per in-memory image (``pos0``, ``pos1``, ...).
 

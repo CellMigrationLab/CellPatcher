@@ -4,6 +4,39 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased] - Image/mask pairing of the preprocessing brick (issue #45)
+
+### Changed
+- Images and masks are paired with the MorphoBricks preprocessing brick's rule
+  (`morphobricks_preprocessing.find_masks`, through `cellpatcher.io.pair_masks`), so every brick
+  pairs the same files: a mask is a TIFF file `<image>_<mask type>.tif` or
+  `<mask type>/<condition>/.../<image>.tif` in the masks folder. The whole tree is paired at
+  once.
+- Notebook, **Advanced: mask type** replaces *Advanced: image ↔ mask filename matching*: enter
+  the mask type to use when the masks folder holds several (`cells`, `nuclei`, ...); leave it
+  empty when it holds one. The match strategy, suffix list and case options are gone.
+- Masks named exactly like their image (`masks/.../img1.tif`), masks that are not TIFF files,
+  and mask names that could belong to two images are refused; masks of any type
+  (`img1_cells.tif`) and the `<mask type>/` folder layout now pair.
+- Images are found with the preprocessing brick's `discover_experiment`
+  (`cellpatcher.io.discover_images`), so every brick reads the same images under the same labels:
+  TIFF files and OME-Zarr folders only. PNG, JPEG, BMP, GIF, NumPy and microscope-format
+  images (`.czi`, `.nd2`, `.lif`, ...) are refused with their names (convert them to TIFF or
+  OME-Zarr), never skipped; before, a `.czi` file was silently left out. A folder holding both images and subfolders
+  is refused in folder runs too; so are a fourth folder level, folder names that differ only in
+  case and a misused `single` folder. Empty folders are left out with a warning.
+- CellPatcher requires `morphobricks-preprocessing` `v0.3.2` (core dependency and
+  `preprocessing` extra; it brings `morphobricks-normalization` `v0.3.2`). Its discovery
+  reports a folder of images and subfolders as an error (`tiff_outside_leaf`). `find_masks`'
+  header checks are refused for the mask type used (unreadable, not 2D apart from named Z/T
+  axes, another Y/X size than the image, non-integer pixels, different planes between masks of
+  that type) and ignored for the other types.
+- Mask files with a channel (C) axis, or saved without axis metadata, are refused; no axis is
+  guessed, and *Mask axes* with a `C` is refused for mask files (it used to read a mask's other
+  axes as label channels, with *Mask channel*). Save each label channel as its own mask type,
+  for example `<image>_cells.tif` and `<image>_nuclei.tif`, and save a Z or T stack with its
+  Z/T axes named (ImageJ hyperstack or OME-TIFF).
+
 ## [Unreleased] - Channel selection for single-channel patches (follow-up C5)
 
 ### Added

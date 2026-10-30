@@ -1,3 +1,4 @@
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -9,7 +10,32 @@ from cellpatcher.axes import normalize_axes
 # ".zarr" is an OME-Zarr image: a folder, read with the preprocessing extra
 # (docs/normalization_contract.md §2); every other extension is a file.
 ZARR_SUFFIX = ".zarr"
-SUPPORTED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".gif", ".npy", ZARR_SUFFIX}
+
+# The images CellPatcher discovers: those of the preprocessing brick's
+# discover_experiment, TIFF files and OME-Zarr folders (owner decision of
+# 2026-10-30, issue #45), so every brick patches, measures and normalizes the
+# same images.
+SUPPORTED_EXTENSIONS = {".tif", ".tiff", ZARR_SUFFIX}
+
+# Image formats CellPatcher read as input before it adopted the preprocessing
+# brick's discovery; read_array and write_array still handle them, because
+# exported patches may be written in them (export.patch_format).
+FORMER_IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".bmp", ".gif", ".npy")
+
+# Image formats that are not discovered: the former ones and common microscope
+# and raster formats. Such a file where images are discovered is refused,
+# naming it, never skipped: it would otherwise drop out of the dataset
+# unnoticed (owner decision of 2026-10-30). Other files (.txt, .csv, ...) are
+# not images and stay ignored.
+UNSUPPORTED_IMAGE_EXTENSIONS = (
+    *FORMER_IMAGE_EXTENSIONS,
+    ".npz", ".webp", ".jp2", ".czi", ".nd2", ".lif", ".lsm", ".oib", ".oif", ".oir", ".ims", ".vsi",
+    ".dv", ".svs", ".ndpi",
+)
+
+# The file formats read_array and write_array handle: the input images, and
+# the formats exported patches may be written in (export.patch_format).
+ARRAY_EXTENSIONS = {*SUPPORTED_EXTENSIONS, *FORMER_IMAGE_EXTENSIONS}
 
 # Biological-repeat label stamped when a condition folder holds images
 # directly, with no biological-repeat subfolder (see
@@ -34,6 +60,14 @@ SINGLE_TECHNICAL_REPEAT_LABEL = "single"
 
 
 def list_supported_files(folder_path, supported_extensions=None) -> list[Path]:
+    """The images directly in *folder_path* (TIFF files and OME-Zarr folders), sorted.
+
+    Subfolders are not entered. A file in a format CellPatcher no longer
+    reads as an input image (:data:`UNSUPPORTED_IMAGE_EXTENSIONS`: PNG, JPEG,
+    BMP, GIF, NumPy, microscope formats such as CZI) is refused, naming it, as is a link to a missing image.
+    With *supported_extensions*, the files with those extensions are listed
+    instead and nothing else is refused but missing links.
+    """
     folder = Path(folder_path).expanduser()
     if not folder.exists() or not folder.is_dir():
         raise ValueError(f"Folder does not exist or is not a directory: {folder}")
@@ -42,6 +76,8 @@ def list_supported_files(folder_path, supported_extensions=None) -> list[Path]:
     exts = {e.lower() for e in exts}
 
     entries = _visible_entries(folder)
+    if supported_extensions is None:
+        _refuse_unsupported_images(folder, [entry.name for entry in entries if entry.is_file()])
     _refuse_broken_image_links(entries, exts)
     return sorted(p for p in entries if _is_image(p, exts))
 
@@ -70,6 +106,20 @@ def _refuse_broken_image_links(entries, exts: set[str]) -> None:
         raise ValueError(
             f"Folder '{folder}' holds {len(broken)} image link(s) whose target does not exist: "
             f"{', '.join(broken[:10])}. Fix or remove the links."
+        )
+
+
+def _refuse_unsupported_images(root: Path, relative_paths) -> None:
+    """Refuse the files among *relative_paths* in a format CellPatcher no longer reads as an image."""
+    unsupported = sorted(path for path in relative_paths if path.lower().endswith(UNSUPPORTED_IMAGE_EXTENSIONS))
+    if unsupported:
+        raise ValueError(
+            f"'{root}' holds {len(unsupported)} image(s) in a format CellPatcher no longer reads: "
+            f"{', '.join(unsupported[:10])}{', ...' if len(unsupported) > 10 else ''}. Images are found "
+            "with the MorphoBricks preprocessing brick's discovery, which reads TIFF files (.tif, .tiff) "
+            "and OME-Zarr folders (.zarr) only; PNG, JPEG, BMP, GIF, NumPy (.npy) and microscope formats "
+            "such as .czi, .nd2 or .lif are not read (decision of 2026-10-30, issue #45). Convert them to "
+            "TIFF or OME-Zarr, or move them out of the folder."
         )
 
 
@@ -134,55 +184,111 @@ class ConditionRepeatFolder:
         return path
 
 
-def _split_folder_entries(folder: Path, exts: set[str]) -> tuple[list[Path], list[Path]]:
-    # System files and folders (e.g. Jupyter's .ipynb_checkpoints, __MACOSX,
-    # "._img.tif") are never images, conditions or biological repeats, so
-    # they must not make a flat folder look mixed.
-    entries = _visible_entries(folder)
-    _refuse_broken_image_links(entries, exts)
-    loose_images = [p for p in entries if _is_image(p, exts)]
-    subdirs = [p for p in entries if p.is_dir() and p not in loose_images]
-    return loose_images, subdirs
+# Every error of discover_experiment is a refusal, "tiff_outside_leaf" (images
+# in a folder that also holds subfolders) among them: an error since
+# preprocessing v0.3.2 (owner decision of 2026-10-30, refused in every brick).
+# Its warning "non_tiff_file" is refused for the former image formats only
+# (_refuse_unsupported_images); other files were never read and stay ignored.
+_EMPTY_FOLDER_CODE = "empty_folder"
+_NO_IMAGES_CODE = "no_images"
 
 
-def _classify_condition_subfolders(condition_dir: Path, exts: set[str]) -> list[tuple[str, Path]]:
-    # A condition folder is either "flat" (images directly inside it, no
-    # biological-repeat level) or "nested" (one subfolder per biological
-    # repeat) -- never both, since that would leave no unambiguous way to
-    # assign the loose images to a biological repeat.
-    loose_images, subdirs = _split_folder_entries(condition_dir, exts)
+def _refuse_masks_inside(image_root: Path, mask_folder) -> None:
+    """Refuse a mask folder that is the image folder or inside it, as the preprocessing brick does.
 
-    if loose_images and subdirs:
+    Checked before discovery: its folders would otherwise be read as image
+    folders. The message is the brick's ``masks_inside_experiment``.
+    """
+    if mask_folder is None:
+        return
+    root = image_root.resolve()
+    folder = Path(mask_folder).expanduser().resolve()
+    if folder == root or root in folder.parents:
         raise ValueError(
-            f"Condition folder '{condition_dir}' mixes image files directly inside it with "
-            "subfolders. Put all images either directly in the condition folder (treated as "
-            "a single implicit biological repeat) or entirely inside biological-repeat "
-            "subfolders, not both."
+            "Images and masks cannot be paired: [masks_inside_experiment] The masks folder is inside "
+            "the experiment folder, where its folders would be read as conditions and repeats "
+            f"({folder.relative_to(root).as_posix() or '.'}). Move the masks folder next to the image "
+            "folder and select it there."
         )
-    if loose_images:
-        # Flat layout: the whole condition folder counts as one biological repeat.
-        return [(SINGLE_BIOLOGICAL_REPEAT_LABEL, condition_dir)]
-    # Nested layout: each subfolder is its own biological repeat, sorted for a
-    # deterministic, reproducible discovery order.
-    return [(d.name, d) for d in sorted(subdirs, key=lambda p: p.name)]
 
 
-def _classify_repeat_subfolders(repeat_dir: Path, exts: set[str]) -> list[tuple[str, Path]]:
-    # A biological-repeat folder is either "flat" (its images directly inside
-    # it: one technical repeat) or "nested" (one subfolder per technical
-    # repeat, a well or a dish) -- never both. An empty folder stays one flat
-    # leaf so the run reports it as holding no images, as before.
-    loose_images, subdirs = _split_folder_entries(repeat_dir, exts)
-    if loose_images and subdirs:
+def discover_images(root_path, *, mask_folder_path=None):
+    """Discover the images under *root_path* with the preprocessing brick's ``discover_experiment``.
+
+    CellPatcher does not walk folders itself (owner decision of 2026-10-30,
+    issue #45): the leaves, their labels and their images are the brick's,
+    so every brick reads the same images under the same labels. Images are
+    TIFF files and OME-Zarr folders in folders without subfolders, at most
+    three levels deep (condition, biological repeat, technical repeat).
+
+    Refused, never skipped:
+
+    - every error ``discover_experiment`` reports (for example
+      ``duplicate_position_id``, ``case_conflict``, ``folder_too_deep``,
+      ``reserved_folder_name``), except ``no_images``, which gives no leaves;
+    - images in a folder that also holds subfolders (the brick's error
+      ``tiff_outside_leaf``, a warning before preprocessing v0.3.2);
+    - PNG, JPEG, BMP, GIF, NumPy and microscope-format images such as CZI, ND2 or LIF
+      (:data:`UNSUPPORTED_IMAGE_EXTENSIONS`);
+    - a link to a missing image;
+    - a mask folder (*mask_folder_path*) that is *root_path* or inside it.
+
+    Folders with no images and no subfolders hold nothing to patch; they are
+    left out with a ``UserWarning`` naming them, as the brick warns. Other
+    files (``.txt``, ``.csv``, ...) are ignored.
+
+    Returns
+    -------
+    morphobricks_preprocessing.DiscoveryResult
+        The brick's result; its paths are relative to *root_path*.
+    """
+    from morphobricks_preprocessing.discovery import discover_experiment
+
+    root = Path(root_path).expanduser()
+    if not root.exists() or not root.is_dir():
+        raise ValueError(f"Folder does not exist or is not a directory: {root}")
+    _refuse_masks_inside(root, mask_folder_path)
+    result = discover_experiment(root)
+
+    by_code = {issue.code: issue for issue in result.issues}
+    if "non_tiff_file" in by_code:
+        _refuse_unsupported_images(root, by_code["non_tiff_file"].paths)
+    problems = [
+        _issue_text(issue)
+        for issue in result.issues
+        if issue.is_error and issue.code != _NO_IMAGES_CODE
+    ]
+    if problems:
+        raise ValueError(f"The image folder '{root}' cannot be used: {'; '.join(problems)}.")
+    broken = [path for path in result.images if not (root / path).exists()]
+    if broken:
         raise ValueError(
-            f"Biological-repeat folder '{repeat_dir}' mixes image files directly inside it "
-            "with subfolders. Put all images either directly in the biological-repeat folder "
-            "(one technical repeat) or entirely inside technical-repeat subfolders (one per "
-            "well or dish), not both."
+            f"Folder '{root}' holds {len(broken)} image link(s) whose target does not exist: "
+            f"{', '.join(broken[:10])}. Fix or remove the links."
         )
-    if subdirs:
-        return [(d.name, d) for d in sorted(subdirs, key=lambda p: p.name)]
-    return [(SINGLE_TECHNICAL_REPEAT_LABEL, repeat_dir)]
+    if _EMPTY_FOLDER_CODE in by_code:
+        warnings.warn(_issue_text(by_code[_EMPTY_FOLDER_CODE]), UserWarning, stacklevel=2)
+    return result
+
+
+def discover_folder_images(image_folder_path, *, mask_folder_path=None) -> list[Path]:
+    """The images of a single image folder (a folder run), found by :func:`discover_images`.
+
+    The folder must hold its images directly. A folder holding subfolders
+    of images is a tree: run it with
+    :func:`~cellpatcher.orchestration.run_patching_condition_repeat_tree`.
+    Returns an empty list when the folder holds no image.
+    """
+    folder = Path(image_folder_path).expanduser()
+    result = discover_images(folder, mask_folder_path=mask_folder_path)
+    nested = [leaf.relative_path for leaf in result.leaves if leaf.relative_path != "."]
+    if nested:
+        raise ValueError(
+            f"The image folder '{folder}' holds its images in subfolders ({', '.join(nested[:10])}"
+            f"{', ...' if len(nested) > 10 else ''}). A folder run reads the images directly in one "
+            "folder; run a tree of condition and repeat folders with run_patching_condition_repeat_tree."
+        )
+    return sorted(folder / path for path in result.images)
 
 
 def discover_condition_repeat_folders(
@@ -191,112 +297,65 @@ def discover_condition_repeat_folders(
     mask_root_path=None,
     supported_extensions=None,
 ) -> list[ConditionRepeatFolder]:
-    """Discover ``<condition>/<biological_repeat>/`` image folders under *root_path*.
+    """Discover the ``<condition>/<biological_repeat>[/<technical_repeat>]`` image folders under *root_path*.
 
-    (The function keeps its historical ``condition_repeat`` name; the
-    folder level it reads is the biological repeat.)
+    (The function keeps its historical ``condition_repeat`` name.) The
+    folders are found by the preprocessing brick's ``discover_experiment``
+    (:func:`discover_images`, owner decision of 2026-10-30, issue #45), so
+    the leaves and labels are the brick's:
 
-    Each immediate subfolder of *root_path* is treated as a condition. Within
-    a condition folder, two layouts are supported:
+    - ``<condition>/<biological_repeat>/<images>`` — one leaf per
+      biological-repeat folder;
+    - ``<condition>/<images>`` — the condition folder is one leaf whose
+      biological repeat is ``SINGLE_BIOLOGICAL_REPEAT_LABEL`` (``"single"``);
+    - ``<condition>/<biological_repeat>/<technical_repeat>/<images>`` — each
+      technical-repeat folder (a well, a dish) is a leaf; a leaf above that
+      level has the technical repeat ``SINGLE_TECHNICAL_REPEAT_LABEL``;
+    - ``<images>`` directly in *root_path* — one leaf labeled
+      ``SINGLE_CONDITION_LABEL`` / ``"single"`` / ``"single"``.
 
-    - ``<condition>/<biological_repeat>/<image files>`` — one or more
-      biological-repeat subfolders, each its own biological repeat.
-    - ``<condition>/<image files>`` — no biological-repeat subfolder. The
-      whole condition folder is treated as a single implicit biological
-      repeat, labeled ``SINGLE_BIOLOGICAL_REPEAT_LABEL`` (``"single"``).
-    - ``<condition>/<biological_repeat>/<technical_repeat>/<image files>`` —
-      a biological-repeat folder holding only subfolders: each subfolder is a
-      technical repeat (a well, a dish, a coverslip) of that biological
-      repeat. A biological-repeat folder holding its images directly is one
-      technical repeat, labeled ``SINGLE_TECHNICAL_REPEAT_LABEL``
-      (``"single"``). The technical level needs the biological-repeat level
-      above it: ``<condition>/<well>/<images>`` reads the wells as biological
-      repeats. Whether a level is flat is read from the folder's contents,
-      never from its name: a biological-repeat folder named ``single`` can
-      hold technical-repeat subfolders like any other.
+    A folder named ``single`` is a level with one member and must be alone
+    in its place. A folder mixing images with subfolders, images in
+    PNG/JPEG/BMP/GIF/NumPy or microscope format, a fourth level of folders, two images of
+    one folder with the same name apart from the extension or case, and
+    folder names differing only in case are refused (:func:`discover_images`
+    lists every refusal). Folders without images or subfolders are left out
+    with a ``UserWarning``. System files and folders are ignored: names
+    starting with ``"."`` (``.ipynb_checkpoints``, ``._img.tif``),
+    ``Thumbs.db``, ``desktop.ini`` and ``__MACOSX``.
 
-    If *root_path* itself holds the image files and has no subfolders, the
-    whole dataset is one leaf labeled ``SINGLE_CONDITION_LABEL`` /
-    ``SINGLE_BIOLOGICAL_REPEAT_LABEL`` (both ``"single"``), with
-    ``image_folder`` set to *root_path*.
+    When *mask_root_path* is given, the same leaf path is mirrored under it
+    for each leaf's ``mask_folder``; its existence is not checked here.
+    The pairing itself reads the whole mask root (:func:`pair_masks`).
 
-    A root, condition or repeat folder mixing loose image files with
-    subfolders is ambiguous and raises ``ValueError``. System files and
-    folders are ignored, as in the preprocessing brick: names starting with
-    ``"."`` (``.ipynb_checkpoints``, ``._img.tif``), ``Thumbs.db``,
-    ``desktop.ini`` and ``__MACOSX``.
-
-    When *mask_root_path* is given, the same ``<condition>/<biological_repeat>``
-    (or ``<condition>``, ``<condition>/<biological_repeat>/<technical_repeat>``,
-    or root) path is mirrored under it for each discovered
-    leaf's ``mask_folder`` — its existence is not checked here; callers
-    (e.g. :func:`~cellpatcher.orchestration.run_patching_condition_repeat_tree`)
-    decide whether a missing mask folder matters for the mode in use.
+    *supported_extensions* is no longer supported: the images are the
+    brick's (TIFF and OME-Zarr). Any value other than None is refused.
     """
+    if supported_extensions is not None:
+        raise ValueError(
+            "discover_condition_repeat_folders(supported_extensions=...) is no longer supported: images are "
+            "found with the preprocessing brick's discovery, which reads TIFF files and OME-Zarr folders "
+            "(issue #45)."
+        )
     root = Path(root_path).expanduser()
-    if not root.exists() or not root.is_dir():
-        raise ValueError(f"Folder does not exist or is not a directory: {root}")
-
     mask_root = Path(mask_root_path).expanduser() if mask_root_path is not None else None
     if mask_root is not None and (not mask_root.exists() or not mask_root.is_dir()):
         raise ValueError(f"Folder does not exist or is not a directory: {mask_root}")
 
-    exts = supported_extensions if supported_extensions is not None else SUPPORTED_EXTENSIONS
-    exts = {e.lower() for e in exts}
-
-    root_images, root_subdirs = _split_folder_entries(root, exts)
-    if root_images and root_subdirs:
-        raise ValueError(
-            f"Folder '{root}' mixes image files directly inside it with subfolders. Put all "
-            "images either directly in this folder (treated as a single condition and biological "
-            "repeat) or entirely inside condition subfolders, not both."
-        )
-    if root_images:
-        # Flat layout: the root folder is the only condition and biological repeat.
-        return [
+    result = discover_images(root, mask_folder_path=mask_root)
+    leaves = []
+    for leaf in result.leaves:
+        image_folder = root if leaf.relative_path == "." else root / leaf.relative_path
+        leaves.append(
             ConditionRepeatFolder(
-                condition=SINGLE_CONDITION_LABEL,
-                biological_repeat=SINGLE_BIOLOGICAL_REPEAT_LABEL,
-                image_folder=root,
-                mask_folder=mask_root,
+                condition=leaf.condition,
+                biological_repeat=leaf.biological_repeat,
+                image_folder=image_folder,
+                mask_folder=None if mask_root is None else mask_root / image_folder.relative_to(root),
+                technical_repeat=leaf.technical_repeat,
             )
-        ]
-
-    # Every immediate subfolder of `root` is a condition; sorted for a
-    # deterministic discovery order across runs.
-    condition_dirs = sorted(root_subdirs, key=lambda p: p.name)
-
-    results: list[ConditionRepeatFolder] = []
-    for condition_dir in condition_dirs:
-        condition = condition_dir.name
-        for biological_repeat, repeat_folder in _classify_condition_subfolders(condition_dir, exts):
-            # A flat condition folder is its own (single) biological repeat and
-            # holds images, so only an explicit biological-repeat folder can
-            # nest wells. Flatness comes from the folder, not its label: a
-            # biological-repeat subfolder literally named "single" can hold
-            # technical-repeat subfolders like any other.
-            technical = (
-                [(SINGLE_TECHNICAL_REPEAT_LABEL, repeat_folder)]
-                if repeat_folder == condition_dir
-                else _classify_repeat_subfolders(repeat_folder, exts)
-            )
-            for technical_repeat, image_folder in technical:
-                # Mirror the same input path under mask_root so callers can
-                # look for a matching mask folder, without this function
-                # needing to know whether the mode in use requires one.
-                mask_folder = None
-                if mask_root is not None:
-                    mask_folder = mask_root / image_folder.relative_to(root)
-                results.append(
-                    ConditionRepeatFolder(
-                        condition=condition,
-                        biological_repeat=biological_repeat,
-                        image_folder=image_folder,
-                        mask_folder=mask_folder,
-                        technical_repeat=technical_repeat,
-                    )
-                )
-    return results
+        )
+    return leaves
 
 
 def _refuse_several_series(path, series_count: int) -> None:
@@ -345,7 +404,7 @@ def read_array(file_path):
                 raise ImportError("Reading TIFF requires tifffile or imageio.") from exc
             return iio.imread(path)
 
-    if suffix in SUPPORTED_EXTENSIONS:
+    if suffix in ARRAY_EXTENSIONS:
         try:
             import imageio.v3 as iio
         except ImportError as exc:
@@ -374,7 +433,7 @@ def write_array(file_path, array):
         tifffile.imwrite(str(path), np.asarray(array))
         return
 
-    if suffix in SUPPORTED_EXTENSIONS:
+    if suffix in ARRAY_EXTENSIONS:
         try:
             import imageio.v3 as iio
         except ImportError as exc:
@@ -563,6 +622,16 @@ def read_array_shape(file_path) -> tuple[int, ...]:
     return tuple(read_array(file_path).shape)
 
 
+def _warn_old_matcher(name: str) -> None:
+    warnings.warn(
+        f"{name} is CellPatcher's former image/mask matching, no longer used by CellPatcher and to be "
+        "removed: images and masks are paired with the preprocessing brick's rule (cellpatcher.io.pair_masks, "
+        "issue #45).",
+        DeprecationWarning,
+        stacklevel=3,
+    )
+
+
 def find_candidate_matches(
     image_files,
     mask_files,
@@ -581,7 +650,11 @@ def find_candidate_matches(
     Note:
         ``substring`` can false-match names such as ``img1`` and ``img10_mask``.
         Prefer ``exact_or_suffix`` for most datasets.
+
+    Deprecated: CellPatcher no longer pairs with this function; it uses the
+    preprocessing brick's pairing (:func:`pair_masks`, issue #45).
     """
+    _warn_old_matcher("find_candidate_matches")
     if strategy not in {"exact", "exact_or_suffix", "substring"}:
         raise ValueError("strategy must be one of: 'exact', 'exact_or_suffix', 'substring'.")
     if not isinstance(mask_suffixes, (tuple, list)) or not all(isinstance(value, str) for value in mask_suffixes):
@@ -623,10 +696,11 @@ def filter_shared_matches(candidate_matches) -> dict[Path, list[Path]]:
     also has at least one exclusive (image-unique) candidate. This pruning is
     repeated until stable.
 
-    Kept for callers that use it directly. :func:`validate_image_and_mask_folders`
-    no longer applies it: it refuses every ambiguous pairing instead of
-    resolving it by this heuristic (issue #45).
+    Deprecated, kept for callers that use it directly. CellPatcher no longer
+    applies it: it pairs with the preprocessing brick's rule
+    (:func:`pair_masks`), which refuses every ambiguous pairing (issue #45).
     """
+    _warn_old_matcher("filter_shared_matches")
     filtered = {img: list(matches) for img, matches in candidate_matches.items()}
 
     # Iterate to a fixed point: dropping a shared mask from one image can
@@ -674,7 +748,11 @@ def select_requested_masks(mask_files, *, strategy, mask_suffixes, case_sensitiv
     ValueError
         If *strategy* is ``"exact"`` (it uses no suffix), *mask_suffixes* is
         empty, or no mask ends with a requested suffix.
+
+    Deprecated: replaced by ``matching.mask_type`` with the preprocessing
+    brick's pairing (:func:`pair_masks`, issue #45).
     """
+    _warn_old_matcher("select_requested_masks")
     if strategy == "exact":
         raise ValueError(
             "ignore_unrequested_masks=True keeps the masks ending with one of mask_suffixes, which "
@@ -692,103 +770,354 @@ def select_requested_masks(mask_files, *, strategy, mask_suffixes, case_sensitiv
     return kept
 
 
+# The matching options CellPatcher had before it adopted the preprocessing
+# brick's pairing (issue #45), with their old defaults. They are still
+# accepted at these values (an old run_config.json holds them) but have no
+# effect; any other value is refused, because it asked for a pairing that no
+# longer exists.
+LEGACY_MATCHING_DEFAULTS = {
+    "strategy": "exact_or_suffix",
+    "mask_suffixes": ("_mask", "_labels", "_label", "_seg", "_segmentation"),
+    "case_sensitive": False,
+    "ignore_unrequested_masks": False,
+}
+
+MASK_LAYOUT_HELP = (
+    "Masks are paired with the MorphoBricks preprocessing brick's rule (its find_masks): a mask is a "
+    "TIFF file in the mask folder, either <mask type>/<image's folders>/<image name>.tif or "
+    "<image's folders>/<image name>_<mask type>.tif (for example img_01_cells.tif), where the "
+    "image's folders are its folders below the image root (none for a single image folder)."
+)
+
+
+def warn_legacy_matching_removed(where: str, stacklevel: int = 2) -> None:
+    """Emit the ``DeprecationWarning`` for a legacy matching option given at its old default."""
+    warnings.warn(
+        f"{where}: the matching options strategy, mask_suffixes, case_sensitive and "
+        "ignore_unrequested_masks no longer have any effect and will be removed; images and masks "
+        "are paired with the preprocessing brick's rule (issue #45). Use matching.mask_type to choose "
+        "the mask type.",
+        DeprecationWarning,
+        stacklevel=stacklevel + 1,
+    )
+
+
+def check_legacy_matching(where: str, **options) -> None:
+    """Refuse a legacy matching option set to anything but its old default (issue #45).
+
+    *options* maps legacy option names to the values given; None means not
+    given. The old default is accepted with a ``DeprecationWarning`` (it
+    selects nothing the new pairing does not do, and old ``run_config.json``
+    files hold it); any other value is refused with ``ValueError``, since
+    ignoring it would pair differently from what was asked.
+    """
+    given = {name: value for name, value in options.items() if value is not None}
+    if not given:
+        return
+    unknown = sorted(set(given) - set(LEGACY_MATCHING_DEFAULTS))
+    if unknown:
+        raise TypeError(f"{where}: unknown matching option(s) {unknown}.")
+    changed = {
+        name: value
+        for name, value in given.items()
+        if (tuple(value) if isinstance(value, list) else value) != LEGACY_MATCHING_DEFAULTS[name]
+    }
+    if not changed:
+        warn_legacy_matching_removed(where, stacklevel=3)
+        return
+    hint = ""
+    suffixes = given.get("mask_suffixes")
+    if isinstance(suffixes, (tuple, list)) and len(suffixes) == 1 and str(suffixes[0]).startswith("_"):
+        hint = f" For masks named <image>{suffixes[0]}.tif, set matching.mask_type={suffixes[0][1:]!r}."
+    raise ValueError(
+        f"{where}: {', '.join(f'{name}={value!r}' for name, value in sorted(changed.items()))} is no longer "
+        "supported. CellPatcher no longer pairs images and masks by its own rules (exact/suffix/substring "
+        "matching); it uses the preprocessing brick's pairing, so every brick pairs the same files (issue "
+        f"#45). {MASK_LAYOUT_HELP}{hint}"
+    )
+
+
+@dataclass(frozen=True)
+class MaskPairing:
+    """The mask of every image, from the preprocessing brick's pairing (:func:`pair_masks`).
+
+    Attributes
+    ----------
+    mask_type
+        The mask type used: its folder name, or the part of the mask's name
+        after ``<image name>_``.
+    masks
+        Each image path (as given) mapped to its mask file.
+    """
+
+    mask_type: str
+    masks: dict
+
+
+# find_masks issue codes about a mask's header (axes, shape, pixel type, planes),
+# not about which image it belongs to. They are refused for the masks of the
+# type the run uses and ignored for the other types, which are never read
+# (owner decision, preprocessing v0.3.2). CellPatcher still checks each mask
+# against its image when it reads it.
+_MASK_HEADER_CODES = frozenset(
+    {"unreadable_mask", "mask_not_2d", "mask_size_mismatch", "mask_pixel_type", "mask_planes_differ"}
+)
+_MASK_PLANES_CODE = "mask_planes_differ"
+
+# Reported per mask type; CellPatcher checks the type it uses itself.
+_MASK_MISSING_CODE = "mask_missing"
+_MASK_NOT_2D_CODE = "mask_not_2d"
+
+# What to do with a mask file that has a channel (C) axis or unnamed extra
+# axes, both refused (owner decision of 2026-10-30): no axis is guessed, and
+# common.mask_axes cannot declare a C axis for mask files. One mask type per file.
+MASK_CHANNEL_HELP = (
+    "Mask files may hold only Y and X, plus the Z/T axes their metadata names; a channel (C) axis "
+    "or an axis without a name is never guessed. Save each label channel as its own mask type, for "
+    "example <image>_cells.tif and <image>_nuclei.tif (or cells/<image>.tif and nuclei/<image>.tif), "
+    "and choose one with matching.mask_type; save a stack of Z slices or time points with its Z/T "
+    "axes named (an ImageJ hyperstack or an OME-TIFF)."
+)
+
+
+def refuse_mask_channel_axis(mask_axes) -> None:
+    """Refuse ``common.mask_axes`` with a C axis for masks read from a mask folder.
+
+    The preprocessing brick's ``find_masks`` refuses mask files with a channel
+    axis (``mask_not_2d``), so a C in *mask_axes* could only re-read a Z or T
+    axis the mask's metadata names, or an axis it does not name, as channels:
+    a guessed axis. Refused, never overridden (owner decision of 2026-10-30).
+    """
+    if mask_axes is not None and "C" in normalize_axes(mask_axes):
+        raise ValueError(
+            f"common.mask_axes={mask_axes!r} has a channel (C) axis, which mask files from a mask folder "
+            f"cannot have; it would read the mask's other axes as label channels. {MASK_CHANNEL_HELP} "
+            "Then set common.mask_axes to the mask's own axes (for example 'YX' or 'ZYX')."
+        )
+
+
+def source_relative_path(image_path, experiment_root) -> str:
+    """Path of *image_path* relative to *experiment_root*, with ``/`` separators.
+
+    Built from where the image sits in the folder tree, so it matches the
+    preprocessing brick's ``source_relative_path`` (``control/img.tif`` for an
+    image directly in ``control/``). Like the brick, which walks the tree
+    following links, a linked image or folder keeps its path under the root
+    (the link's, not its target's). A path that is not under the root as
+    written is compared by real locations.
+    """
+    root = Path(experiment_root).expanduser()
+    image = Path(image_path).expanduser()
+    try:
+        # Discovery builds every image path from the root, so this holds for
+        # folder and tree runs; resolving would follow links out of the tree.
+        return image.absolute().relative_to(root.absolute()).as_posix()
+    except ValueError:  # e.g. the same folder written through a link
+        pass
+    try:
+        return image.resolve().relative_to(root.resolve()).as_posix()
+    except ValueError as exc:
+        raise ValueError(f"Image '{image_path}' is not inside the experiment root '{root}'.") from exc
+
+
+def _discovery_of(experiment_root, relative_paths):
+    """The preprocessing ``DiscoveryResult`` of images CellPatcher has already discovered.
+
+    One leaf per image folder, holding its images' relative paths. The labels
+    are the folder names, ``single`` for missing levels; ``find_masks`` reads
+    only the folders and image names.
+    """
+    # SINGLE lives in the normalization brick (preprocessing v0.3.2 deprecates its re-export).
+    from morphobricks_normalization.records import SINGLE
+    from morphobricks_preprocessing import DiscoveryResult, LeafFolder
+
+    by_folder: dict[str, list[str]] = {}
+    for relative in relative_paths:
+        folder = relative.rsplit("/", 1)[0] if "/" in relative else "."
+        by_folder.setdefault(folder, []).append(relative)
+    leaves = []
+    for folder, images in sorted(by_folder.items()):
+        names = () if folder == "." else tuple(folder.split("/"))
+        labels = (names + (SINGLE,) * 3)[:3]
+        leaves.append(LeafFolder(folder, *labels, tuple(sorted(images))))
+    return DiscoveryResult(root=Path(experiment_root).expanduser().resolve(), leaves=tuple(leaves))
+
+
+def _issue_text(issue) -> str:
+    paths = list(issue.paths)
+    listed = f" ({', '.join(paths[:10])}{', ...' if len(paths) > 10 else ''})" if paths else ""
+    action = f" {issue.action.rstrip('.')}" if issue.action else ""
+    return f"[{issue.code}] {issue.message.rstrip('.')}{listed}.{action}"
+
+
+def pair_masks(experiment_root, image_files, mask_folder_path, *, mask_type=None) -> MaskPairing:
+    """Pair every image with its mask using the preprocessing brick's pairing, or raise.
+
+    CellPatcher does not pair images and masks itself: the mask folder is
+    read by ``morphobricks_preprocessing.find_masks`` (decision of
+    2026-10-30, issue #45), so CellPatcher, the preprocessing brick and the
+    bricks that use its discovery pair the same files. A mask is a TIFF file
+    named ``<mask type>/<image's folders>/<image name>.tif`` or
+    ``<image's folders>/<image name>_<mask type>.tif``, where the image's
+    folders are its path below *experiment_root* and the image name is its
+    ``position_id`` (D85); names are compared ignoring case.
+
+    Refused, never resolved by a guess:
+
+    - every problem ``find_masks`` reports about the pairing, including a
+      mask that could belong to two images or two types (``ambiguous_mask``),
+      a file in the mask folder that pairs with no image
+      (``mask_without_image``, ``mask_outside_type_folder``: never silently
+      left out) and a mask folder inside the image root;
+    - several mask types when *mask_type* is None, and a *mask_type* that was
+      not found;
+    - an image without a mask of the type used.
+
+    - a header problem ``find_masks`` reports about a mask of the type used
+      (``_MASK_HEADER_CODES``: ``unreadable_mask``, ``mask_not_2d``,
+      ``mask_size_mismatch``, ``mask_pixel_type``; ``mask_planes_differ``
+      between masks of the type used). The same problems of masks of other
+      types are ignored: those masks are never read.
+
+    Each mask is also checked against its image when it is read.
+
+    Parameters
+    ----------
+    experiment_root
+        The folder the images' paths are relative to: the image folder of a
+        folder run, the image root of a tree run.
+    image_files
+        The images to pair, all under *experiment_root*.
+    mask_folder_path
+        The mask folder, mirroring *experiment_root*'s folders; it may not be
+        inside *experiment_root*.
+    mask_type
+        The mask type to use (``config.matching.mask_type``), or None when the
+        mask folder holds exactly one type.
+    """
+    from morphobricks_preprocessing import find_masks
+    from morphobricks_preprocessing.metadata import inspect_images
+
+    if mask_type is not None and (not isinstance(mask_type, str) or not mask_type.strip()):
+        raise ValueError(f"mask_type must be None or a non-empty name; got {mask_type!r}.")
+    image_files = [Path(image) for image in image_files]
+    relative = {image: source_relative_path(image, experiment_root) for image in image_files}
+    discovery = _discovery_of(experiment_root, relative.values())
+    # The images' headers give the Y and X sizes each mask's header is checked against.
+    images = inspect_images(Path(experiment_root).expanduser(), list(relative.values())).files
+    inventory = find_masks(Path(mask_folder_path).expanduser(), discovery, images, ome_zarr_labels=False)
+
+    problems = [
+        _issue_text(issue)
+        for issue in inventory.issues
+        if issue.code not in _MASK_HEADER_CODES and issue.code != _MASK_MISSING_CODE
+    ]
+    if problems:
+        raise ValueError(f"Images and masks cannot be paired: {'; '.join(problems)}. {MASK_LAYOUT_HELP}")
+    types = inventory.types
+    if not types:
+        raise ValueError(f"No mask in '{mask_folder_path}' pairs with an image. {MASK_LAYOUT_HELP}")
+    if mask_type is None:
+        if len(types) > 1:
+            raise ValueError(
+                f"The mask folder holds {len(types)} mask types ({', '.join(types)}); set "
+                "matching.mask_type (or mask_type=) to the one to use. A type is never chosen for you."
+            )
+        mask_type = types[0]
+    elif mask_type not in types:
+        raise ValueError(
+            f"No mask of type {mask_type!r} pairs with an image; the mask folder holds the types "
+            f"{', '.join(types)} (names are compared exactly). {MASK_LAYOUT_HELP}"
+        )
+    _refuse_header_problems(inventory, mask_type)
+    by_image = {f.image: f for f in inventory.files if f.mask_type == mask_type}
+    missing = [relative[image] for image in image_files if relative[image] not in by_image]
+    if missing:
+        raise ValueError(
+            f"Images with no {mask_type!r} mask: {', '.join(missing[:10])}"
+            f"{', ...' if len(missing) > 10 else ''} ({len(missing)} of {len(image_files)}). {MASK_LAYOUT_HELP}"
+        )
+    folder = Path(mask_folder_path).expanduser()
+    return MaskPairing(mask_type, {image: folder / by_image[relative[image]].path for image in image_files})
+
+
+def _refuse_header_problems(inventory, mask_type: str) -> None:
+    """Refuse the header problems ``find_masks`` reports about masks of *mask_type*, the type used.
+
+    Its ``mask_planes_differ`` compares every mask of an image, whatever its
+    type; it is recomputed between the masks of *mask_type* only, so a mask
+    type the run does not use never blocks it.
+    """
+    used = [f for f in inventory.files if f.mask_type == mask_type]
+    used_paths = {f.path for f in used}
+    problems = []
+    for issue in inventory.issues:
+        if issue.code not in _MASK_HEADER_CODES or issue.code == _MASK_PLANES_CODE:
+            continue
+        paths = sorted(path for path in issue.paths if path in used_paths)
+        if paths:
+            text = f"[{issue.code}] {issue.message.rstrip('.')} ({', '.join(paths[:10])}). {issue.action}"
+            if issue.code == _MASK_NOT_2D_CODE:
+                text = f"{text.rstrip()} {MASK_CHANNEL_HELP}"
+            problems.append(text)
+    by_image: dict[str, list] = {}
+    for mask in used:
+        if mask.axes:
+            by_image.setdefault(mask.image, []).append(mask)
+    differ = sorted(
+        mask.path
+        for masks in by_image.values()
+        if len({tuple(m.planes.items()) for m in masks}) > 1
+        for mask in masks
+    )
+    if differ:
+        planes = next(issue for issue in inventory.issues if issue.code == _MASK_PLANES_CODE)
+        problems.append(f"[{_MASK_PLANES_CODE}] {planes.message.rstrip('.')} ({', '.join(differ[:10])}). {planes.action}")
+    if problems:
+        raise ValueError(f"The {mask_type!r} masks cannot be used: {'; '.join(problems)}")
+
+
 def validate_image_and_mask_folders(
     image_folder_path,
     mask_folder_path,
     *,
-    strategy="exact_or_suffix",
-    mask_suffixes=("_mask", "_labels", "_label", "_seg", "_segmentation"),
-    case_sensitive=False,
-    ignore_unrequested_masks=False,
+    mask_type=None,
+    strategy=None,
+    mask_suffixes=None,
+    case_sensitive=None,
+    ignore_unrequested_masks=None,
 ) -> dict[Path, Path]:
-    """Match every image to exactly one mask by file name, or raise listing every problem.
+    """Pair every image of a folder with exactly one mask, or raise listing every problem.
 
-    The pairing must be one to one among the candidates: an image with
-    several candidate masks, or a mask that is a candidate of several images,
-    is refused rather than resolved by a heuristic.
+    The pairing is the preprocessing brick's (:func:`pair_masks`, issue #45):
+    masks are TIFF files named ``<image name>_<mask type>.tif`` or
+    ``<mask type>/<image name>.tif`` in *mask_folder_path*. With several mask
+    types in the folder, *mask_type* says which to use.
 
-    With *ignore_unrequested_masks* (default False), masks whose stem ends in
-    none of *mask_suffixes* are left out before matching
-    (:func:`select_requested_masks`), so a folder holding several masks per
-    image (``_cells``, ``_nuclei``, ...) can be used with
-    ``mask_suffixes=("_cells",)``. Without it, every mask in the folder must
-    match an image.
+    *strategy*, *mask_suffixes*, *case_sensitive* and
+    *ignore_unrequested_masks* are the former matching options: accepted
+    only at their old defaults (with a ``DeprecationWarning``), refused
+    otherwise (:func:`check_legacy_matching`).
 
     Returns
     -------
     dict
         Each image path mapped to its mask path.
     """
-    if not isinstance(ignore_unrequested_masks, bool):
-        raise ValueError("ignore_unrequested_masks must be a bool.")
-    image_files = list_supported_files(image_folder_path)
-    mask_files = list_supported_files(mask_folder_path)
-    if len(image_files) == 0:
-        raise ValueError("No supported image files found in image folder.")
-    if len(mask_files) == 0:
-        raise ValueError("No supported mask files found in mask folder.")
-    if ignore_unrequested_masks:
-        mask_files = select_requested_masks(
-            mask_files, strategy=strategy, mask_suffixes=mask_suffixes, case_sensitive=case_sensitive
-        )
-
-    candidate = find_candidate_matches(
-        image_files,
-        mask_files,
+    check_legacy_matching(
+        "validate_image_and_mask_folders",
         strategy=strategy,
         mask_suffixes=mask_suffixes,
         case_sensitive=case_sensitive,
+        ignore_unrequested_masks=ignore_unrequested_masks,
     )
-
-    # Only a one-to-one pairing is accepted: an image with zero or several
-    # candidate masks, or a mask that is a candidate of several images
-    # (img1 and img10 both matching img10_mask under "substring"), is
-    # refused, never resolved by a heuristic such as filter_shared_matches
-    # (issue #45): the wrong pairing would give one image another's objects.
-    no_match = [img for img, matches in candidate.items() if len(matches) == 0]
-    ambiguous = [img for img, matches in candidate.items() if len(matches) > 1]
-
-    mask_to_images = {}
-    for img, matches in candidate.items():
-        for mask in matches:
-            mask_to_images.setdefault(mask, []).append(img)
-    shared_masks = [mask for mask, imgs in mask_to_images.items() if len(imgs) > 1]
-
-    selected = {
-        img: matches[0]
-        for img, matches in candidate.items()
-        if len(matches) == 1 and len(mask_to_images[matches[0]]) == 1
-    }
-    unmatched_masks = [mask for mask in mask_files if mask not in mask_to_images]
-
-    errors = []
-    if no_match:
-        errors.append("Images with no mask match: " + ", ".join(p.name for p in no_match[:10]))
-    if ambiguous:
-        errors.append("Images with multiple mask matches: " + ", ".join(p.name for p in ambiguous[:10]))
-    if shared_masks:
-        errors.append(
-            "Masks linked to multiple images: "
-            + ", ".join(
-                f"{mask.name} ({', '.join(img.name for img in mask_to_images[mask])})" for mask in shared_masks[:10]
-            )
-        )
-    if unmatched_masks:
-        message = "Masks with no matching image: " + ", ".join(p.name for p in unmatched_masks[:10])
-        other_suffix = [mask for mask in unmatched_masks if not _ends_with_suffix(mask, mask_suffixes, case_sensitive)]
-        if other_suffix and strategy != "exact":
-            # Typically the other masks of each image (_nuclei beside _cells).
-            message += (
-                f" ({len(other_suffix)} of them end in none of mask_suffixes {tuple(mask_suffixes)}; to leave "
-                "such masks out before matching, set ignore_unrequested_masks=True "
-                "(config.matching.ignore_unrequested_masks))"
-            )
-        errors.append(message)
-
-    if errors:
-        raise ValueError("; ".join(errors))
-
-    return selected
+    mask_folder = Path(mask_folder_path).expanduser()
+    if not mask_folder.is_dir():
+        raise ValueError(f"Folder does not exist or is not a directory: {mask_folder}")
+    image_files = discover_folder_images(image_folder_path, mask_folder_path=mask_folder)
+    if len(image_files) == 0:
+        raise ValueError("No supported image files found in image folder.")
+    return pair_masks(image_folder_path, image_files, mask_folder_path, mask_type=mask_type).masks
 
 
 def run_patching_from_folders(

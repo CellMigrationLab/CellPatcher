@@ -100,7 +100,7 @@ memory limit is an error, even if the preprocessing brick read it in blocks.
 
 | Value | Masks | Matching |
 |---|---|---|
-| `"tiff_tree"` (default) | TIFF files in a separate tree mirroring the image tree (`masks/<condition>/<biological_repeat>[/<technical_repeat>]/`), as today | By file name with `config.matching`; works for TIFF and OME-Zarr images |
+| `"tiff_tree"` (default) | TIFF files in a separate tree mirroring the image tree (`masks/<condition>/<biological_repeat>[/<technical_repeat>]/`), as today | The preprocessing brick's pairing (`find_masks`; `config.matching.mask_type`, issue #45); works for TIFF and OME-Zarr images |
 | `"ngff_labels"` | Label images inside the image's own `.ome.zarr`, in its `labels/` group (OME-NGFF 0.4 and 0.5) | By name: `common.mask_label_name` |
 
 Rules for `"ngff_labels"`:

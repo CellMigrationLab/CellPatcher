@@ -99,6 +99,17 @@ def object_set_from_mask_file(image_file, mask_file) -> str | None:
     return rest or None
 
 
+def object_set_from_mask_type(mask_type) -> str | None:
+    """The object-set name of a mask type from the preprocessing pairing, or None for an empty one.
+
+    The type is the mask's folder or the part of its name after
+    ``<image name>_`` (``img_cells.tif`` -> ``"cells"``), with any other
+    character than letters, digits, ``.``, ``_`` and ``-`` replaced by ``_``,
+    exactly as :func:`object_set_from_mask_file` treats the end of a name.
+    """
+    return re.sub(r"[^A-Za-z0-9._-]", "_", str(mask_type)).strip("_") or None
+
+
 def object_set_from_label_path(mask_file) -> str:
     """The label image name of an OME-NGFF mask ``<image>/labels/<name>`` (``io.read_ngff_mask``)."""
     name = str(mask_file).rsplit("/", 1)[-1]

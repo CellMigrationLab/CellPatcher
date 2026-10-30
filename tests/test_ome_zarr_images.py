@@ -66,15 +66,18 @@ def test_a_store_next_to_subfolders_is_a_mixed_folder(tmp_path):
     root = tmp_path / "experiment"
     _fake_store(root / "control" / "a.ome.zarr")
     (root / "control" / "bio1").mkdir()
-    with pytest.raises(ValueError, match="mixes image files"):
+    with pytest.raises(ValueError, match=r"\[tiff_outside_leaf\].*control/a.ome.zarr"):
         discover_condition_repeat_folders(root)
 
 
+@needs_zarr
 def test_store_stems_match_tiff_masks(tmp_path):
     assert image_stem("img.ome.zarr") == "img"
     assert image_stem("IMG.ZARR") == "IMG"
     assert image_stem("img.tif") == "img"
-    _fake_store(tmp_path / "images" / "a.ome.zarr")
+    # A real store: the mask's header is checked against the image's Y and X sizes
+    # (find_masks' mask_size_mismatch, refused for the mask type used).
+    write_ngff(tmp_path / "images" / "a.ome.zarr", np.zeros((4, 4), dtype=np.uint16), "yx")
     write_array(tmp_path / "masks" / "a_mask.tif", np.zeros((4, 4), dtype=np.uint8))
     selected = validate_image_and_mask_folders(tmp_path / "images", tmp_path / "masks")
     assert {k.name: v.name for k, v in selected.items()} == {"a.ome.zarr": "a_mask.tif"}
