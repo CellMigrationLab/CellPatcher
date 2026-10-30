@@ -458,6 +458,17 @@ def test_in_memory_runs_need_source_relative_path_for_csv_scopes(experiment):
     assert {p.normalization_group for p in result.patches} == {"control/bio1/a.tif"}
 
 
+def test_a_position_id_other_than_the_tables_is_refused(experiment):
+    # Issue #46: the FOV key of a plane must be its row's (D85), like its labels.
+    _, stacks, csv_path = experiment
+    stack = stacks["control/bio1/a.tif"]
+    config = _config(csv_path)
+    config.common.condition, config.common.biological_repeat = "control", "bio1"
+    metadata = [{"source_relative_path": "control/bio1/a.tif", "position_id": "OTHER_FOV"}]
+    with pytest.raises(PreprocessingCheckError, match="another position_id"):
+        run_patching(images=stack, config=config, image_metadata=metadata)
+
+
 def test_warnings_explain_the_scope(experiment):
     root, _, csv_path = experiment
 
@@ -804,6 +815,50 @@ def test_raw_patches_of_a_removed_scope_still_normalize_on_load(experiment, tmp_
     assert len(loaded) == len(delivered)
     for row, array in loaded:
         np.testing.assert_array_equal(array, delivered[row["patch_id"]])
+
+
+def _messages(run):
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        run()
+    return " ".join(str(w.message) for w in caught)
+
+
+def test_csv_scopes_warn_when_the_inputs_cannot_be_checked(experiment):
+    # Issue #46: without run_manifest.json, the table, size/time and axis checks
+    # are skipped; at the biological_repeat scope a design change goes unseen.
+    root, _, csv_path = experiment
+    with_manifest = _messages(lambda: run_patching_condition_repeat_tree(
+        root, config=_config(csv_path, scope="biological_repeat")
+    ))
+    assert "No run_manifest.json" not in with_manifest
+    assert "experiment_design_sha256" not in with_manifest
+
+    alone = csv_path.parent.parent / "alone"
+    alone.mkdir()
+    for name in (csv_path.name, "experiment_design.csv"):
+        (alone / name).write_bytes((csv_path.parent / name).read_bytes())
+    image_scope = _messages(lambda: run_patching_condition_repeat_tree(root, config=_config(alone / csv_path.name)))
+    assert "No run_manifest.json was found" in image_scope
+    assert "experiment_design_sha256" not in image_scope
+    repeat_scope = _messages(lambda: run_patching_condition_repeat_tree(
+        root, config=_config(alone / csv_path.name, scope="biological_repeat")
+    ))
+    assert "No run_manifest.json was found" in repeat_scope
+    assert "records no experiment_design_sha256 (there is no manifest)" in repeat_scope
+
+
+def test_a_manifest_without_the_design_hash_warns_at_the_repeat_scope(experiment):
+    root, _, csv_path = experiment
+    manifest_path = csv_path.parent / "run_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest.pop("experiment_design_sha256")
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    messages = _messages(lambda: run_patching_condition_repeat_tree(
+        root, config=_config(csv_path, scope="biological_repeat")
+    ))
+    assert "The run manifest records no experiment_design_sha256, so a change" in messages
+    assert "No run_manifest.json" not in messages
 
 
 def _two_object_binary_mask():

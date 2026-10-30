@@ -215,6 +215,36 @@ def load_experiment_design(settings, statistics: PlaneStatistics) -> ExperimentD
     return ExperimentDesignInput(path, sha256, design.repeat_groups())
 
 
+def _warn_unchecked_inputs(settings, statistics: PlaneStatistics) -> None:
+    """Warn when a CSV-scope run cannot check its inputs against the preprocessing run (issue #46).
+
+    Without ``run_manifest.json`` the table's SHA-256 and each image's size,
+    modification time and axes are not checked. At the ``biological_repeat``
+    scope, a manifest that records no ``experiment_design_sha256`` (or no
+    manifest) cannot tell whether ``experiment_design.csv`` changed since the
+    statistics were written.
+    """
+    manifest = statistics.manifest
+    if manifest is None:
+        warnings.warn(
+            f"No run_manifest.json was found for {statistics.plane_histograms.name}, so CellPatcher cannot check "
+            "that the table, and each image's size, modification time and axes, are the ones of the preprocessing "
+            "run. Give the run_manifest.json written next to it (normalization.manifest) for these checks.",
+            NormalizationWarning,
+            stacklevel=3,
+        )
+    if settings.scope == "biological_repeat" and getattr(manifest, "experiment_design_sha256", None) is None:
+        warnings.warn(
+            "The run manifest records no experiment_design_sha256"
+            + (" (there is no manifest)" if manifest is None else "")
+            + ", so a change to experiment_design.csv since the preprocessing run cannot be detected: the "
+            "biological repeats are pooled as the file pairs them now. Run the preprocessing brick again to "
+            "record it.",
+            NormalizationWarning,
+            stacklevel=3,
+        )
+
+
 def check_image_type(settings, statistics: PlaneStatistics) -> None:
     """Refuse an ``image_type`` that differs from the one the preprocessing manifest records (N34).
 
@@ -522,6 +552,7 @@ class Normalizer:
                 NormalizationWarning,
                 stacklevel=2,
             )
+            _warn_unchecked_inputs(settings, statistics)
             if settings.scope == "biological_repeat":
                 repeat_groups = load_experiment_design(settings, statistics).repeat_groups
         mbn = require_normalization()
@@ -624,7 +655,7 @@ class Normalizer:
                 c = channel if has_channels else meta.get("c")
                 plane = SourcePlane(
                     meta["source_relative_path"], *labels[index], z=meta.get("z"), c=c, t=meta.get("t"),
-                    axis_lengths=None,
+                    axis_lengths=None, position_id=meta.get("position_id"),
                 )
                 keys.append((index, channel))
                 planes.append((plane, pixels))

@@ -171,6 +171,7 @@ planes and what to do:
 | *... image(s) found by CellPatcher have no rows in plane_histograms.csv* | Images were excluded or skipped by the preprocessing brick, or added after it ran. Run the preprocessing again on the same folder, remove those images, or use the patch scope. |
 | *... changed after the preprocessing brick read them* / *... the images changed after the preprocessing run* | An image's size, time or pixel values differ from the statistics. Run the preprocessing again. |
 | *... other condition, biological repeat or technical repeat labels* | CellPatcher and the preprocessing read different folder levels: give both the same experiment folder. |
+| *... another position_id than their rows* | A `position_id` given in `image_metadata` is not the one the preprocessing recorded (the image name). Leave it to the image name, or give the recorded one. |
 | *... another role than the axis mapping confirmed in the preprocessing brick* | `common.image_axes` differs from the axes confirmed in the preprocessing notebook. |
 | *Normalization needs one plane per patch* | Set `z_policy`/`t_policy` to `"all"`, `"first"` or `"select"`. |
 | *... cannot be computed for N group(s)* | A group has no finite pixels or no intensity spread: choose a larger scope or another method. |
@@ -179,7 +180,10 @@ planes and what to do:
 
 Warnings (the run continues): parameters that are approximations, background in group
 statistics, the `biological_repeat` scope (what it keeps and removes), repeat groups without
-images from some condition, and patches discarded for having no intensity spread.
+images from some condition, patches discarded for having no intensity spread, a CSV scope
+without `run_manifest.json` (the table, size, time and axis checks are skipped), and the
+`biological_repeat` scope when the manifest records no `experiment_design_sha256` (a changed
+`experiment_design.csv` cannot be detected).
 
 The exact rules are in the [normalization contract](normalization_contract.md); the reasons
 behind them are in the [plan](plan.md).

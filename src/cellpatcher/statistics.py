@@ -146,6 +146,9 @@ class SourcePlane:
         axis left out has length 1. None when the lengths are not known (for
         a plane already split from its image): the coordinates are then
         taken as given, None as 0.
+    position_id
+        CellPatcher's ``position_id`` for the image, compared with the row's
+        by :func:`check_planes`; None when not known (not compared).
 
     Raises
     ------
@@ -163,6 +166,7 @@ class SourcePlane:
     c: int | None = None
     t: int | None = None
     axis_lengths: Mapping[str, int] | None = field(default_factory=dict)
+    position_id: str | None = None
 
     def __post_init__(self) -> None:
         # A missing label is "single", as everywhere else in CellPatcher.
@@ -545,7 +549,8 @@ def check_planes(
     """Link each patched plane to its row and run the per-plane checks of contract §5.
 
     For every plane, a row with its ``plane_id`` holding its channel must exist, with the same
-    ``condition``, ``biological_repeat`` and ``technical_repeat``, the same
+    ``condition``, ``biological_repeat`` and ``technical_repeat`` (and ``position_id``, when both the
+    plane and the row have one), the same
     ``dtype`` and ``total_pixel_count`` (Y × X), and the plane's exact finite
     minimum, maximum and finite pixel count equal to ``pixel_min``,
     ``pixel_max`` and ``valid_pixel_count``. Run :func:`check_images` first:
@@ -592,6 +597,14 @@ def check_planes(
             failures["label_mismatch"].append(
                 f"{plane.name} (CellPatcher {_labels_text(plane.labels)}, "
                 f"table {_labels_text(record_labels)})"
+            )
+        # The FOV key (D85) must be the table's too. A row written before the
+        # preprocessing brick filled position_id has none, and a plane given
+        # without one is not compared: neither is guessed.
+        record_position = record.record.position_id
+        if plane.position_id is not None and record_position is not None and plane.position_id != record_position:
+            failures["position_mismatch"].append(
+                f"{plane.name} (CellPatcher {plane.position_id!r}, table {record_position!r})"
             )
         if pixels.dtype.name != histogram.dtype.name:
             failures["dtype_mismatch"].append(
@@ -726,6 +739,13 @@ def _plane_issues(csv_name: str, failures: Mapping[str, list[str]]) -> list[Vali
             "in {csv}.",
             "Give CellPatcher the experiment root that was given to the preprocessing brick, so "
             "both read the same folder levels.",
+        ),
+        "position_mismatch": (
+            "{have} another position_id than their rows in {csv}.",
+            (
+                "Leave position_id to the image name, as the preprocessing brick names it, or give the "
+                "position_id its rows record."
+            ),
         ),
         "dtype_mismatch": ("{have} another pixel type than their rows in {csv}.", _RERUN_ACTION),
         "pixel_count_mismatch": ("{have} another size (Y × X) than their rows in {csv}.", _RERUN_ACTION),
