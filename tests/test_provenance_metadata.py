@@ -159,7 +159,7 @@ def test_run_patching_pipeline_stamps_image_and_mask_file_before_export(tmp_path
     mask_dir = tmp_path / "masks"
     img_dir.mkdir()
     mask_dir.mkdir()
-    write_array(img_dir / "sample001.npy", image)
+    write_array(img_dir / "sample001.tif", image)
     write_array(mask_dir / "sample001_mask.tif", labels)
 
     cfg = CellPatcherConfig(mode="cell")
@@ -172,7 +172,7 @@ def test_run_patching_pipeline_stamps_image_and_mask_file_before_export(tmp_path
     result = run_patching_pipeline(str(img_dir), mask_folder_path=str(mask_dir), config=cfg)
     assert len(result.patches) > 0
     for patch in result.patches:
-        assert patch.image_file == "sample001.npy"
+        assert patch.image_file == "sample001.tif"
         assert patch.mask_file == "sample001_mask.tif"
 
     # The CSV on disk must already carry these values (not just the in-memory
@@ -180,19 +180,19 @@ def test_run_patching_pipeline_stamps_image_and_mask_file_before_export(tmp_path
     # threading image_metadata into run_patching instead of stamping after.
     with (tmp_path / "out" / "patches.csv").open("r", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
-    assert all(row["image_file"] == "sample001.npy" for row in rows)
+    assert all(row["image_file"] == "sample001.tif" for row in rows)
     assert all(row["mask_file"] == "sample001_mask.tif" for row in rows)
 
 
 def test_run_patching_pipeline_grid_mode_stamps_image_file_only(tmp_path):
     img_dir = tmp_path / "images"
     img_dir.mkdir()
-    write_array(img_dir / "tile_source.npy", np.ones((16, 16), dtype=np.float32))
+    write_array(img_dir / "tile_source.tif", np.ones((16, 16), dtype=np.float32))
 
     cfg = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=8))
     result = run_patching_pipeline(str(img_dir), config=cfg)
     assert len(result.patches) > 0
-    assert all(p.image_file == "tile_source.npy" for p in result.patches)
+    assert all(p.image_file == "tile_source.tif" for p in result.patches)
     assert all(p.mask_file is None for p in result.patches)
 
 

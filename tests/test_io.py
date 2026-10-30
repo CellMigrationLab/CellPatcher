@@ -14,11 +14,21 @@ from cellpatcher.io import (
 
 
 def test_list_supported_files_sorted_and_filtered(tmp_path):
-    (tmp_path / "b.npy").write_bytes(b"x")
+    (tmp_path / "b.TIFF").write_bytes(b"x")
     (tmp_path / "a.tif").write_bytes(b"x")
     (tmp_path / "c.txt").write_text("x")
     files = list_supported_files(tmp_path)
-    assert [p.name for p in files] == ["a.tif", "b.npy"]
+    assert [p.name for p in files] == ["a.tif", "b.TIFF"]
+
+
+def test_list_supported_files_refuses_the_image_formats_no_longer_read(tmp_path):
+    # Owner decision of 2026-10-30 (#45): images are TIFF or OME-Zarr, as the preprocessing
+    # brick discovers them. The former formats are refused by name, never skipped.
+    (tmp_path / "a.tif").write_bytes(b"x")
+    (tmp_path / "b.npy").write_bytes(b"x")
+    (tmp_path / "c.PNG").write_bytes(b"x")
+    with pytest.raises(ValueError, match=r"2 image\(s\) in a format CellPatcher no longer reads: b.npy, c.PNG"):
+        list_supported_files(tmp_path)
 
 
 def test_list_supported_files_rejects_missing_folder(tmp_path):
@@ -152,7 +162,7 @@ def test_validate_image_and_mask_folders_empty_mask_folder_raises(tmp_path):
     mask_dir = tmp_path / "masks"
     img_dir.mkdir()
     mask_dir.mkdir()
-    (img_dir / "a.npy").write_bytes(b"x")
+    (img_dir / "a.tif").write_bytes(b"x")
     with pytest.raises(ValueError, match="No mask in .* pairs with an image"):
         validate_image_and_mask_folders(img_dir, mask_dir)
 
@@ -204,7 +214,7 @@ from cellpatcher.io import run_patching_from_folders
 def test_run_patching_from_folders_grid_mode(tmp_path):
     img_dir = tmp_path / "images"
     img_dir.mkdir()
-    write_array(img_dir / "a.npy", np.arange(64).reshape(8, 8))
+    write_array(img_dir / "a.tif", np.arange(64).reshape(8, 8))
 
     config = CellPatcherConfig(mode="grid")
     config.grid.tile_size = 4
@@ -223,7 +233,7 @@ def test_run_patching_from_folders_cell_mode(tmp_path):
     labels = np.zeros((16, 16), dtype=np.int32)
     labels[4:12, 5:13] = 1
 
-    write_array(img_dir / "sample.npy", image)
+    write_array(img_dir / "sample.tif", image)
     write_array(mask_dir / "sample_mask.tif", labels)
 
     config = CellPatcherConfig(mode="cell")
@@ -236,7 +246,7 @@ def test_run_patching_from_folders_cell_mode(tmp_path):
 def test_run_patching_from_folders_cell_requires_mask_folder(tmp_path):
     img_dir = tmp_path / "images"
     img_dir.mkdir()
-    write_array(img_dir / "a.npy", np.zeros((8, 8), dtype=np.float32))
+    write_array(img_dir / "a.tif", np.zeros((8, 8), dtype=np.float32))
 
     with pytest.raises(ValueError, match="mask_folder_path"):
         run_patching_from_folders(img_dir, config=CellPatcherConfig(mode="cell"))
@@ -247,7 +257,7 @@ from cellpatcher.orchestration import load_config, run_patching_pipeline, save_d
 def test_run_patching_pipeline_alias_grid_mode(tmp_path):
     img_dir = tmp_path / "images"
     img_dir.mkdir()
-    write_array(img_dir / "a.npy", np.arange(64).reshape(8, 8))
+    write_array(img_dir / "a.tif", np.arange(64).reshape(8, 8))
 
     config = CellPatcherConfig(mode="grid")
     config.grid.tile_size = 4
@@ -261,8 +271,8 @@ def test_run_patching_pipeline_grid_raises_if_mask_folder_provided(tmp_path):
     mask_dir = tmp_path / "masks"
     img_dir.mkdir()
     mask_dir.mkdir()
-    write_array(img_dir / "a.npy", np.zeros((8, 8)))
-    write_array(mask_dir / "a_mask.npy", np.zeros((8, 8), dtype=np.int32))
+    write_array(img_dir / "a.tif", np.zeros((8, 8)))
+    write_array(mask_dir / "a_mask.tif", np.zeros((8, 8), dtype=np.int32))
 
     config = CellPatcherConfig(mode="grid")
     with pytest.raises(ValueError, match="mask_folder_path"):
@@ -275,8 +285,8 @@ def test_run_patching_pipeline_whole_fov_raises_if_mask_folder_provided(tmp_path
     mask_dir = tmp_path / "masks"
     img_dir.mkdir()
     mask_dir.mkdir()
-    write_array(img_dir / "a.npy", np.zeros((8, 8)))
-    write_array(mask_dir / "a_mask.npy", np.zeros((8, 8), dtype=np.int32))
+    write_array(img_dir / "a.tif", np.zeros((8, 8)))
+    write_array(mask_dir / "a_mask.tif", np.zeros((8, 8), dtype=np.int32))
 
     config = CellPatcherConfig(mode="whole_fov")
     with pytest.raises(ValueError, match="mask_folder_path"):
@@ -293,7 +303,7 @@ def test_run_patching_pipeline_random_mode_with_optional_mask(tmp_path):
     # mask restricts sampling to top half
     mask = np.zeros((32, 32), dtype=np.int32)
     mask[:16, :] = 1
-    write_array(img_dir / "a.npy", img)
+    write_array(img_dir / "a.tif", img)
     write_array(mask_dir / "a_mask.tif", mask)
 
     config = CellPatcherConfig(mode="random")
@@ -308,7 +318,7 @@ def test_run_patching_pipeline_random_mode_without_mask(tmp_path):
     """random mode works without a mask folder."""
     img_dir = tmp_path / "images"
     img_dir.mkdir()
-    write_array(img_dir / "a.npy", np.zeros((32, 32), dtype=np.float32))
+    write_array(img_dir / "a.tif", np.zeros((32, 32), dtype=np.float32))
 
     config = CellPatcherConfig(mode="random")
     config.random.patch_size = 4
@@ -342,7 +352,7 @@ def test_load_config_is_usable_for_patching(tmp_path):
     """A config saved and loaded must work end-to-end with run_patching_pipeline."""
     img_dir = tmp_path / "images"
     img_dir.mkdir()
-    write_array(img_dir / "a.npy", np.arange(64).reshape(8, 8))
+    write_array(img_dir / "a.tif", np.arange(64).reshape(8, 8))
 
     config_path = tmp_path / "cfg.json"
     save_default_config(config_path)
@@ -448,25 +458,49 @@ def test_a_mask_named_exactly_like_its_image_no_longer_pairs(tmp_path):
 
 
 def test_masks_that_are_not_tiff_files_are_refused_not_dropped(tmp_path):
-    # Former rule: a_mask.npy paired with a.npy. Preprocessing pairs TIFF masks only.
+    # Former rule: a_mask.npy paired with a.tif. Preprocessing pairs TIFF masks only.
     img_dir, mask_dir = tmp_path / "images", tmp_path / "masks"
     img_dir.mkdir()
     mask_dir.mkdir()
-    write_array(img_dir / "a.npy", np.zeros((4, 4), np.float32))
+    write_array(img_dir / "a.tif", np.zeros((4, 4), np.float32))
     write_array(mask_dir / "a_mask.npy", np.ones((4, 4), np.uint16))
     with pytest.raises(ValueError, match=r"\[mask_outside_type_folder\].*a_mask.npy"):
         validate_image_and_mask_folders(img_dir, mask_dir)
 
 
-def test_images_of_other_formats_pair_with_tiff_masks_by_position_id(tmp_path):
-    # Images may still be PNG/NumPy/...: an image's name is its position_id (D85),
-    # and both mask layouts may be mixed.
-    img_dir, mask_dir = _folders(tmp_path, ["a.npy", "b.png"], ["a_cells.tif", "cells/b.tif"])
-    out = validate_image_and_mask_folders(img_dir, mask_dir)
-    assert {image.name: mask.relative_to(mask_dir).as_posix() for image, mask in out.items()} == {
-        "a.npy": "a_cells.tif",
-        "b.png": "cells/b.tif",
-    }
+@pytest.mark.parametrize("name", ["b.png", "b.jpg", "b.jpeg", "b.bmp", "b.gif", "b.npy", "B.PNG"])
+def test_images_in_formats_other_than_tiff_and_ome_zarr_are_refused_by_name(tmp_path, name):
+    # Owner decision of 2026-10-30 (#45): CellPatcher finds images with the preprocessing
+    # brick's discover_experiment, which reads TIFF and OME-Zarr only. The former formats
+    # (read before as images) are refused, naming the files; never skipped. Former code:
+    # paired b.<ext> with b_cells.tif and patched it.
+    img_dir, mask_dir = _folders(tmp_path, ["a.tif"], ["a_cells.tif", "b_cells.tif"])
+    write_array(img_dir / name, np.zeros((4, 4), np.uint8))
+    refusal = rf"1 image\(s\) in a format CellPatcher no longer reads: {name}\..*TIFF files .* OME-Zarr"
+    with pytest.raises(ValueError, match=refusal):
+        validate_image_and_mask_folders(img_dir, mask_dir)
+    config = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=4))
+    with pytest.raises(ValueError, match=refusal):
+        run_patching_pipeline(img_dir, config=config)
+
+
+def test_a_folder_run_refuses_images_beside_subfolders(tmp_path):
+    # Owner decision of 2026-10-30: a folder holding images and subfolders is refused in
+    # every brick (the preprocessing brick's "tiff_outside_leaf"). Former code: a folder run
+    # patched a.tif and ignored the subfolder.
+    img_dir, mask_dir = _folders(tmp_path, ["a.tif", "more/b.tif"], ["a_cells.tif"])
+    with pytest.raises(ValueError, match=r"\[tiff_outside_leaf\].*\(a.tif\)"):
+        validate_image_and_mask_folders(img_dir, mask_dir)
+    config = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=4))
+    with pytest.raises(ValueError, match=r"\[tiff_outside_leaf\].*\(a.tif\)"):
+        run_patching_pipeline(img_dir, config=config)
+
+
+def test_a_folder_run_refuses_a_folder_of_image_subfolders(tmp_path):
+    img_dir, _ = _folders(tmp_path, ["ctrl/a.tif", "treated/b.tif"], [])
+    config = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=4))
+    with pytest.raises(ValueError, match=r"holds its images in subfolders \(ctrl, treated\).*run_patching_condition_repeat_tree"):
+        run_patching_pipeline(img_dir, config=config)
 
 
 def test_several_mask_types_need_a_choice(tmp_path):

@@ -7,7 +7,7 @@ from cellpatcher.config import CellPatcherConfig, CommonConfig, ExtractionConfig
 from cellpatcher.io import write_array
 from cellpatcher.orchestration import load_config, run_patching_condition_repeat_tree, run_patching_pipeline
 from cellpatcher.pipeline import run_patching
-from tests.helpers import named
+from tests.helpers import named, write_tiff
 
 
 def _channel_image(n_channels=3, size=16, channels_last=False):
@@ -181,8 +181,8 @@ def test_a_channel_selection_set_after_construction_is_checked_too():
 def test_a_folder_run_with_a_missing_channel_writes_nothing(tmp_path):
     folder = tmp_path / "images"
     folder.mkdir()
-    for name in ("a.npy", "b.npy"):
-        write_array(folder / name, _channel_image(n_channels=2))
+    for name in ("a.tif", "b.tif"):
+        write_tiff(folder / name, _channel_image(n_channels=2), "CYX")
     config = _grid_config(split_channels=[2])
     config.export.enabled, config.common.output_dir = True, str(tmp_path / "out")
     with pytest.raises(ValueError, match="has 2 channels"):
@@ -243,9 +243,7 @@ def test_split_channels_export_writes_one_file_and_row_per_channel(tmp_path):
 def test_split_channels_in_combined_tree_run(tmp_path):
     image_root = tmp_path / "raw_data"
     for condition in ("control", "treated"):
-        path = image_root / condition / "img0.npy"
-        path.parent.mkdir(parents=True)
-        write_array(path, _channel_image(n_channels=2))
+        write_tiff(image_root / condition / "img0.tif", _channel_image(n_channels=2), "CYX")
 
     config = _grid_config()
     config.export.enabled = True
@@ -265,7 +263,7 @@ def test_same_file_name_in_two_wells_gives_two_positions(tmp_path):
     # in two wells of one biological repeat stay two positions (decision D02).
     image_root = tmp_path / "raw_data"
     for well in ("B02", "B03"):
-        write_array(image_root / "control" / "2026_01_01" / well / "img0.npy", _channel_image(n_channels=2))
+        write_tiff(image_root / "control" / "2026_01_01" / well / "img0.tif", _channel_image(n_channels=2), "CYX")
 
     config = _grid_config()
     config.export.enabled = True

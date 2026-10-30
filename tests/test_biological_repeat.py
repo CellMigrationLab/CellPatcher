@@ -60,16 +60,16 @@ def _deprecations(records):
 def _build_tree(root):
     # treated has two dated biological repeats; control holds its images
     # directly (no biological-repeat subfolder -> "single").
-    _write_image(root / "treated" / "2026_01_01" / "a.npy")
-    _write_image(root / "treated" / "2026_02_02" / "b.npy")
-    _write_image(root / "control" / "c.npy")
+    _write_image(root / "treated" / "2026_01_01" / "a.tif")
+    _write_image(root / "treated" / "2026_02_02" / "b.tif")
+    _write_image(root / "control" / "c.tif")
 
 
 # --- new column in patches.csv ---------------------------------------------
 
 
 def test_pipeline_csv_has_biological_repeat_column_and_no_repeat_column(tmp_path):
-    _write_image(tmp_path / "images" / "a.npy")
+    _write_image(tmp_path / "images" / "a.tif")
     cfg = _export_config(tmp_path / "out")
     cfg.common.condition = "treated"
     cfg.common.biological_repeat = "2026_01_01"
@@ -131,7 +131,7 @@ def test_tree_combined_csv_has_biological_repeat_column(tmp_path):
 
 
 def test_tree_flat_root_is_single_condition_and_single_biological_repeat(tmp_path):
-    _write_image(tmp_path / "images" / "a.npy")
+    _write_image(tmp_path / "images" / "a.tif")
     cfg = _export_config(tmp_path / "out")
 
     run_patching_condition_repeat_tree(str(tmp_path / "images"), config=cfg, combine_metadata=True)
@@ -154,7 +154,7 @@ def test_single_label_constants():
 
 
 def test_config_repeat_attribute_warns_once_and_gives_identical_output(tmp_path):
-    _write_image(tmp_path / "images" / "a.npy")
+    _write_image(tmp_path / "images" / "a.tif")
 
     new_cfg = _export_config(tmp_path / "new")
     new_cfg.common.condition = "treated"
@@ -209,7 +209,7 @@ def test_apply_overrides_repeat_key_warns_once():
 
 
 def test_pipeline_overrides_repeat_key_gives_identical_csv(tmp_path):
-    _write_image(tmp_path / "images" / "a.npy")
+    _write_image(tmp_path / "images" / "a.tif")
     run_patching_pipeline(
         str(tmp_path / "images"),
         config=_export_config(tmp_path / "new"),

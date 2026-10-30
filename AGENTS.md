@@ -227,8 +227,11 @@ in notebooks where practical.
 ### Inputs this repo consumes
 
 CellPatcher reads image files, and (for `cell` mode) matching label/mask
-files, directly from user-provided folders. Images are TIFF/PNG/JPEG/BMP/GIF/
-NPY files and, with the `preprocessing` extra, OME-Zarr images: folders ending
+files, directly from user-provided folders. Images are found with the
+preprocessing brick's `discover_experiment` (`io.discover_images`; owner
+decision of 2026-10-30, issue #45): TIFF files and OME-Zarr images. PNG, JPEG,
+BMP, GIF and NumPy images are refused by name, never skipped (exported
+`.npy` patches are still written and read back). OME-Zarr images are folders ending
 in `.zarr`, read from level 0 of their only image, with their axes from the
 OME-NGFF metadata put into `common.image_axes` by role (`io.read_image`);
 discovery never enters them, and `img.ome.zarr` pairs with masks named like
@@ -267,10 +270,12 @@ Two ways to point CellPatcher at input data:
   **no condition subfolders** is likewise one implicit condition and
   biological repeat, labeled `cellpatcher.SINGLE_CONDITION_LABEL`/
   `SINGLE_BIOLOGICAL_REPEAT_LABEL` (both `"single"`), exported to
-  `<output_dir>/single/single/`. A root or condition folder that mixes
-  loose image files with subfolders is ambiguous and raises `ValueError`
-  rather than guessing, and so does a biological-repeat folder (whose
-  subfolders are technical repeats). System files and folders are
+  `<output_dir>/single/single/`. Any folder that mixes image files with
+  subfolders raises `ValueError` rather than guessing, in folder and tree
+  runs (the brick's `tiff_outside_leaf` warning is a refusal here), and so
+  does every error `discover_experiment` reports (fourth level, case
+  conflicts, `single` misuse, duplicate position ids). Empty folders are
+  left out with a `UserWarning`. System files and folders are
   ignored with the preprocessing brick's rule (`is_system_name`: dot-names such as
   `.ipynb_checkpoints` and `._img.tif`, `Thumbs.db`, `desktop.ini`, `__MACOSX`). Image/mask
   pairing must be one to one; an ambiguous pair is refused, never resolved by a heuristic.

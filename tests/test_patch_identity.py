@@ -433,7 +433,7 @@ def test_a_duplicate_position_is_refused_in_a_folder_run(tmp_path):
     write_array(tmp_path / "img.tiff", _image(1))
     config = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=8))
     config.common.z_policy = "all"
-    with pytest.raises(ValueError, match="same position_id"):
+    with pytest.raises(ValueError, match=r"\[duplicate_position_id\].*Img.tif, img.tiff"):
         run_patching_pipeline(tmp_path, config=config)
 
 
@@ -593,7 +593,7 @@ def test_colliding_positions_are_refused_before_any_read(tmp_path, monkeypatch, 
     monkeypatch.setattr(orchestration, "_mask_loaders", no_read)
     config = _cell_config()
     config.common.z_policy = planes
-    with pytest.raises(ValueError, match="same position_id"):
+    with pytest.raises(ValueError, match=r"\[duplicate_position_id\].*Img.tif, img.tiff"):
         run_patching_pipeline(images, mask_folder_path=masks, config=config)
 
 
@@ -610,7 +610,7 @@ def test_a_tree_refuses_a_later_leaf_before_reading_any_leaf(tmp_path, monkeypat
     monkeypatch.setattr(orchestration, "read_image", no_read)
     monkeypatch.setattr(orchestration, "_run_folder_patching", no_read)
     config = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=8))
-    with pytest.raises(ValueError, match="same position_id"):
+    with pytest.raises(ValueError, match=r"\[duplicate_position_id\].*ctrl/r2/Img.tif, ctrl/r2/img.tiff"):
         run_patching_condition_repeat_tree(tmp_path, config=config)
 
 

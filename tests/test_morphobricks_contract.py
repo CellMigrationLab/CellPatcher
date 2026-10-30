@@ -60,10 +60,10 @@ def _tree(tmp_path: Path) -> Path:
     root = tmp_path / "raw_data"
     image = np.ones((32, 32), dtype=np.float32)
     for well in ("B02", "B03"):
-        write_array(root / "treated" / "2026_01_01" / well / "field_001.npy", image)
-        write_array(root / "treated" / "2026_01_01" / well / "field_002.npy", image)
-    write_array(root / "control" / "2026_01_01" / "field_001.npy", image)
-    write_array(root / "mock" / "field_009.npy", image)  # no repeat level at all
+        write_array(root / "treated" / "2026_01_01" / well / "field_001.tif", image)
+        write_array(root / "treated" / "2026_01_01" / well / "field_002.tif", image)
+    write_array(root / "control" / "2026_01_01" / "field_001.tif", image)
+    write_array(root / "mock" / "field_009.tif", image)  # no repeat level at all
     return root
 
 

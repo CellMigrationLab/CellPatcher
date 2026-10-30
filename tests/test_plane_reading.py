@@ -138,11 +138,11 @@ def test_a_plane_over_the_memory_limit_is_an_error(tmp_path, monkeypatch):
 def test_without_the_extra_planes_come_from_the_whole_image(tmp_path, monkeypatch):
     monkeypatch.setitem(sys.modules, "morphobricks_preprocessing", None)
     stack = _stack((3, 16, 16))
-    np.save(tmp_path / "a.npy", stack)
+    _write_tiff(tmp_path / "a.tif", stack, "ZYX")
     config = _config("ZYX", z_policy="all")
     _same_result(
         run_patching_pipeline(tmp_path, config=config),
-        run_patching(images=stack, config=config, image_metadata=[{"image_file": "a.npy"}]),
+        run_patching(images=stack, config=config, image_metadata=[{"image_file": "a.tif"}]),
     )
 
 

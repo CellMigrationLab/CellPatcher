@@ -25,6 +25,7 @@ from cellpatcher.io import (
     SINGLE_TECHNICAL_REPEAT_LABEL,
     ConditionRepeatFolder,
     discover_condition_repeat_folders,
+    discover_folder_images,
     list_supported_files,
     is_ome_zarr,
     read_image,
@@ -558,7 +559,11 @@ def run_patching_pipeline(
         "run_patching_pipeline", strategy=strategy, mask_suffixes=mask_suffixes, case_sensitive=case_sensitive
     )
     check_config_identity(config)  # before any image or mask is listed or read (D85)
-    _check_preprocessing_inputs(config, image_folder_path, list_supported_files(image_folder_path))
+    # The preprocessing brick's discovery (issue #45): a folder mixing images with
+    # subfolders, PNG/NumPy/... images and a mask folder inside it are refused here.
+    masks_used = mask_folder_path is not None and config.mode not in {"grid", "whole_fov"}
+    image_files = discover_folder_images(image_folder_path, mask_folder_path=mask_folder_path if masks_used else None)
+    _check_preprocessing_inputs(config, image_folder_path, image_files)
     return _run_folder_patching(
         image_folder_path,
         config=config,

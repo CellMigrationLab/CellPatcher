@@ -7,10 +7,9 @@ import numpy as np
 import pytest
 
 from cellpatcher.config import CellPatcherConfig, CommonConfig, GridConfig
-from cellpatcher.io import write_array
 from cellpatcher.orchestration import run_patching_pipeline
 from cellpatcher.pipeline import RUN_CONFIG_FILENAME, run_patching
-from tests.helpers import named
+from tests.helpers import named, write_tiff
 
 
 def _stack(shape=(3, 16, 16)):
@@ -215,9 +214,9 @@ def test_apply_mask_uses_the_matching_label_plane():
 
 
 def test_folder_run_exports_one_file_and_row_per_plane(tmp_path):
-    # .npy: tifffile would store a three-plane float stack as RGB.
-    for name in ("a.npy", "b.npy"):
-        write_array(tmp_path / "images" / name, _stack())
+    # The header names the axes: a three-plane stack without them could be read as RGB.
+    for name in ("a.tif", "b.tif"):
+        write_tiff(tmp_path / "images" / name, _stack(), "ZYX")
     config = _grid_config(z_policy="all")
     config.export.enabled = True
     config.common.output_dir = str(tmp_path / "out")
@@ -229,7 +228,7 @@ def test_folder_run_exports_one_file_and_row_per_plane(tmp_path):
         rows = list(csv.DictReader(f))
     assert len({row["patch_file"] for row in rows}) == len(rows)
     assert {(row["image_file"], row["z0"]) for row in rows} == {
-        (name, str(z)) for name in ("a.npy", "b.npy") for z in range(3)
+        (name, str(z)) for name in ("a.tif", "b.tif") for z in range(3)
     }
     assert rows[0]["patch_id"] == "single/single/single/a/z000/grid-y0-x0-h8-w8"
     assert rows[0]["patch_file"] == "single_single_single_a_z000_grid-y0-x0-h8-w8.tif"

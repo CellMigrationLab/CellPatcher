@@ -66,7 +66,7 @@ def test_a_store_next_to_subfolders_is_a_mixed_folder(tmp_path):
     root = tmp_path / "experiment"
     _fake_store(root / "control" / "a.ome.zarr")
     (root / "control" / "bio1").mkdir()
-    with pytest.raises(ValueError, match="mixes image files"):
+    with pytest.raises(ValueError, match=r"\[tiff_outside_leaf\].*control/a.ome.zarr"):
         discover_condition_repeat_folders(root)
 
 

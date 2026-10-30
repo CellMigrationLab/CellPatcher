@@ -18,6 +18,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Masks named exactly like their image (`masks/.../img1.tif`), masks that are not TIFF files,
   and mask names that could belong to two images are refused; masks of any type
   (`img1_cells.tif`) and the `<mask type>/` folder layout now pair.
+- Images are found with the preprocessing brick's `discover_experiment`
+  (`cellpatcher.io.discover_images`), so every brick reads the same images under the same labels:
+  TIFF files and OME-Zarr folders only. PNG, JPEG, BMP, GIF and NumPy images are refused with
+  their names (convert them to TIFF), never skipped. A folder holding both images and subfolders
+  is refused in folder runs too; so are a fourth folder level, folder names that differ only in
+  case and a misused `single` folder. Empty folders are left out with a warning.
 
 ## [Unreleased] - Channel selection for single-channel patches (follow-up C5)
 
