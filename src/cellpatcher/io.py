@@ -18,13 +18,24 @@ ZARR_SUFFIX = ".zarr"
 SUPPORTED_EXTENSIONS = {".tif", ".tiff", ZARR_SUFFIX}
 
 # Image formats CellPatcher read as input before it adopted the preprocessing
-# brick's discovery. Such a file where images are discovered is refused, naming
-# it, never skipped: it would otherwise drop out of the dataset unnoticed.
-UNSUPPORTED_IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".bmp", ".gif", ".npy")
+# brick's discovery; read_array and write_array still handle them, because
+# exported patches may be written in them (export.patch_format).
+FORMER_IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".bmp", ".gif", ".npy")
+
+# Image formats that are not discovered: the former ones and common microscope
+# and raster formats. Such a file where images are discovered is refused,
+# naming it, never skipped: it would otherwise drop out of the dataset
+# unnoticed (owner decision of 2026-10-30). Other files (.txt, .csv, ...) are
+# not images and stay ignored.
+UNSUPPORTED_IMAGE_EXTENSIONS = (
+    *FORMER_IMAGE_EXTENSIONS,
+    ".npz", ".webp", ".jp2", ".czi", ".nd2", ".lif", ".lsm", ".oib", ".oif", ".oir", ".ims", ".vsi",
+    ".dv", ".svs", ".ndpi",
+)
 
 # The file formats read_array and write_array handle: the input images, and
 # the formats exported patches may be written in (export.patch_format).
-ARRAY_EXTENSIONS = {*SUPPORTED_EXTENSIONS, *UNSUPPORTED_IMAGE_EXTENSIONS}
+ARRAY_EXTENSIONS = {*SUPPORTED_EXTENSIONS, *FORMER_IMAGE_EXTENSIONS}
 
 # Biological-repeat label stamped when a condition folder holds images
 # directly, with no biological-repeat subfolder (see
@@ -53,7 +64,7 @@ def list_supported_files(folder_path, supported_extensions=None) -> list[Path]:
 
     Subfolders are not entered. A file in a format CellPatcher no longer
     reads as an input image (:data:`UNSUPPORTED_IMAGE_EXTENSIONS`: PNG, JPEG,
-    BMP, GIF, NumPy) is refused, naming it, as is a link to a missing image.
+    BMP, GIF, NumPy, microscope formats such as CZI) is refused, naming it, as is a link to a missing image.
     With *supported_extensions*, the files with those extensions are listed
     instead and nothing else is refused but missing links.
     """
@@ -106,8 +117,9 @@ def _refuse_unsupported_images(root: Path, relative_paths) -> None:
             f"'{root}' holds {len(unsupported)} image(s) in a format CellPatcher no longer reads: "
             f"{', '.join(unsupported[:10])}{', ...' if len(unsupported) > 10 else ''}. Images are found "
             "with the MorphoBricks preprocessing brick's discovery, which reads TIFF files (.tif, .tiff) "
-            "and OME-Zarr folders (.zarr) only; PNG, JPEG, BMP, GIF and NumPy (.npy) images are not read "
-            "(decision of 2026-10-30, issue #45). Convert them to TIFF, or move them out of the folder."
+            "and OME-Zarr folders (.zarr) only; PNG, JPEG, BMP, GIF, NumPy (.npy) and microscope formats "
+            "such as .czi, .nd2 or .lif are not read (decision of 2026-10-30, issue #45). Convert them to "
+            "TIFF or OME-Zarr, or move them out of the folder."
         )
 
 
@@ -216,7 +228,8 @@ def discover_images(root_path, *, mask_folder_path=None):
       ``reserved_folder_name``), except ``no_images``, which gives no leaves;
     - images in a folder that also holds subfolders (the brick's error
       ``tiff_outside_leaf``, a warning before preprocessing v0.3.2);
-    - PNG, JPEG, BMP, GIF and NumPy images (:data:`UNSUPPORTED_IMAGE_EXTENSIONS`);
+    - PNG, JPEG, BMP, GIF, NumPy and microscope-format images such as CZI, ND2 or LIF
+      (:data:`UNSUPPORTED_IMAGE_EXTENSIONS`);
     - a link to a missing image;
     - a mask folder (*mask_folder_path*) that is *root_path* or inside it.
 
@@ -303,7 +316,7 @@ def discover_condition_repeat_folders(
 
     A folder named ``single`` is a level with one member and must be alone
     in its place. A folder mixing images with subfolders, images in
-    PNG/JPEG/BMP/GIF/NumPy format, a fourth level of folders, two images of
+    PNG/JPEG/BMP/GIF/NumPy or microscope format, a fourth level of folders, two images of
     one folder with the same name apart from the extension or case, and
     folder names differing only in case are refused (:func:`discover_images`
     lists every refusal). Folders without images or subfolders are left out

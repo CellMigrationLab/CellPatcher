@@ -20,7 +20,7 @@ CellPatcher helps you turn microscopy images into reproducible patch datasets wi
   `image_metadata=[{"position_id": ...}]` (or an `image_file`); unnamed images are refused.
 - Cell-mode masks are instance labels used as given; boolean masks are refused unless you opt in to
   connected-component labelling (`CellConfig.binary_mask_policy="connected_components"`).
-- Reads TIFF and OME-Zarr images, found with the preprocessing brick's discovery (PNG, JPEG, BMP, GIF and NumPy images are refused by name), patches Z-stacks and time series plane by plane, and optionally normalizes
+- Reads TIFF and OME-Zarr images, found with the preprocessing brick's discovery (PNG, JPEG, BMP, GIF, NumPy and microscope formats such as CZI, ND2 or LIF are refused by name), patches Z-stacks and time series plane by plane, and optionally normalizes
   patches with the MorphoBricks preprocessing statistics (`config.normalization`, see `docs/normalization.md`).
 
 ## Patching modes at a glance

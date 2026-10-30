@@ -230,7 +230,8 @@ CellPatcher reads image files, and (for `cell` mode) matching label/mask
 files, directly from user-provided folders. Images are found with the
 preprocessing brick's `discover_experiment` (`io.discover_images`; owner
 decision of 2026-10-30, issue #45): TIFF files and OME-Zarr images. PNG, JPEG,
-BMP, GIF and NumPy images are refused by name, never skipped (exported
+BMP, GIF, NumPy and microscope-format images (`.czi`, `.nd2`, `.lif`, ...;
+`io.UNSUPPORTED_IMAGE_EXTENSIONS`) are refused by name, never skipped (exported
 `.npy` patches are still written and read back). OME-Zarr images are folders ending
 in `.zarr`, read from level 0 of their only image, with their axes from the
 OME-NGFF metadata put into `common.image_axes` by role (`io.read_image`);

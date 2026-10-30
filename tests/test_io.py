@@ -486,6 +486,24 @@ def test_images_in_formats_other_than_tiff_and_ome_zarr_are_refused_by_name(tmp_
         run_patching_pipeline(img_dir, config=config)
 
 
+
+@pytest.mark.parametrize("name", ["b.czi", "b.nd2", "b.lif", "b.LSM", "b.webp"])
+def test_microscope_and_other_image_formats_are_refused_by_name_not_skipped(tmp_path, name):
+    # Owner decision of 2026-10-30: only TIFF and OME-Zarr images are found; other image
+    # formats are refused by file name, never skipped. Former code (this branch before the
+    # review): a .czi beside the TIFF images was silently left out of the run.
+    img_dir, mask_dir = _folders(tmp_path, ["a.tif"], ["a_cells.tif"])
+    (img_dir / name).write_bytes(b"not decoded")
+    refusal = rf"1 image\(s\) in a format CellPatcher no longer reads: {name}\..*Convert them to TIFF or OME-Zarr"
+    with pytest.raises(ValueError, match=refusal):
+        validate_image_and_mask_folders(img_dir, mask_dir)
+    config = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=4))
+    with pytest.raises(ValueError, match=refusal):
+        run_patching_pipeline(img_dir, config=config)
+    (img_dir / name).unlink()
+    (img_dir / "notes.txt").write_text("not an image")  # other files stay ignored
+    assert validate_image_and_mask_folders(img_dir, mask_dir)
+
 def test_a_folder_run_refuses_images_beside_subfolders(tmp_path):
     # Owner decision of 2026-10-30: a folder holding images and subfolders is refused in
     # every brick (the preprocessing brick's "tiff_outside_leaf"). Former code: a folder run

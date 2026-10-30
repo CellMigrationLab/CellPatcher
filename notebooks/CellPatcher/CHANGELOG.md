@@ -20,8 +20,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   (`img1_cells.tif`) and the `<mask type>/` folder layout now pair.
 - Images are found with the preprocessing brick's `discover_experiment`
   (`cellpatcher.io.discover_images`), so every brick reads the same images under the same labels:
-  TIFF files and OME-Zarr folders only. PNG, JPEG, BMP, GIF and NumPy images are refused with
-  their names (convert them to TIFF), never skipped. A folder holding both images and subfolders
+  TIFF files and OME-Zarr folders only. PNG, JPEG, BMP, GIF, NumPy and microscope-format
+  images (`.czi`, `.nd2`, `.lif`, ...) are refused with their names (convert them to TIFF or
+  OME-Zarr), never skipped; before, a `.czi` file was silently left out. A folder holding both images and subfolders
   is refused in folder runs too; so are a fourth folder level, folder names that differ only in
   case and a misused `single` folder. Empty folders are left out with a warning.
 - CellPatcher requires `morphobricks-preprocessing` `v0.3.2` (core dependency and
