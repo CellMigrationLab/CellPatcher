@@ -152,6 +152,15 @@ def test_grid_partial_mode_set_after_construction_is_checked_by_the_strategy():
         GridStrategy(config).generate_regions(image_shape=(100, 100))
 
 
+@pytest.mark.parametrize("mode", ["clipped", "bogus"])
+def test_grid_partial_mode_is_checked_even_when_the_tile_exceeds_the_image(mode):
+    """#48 review: the early empty return for a too-large tile must not skip the check."""
+    config = GridConfig(tile_size=64)
+    config.partial_mode = mode  # include_partial stays False
+    with pytest.raises(ValueError):
+        GridStrategy(config).generate_regions(image_shape=(10, 10))
+
+
 def test_grid_clipped_partial_through_the_pipeline():
     from cellpatcher.config import CellPatcherConfig
     from cellpatcher.orchestration import apply_overrides
