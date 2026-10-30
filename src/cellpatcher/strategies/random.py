@@ -1,6 +1,7 @@
 import numpy as np
 
 from cellpatcher.config import RandomConfig
+from cellpatcher.errors import SamplingExhaustedError
 from cellpatcher.strategies.base import BasePatchStrategy, _spatial_shape_from_axes
 from cellpatcher.types import PatchRegion
 
@@ -55,9 +56,12 @@ class RandomPatchStrategy(BasePatchStrategy):
 
         while len(patches) < n_patches:
             if mask is not None and attempts >= max_attempts:
-                raise ValueError(
+                raise SamplingExhaustedError(
                     "Could not sample enough valid random patches from the provided mask. "
-                    f"Requested {n_patches}, collected {len(patches)} after {attempts} attempts."
+                    f"Requested {n_patches}, collected {len(patches)} after {attempts} attempts.",
+                    requested=n_patches,
+                    collected=len(patches),
+                    attempts=attempts,
                 )
 
             y0 = int(rng.integers(0, y_max + 1))
