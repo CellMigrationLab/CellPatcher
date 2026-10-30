@@ -6,7 +6,6 @@ the patches equal those of ``run_patching`` on the whole arrays.
 """
 
 import importlib.util
-import sys
 
 import numpy as np
 import pytest
@@ -135,8 +134,12 @@ def test_a_plane_over_the_memory_limit_is_an_error(tmp_path, monkeypatch):
         run_patching_pipeline(tmp_path, config=_config("ZYX", z_policy="all"))
 
 
-def test_without_the_extra_planes_come_from_the_whole_image(tmp_path, monkeypatch):
-    monkeypatch.setitem(sys.modules, "morphobricks_preprocessing", None)
+def test_without_the_plane_reader_planes_come_from_the_whole_image(tmp_path, monkeypatch):
+    # preprocessing is a core dependency (its header axes are checked before any read); only
+    # its plane-by-plane reader is taken away here.
+    import cellpatcher.planes
+
+    monkeypatch.setattr(cellpatcher.planes, "_plane_reader", lambda path, common: None)
     stack = _stack((3, 16, 16))
     _write_tiff(tmp_path / "a.tif", stack, "ZYX")
     config = _config("ZYX", z_policy="all")

@@ -208,3 +208,18 @@ def test_ome_zarr_planes_link_to_preprocessing_rows(tmp_path):
     assert sorted((r.plane_id, r.c) for r in records) == sorted(
         (f"control/a.ome.zarr::z={z},t=0", c) for z in range(3) for c in range(2)
     )
+
+
+@needs_zarr
+def test_an_ome_zarr_image_is_matched_by_role_not_by_header_position(tmp_path):
+    # OME-Zarr axes are put into common.image_axes by role (conform_axes), so its stored order
+    # (ZCYX with Z of length 1) is not compared position by position with the declared CYX.
+    from cellpatcher.orchestration import run_patching_pipeline
+
+    data = np.arange(2 * 16 * 16, dtype=np.uint16).reshape(1, 2, 16, 16)
+    write_ngff(tmp_path / "exp" / "a.zarr", data, axes="zcyx")
+    config = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=8))
+    config.common.image_axes = "CYX"
+    config.common.extract_arrays = True
+    result = run_patching_pipeline(str(tmp_path / "exp"), config=config)
+    assert result.patch_arrays[0].shape == (2, 8, 8)

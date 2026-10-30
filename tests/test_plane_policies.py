@@ -260,3 +260,56 @@ def test_mask_axes_that_agree_with_the_mask_header_are_accepted(tmp_path):
 
     result = run_patching_pipeline(str(image_folder), config=config, mask_folder_path=str(mask_folder))
     assert [p.t for p in result.patches] == [0, 1, 2]
+
+
+def test_image_axes_that_disagree_with_the_image_header_are_refused(tmp_path):
+    # A ZYX image (its ImageJ header names Z) declared TYX would have its depth slices read as
+    # time points; declared CYX, as channels. Refused naming both the declared and the header axes.
+    write_tiff(tmp_path / "exp" / "a.tif", _stack(), "ZYX")
+    for declared, policy in (("TYX", {"t_policy": "all"}), ("CYX", {})):
+        with pytest.raises(ValueError, match=rf"common.image_axes='{declared}'.*declared axes '{declared}', header axes 'ZYX'"):
+            run_patching_pipeline(str(tmp_path / "exp"), config=_grid_config(image_axes=declared, **policy))
+
+
+def test_image_axes_are_checked_for_every_tree_leaf_before_any_leaf_runs(tmp_path):
+    from cellpatcher.orchestration import run_patching_condition_repeat_tree
+
+    root = tmp_path / "raw"
+    write_tiff(root / "a_cond" / "r1" / "a.tif", _stack(), "TYX")
+    write_tiff(root / "b_cond" / "r1" / "b.tif", _stack(), "ZYX")  # a later leaf disagrees
+    config = _grid_config(image_axes="TYX", t_policy="all")
+    config.common.output_dir = str(tmp_path / "out")
+    with pytest.raises(ValueError, match=r"b.tif: declared axes 'TYX', header axes 'ZYX'"):
+        run_patching_condition_repeat_tree(str(root), config=config)
+    assert not (tmp_path / "out").exists()  # no leaf ran
+
+
+def test_a_plain_stack_without_axis_metadata_keeps_its_declared_axes(tmp_path):
+    # tifffile calls a plain stack's axes IYX/QYX: no axis besides Y and X is named, so the
+    # declared axes are used as before.
+    import tifffile
+
+    (tmp_path / "exp").mkdir()
+    tifffile.imwrite(tmp_path / "exp" / "a.tif", _stack().astype(np.uint16), photometric="minisblack", metadata=None)
+    assert tifffile.TiffFile(tmp_path / "exp" / "a.tif").series[0].axes == "IYX"
+    result = run_patching_pipeline(str(tmp_path / "exp"), config=_grid_config(image_axes="TYX", t_policy="all"))
+    assert sorted({p.t for p in result.patches}) == [0, 1, 2]
+
+
+def test_lazy_delivery_refuses_image_and_mask_files_whose_header_disagrees(tmp_path):
+    from cellpatcher.delivery import patch_array
+
+    write_tiff(tmp_path / "exp" / "a.tif", _stack(), "TYX")
+    result = run_patching_pipeline(str(tmp_path / "exp"), config=_grid_config(image_axes="TYX", t_policy="all"))
+    patch = result.patches[0]
+    write_tiff(tmp_path / "z.tif", _stack(), "ZYX")
+    config = _grid_config(image_axes="TYX", t_policy="all")
+    np.testing.assert_array_equal(patch_array(patch, tmp_path / "exp" / "a.tif", config), result.patch_arrays[0])
+    with pytest.raises(ValueError, match=r"common.image_axes='TYX'.*header axes 'ZYX'"):
+        patch_array(patch, tmp_path / "z.tif", config)
+    mask = np.ones((3, 16, 16), dtype=np.uint16)
+    write_tiff(tmp_path / "m.tif", mask, "ZYX")
+    config.common.mask_axes = "TYX"
+    config.extraction.apply_mask = True
+    with pytest.raises(ValueError, match=r"common.mask_axes='TYX'.*header axes 'ZYX'"):
+        patch_array(patch, tmp_path / "exp" / "a.tif", config, mask=tmp_path / "m.tif")

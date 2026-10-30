@@ -909,13 +909,14 @@ def header_axes_disagreement(path, declared_axes: str) -> str | None:
     no role for are not compared. A header naming no role besides Y and X (a
     plain TIFF: ``tifffile`` calls any page's two axes Y and X) names no axes,
     and the declared axes are kept, as before. Returns None for a file whose
-    header cannot be read (it is refused where it is read).
+    header cannot be read (it is refused where it is read) and for an OME-Zarr
+    image, whose own axes are matched by role when it is read (:func:`conform_axes`).
     """
     from morphobricks_preprocessing import inspect_image, prefill_mapping
 
     meta = inspect_image(path)
-    if not meta.readable:
-        return None
+    if not meta.readable or meta.is_ome_zarr:
+        return None  # OME-Zarr axes are matched by role when read (conform_axes), not by position
     declared = normalize_axes(declared_axes)
     roles = prefill_mapping(meta.axes).roles
     if all(role in (None, "Y", "X") for role in roles):
@@ -929,6 +930,33 @@ def header_axes_disagreement(path, declared_axes: str) -> str | None:
     return f"{Path(path).name}: declared axes {declared!r}, header axes {meta.axes!r}"
 
 
+def refuse_header_axes(paths, declared_axes, *, setting: str, what: str) -> None:
+    """Refuse *declared_axes* (the setting named *setting*) that disagree with the header axes of *paths*.
+
+    Every file is checked before any is read; all disagreements are listed in
+    one message. See :func:`header_axes_disagreement`.
+    """
+    problems = [p for p in (header_axes_disagreement(path, declared_axes) for path in paths) if p]
+    if problems:
+        raise ValueError(
+            f"{setting}={declared_axes!r} disagrees with the axes named in the header of "
+            f"{len(problems)} {what} file(s): {'; '.join(problems[:10])}{'; ...' if len(problems) > 10 else ''}. "
+            f"Axes are never reinterpreted: set {setting} to the {what}s' header axes, or fix the "
+            f"{what}s' metadata."
+        )
+
+
+def refuse_image_header_axes(image_paths, image_axes) -> None:
+    """Refuse ``common.image_axes`` that disagree with an image file's own header axes.
+
+    A TIFF image is read in its stored order and then interpreted with
+    *image_axes*, so an image whose header names its axes ZYX would, with
+    ``image_axes='TYX'``, have its depth slices read as time points (or, with
+    ``'CYX'``, as channels). See :func:`header_axes_disagreement`.
+    """
+    refuse_header_axes(image_paths, image_axes, setting="common.image_axes", what="image")
+
+
 def refuse_mask_header_axes(mask_paths, mask_axes) -> None:
     """Refuse ``common.mask_axes`` that disagree with a mask file's own header axes.
 
@@ -938,14 +966,7 @@ def refuse_mask_header_axes(mask_paths, mask_axes) -> None:
     axis. Every mask is checked before any is read; all disagreements are
     listed in one message. See :func:`header_axes_disagreement`.
     """
-    problems = [p for p in (header_axes_disagreement(path, mask_axes) for path in mask_paths) if p]
-    if problems:
-        raise ValueError(
-            f"common.mask_axes={mask_axes!r} disagrees with the axes named in the header of "
-            f"{len(problems)} mask file(s): {'; '.join(problems[:10])}{'; ...' if len(problems) > 10 else ''}. "
-            "Axes are never reinterpreted: set common.mask_axes to the masks' header axes, or fix the "
-            "masks' metadata."
-        )
+    refuse_header_axes(mask_paths, mask_axes, setting="common.mask_axes", what="mask")
 
 
 def source_relative_path(image_path, experiment_root) -> str:
