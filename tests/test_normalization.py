@@ -804,3 +804,39 @@ def test_raw_patches_of_a_removed_scope_still_normalize_on_load(experiment, tmp_
     assert len(loaded) == len(delivered)
     for row, array in loaded:
         np.testing.assert_array_equal(array, delivered[row["patch_id"]])
+
+
+def _two_object_binary_mask():
+    image = np.full((20, 20), 50, dtype=np.uint16)
+    image[2:7, 2:7] = 200
+    image[12:17, 12:17] = 100
+    mask = np.zeros((20, 20), dtype=bool)
+    mask[2:7, 2:7] = True
+    mask[12:17, 12:17] = True
+    return image, mask
+
+
+@pytest.mark.parametrize("region", ["mask", "bbox", None])
+def test_patch_scope_object_regions_refuse_computed_component_labels(region):
+    # Issue #44: the computed component labels are not the binary mask's 0/1
+    # values, so label 2 would have "no finite pixels" and label 1 would take
+    # in every foreground pixel of its rectangle.
+    image, mask = _two_object_binary_mask()
+    config = _config(None, mode="cell", image_axes="YX", scope="patch", patch_region=region)
+    config.common.mask_axes = "YX"
+    config.cell.patch_size, config.cell.exclude_border = 6, False
+    config.cell.binary_mask_policy = "connected_components"
+    with pytest.raises(ValueError, match="binary_mask_policy='connected_components' computes"):
+        run_patching(images=image, masks=mask, config=config, image_metadata=named(image))
+
+
+def test_patch_scope_patch_region_accepts_computed_component_labels():
+    image, mask = _two_object_binary_mask()
+    config = _config(None, mode="cell", image_axes="YX", scope="patch", patch_region="patch")
+    config.common.mask_axes = "YX"
+    config.cell.patch_size, config.cell.exclude_border = 6, False
+    config.cell.binary_mask_policy = "connected_components"
+    with pytest.warns(UserWarning, match="connected components"):
+        result = run_patching(images=image, masks=mask, config=config, image_metadata=named(image))
+    assert sorted(p.label_id for p in result.patches) == [1, 2]
+    assert all(p.normalization_parameters is not None for p in result.patches)
