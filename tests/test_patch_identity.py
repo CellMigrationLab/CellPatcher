@@ -607,3 +607,53 @@ def test_a_tree_refuses_a_later_leaf_before_reading_any_leaf(tmp_path, monkeypat
     config = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=8))
     with pytest.raises(ValueError, match="same position_id"):
         run_patching_condition_repeat_tree(tmp_path, config=config)
+
+
+def _refuse_mask_object_set(monkeypatch):
+    """Make every derived mask object set invalid, and every image or mask read fail loudly.
+
+    A mask file name always gives a valid name today (object_set_from_mask_file
+    replaces other characters), so the refusal is forced to show *when* it is checked.
+    """
+    from cellpatcher import orchestration
+
+    def no_read(*args, **kwargs):
+        raise AssertionError("a file was read before the object_set refusal")
+
+    monkeypatch.setattr(orchestration, "object_set_from_mask_file", lambda image, mask: "bad/name")
+    monkeypatch.setattr(orchestration, "read_image", no_read)
+    monkeypatch.setattr(orchestration, "_read_mask_file", no_read)
+
+
+@pytest.mark.parametrize("planes", ["keep", "all"])
+def test_a_mask_named_object_set_is_refused_before_any_read(tmp_path, monkeypatch, planes):
+    """Issue #42: the object set from a matched mask's name is checked from the names alone."""
+    images, masks = tmp_path / "images", tmp_path / "masks"
+    write_array(images / "img.tif", _image(0))
+    write_array(masks / "img_cells.tif", _labels(0))
+    _refuse_mask_object_set(monkeypatch)
+    config = _cell_config()
+    config.common.z_policy = planes
+    with pytest.raises(ValueError, match="object set from mask 'img_cells.tif'"):
+        run_patching_pipeline(images, mask_folder_path=masks, config=config)
+
+
+def test_a_tree_refuses_a_later_leaf_mask_object_set_before_reading_any_leaf(tmp_path, monkeypatch):
+    """Issue #42: a later leaf's mask-derived object set is refused before the first leaf is read."""
+    images, masks = tmp_path / "images", tmp_path / "masks"
+    for leaf in ("r1", "r2"):
+        write_array(images / "ctrl" / leaf / "img.tif", _image(0))
+        write_array(masks / "ctrl" / leaf / "img_cells.tif", _labels(0))
+    from cellpatcher import orchestration
+
+    real = orchestration.object_set_from_mask_file
+    _refuse_mask_object_set(monkeypatch)
+    calls = []
+
+    def bad_in_second_leaf(image, mask):
+        calls.append(mask)
+        return "bad/name" if len(calls) > 1 else real(image, mask)
+
+    monkeypatch.setattr(orchestration, "object_set_from_mask_file", bad_in_second_leaf)
+    with pytest.raises(ValueError, match="object set from mask 'img_cells.tif'"):
+        run_patching_condition_repeat_tree(images, config=_cell_config(), mask_root_path=masks)

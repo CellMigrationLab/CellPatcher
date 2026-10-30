@@ -32,6 +32,7 @@ from cellpatcher.delivery import raw_export_array
 from cellpatcher.normalization import (
     Normalizer,
     finish_patch_groups,
+    resolved_patch_region,
     run_inputs,
     run_settings,
     split_channel_normalization,
@@ -829,22 +830,38 @@ def _patch_planes(config: CellPatcherConfig, sources) -> PatchingResult:
 
 
 def _refuse_masking_computed_labels(config: CellPatcherConfig, masks) -> None:
-    """Refuse ``apply_mask`` on binary masks labelled by connected components.
+    """Refuse using a binary mask's values as the labels connected components computed.
 
-    Masking keeps the pixels whose mask value equals the patch's
-    ``label_id``; computed component labels are not the binary mask's
-    values, so every object but the first would be blanked.
+    Masking (``extraction.apply_mask``) and patch-scope normalization over
+    ``patch_region="mask"``/``"bbox"`` select the pixels whose mask value
+    equals the patch's ``label_id``. With
+    ``cell.binary_mask_policy="connected_components"`` those labels are
+    computed, not the binary mask's 0/1 values: every object but the first
+    would be blanked or reported as having no pixels, and the first would
+    take in every touching neighbour (issue #44).
     """
-    if not (config.extraction.apply_mask and config.cell.binary_mask_policy == "connected_components"):
+    if config.cell.binary_mask_policy != "connected_components":
+        return
+    region = resolved_patch_region(config)
+    if config.extraction.apply_mask:
+        refusal = (
+            "extraction.apply_mask=True cannot mask by the labels that "
+            "cell.binary_mask_policy='connected_components' computes for a binary mask: the mask holds "
+            "0/1, not those labels. Label the mask first (integer instance labels), or turn apply_mask off."
+        )
+    elif config.normalization.enabled and config.normalization.scope == "patch" and region in ("mask", "bbox"):
+        refusal = (
+            f"normalization.scope='patch' with patch_region={region!r} cannot select each object's pixels by "
+            "the labels that cell.binary_mask_policy='connected_components' computes for a binary mask: the "
+            "mask holds 0/1, not those labels. Label the mask first (integer instance labels), or use "
+            "normalization.patch_region='patch' or another scope."
+        )
+    else:
         return
     for mask in masks:
         dtype = np.dtype(getattr(mask, "dtype", np.asarray(mask).dtype))
         if dtype == bool or np.issubdtype(dtype, np.floating):
-            raise ValueError(
-                "extraction.apply_mask=True cannot mask by the labels that "
-                "cell.binary_mask_policy='connected_components' computes for a binary mask: the mask holds "
-                "0/1, not those labels. Label the mask first (integer instance labels), or turn apply_mask off."
-            )
+            raise ValueError(refusal)
 
 
 def run_patching(images=None, masks=None, config=None, image_metadata=None, fraction_masks=None) -> PatchingResult:

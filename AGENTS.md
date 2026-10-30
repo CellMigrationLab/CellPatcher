@@ -190,7 +190,7 @@ CellPatcher-specific conventions:
 * Cell-mode masks are instance labels used as given (decision D47):
   boolean masks are refused unless `CellConfig.binary_mask_policy=
   "connected_components"` (warns; recorded in `run_config.json`); labels
-  above the int32 maximum are refused. `cell_scan` shares the rule
+  above the int32 maximum are refused (`cellpatcher.LabelRangeError`). `cell_scan` shares the rule
   (`CellSegmentationStrategy.label_objects`).
 * Strategies generate strictly 2D Y/X regions. Z/T stacks become planes
   either with `common.z_policy`/`t_policy` in the pipeline
@@ -262,8 +262,10 @@ Two ways to point CellPatcher at input data:
   `<output_dir>/single/single/`. A root or condition folder that mixes
   loose image files with subfolders is ambiguous and raises `ValueError`
   rather than guessing, and so does a biological-repeat folder (whose
-  subfolders are technical repeats). Hidden subfolders (e.g. `.ipynb_checkpoints`) are
-  ignored.
+  subfolders are technical repeats). System files and folders are
+  ignored with the preprocessing brick's rule (`is_system_name`: dot-names such as
+  `.ipynb_checkpoints` and `._img.tif`, `Thumbs.db`, `desktop.ini`, `__MACOSX`). Image/mask
+  pairing must be one to one; an ambiguous pair is refused, never resolved by a heuristic.
 
 ### Outputs this repo produces
 

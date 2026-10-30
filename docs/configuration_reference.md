@@ -56,7 +56,7 @@ Settings for cell/object-centred patching. A mask is required in this mode.
 | `exclude_border` | `bool` | `True` | When `True`, objects whose bounding box touches the image border are skipped. |
 | `min_area` | `int` | `1` | Minimum object area in pixels. Objects smaller than this are skipped. Must be `>= 1`. |
 | `max_area` | `int \| None` | `None` | Maximum object area in pixels. Objects larger than this are skipped. Must be `>= min_area` when set. |
-| `binary_mask_policy` | `str` | `"single_object"` | Masks are instance labels (decision D47): an **integer** mask is used as given, whatever this setting, each non-zero value one object (a 0/1 or 0/255 mask is one object, label 1 or 255). Only a **boolean** mask (or a float mask of 0.0/1.0), which has no object ids, depends on it: `"single_object"` (default) refuses it with an error; `"connected_components"` is the explicit opt-in that labels its 4-connected components, emits a `UserWarning` and is recorded in `run_config.json` (`cell.binary_mask_policy`). It cannot be combined with `extraction.apply_mask` (the mask does not hold the computed labels). Labels above the int32 maximum (2147483647) are refused instead of wrapping. Before 2026-10-26 the default was `"connected_components"`, which also relabelled 0/1 **integer** masks. |
+| `binary_mask_policy` | `str` | `"single_object"` | Masks are instance labels (decision D47): an **integer** mask is used as given, whatever this setting, each non-zero value one object (a 0/1 or 0/255 mask is one object, label 1 or 255). Only a **boolean** mask (or a float mask of 0.0/1.0), which has no object ids, depends on it: `"single_object"` (default) refuses it with an error; `"connected_components"` is the explicit opt-in that labels its 4-connected components, emits a `UserWarning` and is recorded in `run_config.json` (`cell.binary_mask_policy`). It cannot be combined with `extraction.apply_mask`, nor with `normalization.scope="patch"` over `patch_region="mask"`/`"bbox"` (the mask does not hold the computed labels); both are refused. Labels above the int32 maximum (2147483647), or negative labels, are refused instead of wrapping, with `cellpatcher.LabelRangeError` (a `CellPatcherRefusal`, see "Typed refusals"). Before 2026-10-26 the default was `"connected_components"`, which also relabelled 0/1 **integer** masks. |
 
 ---
 
@@ -69,7 +69,7 @@ Settings for randomly sampled patches of a fixed size.
 | `patch_size` | `int` | `128` | Side length of each square patch in pixels. Must be `> 0`. |
 | `n_patches` | `int` | `100` | Number of patches to sample per image. Must be `> 0`. |
 | `seed_scope` | `str` | `"plane_channel"` | Which identity the seed is derived from (issue #33): `"plane_channel"` (the default, as before: `position_id`, `t`, `z`, `c`), `"plane"` (`position_id`, `t`, `z`: every channel given as its own image gets the same rectangles) or `"position"` (`position_id` only: every plane of a position gets the same rectangles). `c` enters the seed only when an image's metadata gives a channel; channels split with `split_channels` always share their region's rectangles. |
-| `min_mask_fraction` | `float` | `0.0` | With a sampling mask, the least share of a draw's pixels in the mask's foreground. `0` keeps the any-overlap rule. Needs a mask when `> 0`. |
+| `min_mask_fraction` | `float` | `0.0` | With a sampling mask, the least share of a draw's pixels in the mask's foreground. `0` keeps the any-overlap rule. Needs a mask when `> 0`. When a mask is too sparse to give `n_patches` draws within the attempt cap (`max(1000, 50 × n_patches)`), the image is refused with `cellpatcher.SamplingExhaustedError` (a `CellPatcherRefusal`, see "Typed refusals"). |
 | `seed` | `int \| None` | `0` | Random seed for reproducibility. Set to `None` for non-deterministic sampling. Each image (each plane with split planes) is sampled with a seed derived from this seed and its identity — `position_id` and its `t`/`z`/`c` indices — never from its place in the run, so an image gets the same rectangles alone or among other files (see "Patch identity" below). Must be `>= 0`. |
 
 ---
@@ -91,6 +91,7 @@ Settings for regular tiled patches covering the full image.
 | `tile_size` | `int` | `128` | Side length of each square tile in pixels. Must be `> 0`. |
 | `overlap` | `float` | `0.0` | Fractional overlap between adjacent tiles. Must satisfy `0 <= overlap < 1`. For example, `0.1` means 10% overlap. |
 | `include_partial` | `bool` | `False` | When `True`, edge tiles that are smaller than `tile_size` are included. When `False`, only full-sized tiles are returned. |
+| `partial_mode` | `str` | `"flush"` | Which edge tiles `include_partial=True` adds. `"flush"` (default, the behaviour before this option existed): the tiles clipped by the far edge **and**, when the stride does not already end there, one full tile flush with the far edge, which overlaps its neighbours. `"clipped"`: only the clipped edge tiles (each records its full `requested_y1`/`requested_x1`); with `overlap=0` no two tiles overlap and every pixel is in exactly one tile. `"clipped"` requires `include_partial=True`. |
 
 ---
 
@@ -172,6 +173,8 @@ With `ignore_unrequested_masks=False` (the default), every mask in the folder mu
 | `"exact_or_suffix"` | Exact stem match **or** `image_stem + suffix` match (default; recommended) |
 | `"exact"` | Exact stem match only |
 | `"substring"` | Legacy: mask stem contains image stem as a substring. May false-match names like `img1` and `img10_mask`. |
+
+Pairing must be one to one: an image with several candidate masks, or a mask that is a candidate of several images (under `"substring"`, `img10_mask` is a candidate of both `img1` and `img10`), is refused with an error naming them, never resolved by a heuristic. This applies to the default `"exact_or_suffix"` too: images `a` and `a_mask` with masks `a` and `a_mask` are refused (the mask `a_mask` is both `a_mask`'s exact match and `a`'s suffix match), where earlier versions paired them by pruning. System files (`._img.tif`, other names starting with `.`, `Thumbs.db`, `desktop.ini`, `__MACOSX`) are skipped in image and mask folders, as in the preprocessing brick.
 
 > `config.matching` is only relevant for `mode="cell"` and `mode="random"` (the only modes that load masks from disk).
 
@@ -369,7 +372,7 @@ With the `preprocessing` extra (`pip install "cellpatcher[preprocessing]"`), fol
 - `<condition>/<image files>` — **no biological-repeat subfolder.** The whole condition folder is treated as a single implicit biological repeat, labeled `cellpatcher.SINGLE_BIOLOGICAL_REPEAT_LABEL` (`"single"`) — consistently in the discovered `biological_repeat` value, the `condition`/`biological_repeat` stamped on every patch from that folder, and (when exporting) its own `<output_dir>/<condition>/single/` output subfolder, same as an explicit biological repeat gets.
 - `<image files>` directly in the root — **no condition subfolders.** The whole dataset is treated as one condition and one biological repeat, labeled `cellpatcher.SINGLE_CONDITION_LABEL`/`cellpatcher.SINGLE_BIOLOGICAL_REPEAT_LABEL` (both `"single"`), exported to `<output_dir>/single/single/`.
 - `<condition>/<biological_repeat>/<technical_repeat>/<image files>` — **technical repeats.** A biological-repeat folder holding only subfolders has one subfolder per technical repeat (a well, a dish, a coverslip), each its own leaf, stamped with the subfolder name and exported to `<output_dir>/<condition>/<biological_repeat>/<technical_repeat>/`. A biological-repeat folder holding its images directly is one technical repeat, stamped `cellpatcher.SINGLE_TECHNICAL_REPEAT_LABEL` (`"single"`), and keeps the two-level output folder. The technical level needs the biological-repeat level above it: in `<condition>/<well>/<images>` the wells are read as biological repeats, so put them under a dated (or `single`) biological-repeat folder.
-- A root, condition or biological-repeat folder mixing loose image files with subfolders is ambiguous and raises `ValueError`. Hidden subfolders (names starting with `.`, e.g. `.ipynb_checkpoints`) are ignored.
+- A root, condition or biological-repeat folder mixing loose image files with subfolders is ambiguous and raises `ValueError`. System files and folders are ignored, with the preprocessing brick's rule (`morphobricks_preprocessing.discovery.is_system_name`): names starting with `.` (`.ipynb_checkpoints`, `._img.tif`), `Thumbs.db`, `desktop.ini` and `__MACOSX`.
 - **Trees of links.** Image files and folders may be symbolic links, for example a tree that gathers a subset of images stored elsewhere into the `<condition>/<biological_repeat>/` layout. Links are followed for reading; `image_file` is the link's name and `source_relative_path` the link's path under the root (as the preprocessing brick records it), so the patches of a linked tree are those of a copied tree. A link whose target does not exist raises (it is a missing image), in folder and tree runs alike. Two links to the same file are two images.
 
 When `mask_root_path` is given, the same structure is mirrored under it per leaf. Mask folder requirements follow the same per-mode rules as `run_patching_pipeline` (required for `mode="cell"`, optional for `mode="random"`, not accepted for `mode="grid"`/`"whole_fov"`), applied independently to each leaf — a leaf missing a required mask folder raises immediately and aborts the whole tree run rather than being silently skipped.
@@ -398,3 +401,20 @@ Each exported `patches.csv` row, together with the `run_config.json` file it ref
 
 - The row's own coordinates (`y0/y1/x0/x1`, `z0/z1`, `t`, `c`) and `output_height`/`output_width` fully describe the patch geometry and final exported array shape; `image_height`/`image_width`, the `pad_*` columns, `resized` and `output_axes` say, without the source image or the config, where the rectangle lies in its image, which pixels of the array are padding, whether the array was resampled and what its axes are.
 - `run_config.json` is the complete, serialized `CellPatcherConfig` for the run — strategy parameters (including `random.seed`), extraction/resize settings, matching strategy, and axes — everything needed to reproduce the same coordinates deterministically from the same inputs.
+
+## Typed refusals
+
+Per-plane data refusals have their own exception types, exported from
+`cellpatcher` (module `cellpatcher.errors`), so a caller can record a refused
+plane without parsing messages. All derive from `CellPatcherRefusal`, itself a
+`ValueError`, so `except ValueError` keeps working. They are picklable, so they
+cross multiprocessing workers with their attributes.
+
+| Exception | Raised when | Attributes |
+| --- | --- | --- |
+| `CellPatcherRefusal` | Base class; not raised itself. | — |
+| `SamplingExhaustedError` | `random` mode with a sampling mask ran out of attempts before collecting `n_patches` draws. | `requested`, `collected`, `attempts` |
+| `LabelRangeError` | A `cell`-mode mask (also in `scan_cell_objects`) holds a negative label or one above the int32 maximum. | `label` |
+
+A caught refusal is not a measurement: no patch, fill value or fallback stands
+in for the refused plane.
