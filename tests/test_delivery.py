@@ -48,7 +48,7 @@ def experiment(tmp_path_factory):
         labels = np.zeros((2, 24, 24), dtype=np.uint16)
         labels[0, 3:9, 3:11] = 1
         labels[1, 12:20, 10:17] = 2 + index
-        _write_tiff(masks / path, labels, "ZYX")
+        _write_tiff(masks / "cells" / path, labels, "ZYX")  # preprocessing layout: <mask type>/<image path>
     result = mbp.run_experiment(root, mbp.AxisMapping("ZCYX", "ZCYX"), output_folder=base / "preprocessing")
     assert result.written
     return root, masks, result.csv_path
@@ -147,7 +147,7 @@ def test_files_raw_files_and_the_lazy_iterator_equal_eager_delivery(experiment, 
     lazy_from_paths, lazy_from_arrays = {}, {}
     for leaf in _run(root, masks, config):
         image_paths = list_supported_files(leaf.image_folder)
-        mask_paths = list_supported_files(masks / leaf.relative_folder) if config.mode == "cell" else None
+        mask_paths = list_supported_files(masks / "cells" / leaf.relative_folder) if config.mode == "cell" else None
         for patch, array in iter_patch_arrays(leaf.result.patches, image_paths, config, masks=mask_paths):
             lazy_from_paths[(patch.source_relative_path, patch.patch_id)] = array
         images = [read_image(path, config.common.image_axes) for path in image_paths]
@@ -218,7 +218,7 @@ def test_torch_datasets_give_the_same_arrays(experiment, tmp_path, name):
     for leaf in _run(root, masks, config):
         images = [read_image(p, config.common.image_axes) for p in list_supported_files(leaf.image_folder)]
         mask_list = (
-            [read_image(p, config.common.mask_axes) for p in list_supported_files(masks / leaf.relative_folder)]
+            [read_image(p, config.common.mask_axes) for p in list_supported_files(masks / "cells" / leaf.relative_folder)]
             if config.mode == "cell" else None
         )
         dataset = PatchTorchDataset(images, leaf.result.patches, masks=mask_list, config=config, tensor_config=tensors)

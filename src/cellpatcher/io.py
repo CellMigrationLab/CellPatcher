@@ -1,3 +1,4 @@
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -563,6 +564,16 @@ def read_array_shape(file_path) -> tuple[int, ...]:
     return tuple(read_array(file_path).shape)
 
 
+def _warn_old_matcher(name: str) -> None:
+    warnings.warn(
+        f"{name} is CellPatcher's former image/mask matching, no longer used by CellPatcher and to be "
+        "removed: images and masks are paired with the preprocessing brick's rule (cellpatcher.io.pair_masks, "
+        "issue #45).",
+        DeprecationWarning,
+        stacklevel=3,
+    )
+
+
 def find_candidate_matches(
     image_files,
     mask_files,
@@ -581,7 +592,11 @@ def find_candidate_matches(
     Note:
         ``substring`` can false-match names such as ``img1`` and ``img10_mask``.
         Prefer ``exact_or_suffix`` for most datasets.
+
+    Deprecated: CellPatcher no longer pairs with this function; it uses the
+    preprocessing brick's pairing (:func:`pair_masks`, issue #45).
     """
+    _warn_old_matcher("find_candidate_matches")
     if strategy not in {"exact", "exact_or_suffix", "substring"}:
         raise ValueError("strategy must be one of: 'exact', 'exact_or_suffix', 'substring'.")
     if not isinstance(mask_suffixes, (tuple, list)) or not all(isinstance(value, str) for value in mask_suffixes):
@@ -623,10 +638,11 @@ def filter_shared_matches(candidate_matches) -> dict[Path, list[Path]]:
     also has at least one exclusive (image-unique) candidate. This pruning is
     repeated until stable.
 
-    Kept for callers that use it directly. :func:`validate_image_and_mask_folders`
-    no longer applies it: it refuses every ambiguous pairing instead of
-    resolving it by this heuristic (issue #45).
+    Deprecated, kept for callers that use it directly. CellPatcher no longer
+    applies it: it pairs with the preprocessing brick's rule
+    (:func:`pair_masks`), which refuses every ambiguous pairing (issue #45).
     """
+    _warn_old_matcher("filter_shared_matches")
     filtered = {img: list(matches) for img, matches in candidate_matches.items()}
 
     # Iterate to a fixed point: dropping a shared mask from one image can
@@ -674,7 +690,11 @@ def select_requested_masks(mask_files, *, strategy, mask_suffixes, case_sensitiv
     ValueError
         If *strategy* is ``"exact"`` (it uses no suffix), *mask_suffixes* is
         empty, or no mask ends with a requested suffix.
+
+    Deprecated: replaced by ``matching.mask_type`` with the preprocessing
+    brick's pairing (:func:`pair_masks`, issue #45).
     """
+    _warn_old_matcher("select_requested_masks")
     if strategy == "exact":
         raise ValueError(
             "ignore_unrequested_masks=True keeps the masks ending with one of mask_suffixes, which "
@@ -692,103 +712,278 @@ def select_requested_masks(mask_files, *, strategy, mask_suffixes, case_sensitiv
     return kept
 
 
+# The matching options CellPatcher had before it adopted the preprocessing
+# brick's pairing (issue #45), with their old defaults. They are still
+# accepted at these values (an old run_config.json holds them) but have no
+# effect; any other value is refused, because it asked for a pairing that no
+# longer exists.
+LEGACY_MATCHING_DEFAULTS = {
+    "strategy": "exact_or_suffix",
+    "mask_suffixes": ("_mask", "_labels", "_label", "_seg", "_segmentation"),
+    "case_sensitive": False,
+    "ignore_unrequested_masks": False,
+}
+
+MASK_LAYOUT_HELP = (
+    "Masks are paired with the MorphoBricks preprocessing brick's rule (its find_masks): a mask is a "
+    "TIFF file in the mask folder, either <mask type>/<image's folders>/<image name>.tif or "
+    "<image's folders>/<image name>_<mask type>.tif (for example img_01_cells.tif), where the "
+    "image's folders are its folders below the image root (none for a single image folder)."
+)
+
+
+def warn_legacy_matching_removed(where: str, stacklevel: int = 2) -> None:
+    """Emit the ``DeprecationWarning`` for a legacy matching option given at its old default."""
+    warnings.warn(
+        f"{where}: the matching options strategy, mask_suffixes, case_sensitive and "
+        "ignore_unrequested_masks no longer have any effect and will be removed; images and masks "
+        "are paired with the preprocessing brick's rule (issue #45). Use matching.mask_type to choose "
+        "the mask type.",
+        DeprecationWarning,
+        stacklevel=stacklevel + 1,
+    )
+
+
+def check_legacy_matching(where: str, **options) -> None:
+    """Refuse a legacy matching option set to anything but its old default (issue #45).
+
+    *options* maps legacy option names to the values given; None means not
+    given. The old default is accepted with a ``DeprecationWarning`` (it
+    selects nothing the new pairing does not do, and old ``run_config.json``
+    files hold it); any other value is refused with ``ValueError``, since
+    ignoring it would pair differently from what was asked.
+    """
+    given = {name: value for name, value in options.items() if value is not None}
+    if not given:
+        return
+    unknown = sorted(set(given) - set(LEGACY_MATCHING_DEFAULTS))
+    if unknown:
+        raise TypeError(f"{where}: unknown matching option(s) {unknown}.")
+    changed = {
+        name: value
+        for name, value in given.items()
+        if (tuple(value) if isinstance(value, list) else value) != LEGACY_MATCHING_DEFAULTS[name]
+    }
+    if not changed:
+        warn_legacy_matching_removed(where, stacklevel=3)
+        return
+    hint = ""
+    suffixes = given.get("mask_suffixes")
+    if isinstance(suffixes, (tuple, list)) and len(suffixes) == 1 and str(suffixes[0]).startswith("_"):
+        hint = f" For masks named <image>{suffixes[0]}.tif, set matching.mask_type={suffixes[0][1:]!r}."
+    raise ValueError(
+        f"{where}: {', '.join(f'{name}={value!r}' for name, value in sorted(changed.items()))} is no longer "
+        "supported. CellPatcher no longer pairs images and masks by its own rules (exact/suffix/substring "
+        "matching); it uses the preprocessing brick's pairing, so every brick pairs the same files (issue "
+        f"#45). {MASK_LAYOUT_HELP}{hint}"
+    )
+
+
+@dataclass(frozen=True)
+class MaskPairing:
+    """The mask of every image, from the preprocessing brick's pairing (:func:`pair_masks`).
+
+    Attributes
+    ----------
+    mask_type
+        The mask type used: its folder name, or the part of the mask's name
+        after ``<image name>_``.
+    masks
+        Each image path (as given) mapped to its mask file.
+    """
+
+    mask_type: str
+    masks: dict
+
+
+# find_masks issue codes about a mask's header (shape, axes, pixel type), not
+# about which image it belongs to. CellPatcher reads each mask with its own
+# common.mask_axes (which may hold Z, T or C axes that the v0.3.1 header check
+# refuses as "not 2D") and checks it against its image when it reads it, so
+# these codes do not decide the pairing here.
+_MASK_HEADER_CODES = frozenset({"unreadable_mask", "mask_not_2d", "mask_size_mismatch", "mask_pixel_type"})
+
+# Reported per mask type; CellPatcher checks the type it uses itself.
+_MASK_MISSING_CODE = "mask_missing"
+
+
+def source_relative_path(image_path, experiment_root) -> str:
+    """Path of *image_path* relative to *experiment_root*, with ``/`` separators.
+
+    Built from where the image sits in the folder tree, so it matches the
+    preprocessing brick's ``source_relative_path`` (``control/img.tif`` for an
+    image directly in ``control/``). Like the brick, which walks the tree
+    following links, a linked image or folder keeps its path under the root
+    (the link's, not its target's). A path that is not under the root as
+    written is compared by real locations.
+    """
+    root = Path(experiment_root).expanduser()
+    image = Path(image_path).expanduser()
+    try:
+        # Discovery builds every image path from the root, so this holds for
+        # folder and tree runs; resolving would follow links out of the tree.
+        return image.absolute().relative_to(root.absolute()).as_posix()
+    except ValueError:  # e.g. the same folder written through a link
+        pass
+    try:
+        return image.resolve().relative_to(root.resolve()).as_posix()
+    except ValueError as exc:
+        raise ValueError(f"Image '{image_path}' is not inside the experiment root '{root}'.") from exc
+
+
+def _discovery_of(experiment_root, relative_paths):
+    """The preprocessing ``DiscoveryResult`` of images CellPatcher has already discovered.
+
+    One leaf per image folder, holding its images' relative paths. The labels
+    are the folder names, ``single`` for missing levels; ``find_masks`` reads
+    only the folders and image names.
+    """
+    from morphobricks_preprocessing import SINGLE, DiscoveryResult, LeafFolder
+
+    by_folder: dict[str, list[str]] = {}
+    for relative in relative_paths:
+        folder = relative.rsplit("/", 1)[0] if "/" in relative else "."
+        by_folder.setdefault(folder, []).append(relative)
+    leaves = []
+    for folder, images in sorted(by_folder.items()):
+        names = () if folder == "." else tuple(folder.split("/"))
+        labels = (names + (SINGLE,) * 3)[:3]
+        leaves.append(LeafFolder(folder, *labels, tuple(sorted(images))))
+    return DiscoveryResult(root=Path(experiment_root).expanduser().resolve(), leaves=tuple(leaves))
+
+
+def _issue_text(issue) -> str:
+    paths = list(issue.paths)
+    listed = f" ({', '.join(paths[:10])}{', ...' if len(paths) > 10 else ''})" if paths else ""
+    action = f" {issue.action.rstrip('.')}" if issue.action else ""
+    return f"[{issue.code}] {issue.message.rstrip('.')}{listed}.{action}"
+
+
+def pair_masks(experiment_root, image_files, mask_folder_path, *, mask_type=None) -> MaskPairing:
+    """Pair every image with its mask using the preprocessing brick's pairing, or raise.
+
+    CellPatcher does not pair images and masks itself: the mask folder is
+    read by ``morphobricks_preprocessing.find_masks`` (decision of
+    2026-10-30, issue #45), so CellPatcher, the preprocessing brick and the
+    bricks that use its discovery pair the same files. A mask is a TIFF file
+    named ``<mask type>/<image's folders>/<image name>.tif`` or
+    ``<image's folders>/<image name>_<mask type>.tif``, where the image's
+    folders are its path below *experiment_root* and the image name is its
+    ``position_id`` (D85); names are compared ignoring case.
+
+    Refused, never resolved by a guess:
+
+    - every problem ``find_masks`` reports about the pairing, including a
+      mask that could belong to two images or two types (``ambiguous_mask``),
+      a file in the mask folder that pairs with no image
+      (``mask_without_image``, ``mask_outside_type_folder``: never silently
+      left out) and a mask folder inside the image root;
+    - several mask types when *mask_type* is None, and a *mask_type* that was
+      not found;
+    - an image without a mask of the type used.
+
+    The header checks of ``find_masks`` are not applied (see
+    ``_MASK_HEADER_CODES``); each mask is checked against its image when it
+    is read.
+
+    Parameters
+    ----------
+    experiment_root
+        The folder the images' paths are relative to: the image folder of a
+        folder run, the image root of a tree run.
+    image_files
+        The images to pair, all under *experiment_root*.
+    mask_folder_path
+        The mask folder, mirroring *experiment_root*'s folders; it may not be
+        inside *experiment_root*.
+    mask_type
+        The mask type to use (``config.matching.mask_type``), or None when the
+        mask folder holds exactly one type.
+    """
+    from morphobricks_preprocessing import TiffMetadata, find_masks
+
+    if mask_type is not None and (not isinstance(mask_type, str) or not mask_type.strip()):
+        raise ValueError(f"mask_type must be None or a non-empty name; got {mask_type!r}.")
+    image_files = [Path(image) for image in image_files]
+    relative = {image: source_relative_path(image, experiment_root) for image in image_files}
+    discovery = _discovery_of(experiment_root, relative.values())
+    # Headers are not inspected here (see _MASK_HEADER_CODES); the record says so.
+    not_inspected = "not inspected: CellPatcher checks each mask against its image when it reads them"
+    images = [TiffMetadata(relative_path=path, readable=False, error=not_inspected) for path in relative.values()]
+    inventory = find_masks(Path(mask_folder_path).expanduser(), discovery, images, ome_zarr_labels=False)
+
+    problems = [
+        _issue_text(issue)
+        for issue in inventory.issues
+        if issue.code not in _MASK_HEADER_CODES and issue.code != _MASK_MISSING_CODE
+    ]
+    if problems:
+        raise ValueError(f"Images and masks cannot be paired: {'; '.join(problems)}. {MASK_LAYOUT_HELP}")
+    types = inventory.types
+    if not types:
+        raise ValueError(f"No mask in '{mask_folder_path}' pairs with an image. {MASK_LAYOUT_HELP}")
+    if mask_type is None:
+        if len(types) > 1:
+            raise ValueError(
+                f"The mask folder holds {len(types)} mask types ({', '.join(types)}); set "
+                "matching.mask_type (or mask_type=) to the one to use. A type is never chosen for you."
+            )
+        mask_type = types[0]
+    elif mask_type not in types:
+        raise ValueError(
+            f"No mask of type {mask_type!r} pairs with an image; the mask folder holds the types "
+            f"{', '.join(types)} (names are compared exactly). {MASK_LAYOUT_HELP}"
+        )
+    by_image = {f.image: f for f in inventory.files if f.mask_type == mask_type}
+    missing = [relative[image] for image in image_files if relative[image] not in by_image]
+    if missing:
+        raise ValueError(
+            f"Images with no {mask_type!r} mask: {', '.join(missing[:10])}"
+            f"{', ...' if len(missing) > 10 else ''} ({len(missing)} of {len(image_files)}). {MASK_LAYOUT_HELP}"
+        )
+    folder = Path(mask_folder_path).expanduser()
+    return MaskPairing(mask_type, {image: folder / by_image[relative[image]].path for image in image_files})
+
+
 def validate_image_and_mask_folders(
     image_folder_path,
     mask_folder_path,
     *,
-    strategy="exact_or_suffix",
-    mask_suffixes=("_mask", "_labels", "_label", "_seg", "_segmentation"),
-    case_sensitive=False,
-    ignore_unrequested_masks=False,
+    mask_type=None,
+    strategy=None,
+    mask_suffixes=None,
+    case_sensitive=None,
+    ignore_unrequested_masks=None,
 ) -> dict[Path, Path]:
-    """Match every image to exactly one mask by file name, or raise listing every problem.
+    """Pair every image of a folder with exactly one mask, or raise listing every problem.
 
-    The pairing must be one to one among the candidates: an image with
-    several candidate masks, or a mask that is a candidate of several images,
-    is refused rather than resolved by a heuristic.
+    The pairing is the preprocessing brick's (:func:`pair_masks`, issue #45):
+    masks are TIFF files named ``<image name>_<mask type>.tif`` or
+    ``<mask type>/<image name>.tif`` in *mask_folder_path*. With several mask
+    types in the folder, *mask_type* says which to use.
 
-    With *ignore_unrequested_masks* (default False), masks whose stem ends in
-    none of *mask_suffixes* are left out before matching
-    (:func:`select_requested_masks`), so a folder holding several masks per
-    image (``_cells``, ``_nuclei``, ...) can be used with
-    ``mask_suffixes=("_cells",)``. Without it, every mask in the folder must
-    match an image.
+    *strategy*, *mask_suffixes*, *case_sensitive* and
+    *ignore_unrequested_masks* are the former matching options: accepted
+    only at their old defaults (with a ``DeprecationWarning``), refused
+    otherwise (:func:`check_legacy_matching`).
 
     Returns
     -------
     dict
         Each image path mapped to its mask path.
     """
-    if not isinstance(ignore_unrequested_masks, bool):
-        raise ValueError("ignore_unrequested_masks must be a bool.")
-    image_files = list_supported_files(image_folder_path)
-    mask_files = list_supported_files(mask_folder_path)
-    if len(image_files) == 0:
-        raise ValueError("No supported image files found in image folder.")
-    if len(mask_files) == 0:
-        raise ValueError("No supported mask files found in mask folder.")
-    if ignore_unrequested_masks:
-        mask_files = select_requested_masks(
-            mask_files, strategy=strategy, mask_suffixes=mask_suffixes, case_sensitive=case_sensitive
-        )
-
-    candidate = find_candidate_matches(
-        image_files,
-        mask_files,
+    check_legacy_matching(
+        "validate_image_and_mask_folders",
         strategy=strategy,
         mask_suffixes=mask_suffixes,
         case_sensitive=case_sensitive,
+        ignore_unrequested_masks=ignore_unrequested_masks,
     )
-
-    # Only a one-to-one pairing is accepted: an image with zero or several
-    # candidate masks, or a mask that is a candidate of several images
-    # (img1 and img10 both matching img10_mask under "substring"), is
-    # refused, never resolved by a heuristic such as filter_shared_matches
-    # (issue #45): the wrong pairing would give one image another's objects.
-    no_match = [img for img, matches in candidate.items() if len(matches) == 0]
-    ambiguous = [img for img, matches in candidate.items() if len(matches) > 1]
-
-    mask_to_images = {}
-    for img, matches in candidate.items():
-        for mask in matches:
-            mask_to_images.setdefault(mask, []).append(img)
-    shared_masks = [mask for mask, imgs in mask_to_images.items() if len(imgs) > 1]
-
-    selected = {
-        img: matches[0]
-        for img, matches in candidate.items()
-        if len(matches) == 1 and len(mask_to_images[matches[0]]) == 1
-    }
-    unmatched_masks = [mask for mask in mask_files if mask not in mask_to_images]
-
-    errors = []
-    if no_match:
-        errors.append("Images with no mask match: " + ", ".join(p.name for p in no_match[:10]))
-    if ambiguous:
-        errors.append("Images with multiple mask matches: " + ", ".join(p.name for p in ambiguous[:10]))
-    if shared_masks:
-        errors.append(
-            "Masks linked to multiple images: "
-            + ", ".join(
-                f"{mask.name} ({', '.join(img.name for img in mask_to_images[mask])})" for mask in shared_masks[:10]
-            )
-        )
-    if unmatched_masks:
-        message = "Masks with no matching image: " + ", ".join(p.name for p in unmatched_masks[:10])
-        other_suffix = [mask for mask in unmatched_masks if not _ends_with_suffix(mask, mask_suffixes, case_sensitive)]
-        if other_suffix and strategy != "exact":
-            # Typically the other masks of each image (_nuclei beside _cells).
-            message += (
-                f" ({len(other_suffix)} of them end in none of mask_suffixes {tuple(mask_suffixes)}; to leave "
-                "such masks out before matching, set ignore_unrequested_masks=True "
-                "(config.matching.ignore_unrequested_masks))"
-            )
-        errors.append(message)
-
-    if errors:
-        raise ValueError("; ".join(errors))
-
-    return selected
+    image_files = list_supported_files(image_folder_path)
+    if len(image_files) == 0:
+        raise ValueError("No supported image files found in image folder.")
+    list_supported_files(mask_folder_path)  # the folder must exist
+    return pair_masks(image_folder_path, image_files, mask_folder_path, mask_type=mask_type).masks
 
 
 def run_patching_from_folders(

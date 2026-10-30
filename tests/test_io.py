@@ -137,202 +137,12 @@ def test_filter_shared_matches_iterative_pruning_converges():
     assert out[img3] == [m3]
 
 
-def test_validate_image_and_mask_folders_success(tmp_path):
-    img_dir = tmp_path / "images"
-    mask_dir = tmp_path / "masks"
-    img_dir.mkdir()
-    mask_dir.mkdir()
-    (img_dir / "a.npy").write_bytes(b"x")
-    (img_dir / "b.npy").write_bytes(b"x")
-    (mask_dir / "a_mask.npy").write_bytes(b"x")
-    (mask_dir / "b_mask.npy").write_bytes(b"x")
-
-    out = validate_image_and_mask_folders(img_dir, mask_dir)
-    assert len(out) == 2
-
-
-def test_validate_image_and_mask_folders_raises_unmatched_image(tmp_path):
-    img_dir = tmp_path / "images"
-    mask_dir = tmp_path / "masks"
-    img_dir.mkdir()
-    mask_dir.mkdir()
-    (img_dir / "a.npy").write_bytes(b"x")
-    with pytest.raises(ValueError):
-        validate_image_and_mask_folders(img_dir, mask_dir)
-
-
-def test_validate_image_and_mask_folders_raises_ambiguous_image(tmp_path):
-    img_dir = tmp_path / "images"
-    mask_dir = tmp_path / "masks"
-    img_dir.mkdir()
-    mask_dir.mkdir()
-    (img_dir / "a.npy").write_bytes(b"x")
-    # Both names match via different allowed suffixes → genuinely ambiguous under exact_or_suffix.
-    (mask_dir / "a_mask.npy").write_bytes(b"x")
-    (mask_dir / "a_labels.npy").write_bytes(b"x")
-    with pytest.raises(ValueError):
-        validate_image_and_mask_folders(img_dir, mask_dir)
-
-
-def test_validate_image_and_mask_folders_default_rejects_substring_pitfall(tmp_path):
-    img_dir = tmp_path / "images"
-    mask_dir = tmp_path / "masks"
-    img_dir.mkdir()
-    mask_dir.mkdir()
-    (img_dir / "img1.npy").write_bytes(b"x")
-    (mask_dir / "img10_mask.npy").write_bytes(b"x")
-    with pytest.raises(ValueError):
-        validate_image_and_mask_folders(img_dir, mask_dir)
-
-
-def test_validate_image_and_mask_folders_substring_compatibility_mode(tmp_path):
-    img_dir = tmp_path / "images"
-    mask_dir = tmp_path / "masks"
-    img_dir.mkdir()
-    mask_dir.mkdir()
-    img = img_dir / "img1.npy"
-    mask = mask_dir / "img10_mask.npy"
-    img.write_bytes(b"x")
-    mask.write_bytes(b"x")
-    out = validate_image_and_mask_folders(img_dir, mask_dir, strategy="substring")
-    assert out[img] == mask
-
-
-def test_validate_image_and_mask_folders_multiple_suffixes_can_be_ambiguous(tmp_path):
-    img_dir = tmp_path / "images"
-    mask_dir = tmp_path / "masks"
-    img_dir.mkdir()
-    mask_dir.mkdir()
-    (img_dir / "img1.npy").write_bytes(b"x")
-    (mask_dir / "img1_labels.npy").write_bytes(b"x")
-    (mask_dir / "img1_segmentation.npy").write_bytes(b"x")
-    with pytest.raises(ValueError):
-        validate_image_and_mask_folders(img_dir, mask_dir)
-
-
-def test_validate_image_and_mask_folders_case_sensitive_option(tmp_path):
-    img_dir = tmp_path / "images"
-    mask_dir = tmp_path / "masks"
-    img_dir.mkdir()
-    mask_dir.mkdir()
-    (img_dir / "IMG1.npy").write_bytes(b"x")
-    (mask_dir / "img1_mask.npy").write_bytes(b"x")
-    with pytest.raises(ValueError):
-        validate_image_and_mask_folders(img_dir, mask_dir, case_sensitive=True)
-
-
-def test_validate_image_and_mask_folders_passes_suffix_options_through(tmp_path):
-    img_dir = tmp_path / "images"
-    mask_dir = tmp_path / "masks"
-    img_dir.mkdir()
-    mask_dir.mkdir()
-    img = img_dir / "img1.npy"
-    mask = mask_dir / "img1_ann.npy"
-    img.write_bytes(b"x")
-    mask.write_bytes(b"x")
-    out = validate_image_and_mask_folders(img_dir, mask_dir, mask_suffixes=("_ann",))
-    assert out[img] == mask
-
-
-def test_validate_image_and_mask_folders_raises_unmatched_mask(tmp_path):
-    img_dir = tmp_path / "images"
-    mask_dir = tmp_path / "masks"
-    img_dir.mkdir()
-    mask_dir.mkdir()
-    (img_dir / "a.npy").write_bytes(b"x")
-    (mask_dir / "a_mask.npy").write_bytes(b"x")
-    (mask_dir / "orphan.npy").write_bytes(b"x")
-    with pytest.raises(ValueError):
-        validate_image_and_mask_folders(img_dir, mask_dir)
-
-
-def _write_mask_sets(tmp_path, suffixes=("_cells", "_nuclei", "_mito", "_nucleoli")):
-    # A segmentation folder holding several masks of each image (JUMP Cell
-    # Painting style): one per compartment, told apart by their suffix.
-    img_dir = tmp_path / "images"
-    mask_dir = tmp_path / "masks"
-    img_dir.mkdir()
-    mask_dir.mkdir()
-    for name in ("a", "b"):
-        (img_dir / f"{name}.npy").write_bytes(b"x")
-        for suffix in suffixes:
-            (mask_dir / f"{name}{suffix}.npy").write_bytes(b"x")
-    return img_dir, mask_dir
-
-
-def test_masks_with_other_suffixes_are_refused_by_default(tmp_path):
-    # Requesting one suffix does not, by itself, skip the other masks of the
-    # same images; the error says which masks they are and how to skip them.
-    img_dir, mask_dir = _write_mask_sets(tmp_path)
-    with pytest.raises(ValueError, match="Masks with no matching image") as error:
-        validate_image_and_mask_folders(img_dir, mask_dir, mask_suffixes=("_cells",))
-    message = str(error.value)
-    assert "a_nuclei.npy" in message
-    assert "ignore_unrequested_masks=True" in message
-
-
-def test_ignore_unrequested_masks_matches_the_requested_suffix_only(tmp_path):
-    img_dir, mask_dir = _write_mask_sets(tmp_path)
-    out = validate_image_and_mask_folders(
-        img_dir, mask_dir, mask_suffixes=("_cells",), ignore_unrequested_masks=True
-    )
-    assert {image.name: mask.name for image, mask in out.items()} == {"a.npy": "a_cells.npy", "b.npy": "b_cells.npy"}
-
-
-def test_ignore_unrequested_masks_filters_before_matching(tmp_path):
-    # Under substring matching every mask of an image is a candidate, so the
-    # image would be ambiguous if the suffix filter ran only after matching.
-    img_dir, mask_dir = _write_mask_sets(tmp_path)
-    out = validate_image_and_mask_folders(
-        img_dir, mask_dir, strategy="substring", mask_suffixes=("_cells",), ignore_unrequested_masks=True
-    )
-    assert {image.name: mask.name for image, mask in out.items()} == {"a.npy": "a_cells.npy", "b.npy": "b_cells.npy"}
-
-
-def test_ignore_unrequested_masks_follows_case_sensitivity(tmp_path):
-    img_dir, mask_dir = _write_mask_sets(tmp_path, suffixes=("_CELLS", "_nuclei"))
-    out = validate_image_and_mask_folders(
-        img_dir, mask_dir, mask_suffixes=("_cells",), ignore_unrequested_masks=True
-    )
-    assert {mask.name for mask in out.values()} == {"a_CELLS.npy", "b_CELLS.npy"}
-    with pytest.raises(ValueError, match="end in none of"):
-        validate_image_and_mask_folders(
-            img_dir, mask_dir, mask_suffixes=("_cells",), case_sensitive=True, ignore_unrequested_masks=True
-        )
-
-
-def test_ignore_unrequested_masks_still_reports_requested_masks_without_image(tmp_path):
-    # Only masks with another suffix are skipped: a requested mask whose image
-    # is missing, and an image whose requested mask is missing, still fail.
-    img_dir, mask_dir = _write_mask_sets(tmp_path)
-    (mask_dir / "c_cells.npy").write_bytes(b"x")
-    (mask_dir / "b_cells.npy").unlink()
-    with pytest.raises(ValueError) as error:
-        validate_image_and_mask_folders(
-            img_dir, mask_dir, mask_suffixes=("_cells",), ignore_unrequested_masks=True
-        )
-    message = str(error.value)
-    assert "Images with no mask match: b.npy" in message
-    assert "Masks with no matching image: c_cells.npy" in message
-    assert "nuclei" not in message
-
-
-def test_ignore_unrequested_masks_needs_suffixes_that_matching_uses(tmp_path):
-    img_dir, mask_dir = _write_mask_sets(tmp_path)
-    with pytest.raises(ValueError, match="strategy='exact'"):
-        validate_image_and_mask_folders(img_dir, mask_dir, strategy="exact", ignore_unrequested_masks=True)
-    with pytest.raises(ValueError, match="mask_suffixes is empty"):
-        validate_image_and_mask_folders(img_dir, mask_dir, mask_suffixes=(), ignore_unrequested_masks=True)
-    with pytest.raises(ValueError, match="must be a bool"):
-        validate_image_and_mask_folders(img_dir, mask_dir, ignore_unrequested_masks="yes")
-
-
 def test_validate_image_and_mask_folders_empty_image_folder_raises(tmp_path):
     img_dir = tmp_path / "images"
     mask_dir = tmp_path / "masks"
     img_dir.mkdir()
     mask_dir.mkdir()
-    (mask_dir / "a_mask.npy").write_bytes(b"x")
+    write_array(mask_dir / "a_mask.tif", np.ones((4, 4), np.uint8))
     with pytest.raises(ValueError, match="image folder"):
         validate_image_and_mask_folders(img_dir, mask_dir)
 
@@ -343,7 +153,7 @@ def test_validate_image_and_mask_folders_empty_mask_folder_raises(tmp_path):
     img_dir.mkdir()
     mask_dir.mkdir()
     (img_dir / "a.npy").write_bytes(b"x")
-    with pytest.raises(ValueError, match="mask folder"):
+    with pytest.raises(ValueError, match="No mask in .* pairs with an image"):
         validate_image_and_mask_folders(img_dir, mask_dir)
 
 
@@ -386,55 +196,6 @@ def test_list_supported_files_with_custom_extensions(tmp_path):
     assert [p.name for p in files] == ["b.csv"]
 
 
-def test_validate_folders_shared_mask_raises(tmp_path):
-    """Two images that both match the same mask should raise."""
-    img_dir = tmp_path / "images"
-    mask_dir = tmp_path / "masks"
-    img_dir.mkdir()
-    mask_dir.mkdir()
-    (img_dir / "a.npy").write_bytes(b"x")
-    (img_dir / "b.npy").write_bytes(b"x")
-    # Both images have the same stem as the mask → shared match
-    (mask_dir / "a.npy").write_bytes(b"x")
-    (mask_dir / "b.npy").write_bytes(b"x")
-    # This should work fine (one-to-one)
-    out = validate_image_and_mask_folders(img_dir, mask_dir, strategy="exact")
-    assert len(out) == 2
-
-
-# ---------------------------------------------------------------------------
-# Additional IO edge cases
-# ---------------------------------------------------------------------------
-
-def test_validate_folders_shared_mask_with_two_images_raises(tmp_path):
-    """One mask matched by two images (both exact-match after normalization) should raise."""
-    img_dir = tmp_path / "images"
-    mask_dir = tmp_path / "masks"
-    img_dir.mkdir()
-    mask_dir.mkdir()
-    # Use substring strategy so img1 and img10 both match the single mask "img1_mask"
-    (img_dir / "img1.npy").write_bytes(b"x")
-    (img_dir / "img10.npy").write_bytes(b"x")
-    (mask_dir / "img1_mask.npy").write_bytes(b"x")
-    (mask_dir / "img10_mask.npy").write_bytes(b"x")
-    # Both mask correctly with exact_or_suffix → no ambiguity, should succeed
-    out = validate_image_and_mask_folders(img_dir, mask_dir)
-    assert len(out) == 2
-
-
-def test_validate_folders_shared_mask_unique_candidates_raises(tmp_path):
-    """Two images that each uniquely select the same mask → 'Masks linked to multiple images' error."""
-    img_dir = tmp_path / "images"
-    mask_dir = tmp_path / "masks"
-    img_dir.mkdir()
-    mask_dir.mkdir()
-    (img_dir / "a.npy").write_bytes(b"x")
-    (img_dir / "b.npy").write_bytes(b"x")
-    # "a" is in "ab_mask" and "b" is in "ab_mask" — both images share one mask exclusively
-    (mask_dir / "ab_mask.npy").write_bytes(b"x")
-    with pytest.raises(ValueError, match="[Mm]asks"):
-        validate_image_and_mask_folders(img_dir, mask_dir, strategy="substring")
-
 from cellpatcher import CellPatcherConfig
 from cellpatcher.config import CommonConfig, GridConfig
 from cellpatcher.io import run_patching_from_folders
@@ -463,7 +224,7 @@ def test_run_patching_from_folders_cell_mode(tmp_path):
     labels[4:12, 5:13] = 1
 
     write_array(img_dir / "sample.npy", image)
-    write_array(mask_dir / "sample_mask.npy", labels)
+    write_array(mask_dir / "sample_mask.tif", labels)
 
     config = CellPatcherConfig(mode="cell")
     config.cell.patch_size = 8
@@ -533,7 +294,7 @@ def test_run_patching_pipeline_random_mode_with_optional_mask(tmp_path):
     mask = np.zeros((32, 32), dtype=np.int32)
     mask[:16, :] = 1
     write_array(img_dir / "a.npy", img)
-    write_array(mask_dir / "a_mask.npy", mask)
+    write_array(mask_dir / "a_mask.tif", mask)
 
     config = CellPatcherConfig(mode="random")
     config.random.patch_size = 4
@@ -599,33 +360,6 @@ def test_load_config_is_usable_for_patching(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_validate_refuses_a_mask_that_several_images_match(tmp_path):
-    # Under "substring", img10_mask matches img1 and img10. The old pruning
-    # silently gave img1 the img1_mask and img10 the img10_mask; a mask that
-    # is a candidate of two images is ambiguous and is refused.
-    img_dir, mask_dir = tmp_path / "images", tmp_path / "masks"
-    img_dir.mkdir()
-    mask_dir.mkdir()
-    for name in ("img1.npy", "img10.npy"):
-        (img_dir / name).write_bytes(b"x")
-    for name in ("img1_mask.npy", "img10_mask.npy"):
-        (mask_dir / name).write_bytes(b"x")
-    with pytest.raises(ValueError, match=r"Masks linked to multiple images: img10_mask.npy \(img1.npy, img10.npy\)"):
-        validate_image_and_mask_folders(img_dir, mask_dir, strategy="substring")
-
-
-def test_validate_refuses_an_exact_name_that_is_also_another_images_suffix(tmp_path):
-    # Image "a_mask" exists, so mask "a_mask" fits image "a" (suffix) and image "a_mask" (exact).
-    img_dir, mask_dir = tmp_path / "images", tmp_path / "masks"
-    img_dir.mkdir()
-    mask_dir.mkdir()
-    for name in ("a.npy", "a_mask.npy"):
-        (img_dir / name).write_bytes(b"x")
-        (mask_dir / name).write_bytes(b"x")
-    with pytest.raises(ValueError, match="Images with multiple mask matches: a.npy"):
-        validate_image_and_mask_folders(img_dir, mask_dir)
-
-
 @pytest.mark.parametrize("name", ["._a.tif", ".hidden.tif"])
 def test_list_supported_files_skips_system_files(tmp_path, name):
     (tmp_path / "a.tif").write_bytes(b"x")
@@ -633,12 +367,156 @@ def test_list_supported_files_skips_system_files(tmp_path, name):
     assert [p.name for p in list_supported_files(tmp_path)] == ["a.tif"]
 
 
-def test_validate_ignores_macos_resource_forks_in_both_folders(tmp_path):
+def _folders(tmp_path, images, masks):
+    """An image folder and a mask folder beside it, with real (tiny) files."""
     img_dir, mask_dir = tmp_path / "images", tmp_path / "masks"
     img_dir.mkdir()
     mask_dir.mkdir()
+    for name in images:
+        write_array(img_dir / name, np.zeros((4, 4), np.uint8))
+    for name in masks:
+        (mask_dir / name).parent.mkdir(parents=True, exist_ok=True)
+        write_array(mask_dir / name, np.ones((4, 4), np.uint16))
+    return img_dir, mask_dir
+
+
+def _preprocessing_pairs(img_dir, mask_dir):
+    """The preprocessing brick's own pairing of the same folders, run as the brick runs it.
+
+    ``discover_experiment`` + ``inspect_images`` + ``find_masks`` on TIFF
+    images: ``{image name: (mask type, mask path)}``, or the error codes.
+    """
+    import morphobricks_preprocessing as mbp
+    from morphobricks_preprocessing.metadata import inspect_images
+
+    discovery = mbp.discover_experiment(img_dir)
+    images = inspect_images(img_dir, discovery.images).files
+    inventory = mbp.find_masks(mask_dir, discovery, images, ome_zarr_labels=False)
+    errors = sorted(issue.code for issue in inventory.issues if issue.is_error)
+    if errors:
+        return errors
+    return {f.image: (f.mask_type, f.path) for f in inventory.files}
+
+
+# ---------------------------------------------------------------------------
+# Issue #45: CellPatcher pairs images and masks with the preprocessing brick's
+# rule (find_masks), so both bricks pair the same files. Each case below was
+# paired differently by CellPatcher's former rule (exact_or_suffix with the
+# suffixes _mask/_labels/_label/_seg/_segmentation), shown in the comment.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("masks", "mask_type", "expected"),
+    [
+        # Any mask type after "<image>_": former rule: "Images with no mask match".
+        (["a_cells.tif"], None, {"a.tif": ("cells", "a_cells.tif")}),
+        # The <mask type>/ folder layout: former rule: no mask files found (no recursion).
+        (["nuclei/a.tif"], None, {"a.tif": ("nuclei", "nuclei/a.tif")}),
+        # Several types, one chosen: former rule: refused unless ignore_unrequested_masks.
+        (["a_cells.tif", "a_nuclei.tif"], "nuclei", {"a.tif": ("nuclei", "a_nuclei.tif")}),
+    ],
+)
+def test_pairing_is_the_preprocessing_bricks(tmp_path, masks, mask_type, expected):
+    img_dir, mask_dir = _folders(tmp_path, ["a.tif"], masks)
+    preprocessing = _preprocessing_pairs(img_dir, mask_dir)
+    assert {image: pair for image, pair in preprocessing.items() if mask_type in (None, pair[0])} == expected
+    options = {} if mask_type is None else {"mask_type": mask_type}
+    out = validate_image_and_mask_folders(img_dir, mask_dir, **options)
+    assert {image.name: mask.relative_to(mask_dir).as_posix() for image, mask in out.items()} == {
+        image: path for image, (_, path) in expected.items()
+    }
+
+
+def test_a_mask_name_starting_with_another_images_name_is_refused_like_preprocessing(tmp_path):
+    # a_seg_mask.tif is "a" + "_seg_mask" and "a_seg" + "_mask". The former rule
+    # paired it with a_seg (and a_mask.tif with a); preprocessing refuses it as
+    # ambiguous, and so does CellPatcher now.
+    img_dir, mask_dir = _folders(tmp_path, ["a.tif", "a_seg.tif"], ["a_mask.tif", "a_seg_mask.tif"])
+    assert _preprocessing_pairs(img_dir, mask_dir) == ["ambiguous_mask"]
+    with pytest.raises(ValueError, match=r"\[ambiguous_mask\].*a_seg_mask.tif"):
+        validate_image_and_mask_folders(img_dir, mask_dir)
+
+
+def test_a_mask_named_exactly_like_its_image_no_longer_pairs(tmp_path):
+    # Former rule ("exact" and the default "exact_or_suffix"): masks/a.tif paired with a.tif.
+    # Preprocessing reads it as no image's mask (a mask has a type), so it is refused, never dropped.
+    img_dir, mask_dir = _folders(tmp_path, ["a.tif"], ["a.tif"])
+    assert _preprocessing_pairs(img_dir, mask_dir) == {}
+    with pytest.raises(ValueError, match=r"\[mask_without_image\].*\(a.tif\)"):
+        validate_image_and_mask_folders(img_dir, mask_dir)
+
+
+def test_masks_that_are_not_tiff_files_are_refused_not_dropped(tmp_path):
+    # Former rule: a_mask.npy paired with a.npy. Preprocessing pairs TIFF masks only.
+    img_dir, mask_dir = tmp_path / "images", tmp_path / "masks"
+    img_dir.mkdir()
+    mask_dir.mkdir()
+    write_array(img_dir / "a.npy", np.zeros((4, 4), np.float32))
+    write_array(mask_dir / "a_mask.npy", np.ones((4, 4), np.uint16))
+    with pytest.raises(ValueError, match=r"\[mask_outside_type_folder\].*a_mask.npy"):
+        validate_image_and_mask_folders(img_dir, mask_dir)
+
+
+def test_images_of_other_formats_pair_with_tiff_masks_by_position_id(tmp_path):
+    # Images may still be PNG/NumPy/...: an image's name is its position_id (D85),
+    # and both mask layouts may be mixed.
+    img_dir, mask_dir = _folders(tmp_path, ["a.npy", "b.png"], ["a_cells.tif", "cells/b.tif"])
+    out = validate_image_and_mask_folders(img_dir, mask_dir)
+    assert {image.name: mask.relative_to(mask_dir).as_posix() for image, mask in out.items()} == {
+        "a.npy": "a_cells.tif",
+        "b.png": "cells/b.tif",
+    }
+
+
+def test_several_mask_types_need_a_choice(tmp_path):
+    img_dir, mask_dir = _folders(tmp_path, ["a.tif", "b.tif"], ["a_cells.tif", "b_cells.tif", "a_nuclei.tif"])
+    with pytest.raises(ValueError, match=r"2 mask types \(cells, nuclei\); set matching.mask_type"):
+        validate_image_and_mask_folders(img_dir, mask_dir)
+    out = validate_image_and_mask_folders(img_dir, mask_dir, mask_type="cells")
+    assert {image.name: mask.name for image, mask in out.items()} == {"a.tif": "a_cells.tif", "b.tif": "b_cells.tif"}
+    # An image without a mask of the chosen type is refused, not left out.
+    with pytest.raises(ValueError, match=r"Images with no 'nuclei' mask: b.tif"):
+        validate_image_and_mask_folders(img_dir, mask_dir, mask_type="nuclei")
+    with pytest.raises(ValueError, match=r"No mask of type 'Cells'.*cells, nuclei"):
+        validate_image_and_mask_folders(img_dir, mask_dir, mask_type="Cells")
+
+
+def test_a_mask_folder_inside_the_image_folder_is_refused_like_preprocessing(tmp_path):
+    # Former rule: accepted (the image folder listing skips subfolders).
+    img_dir = tmp_path / "images"
+    write_array(img_dir / "a.tif", np.zeros((4, 4), np.float32))
+    write_array(img_dir / "masks" / "a_mask.tif", np.ones((4, 4), np.uint16))
+    with pytest.raises(ValueError, match=r"\[masks_inside_experiment\]"):
+        validate_image_and_mask_folders(img_dir, img_dir / "masks")
+
+
+def test_the_former_matching_options_are_refused_unless_at_their_old_defaults(tmp_path):
+    img_dir, mask_dir = _folders(tmp_path, ["a.tif"], ["a_mask.tif"])
+    with pytest.raises(ValueError, match="strategy='substring' is no longer supported"):
+        validate_image_and_mask_folders(img_dir, mask_dir, strategy="substring")
+    with pytest.raises(ValueError, match="set matching.mask_type='cells'"):
+        validate_image_and_mask_folders(img_dir, mask_dir, mask_suffixes=("_cells",), ignore_unrequested_masks=True)
+    with pytest.warns(DeprecationWarning, match="no longer have any effect"):
+        out = validate_image_and_mask_folders(img_dir, mask_dir, strategy="exact_or_suffix", case_sensitive=False)
+    assert [mask.name for mask in out.values()] == ["a_mask.tif"]
+    with pytest.raises(ValueError, match="case_sensitive=True"):
+        run_patching_pipeline(img_dir, mask_folder_path=mask_dir, case_sensitive=True)
+
+
+def test_the_former_matchers_warn_that_they_are_unused():
+    with pytest.warns(DeprecationWarning, match="no longer used by CellPatcher"):
+        find_candidate_matches(["a.tif"], ["a_mask.tif"])
+    with pytest.warns(DeprecationWarning, match="no longer used by CellPatcher"):
+        filter_shared_matches({})
+
+
+def test_validate_ignores_macos_resource_forks_in_both_folders(tmp_path):
+    img_dir, mask_dir = _folders(tmp_path, ["a.tif"], ["a_cells.tif"])
     for folder in (img_dir, mask_dir):
-        (folder / "a.npy").write_bytes(b"x")
-        (folder / "._a.npy").write_bytes(b"x")
-    out = validate_image_and_mask_folders(img_dir, mask_dir, strategy="exact")
-    assert {image.name: mask.name for image, mask in out.items()} == {"a.npy": "a.npy"}
+        (folder / "._a.tif").write_bytes(b"x")
+        (folder / "._a_cells.tif").write_bytes(b"x")
+    (mask_dir / "__MACOSX").mkdir()
+    (mask_dir / "__MACOSX" / "._a_cells.tif").write_bytes(b"x")
+    out = validate_image_and_mask_folders(img_dir, mask_dir)
+    assert {image.name: mask.name for image, mask in out.items()} == {"a.tif": "a_cells.tif"}

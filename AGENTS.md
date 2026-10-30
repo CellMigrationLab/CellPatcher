@@ -177,8 +177,12 @@ environment.yaml
 CellPatcher-specific conventions:
 
 * `image_axes`/`mask_axes` are explicit and axis-aware (see `axes.py`).
-  Image/mask matching supports `exact`, `exact_or_suffix` (default), and
-  `substring` (legacy, permissive).
+  Image/mask pairing is the preprocessing brick's `find_masks`, called by
+  `io.pair_masks` (issue #45, owner decision 2026-10-30): TIFF masks named
+  `<image>_<type>.tif` or `<type>/<image>.tif`; `matching.mask_type` picks
+  the type. CellPatcher has no pairing rule of its own; the former
+  `exact`/`exact_or_suffix`/`substring` options are refused (old defaults
+  accepted with a `DeprecationWarning`).
 * `scan_cell_patch_size` computes dataset-level patch-size recommendations.
 * `ExtractionConfig.apply_mask` is cell-mode oriented and clears pixels
   outside selected labels before resize/export.
@@ -227,13 +231,17 @@ files, directly from user-provided folders. Images are TIFF/PNG/JPEG/BMP/GIF/
 NPY files and, with the `preprocessing` extra, OME-Zarr images: folders ending
 in `.zarr`, read from level 0 of their only image, with their axes from the
 OME-NGFF metadata put into `common.image_axes` by role (`io.read_image`);
-discovery never enters them, and `img.ome.zarr` matches masks named like
-`img.tif`. With `common.mask_source="ngff_labels"`, the masks of OME-Zarr
+discovery never enters them, and `img.ome.zarr` pairs with masks named like
+`img_cells.tif` or `cells/img.tif`. With `common.mask_source="ngff_labels"`, the masks of OME-Zarr
 images are their own OME-NGFF label images (`common.mask_label_name`,
 `io.read_ngff_mask`, contract §4) instead of a mask folder. Matching is
-validated via
-`validate_image_and_mask_folders`/`io.py`, using an `exact`,
-`exact_or_suffix` (default), or `substring` strategy.
+paired by the preprocessing brick's `find_masks` (`io.pair_masks`, used by
+`validate_image_and_mask_folders` and both run entry points; issue #45): a
+mask is a TIFF file `<mask type>/<image's folders>/<image name>.tif` or
+`<image's folders>/<image name>_<mask type>.tif` in a mask folder outside the
+image root, the image name being its `position_id` (D85);
+`config.matching.mask_type` picks the type (None: the only one). Its header
+checks are not used (CellPatcher checks masks with its own axes on reading).
 
 Two ways to point CellPatcher at input data:
 

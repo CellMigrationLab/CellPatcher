@@ -128,17 +128,15 @@ print(len(result.patches))  # 1
 
 ## Example 5 — Folder matching and loading
 
-Use this pattern when images and masks live in separate folders and need reliable pairing.
+Use this pattern when images and masks live in separate folders and need reliable pairing. The pairing is the preprocessing brick's (`morphobricks_preprocessing.find_masks`): masks are TIFF files named `<image name>_<mask type>.tif` or `<mask type>/<image name>.tif` (see [`config.matching`](configuration_reference.md)).
 
 ```python
-matcher = MatchConfig(strategy="exact_or_suffix", mask_suffixes=("_mask", "_labels"), case_sensitive=False)
-# pairs is a dict[Path, Path]: {image_path: mask_path} for every matched pair
+# ./masks holds img_01_cells.tif, img_01_nuclei.tif, ...: choose the type.
+# pairs is a dict[Path, Path]: {image_path: mask_path} for every image
 pairs = validate_image_and_mask_folders(
     image_folder_path="./images",
     mask_folder_path="./masks",
-    strategy=matcher.strategy,
-    mask_suffixes=matcher.mask_suffixes,
-    case_sensitive=matcher.case_sensitive,
+    mask_type="cells",
 )
 
 first_image_path, first_mask_path = next(iter(pairs.items()))
@@ -146,7 +144,7 @@ image = read_array(first_image_path)
 labels = read_array(first_mask_path)
 ```
 
-When using `run_patching_pipeline`, the `config.matching` field is used automatically — no need to pass matching parameters separately.
+When using `run_patching_pipeline`, set `config.matching.mask_type` instead (`None` when the mask folder holds a single type).
 
 ## Example 6 — Filtering background patches
 

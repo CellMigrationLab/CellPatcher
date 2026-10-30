@@ -201,9 +201,9 @@ def test_tree_cell_mode_explicit_and_single_repeat_with_mirrored_masks(tmp_path)
     mask_root = tmp_path / "masks"
 
     write_array(image_root / "treated" / "2026_01_01" / "img.npy", image)
-    write_array(mask_root / "treated" / "2026_01_01" / "img_mask.npy", labels)
+    write_array(mask_root / "treated" / "2026_01_01" / "img_mask.tif", labels)
     write_array(image_root / "control" / "img.npy", image)
-    write_array(mask_root / "control" / "img_mask.npy", labels)
+    write_array(mask_root / "control" / "img_mask.tif", labels)
 
     cfg = CellPatcherConfig(mode="cell")
     cfg.cell.patch_size = 24
@@ -217,35 +217,36 @@ def test_tree_cell_mode_explicit_and_single_repeat_with_mirrored_masks(tmp_path)
             assert patch.condition == r.condition
             assert patch.biological_repeat == r.biological_repeat
             assert patch.image_file == "img.npy"
-            assert patch.mask_file == "img_mask.npy"
+            assert patch.mask_file == "img_mask.tif"
 
 
 def test_tree_cell_mode_mask_folder_with_several_masks_per_image(tmp_path):
     # Each mask folder holds every compartment's mask of each image (JUMP
-    # style); config.matching keeps the requested one and skips the rest.
+    # style); config.matching.mask_type names the one to use (issue #45:
+    # the preprocessing brick's mask types).
     image, labels, _ = make_synthetic_cell_image_and_labels(seed=5)
     image_root = tmp_path / "raw_data"
     mask_root = tmp_path / "masks"
     for leaf in ("treated/2026_01_01", "control/2026_01_01"):
         write_array(image_root / leaf / "img.npy", image)
         for suffix in ("_cells", "_nuclei", "_mito", "_nucleoli"):
-            write_array(mask_root / leaf / f"img{suffix}.npy", labels)
+            write_array(mask_root / leaf / f"img{suffix}.tif", labels)
 
     cfg = CellPatcherConfig(mode="cell")
     cfg.cell.patch_size = 24
-    cfg.matching.mask_suffixes = ("_cells",)
-    with pytest.raises(ValueError, match="ignore_unrequested_masks=True"):
+    with pytest.raises(ValueError, match="4 mask types .cells, mito, nuclei, nucleoli.; set matching.mask_type"):
         run_patching_condition_repeat_tree(image_root, config=cfg, mask_root_path=mask_root)
 
-    cfg.matching.ignore_unrequested_masks = True
+    cfg.matching.mask_type = "cells"
     cfg.export.enabled = True
     cfg.common.output_dir = str(tmp_path / "out")
     results = run_patching_condition_repeat_tree(image_root, config=cfg, mask_root_path=mask_root)
     assert len(results) == 2
-    assert {patch.mask_file for r in results for patch in r.result.patches} == {"img_cells.npy"}
+    assert {patch.mask_file for r in results for patch in r.result.patches} == {"img_cells.tif"}
+    assert {patch.object_set for r in results for patch in r.result.patches} == {"cells"}
     # The setting is recorded with the run.
     restored = load_config(tmp_path / "out" / "control" / "2026_01_01" / RUN_CONFIG_FILENAME)
-    assert restored.matching.ignore_unrequested_masks is True
+    assert restored.matching.mask_type == "cells"
 
 
 def test_tree_cell_mode_missing_mask_folder_raises_per_leaf(tmp_path):
@@ -258,7 +259,7 @@ def test_tree_cell_mode_missing_mask_folder_raises_per_leaf(tmp_path):
     mask_root.mkdir(parents=True)
 
     cfg = CellPatcherConfig(mode="cell")
-    with pytest.raises(ValueError, match="mask_folder_path is required"):
+    with pytest.raises(ValueError, match="No mask in .* pairs with an image"):
         run_patching_condition_repeat_tree(image_root, config=cfg, mask_root_path=mask_root)
 
 
@@ -275,24 +276,30 @@ def test_tree_grid_mode_ignores_mask_root_path(tmp_path):
     assert len(results[0].result.patches) > 0
 
 
-def test_tree_random_mode_mask_optional_per_leaf(tmp_path):
+def test_tree_random_mode_mask_root_needs_a_mask_for_every_image(tmp_path):
+    # Issue #45: the whole tree is paired at once with the preprocessing
+    # brick's rule, so an image without a mask is refused, never sampled
+    # without one; random mode without a mask root still samples everywhere.
     image_root = tmp_path / "raw_data"
     mask_root = tmp_path / "masks"
     write_array(image_root / "treated" / "img.npy", np.arange(64 * 64, dtype=np.float32).reshape(64, 64))
-    sampling_mask = np.zeros((64, 64), dtype=bool)
-    sampling_mask[16:48, 16:48] = True
-    write_array(mask_root / "treated" / "img_mask.npy", sampling_mask)
+    sampling_mask = np.zeros((64, 64), dtype=np.uint8)
+    sampling_mask[16:48, 16:48] = 1
+    write_array(mask_root / "treated" / "img_mask.tif", sampling_mask)
     write_array(image_root / "control" / "img.npy", np.arange(64 * 64, dtype=np.float32).reshape(64, 64))
-    # no mask for "control" -- random mode must fall back to masks=None for that leaf
 
     cfg = CellPatcherConfig(mode="random")
     cfg.random.n_patches = 3
     cfg.random.patch_size = 8
+    with pytest.raises(ValueError, match="Images with no 'mask' mask: control/img.npy"):
+        run_patching_condition_repeat_tree(image_root, config=cfg, mask_root_path=mask_root)
 
+    write_array(mask_root / "control" / "img_mask.tif", np.ones((64, 64), dtype=np.uint8))
     results = run_patching_condition_repeat_tree(image_root, config=cfg, mask_root_path=mask_root)
-    by_condition = {r.condition: r for r in results}
-    assert len(by_condition["treated"].result.patches) == 3
-    assert len(by_condition["control"].result.patches) == 3
+    assert {r.condition: len(r.result.patches) for r in results} == {"control": 3, "treated": 3}
+
+    results = run_patching_condition_repeat_tree(image_root, config=cfg)
+    assert {r.condition: len(r.result.patches) for r in results} == {"control": 3, "treated": 3}
 
 
 def test_tree_no_condition_folders_raises(tmp_path):
@@ -500,7 +507,7 @@ def test_tree_cell_mode_finds_masks_in_mirrored_technical_repeat_folders(tmp_pat
     image_root, mask_root = tmp_path / "raw_data", tmp_path / "masks"
     for well in ("B02", "B03"):
         write_array(image_root / "treated" / "2026_01_01" / well / "img.npy", image)
-        write_array(mask_root / "treated" / "2026_01_01" / well / "img_mask.npy", labels)
+        write_array(mask_root / "treated" / "2026_01_01" / well / "img_mask.tif", labels)
 
     cfg = CellPatcherConfig(mode="cell")
     cfg.cell.patch_size = 16
@@ -508,7 +515,7 @@ def test_tree_cell_mode_finds_masks_in_mirrored_technical_repeat_folders(tmp_pat
     assert [r.technical_repeat for r in results] == ["B02", "B03"]
     for r in results:
         assert r.result.patches
-        assert {p.mask_file for p in r.result.patches} == {"img_mask.npy"}
+        assert {p.mask_file for p in r.result.patches} == {"img_mask.tif"}
         assert {p.technical_repeat for p in r.result.patches} == {r.technical_repeat}
 
 

@@ -94,6 +94,41 @@ def test_match_config_rejects_invalid_case_sensitive_type():
         MatchConfig(case_sensitive="yes")
 
 
+def test_match_config_holds_the_mask_type_only():
+    # Issue #45: the pairing is the preprocessing brick's; only the mask type is chosen.
+    from dataclasses import asdict
+
+    assert asdict(MatchConfig(mask_type="cells")) == {"mask_type": "cells"}
+    with pytest.raises(ValueError, match="mask_type"):
+        MatchConfig(mask_type="")
+    config = MatchConfig()
+    with pytest.raises(ValueError, match="no longer supported"):
+        config.strategy = "substring"  # never silently ignored
+
+
+def test_an_old_run_config_with_the_default_matching_still_loads(tmp_path):
+    import json
+
+    from cellpatcher.orchestration import load_config
+
+    old = {
+        "mode": "cell",
+        "matching": {
+            "strategy": "exact_or_suffix",
+            "mask_suffixes": ["_mask", "_labels", "_label", "_seg", "_segmentation"],
+            "case_sensitive": False,
+            "ignore_unrequested_masks": False,
+        },
+    }
+    (tmp_path / "run_config.json").write_text(json.dumps(old))
+    with pytest.warns(DeprecationWarning, match="no longer have any effect"):
+        assert load_config(tmp_path / "run_config.json").matching == MatchConfig()
+    old["matching"]["mask_suffixes"] = ["_cells"]
+    (tmp_path / "run_config.json").write_text(json.dumps(old))
+    with pytest.raises(ValueError, match="no longer supported"):
+        load_config(tmp_path / "run_config.json")
+
+
 def test_run_patching_cell_mode_requires_images_and_masks():
     with pytest.raises(ValueError):
         run_patching(config=CellPatcherConfig(mode="cell"))

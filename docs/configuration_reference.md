@@ -32,7 +32,7 @@ Shared settings that apply to every run, regardless of mode.
 | `z_index` | `int \| None` | `None` | Z plane for `z_policy="select"`. |
 | `t_policy` | `str` | `"keep"` | As `z_policy` for a T axis: `"keep"`, `"all"` (sets `t`, a `t<NNNN>` level of `patch_id`), `"first"` or `"select"`; no projections. With both split, planes come in T-then-Z order (`.../t0001/z002/...`). |
 | `t_index` | `int \| None` | `None` | Time point for `t_policy="select"`. |
-| `mask_source` | `str` | `"tiff_tree"` | Where folder and tree runs read masks. `"tiff_tree"`: a mask folder (or tree) mirroring the images, matched by file name with `config.matching`. `"ngff_labels"`: the label image of each OME-Zarr image's own `labels` group (no mask folder; every image must be OME-Zarr). See "OME-Zarr images" below. |
+| `mask_source` | `str` | `"tiff_tree"` | Where folder and tree runs read masks. `"tiff_tree"`: a mask folder (or tree) mirroring the images, paired with the preprocessing brick's rule (`config.matching`). `"ngff_labels"`: the label image of each OME-Zarr image's own `labels` group (no mask folder; every image must be OME-Zarr). See "OME-Zarr images" below. |
 | `mask_label_name` | `str \| None` | `None` | With `mask_source="ngff_labels"`, the label image to use (e.g. `"cells"`); may stay `None` when every image has exactly one. |
 | `object_set` | `str \| None` | `None` | Cell mode: the name of the object set (mask) written to the `object_set` column and to `patch_id`. `None`: named after the mask (see "Patch identity" below), `"mask"` when the mask gives no name. Letters, digits, `.`, `_`, `-` only. |
 
@@ -151,30 +151,35 @@ Controls whether and how patch arrays are written to disk.
 
 ---
 
-## `config.matching` (`MatchConfig`, image↔mask filename matching)
+## `config.matching` (`MatchConfig`, which masks to pair)
 
-Controls how image files are paired with mask files when reading from folders.
+Images and masks are paired with the **MorphoBricks preprocessing brick's rule**: CellPatcher calls `morphobricks_preprocessing.find_masks` (through `cellpatcher.io.pair_masks`) and has no pairing rule of its own, so CellPatcher, the preprocessing brick and the bricks that use its discovery pair the same files (issue #45, owner decision of 2026-10-30).
 
-`run_patching_pipeline` uses these settings automatically when a `mask_folder_path` is provided. The standalone helper `validate_image_and_mask_folders` accepts matching parameters explicitly (it does not read `config.matching` directly).
+A mask is a **TIFF file** (`.tif`, `.tiff`, any case, optional `.ome`) in the mask folder, in either layout (they may be mixed):
+
+| Layout | Example for image `ctrl/rep1/img_01.tif` |
+|---|---|
+| `<mask type>/<image's folders>/<image name>.tif` | `masks/cells/ctrl/rep1/img_01.tif` |
+| `<image's folders>/<image name>_<mask type>.tif` | `masks/ctrl/rep1/img_01_cells.tif` |
+
+The image's folders are its path below the image folder (folder run: none) or the image root (tree run); the image name is its `position_id` (the file name without its extension, D85), so PNG/JPEG/BMP/GIF/NumPy images pair with TIFF masks too. Names are compared ignoring case. The mask folder may not be inside the image folder/root.
 
 | Field | Type | Default | Notes |
 |---|---|---|---|
-| `strategy` | `str` | `"exact_or_suffix"` | Filename matching strategy (see table below). |
-| `mask_suffixes` | `tuple[str, ...]` | `("_mask", "_labels", "_label", "_seg", "_segmentation")` | Candidate suffixes used by the `exact_or_suffix` strategy. |
-| `case_sensitive` | `bool` | `False` | When `False`, filenames are compared case-insensitively. |
-| `ignore_unrequested_masks` | `bool` | `False` | When `True`, masks whose stem ends in none of `mask_suffixes` are left out **before** matching: they are neither candidates nor reported as "Masks with no matching image". For a mask folder holding several masks per image (`img_cells.tif`, `img_nuclei.tif`, `img_mito.tif`, ...), set `mask_suffixes=("_cells",)` and `ignore_unrequested_masks=True`. A mask named exactly like its image ends with no suffix and is left out too; an image without a requested mask, or a requested mask without an image, still raises. Needs `exact_or_suffix` or `substring` (`exact` uses no suffix). `validate_image_and_mask_folders(..., ignore_unrequested_masks=True)` is the same option for the standalone helper. |
+| `mask_type` | `str \| None` | `None` | The mask type to use (`"cells"` for `img_cells.tif` or `cells/img.tif`). `None` uses the only type in the mask folder and refuses a folder holding several (a type is never chosen for you). |
 
-With `ignore_unrequested_masks=False` (the default), every mask in the folder must match an image, so `mask_suffixes=("_cells",)` alone still refuses a folder that also holds `_nuclei` masks; the error then says how many of the unmatched masks end in none of `mask_suffixes` and names this option.
+Refused, never resolved by a guess or silently skipped:
 
-**Matching strategies:**
+- a mask that could belong to two images or two types (an image name that starts another image's name: `a_seg_mask.tif` with images `a` and `a_seg`);
+- a file in the mask folder that pairs with no image (including a mask named exactly like its image, `masks/img.tif`, and a non-TIFF mask such as `img_mask.npy`);
+- an image with no mask of the type used (in `cell` mode, and in `random` mode when a mask folder is given);
+- two mask types whose names differ only in case, or two masks of one image and type.
 
-| Strategy | Behaviour |
-|----------|-----------|
-| `"exact_or_suffix"` | Exact stem match **or** `image_stem + suffix` match (default; recommended) |
-| `"exact"` | Exact stem match only |
-| `"substring"` | Legacy: mask stem contains image stem as a substring. May false-match names like `img1` and `img10_mask`. |
+`find_masks`'s header checks (shape, axes, pixel type) are not applied: CellPatcher reads each mask with `common.mask_axes` (which may hold Z, T or C axes) and checks it against its image when it reads it. System files (`._img.tif`, other names starting with `.`, `Thumbs.db`, `desktop.ini`, `__MACOSX`) are skipped in image and mask folders, as in the preprocessing brick.
 
-Pairing must be one to one: an image with several candidate masks, or a mask that is a candidate of several images (under `"substring"`, `img10_mask` is a candidate of both `img1` and `img10`), is refused with an error naming them, never resolved by a heuristic. This applies to the default `"exact_or_suffix"` too: images `a` and `a_mask` with masks `a` and `a_mask` are refused (the mask `a_mask` is both `a_mask`'s exact match and `a`'s suffix match), where earlier versions paired them by pruning. System files (`._img.tif`, other names starting with `.`, `Thumbs.db`, `desktop.ini`, `__MACOSX`) are skipped in image and mask folders, as in the preprocessing brick.
+**Former options.** `strategy`, `mask_suffixes`, `case_sensitive` and `ignore_unrequested_masks` (and the same arguments of `validate_image_and_mask_folders`, `run_patching_pipeline` and `run_patching_condition_repeat_tree`) are accepted only at their old defaults, with a `DeprecationWarning`, so an old `run_config.json` still loads; any other value is refused. They are no longer written to `run_config.json`. `find_candidate_matches`, `filter_shared_matches` and `select_requested_masks` are deprecated and unused.
+
+**Behaviour change (from CellPatcher's former `exact_or_suffix` default).** Now paired: masks of any type `<image>_<type>.tif` (former suffixes only `_mask`, `_labels`, `_label`, `_seg`, `_segmentation`), the `<type>/` folder layout, and several types in one folder with `mask_type` set. No longer paired, and refused: masks named exactly like their image, non-TIFF masks, ambiguous names as above, and a mask folder inside the image folder. In tree runs, the whole tree is paired at once; `random` mode with a mask root no longer skips images whose leaf has no mask folder.
 
 > `config.matching` is only relevant for `mode="cell"` and `mode="random"` (the only modes that load masks from disk).
 
@@ -258,7 +263,7 @@ Owner decisions D44, D45 and D47 (2026-10-26). A patch's identity comes only fro
 
 **`position_id`** (always filled; D45, amended by MorphoBricks D85 on 2026-10-29). The one supplied with `image_metadata=[{"position_id": ...}]` wins, kept verbatim; it must be non-empty text (a number or an empty string is refused, never converted). Otherwise one file is taken as one XY position, named by the **image name without its extension**, computed by `morphobricks_preprocessing.discovery.position_id` like every MorphoBricks brick (`img.ome.tif` and `img.ome.zarr` give `img`). It is unique within its technical repeat, case-insensitively; the FOV is the four fields `condition`, `biological_repeat`, `technical_repeat`, `position_id`. An in-memory image passed to `run_patching` with neither a `position_id` nor an `image_file` is **refused** with an error naming its place in the run: pass `image_metadata=[{"position_id": ...}, ...]`, one entry per image (an `{"image_file": ...}` entry also works: its stem then names the position). Folder and tree runs read one image per file: a file holding several images (an OME-Zarr plate or multi-position store, a TIFF with several series) is refused, whether its planes are read one at a time (`z_policy`/`t_policy` `"all"`, `"first"` or `"select"` with the `preprocessing` extra) or the file is read whole (`"keep"`, projections, or without the extra), with an error naming the file and its number of images/series. Give one file per position, or pass `position_id` (with the plane indices) through `run_patching`.
 
-**`object_set`** (cell mode; `None` in other modes). Precedence: `image_metadata[i]["object_set"]`; then `common.object_set`; then, in folder and tree runs, the mask's own name — the OME-NGFF label image name with `mask_source="ngff_labels"` (e.g. `cells`), or the part of the mask file's stem after the image's stem without leading `_`, `-`, `.` (`img_cells.tif` → `cells`, `img_mask.tif` → `mask`); finally `"mask"` (the mask role) when nothing names it (in-memory runs, a mask named like its image, or a mask whose name does not start with the image's stem). Characters other than letters, digits, `.`, `_`, `-` in a derived name become `_`.
+**`object_set`** (cell mode; `None` in other modes). Precedence: `image_metadata[i]["object_set"]`; then `common.object_set`; then, in folder and tree runs, the mask's own name — the OME-NGFF label image name with `mask_source="ngff_labels"` (e.g. `cells`), or the mask type of the preprocessing pairing (`img_cells.tif` or `cells/img.tif` → `cells`, `img_mask.tif` → `mask`); finally `"mask"` (the mask role) when nothing names it (in-memory runs). Characters other than letters, digits, `.`, `_`, `-` in a derived name become `_`.
 
 **`patch_id` grammar.** Levels are joined by `/`; absent levels are omitted:
 
@@ -360,7 +365,7 @@ There is no `failed` status: an image that cannot be read, matched to a mask or 
 
 ### OME-Zarr images
 
-With the `preprocessing` extra (`pip install "cellpatcher[preprocessing]"`), folders whose names end in `.zarr` (usually `.ome.zarr`) are images, in folder runs, tree runs and `read_array`. CellPatcher reads level 0 of the store's only image with the preprocessing brick's reader; a store with several images (positions, series or plate wells) is an error. The axes come from the OME-NGFF metadata and are matched to `common.image_axes` (or `mask_axes`) by role: a length-1 axis that the configured axes lack is dropped, a configured axis the store lacks is added with length 1, and the dimensions are reordered; any other mismatch is an error. Discovery never enters a store, and `img.ome.zarr` matches masks named like `img.tif` or `img_mask.tif`. Without the extra, reading a store stops with the install command. OME-Zarr copies written by the preprocessing brick are not read: CellPatcher reads the source images.
+With the `preprocessing` extra (`pip install "cellpatcher[preprocessing]"`), folders whose names end in `.zarr` (usually `.ome.zarr`) are images, in folder runs, tree runs and `read_array`. CellPatcher reads level 0 of the store's only image with the preprocessing brick's reader; a store with several images (positions, series or plate wells) is an error. The axes come from the OME-NGFF metadata and are matched to `common.image_axes` (or `mask_axes`) by role: a length-1 axis that the configured axes lack is dropped, a configured axis the store lacks is added with length 1, and the dimensions are reordered; any other mismatch is an error. Discovery never enters a store, and `img.ome.zarr` pairs with masks named like `img_cells.tif` or `cells/img.tif`. Without the extra, reading a store stops with the install command. OME-Zarr copies written by the preprocessing brick are not read: CellPatcher reads the source images.
 
 **Masks from OME-NGFF labels:** with `common.mask_source="ngff_labels"`, each OME-Zarr image's mask is its label image `common.mask_label_name` (from its `labels` group, OME-NGFF 0.4 and 0.5; the name may stay `None` when there is only one). Level 0 is read; its values must be integers, each dimension must equal the image's or have length 1, and a channel dimension must have length 1. It is then put into `common.mask_axes` by role, so a label Z or T axis with the image's length follows the image's planes and one of length 1 is shared (`z_policy`/`t_policy`). `mask_file` is written as `<image>.ome.zarr/labels/<name>`. A mask folder, or an image that is not OME-Zarr, is an error with this source.
 
@@ -375,7 +380,7 @@ With the `preprocessing` extra (`pip install "cellpatcher[preprocessing]"`), fol
 - A root, condition or biological-repeat folder mixing loose image files with subfolders is ambiguous and raises `ValueError`. System files and folders are ignored, with the preprocessing brick's rule (`morphobricks_preprocessing.discovery.is_system_name`): names starting with `.` (`.ipynb_checkpoints`, `._img.tif`), `Thumbs.db`, `desktop.ini` and `__MACOSX`.
 - **Trees of links.** Image files and folders may be symbolic links, for example a tree that gathers a subset of images stored elsewhere into the `<condition>/<biological_repeat>/` layout. Links are followed for reading; `image_file` is the link's name and `source_relative_path` the link's path under the root (as the preprocessing brick records it), so the patches of a linked tree are those of a copied tree. A link whose target does not exist raises (it is a missing image), in folder and tree runs alike. Two links to the same file are two images.
 
-When `mask_root_path` is given, the same structure is mirrored under it per leaf. Mask folder requirements follow the same per-mode rules as `run_patching_pipeline` (required for `mode="cell"`, optional for `mode="random"`, not accepted for `mode="grid"`/`"whole_fov"`), applied independently to each leaf — a leaf missing a required mask folder raises immediately and aborts the whole tree run rather than being silently skipped.
+When `mask_root_path` is given, it mirrors the image root in the preprocessing brick's layouts (`<mask type>/<condition>/.../<image>.tif` or `<condition>/.../<image>_<mask type>.tif`, see [`config.matching`](#configmatching-matchconfig-which-masks-to-pair)) and the whole tree is paired at once, before any image is read. A mask root is required for `mode="cell"`, optional for `mode="random"` (when given, every image of the tree needs a mask) and ignored for `mode="grid"`/`"whole_fov"`; an image without a mask aborts the whole tree run rather than being silently skipped.
 
 Returns a list of `ConditionRepeatResult(condition, biological_repeat, image_folder, result, technical_repeat, relative_folder)`, one per leaf, in the same (condition, then biological repeat, then technical repeat) sorted order `discover_condition_repeat_folders` returns (whose `ConditionRepeatFolder` entries likewise carry `biological_repeat` and `technical_repeat`).
 

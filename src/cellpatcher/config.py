@@ -1,5 +1,5 @@
 import math
-from dataclasses import dataclass, field
+from dataclasses import InitVar, dataclass, field
 from numbers import Integral
 
 from cellpatcher._deprecation import accept_deprecated_repeat
@@ -7,6 +7,7 @@ from cellpatcher.io import (
     SINGLE_BIOLOGICAL_REPEAT_LABEL,
     SINGLE_CONDITION_LABEL,
     SINGLE_TECHNICAL_REPEAT_LABEL,
+    check_legacy_matching,
 )
 from cellpatcher.ids import validate_object_set
 from cellpatcher.planes import validate_plane_policies
@@ -490,39 +491,53 @@ class NormalizationConfig:
             raise ValueError(f"normalization.memory_limit must be a positive int (bytes); got {self.memory_limit!r}.")
 
 
+_LEGACY_MATCHING_FIELDS = ("strategy", "mask_suffixes", "case_sensitive", "ignore_unrequested_masks")
+
+
 @dataclass
 class MatchConfig:
-    """Preferred image↔mask filename matching options.
+    """Which masks to pair with the images.
 
-    ``validate_image_and_mask_folders`` is a standalone helper that accepts
-    matching options explicitly; it does not automatically consume
-    ``CellPatcherConfig.matching``.
+    Images and masks are paired with the MorphoBricks preprocessing brick's
+    rule (``morphobricks_preprocessing.find_masks``, issue #45), so every
+    brick pairs the same files: a mask is a TIFF file
+    ``<mask type>/<image's folders>/<image name>.tif`` or
+    ``<image's folders>/<image name>_<mask type>.tif`` in the mask folder
+    (:func:`~cellpatcher.io.pair_masks`).
 
-    The package-backed notebook/workflows should pass these fields through when
-    calling folder-validation helpers.
+    ``mask_type`` names the mask type to use (``"cells"`` for
+    ``img_cells.tif`` or ``cells/img.tif``). None (default) uses the only
+    type in the mask folder, and refuses a folder holding several.
 
-    ``ignore_unrequested_masks`` leaves out, before matching, every mask whose
-    stem ends in none of ``mask_suffixes``: for a mask folder holding several
-    masks per image (``_cells``, ``_nuclei``, ...), set
-    ``mask_suffixes=("_cells",)`` and ``ignore_unrequested_masks=True``. Off
-    by default, so every mask in the folder must match an image.
+    The former options ``strategy``, ``mask_suffixes``, ``case_sensitive``
+    and ``ignore_unrequested_masks`` are accepted only at their old defaults
+    (with a ``DeprecationWarning``, so an old ``run_config.json`` still
+    loads) and refused otherwise; they are not stored.
     """
-    strategy: str = "exact_or_suffix"
-    mask_suffixes: tuple[str, ...] = ("_mask", "_labels", "_label", "_seg", "_segmentation")
-    case_sensitive: bool = False
-    ignore_unrequested_masks: bool = False
+    mask_type: str | None = None
+    strategy: InitVar[str | None] = None
+    mask_suffixes: InitVar[tuple[str, ...] | None] = None
+    case_sensitive: InitVar[bool | None] = None
+    ignore_unrequested_masks: InitVar[bool | None] = None
 
-    def __post_init__(self) -> None:
-        if not isinstance(self.ignore_unrequested_masks, bool):
-            raise ValueError("ignore_unrequested_masks must be a bool.")
-        if self.strategy not in {"exact", "exact_or_suffix", "substring"}:
-            raise ValueError("strategy must be one of: 'exact', 'exact_or_suffix', 'substring'.")
-        if not isinstance(self.mask_suffixes, (tuple, list)) or not all(
-            isinstance(value, str) for value in self.mask_suffixes
-        ):
-            raise ValueError("mask_suffixes must be a tuple/list of strings.")
-        if not isinstance(self.case_sensitive, bool):
-            raise ValueError("case_sensitive must be a bool.")
+    def __post_init__(self, strategy, mask_suffixes, case_sensitive, ignore_unrequested_masks) -> None:
+        check_legacy_matching(
+            "MatchConfig",
+            strategy=strategy,
+            mask_suffixes=mask_suffixes,
+            case_sensitive=case_sensitive,
+            ignore_unrequested_masks=ignore_unrequested_masks,
+        )
+        if self.mask_type is not None and (not isinstance(self.mask_type, str) or not self.mask_type.strip()):
+            raise ValueError(f"matching.mask_type must be None or a non-empty name; got {self.mask_type!r}.")
+
+    def __setattr__(self, name, value) -> None:
+        # The former options are not fields: setting one after construction
+        # (cfg.matching.strategy = "substring") must not be silently ignored.
+        if name in _LEGACY_MATCHING_FIELDS:
+            check_legacy_matching(f"matching.{name}", **{name: value})
+            return
+        super().__setattr__(name, value)
 
 
 @dataclass
@@ -573,9 +588,8 @@ class CellPatcherConfig:
     extraction:
         Array extraction settings (padding, resizing, mask application).
     matching:
-        Image↔mask filename matching strategy, used by
-        :func:`~cellpatcher.run_patching_pipeline` and
-        :func:`~cellpatcher.validate_image_and_mask_folders`.
+        Which mask type to pair with the images (:class:`MatchConfig`);
+        the pairing itself is the preprocessing brick's.
     normalization:
         Normalization with the preprocessing brick's statistics; off by
         default (:class:`NormalizationConfig`).

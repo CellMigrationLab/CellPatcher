@@ -28,11 +28,13 @@ from cellpatcher.io import (
     list_supported_files,
     is_ome_zarr,
     read_image,
+    check_legacy_matching,
+    pair_masks,
     read_ngff_mask,
-    validate_image_and_mask_folders,
+    source_relative_path,
 )
 from cellpatcher.export import IMAGE_TABLE_FILENAME, save_image_table_csv, save_metadata_csv
-from cellpatcher.ids import object_set_from_label_path, object_set_from_mask_file, validate_object_set
+from cellpatcher.ids import object_set_from_label_path, object_set_from_mask_type, validate_object_set
 from cellpatcher.normalization import (
     CSV_SCOPES,
     cached_statistics,
@@ -302,24 +304,26 @@ def _config_from_dict(data: dict) -> CellPatcherConfig:
     )
 
 
-def _mask_loaders(image_folder_path, mask_folder_path, image_files, config, strategy, mask_suffixes, case_sensitive):
+def _mask_loaders(experiment_root, mask_folder_path, image_files, config, pairing=None):
     """Resolve the mask of every image, without reading any: one loader per image, or None.
 
-    Returns ``(loaders, mask_files)``: each loader returns ``(mask, mask_file
-    name)``; *mask_files* holds each mask's file name when the matching gives
-    it without a read (a mask folder), else None (an OME-NGFF label image,
-    whose name may need its metadata). Both are None without masks. Masks come from a mask
-    folder matched by file name (``common.mask_source='tiff_tree'``, with
-    ``config.matching`` unless *strategy*/*mask_suffixes*/*case_sensitive*
-    override it), or from each OME-Zarr image's own label image
-    (``'ngff_labels'``). Returns None when the run uses no masks: modes
+    Returns ``(loaders, mask_files, mask_type)``: each loader returns
+    ``(mask, mask_file name)``; *mask_files* holds each mask's file name
+    when the pairing gives it without a read (a mask folder), else None (an
+    OME-NGFF label image, whose name may need its metadata); *mask_type* is
+    the mask type of a mask folder, else None. All are None without masks.
+    Masks come from a mask folder paired with the preprocessing brick's rule
+    (``common.mask_source='tiff_tree'``; :func:`~cellpatcher.io.pair_masks`
+    with ``config.matching.mask_type``, or the given *pairing* of a tree
+    run), or from each OME-Zarr image's own label image
+    (``'ngff_labels'``). Returns Nones when the run uses no masks: modes
     ``grid``/``whole_fov``, or ``random`` without a mask folder.
 
     Raises
     ------
     ValueError
         If the mode and the mask inputs do not fit, or images and masks do
-        not match one to one.
+        not pair one to one.
     """
     if config.mode in {"grid", "whole_fov"}:
         if mask_folder_path is not None:
@@ -327,7 +331,7 @@ def _mask_loaders(image_folder_path, mask_folder_path, image_files, config, stra
                 f"mask_folder_path is not supported for mode='{config.mode}'. "
                 "Remove it, or switch to 'cell' or 'random' mode."
             )
-        return None, None
+        return None, None, None
     if config.common.mask_source == "ngff_labels":
         if mask_folder_path is not None:
             raise ValueError(
@@ -345,22 +349,16 @@ def _mask_loaders(image_folder_path, mask_folder_path, image_files, config, stra
             functools.partial(read_ngff_mask, image, config.common.mask_label_name, config.common.mask_axes)
             for image in image_files
         ]
-        return loaders, [None] * len(image_files)
+        return loaders, [None] * len(image_files), None
     if mask_folder_path is None:
         if config.mode == "cell":
             raise ValueError("mask_folder_path is required when config.mode='cell'.")
-        return None, None  # random mode: masks are optional
-    matching = config.matching
-    selected = validate_image_and_mask_folders(
-        image_folder_path,
-        mask_folder_path,
-        strategy=matching.strategy if strategy is None else strategy,
-        mask_suffixes=matching.mask_suffixes if mask_suffixes is None else mask_suffixes,
-        case_sensitive=matching.case_sensitive if case_sensitive is None else case_sensitive,
-        ignore_unrequested_masks=matching.ignore_unrequested_masks,
-    )
+        return None, None, None  # random mode: masks are optional
+    if pairing is None:
+        pairing = pair_masks(experiment_root, image_files, mask_folder_path, mask_type=config.matching.mask_type)
+    selected = pairing.masks
     loaders = [functools.partial(_read_mask_file, selected[image], config.common.mask_axes) for image in image_files]
-    return loaders, [selected[image].name for image in image_files]
+    return loaders, [selected[image].name for image in image_files], pairing.mask_type
 
 
 def _read_mask_file(path: Path, axes: str):
@@ -389,60 +387,39 @@ def _check_preprocessing_inputs(config: CellPatcherConfig, experiment_root, imag
 
 
 def _source_relative_path(image_path: Path, experiment_root) -> str:
-    """Path of *image_path* relative to *experiment_root*, with ``/`` separators.
-
-    Built from where the image sits in the folder tree, so it matches the
-    preprocessing brick's ``source_relative_path`` (``control/img.tif`` for an
-    image directly in ``control/``), unlike
-    ``ConditionRepeatFolder.relative_folder``, which inserts ``single`` for
-    missing levels. Like the brick, which walks the tree following links,
-    a linked image or folder keeps its path under the root (the link's, not
-    its target's), so a tree of links to images stored elsewhere can be
-    patched. A path that is not under the root as written is compared by real
-    locations, as before.
-    """
-    root = Path(experiment_root).expanduser()
-    image = Path(image_path).expanduser()
-    try:
-        # Discovery builds every image path from the root, so this holds for
-        # folder and tree runs; resolving would follow links out of the tree.
-        return image.absolute().relative_to(root.absolute()).as_posix()
-    except ValueError:  # e.g. the same folder written through a link
-        pass
-    try:
-        return image.resolve().relative_to(root.resolve()).as_posix()
-    except ValueError as exc:
-        raise ValueError(f"Image '{image_path}' is not inside the experiment root '{root}'.") from exc
+    """Path of *image_path* relative to *experiment_root* (:func:`cellpatcher.io.source_relative_path`)."""
+    return source_relative_path(image_path, experiment_root)
 
 
-def _mask_object_set(config: CellPatcherConfig, image_path: Path, mask_file: str | None) -> str | None:
-    """The object set a cell-mode mask's own name gives, or None (``common.object_set`` or ``"mask"`` then).
+def _mask_object_set(config: CellPatcherConfig, mask_file: str | None, mask_type: str | None) -> str | None:
+    """The object set a cell-mode mask gives, or None (``common.object_set`` or ``"mask"`` then).
 
     Only when ``common.object_set`` is not set: an OME-NGFF mask gives its
-    label image name; a mask file the part of its name after the image's
-    stem (``img_cells.tif`` -> ``"cells"``), and nothing when named like its
-    image.
+    label image name; a mask file its mask type from the preprocessing
+    pairing (``img_cells.tif`` or ``cells/img.tif`` -> ``"cells"``).
     """
     if config.mode != "cell" or mask_file is None or config.common.object_set is not None:
         return None
     if config.common.mask_source == "ngff_labels":
         return object_set_from_label_path(mask_file)
-    return object_set_from_mask_file(image_path.name, mask_file)
+    return None if mask_type is None else object_set_from_mask_type(mask_type)
 
 
-def _check_mask_object_sets(config: CellPatcherConfig, image_files, mask_files) -> None:
-    """Refuse an invalid ``object_set`` taken from a matched mask's name before any image or mask is read.
+def _check_mask_object_sets(config: CellPatcherConfig, image_files, mask_files, mask_type) -> None:
+    """Refuse an invalid ``object_set`` taken from a paired mask before any image or mask is read.
 
-    *mask_files* are the matched mask names (None where only the read gives
+    *mask_files* are the paired mask names (None where only the read gives
     the name, an OME-NGFF label image); the object set is derived exactly as
     :func:`_image_metadata` derives it later (issue #42).
     """
     for image_path, mask_file in zip(image_files, mask_files):
-        object_set = _mask_object_set(config, Path(image_path), mask_file)
+        object_set = _mask_object_set(config, mask_file, mask_type)
         validate_object_set(object_set, name=f"The object set from mask {mask_file!r} of image {Path(image_path).name!r}")
 
 
-def _image_metadata(image_path: Path, mask_file: str | None, experiment_root, config: CellPatcherConfig) -> dict:
+def _image_metadata(
+    image_path: Path, mask_file: str | None, experiment_root, config: CellPatcherConfig, mask_type: str | None = None
+) -> dict:
     """Build one image's ``run_patching(image_metadata=...)`` entry.
 
     Carries the source file names (and, with *experiment_root*, the image's
@@ -450,15 +427,15 @@ def _image_metadata(image_path: Path, mask_file: str | None, experiment_root, co
     (and the exported metadata CSV) *before* ``export_patches`` writes it —
     passing this into ``run_patching`` rather than stamping the result
     afterwards is what makes that ordering guarantee hold. The image file
-    name also gives the image's default ``position_id``, and the mask's name
-    its ``object_set`` (:func:`_mask_object_set`).
+    name also gives the image's default ``position_id``, and the mask its
+    ``object_set`` (:func:`_mask_object_set`).
     """
     meta = {"image_file": image_path.name}
     if mask_file is not None:
         meta["mask_file"] = mask_file
     if experiment_root is not None:
         meta["source_relative_path"] = _source_relative_path(image_path, experiment_root)
-    object_set = _mask_object_set(config, image_path, mask_file)
+    object_set = _mask_object_set(config, mask_file, mask_type)
     if object_set is not None:
         meta["object_set"] = object_set
     return meta
@@ -551,8 +528,11 @@ def run_patching_pipeline(
           (those modes do not consume masks; a ``ValueError`` is raised if
           this argument is set for those modes).
     strategy, mask_suffixes, case_sensitive:
-        Override the corresponding ``config.matching`` fields when resolving
-        image↔mask filename pairs. Unused for modes that do not load masks.
+        Former matching options, no longer used: images and masks are
+        paired with the preprocessing brick's rule
+        (:func:`~cellpatcher.io.pair_masks`; choose the mask type with
+        ``config.matching.mask_type``). Accepted only at their old defaults
+        (``DeprecationWarning``), refused otherwise.
     overrides:
         Optional dotted-path overrides applied on top of *config* before
         running.  Keys follow the same ``"<section>.<field>"`` convention as
@@ -574,15 +554,15 @@ def run_patching_pipeline(
         raise TypeError("config must be a CellPatcherConfig instance.")
     if overrides:
         config = apply_overrides(config, overrides)
+    check_legacy_matching(
+        "run_patching_pipeline", strategy=strategy, mask_suffixes=mask_suffixes, case_sensitive=case_sensitive
+    )
     check_config_identity(config)  # before any image or mask is listed or read (D85)
     _check_preprocessing_inputs(config, image_folder_path, list_supported_files(image_folder_path))
     return _run_folder_patching(
         image_folder_path,
         config=config,
         mask_folder_path=mask_folder_path,
-        strategy=strategy,
-        mask_suffixes=mask_suffixes,
-        case_sensitive=case_sensitive,
         experiment_root=image_folder_path,
     )
 
@@ -592,16 +572,15 @@ def _run_folder_patching(
     *,
     config: CellPatcherConfig,
     mask_folder_path,
-    strategy,
-    mask_suffixes,
-    case_sensitive,
     experiment_root,
+    pairing=None,
 ) -> PatchingResult:
     """Body of :func:`run_patching_pipeline` for one image folder.
 
     *experiment_root* is the folder each image's ``source_relative_path`` is
     relative to: the image folder itself for a flat run, the tree root for
-    :func:`run_patching_condition_repeat_tree`.
+    :func:`run_patching_condition_repeat_tree`, which passes the *pairing*
+    of the whole tree.
     """
     check_config_identity(config)  # before any image or mask is listed or read (D85)
     image_files = list_supported_files(image_folder_path)
@@ -610,11 +589,11 @@ def _run_folder_patching(
     check_source_identities(config, image_files)  # from the names, before any read
     # image_files' sorted order fixes the image_0000, image_0001, ...
     # image_id values (a run-local index); patch_id does not use them.
-    loaders, matched_mask_files = _mask_loaders(
-        image_folder_path, mask_folder_path, image_files, config, strategy, mask_suffixes, case_sensitive
+    loaders, matched_mask_files, mask_type = _mask_loaders(
+        experiment_root, mask_folder_path, image_files, config, pairing
     )
     if matched_mask_files is not None:
-        _check_mask_object_sets(config, image_files, matched_mask_files)  # from the names, before any read
+        _check_mask_object_sets(config, image_files, matched_mask_files, mask_type)  # before any read
     common = config.common
 
     if splits_planes(common):
@@ -624,7 +603,7 @@ def _run_folder_patching(
             for index, image_path in enumerate(image_files):
                 mask, mask_file = loaders[index]() if loaders is not None else (None, None)
                 yield (
-                    _image_metadata(image_path, mask_file, experiment_root, config),
+                    _image_metadata(image_path, mask_file, experiment_root, config, mask_type),
                     iter_file_planes(
                         image_path, common.image_axes, mask, common.mask_axes, common,
                         single_planes=config.normalization.enabled,
@@ -639,7 +618,8 @@ def _run_folder_patching(
     # OME-Zarr images are put into common.image_axes by role (read_image).
     images = [read_image(path, common.image_axes) for path in image_files]
     image_metadata = [
-        _image_metadata(path, mask_file, experiment_root, config) for path, mask_file in zip(image_files, mask_files)
+        _image_metadata(path, mask_file, experiment_root, config, mask_type)
+        for path, mask_file in zip(image_files, mask_files)
     ]
     return run_patching(images=images, masks=masks, config=config, image_metadata=image_metadata)
 
@@ -718,13 +698,14 @@ def run_patching_condition_repeat_tree(
         (with ``common.condition``/``.biological_repeat``/``.output_dir`` overridden
         per leaf as described above). Defaults to ``CellPatcherConfig()``.
     mask_root_path:
-        Root folder mirroring *image_root_path*'s ``<condition>/<biological_repeat>``
-        (or ``<condition>``, or ``<condition>/<biological_repeat>/<technical_repeat>``)
-        structure for masks. Required for
-        ``mode='cell'`` (each leaf's mask subfolder must exist); optional
-        for ``mode='random'``; must not be provided for ``'grid'``/
-        ``'whole_fov'`` (same rules as :func:`run_patching_pipeline`, applied
-        per leaf).
+        Mask folder mirroring *image_root_path*'s folders, read with the
+        preprocessing brick's pairing over the whole tree
+        (:func:`~cellpatcher.io.pair_masks`):
+        ``<mask type>/<condition>/<biological_repeat>/.../<image name>.tif``
+        or ``<condition>/<biological_repeat>/.../<image name>_<mask type>.tif``.
+        Required for ``mode='cell'``; optional for ``mode='random'``, where,
+        when given, every image of the tree must have a mask; ignored for
+        ``'grid'``/``'whole_fov'``.
     strategy, mask_suffixes, case_sensitive, overrides:
         Same as :func:`run_patching_pipeline`, applied to every leaf.
     combine_metadata:
@@ -774,6 +755,12 @@ def run_patching_condition_repeat_tree(
             "combine_metadata=True requires config.export.enabled=True and config.common.output_dir to be set."
         )
 
+    check_legacy_matching(
+        "run_patching_condition_repeat_tree",
+        strategy=strategy,
+        mask_suffixes=mask_suffixes,
+        case_sensitive=case_sensitive,
+    )
     if config.common.mask_source == "ngff_labels" and mask_root_path is not None:
         raise ValueError(
             "common.mask_source='ngff_labels' reads the masks from the OME-Zarr images' own labels; "
@@ -814,29 +801,36 @@ def run_patching_condition_repeat_tree(
             leaf_common.output_dir = str(base_output_dir / leaf.relative_folder)
         return replace(config, common=leaf_common, export=leaf_export)
 
-    def leaf_mask_folder_of(leaf):
-        # Only pass a mask folder through if the mode can use one AND it
-        # actually exists -- e.g. random mode treats a missing mask folder
-        # as "no mask" rather than an error, same as calling
-        # run_patching_pipeline directly without mask_folder_path.
-        if masks_allowed and leaf.mask_folder is not None and leaf.mask_folder.exists():
-            return str(leaf.mask_folder)
-        return None
+    # The masks of the whole tree are paired at once with the preprocessing
+    # brick's rule, whose mask folder mirrors the whole image root
+    # (<mask type>/<condition>/... or <condition>/.../<image>_<type>.tif).
+    leaf_mask_folder = str(mask_root_path) if masks_allowed and mask_root_path is not None else None
 
     # Every leaf's identity first (D85), from names only: a refusal in a later leaf
     # comes before any leaf's image or mask is read. That includes the mask
-    # pairing and the object set a matched mask's name gives (issue #42).
+    # pairing and the object set a paired mask gives (issue #42).
+    leaf_images = []
     for leaf in leaves:
         leaf_config = leaf_config_of(leaf)  # its labels are the folder names, object_set the base's
         check_config_identity(leaf_config)
         image_files = list_supported_files(leaf.image_folder)
         check_source_identities(leaf_config, image_files)
-        _, matched_mask_files = _mask_loaders(
-            str(leaf.image_folder), leaf_mask_folder_of(leaf), image_files, leaf_config,
-            strategy, mask_suffixes, case_sensitive,
+        leaf_images.append(image_files)
+    pairing = None
+    if leaf_mask_folder is not None and config.common.mask_source == "tiff_tree":
+        pairing = pair_masks(
+            image_root_path,
+            [image for images in leaf_images for image in images],
+            leaf_mask_folder,
+            mask_type=config.matching.mask_type,
+        )
+    for leaf, image_files in zip(leaves, leaf_images):
+        leaf_config = leaf_config_of(leaf)
+        _, matched_mask_files, mask_type = _mask_loaders(
+            image_root_path, leaf_mask_folder, image_files, leaf_config, pairing
         )
         if matched_mask_files is not None:
-            _check_mask_object_sets(leaf_config, image_files, matched_mask_files)
+            _check_mask_object_sets(leaf_config, image_files, matched_mask_files, mask_type)
 
     results: list[ConditionRepeatResult] = []
     for index, leaf in enumerate(leaves):
@@ -844,18 +838,14 @@ def run_patching_condition_repeat_tree(
             progress_callback(index, len(leaves), leaf)
         leaf_config = leaf_config_of(leaf)
 
-        leaf_mask_folder = leaf_mask_folder_of(leaf)
-
         # source_relative_path is relative to the tree root, as in the
         # preprocessing brick, not to the leaf folder.
         result = _run_folder_patching(
             str(leaf.image_folder),
             config=leaf_config,
             mask_folder_path=leaf_mask_folder,
-            strategy=strategy,
-            mask_suffixes=mask_suffixes,
-            case_sensitive=case_sensitive,
             experiment_root=image_root_path,
+            pairing=pairing,
         )
         results.append(
             ConditionRepeatResult(

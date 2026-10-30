@@ -160,7 +160,7 @@ def test_run_patching_pipeline_stamps_image_and_mask_file_before_export(tmp_path
     img_dir.mkdir()
     mask_dir.mkdir()
     write_array(img_dir / "sample001.npy", image)
-    write_array(mask_dir / "sample001_mask.npy", labels)
+    write_array(mask_dir / "sample001_mask.tif", labels)
 
     cfg = CellPatcherConfig(mode="cell")
     cfg.cell.patch_size = 24
@@ -173,7 +173,7 @@ def test_run_patching_pipeline_stamps_image_and_mask_file_before_export(tmp_path
     assert len(result.patches) > 0
     for patch in result.patches:
         assert patch.image_file == "sample001.npy"
-        assert patch.mask_file == "sample001_mask.npy"
+        assert patch.mask_file == "sample001_mask.tif"
 
     # The CSV on disk must already carry these values (not just the in-memory
     # PatchRegion objects) -- this is the ordering guarantee that motivated
@@ -181,7 +181,7 @@ def test_run_patching_pipeline_stamps_image_and_mask_file_before_export(tmp_path
     with (tmp_path / "out" / "patches.csv").open("r", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
     assert all(row["image_file"] == "sample001.npy" for row in rows)
-    assert all(row["mask_file"] == "sample001_mask.npy" for row in rows)
+    assert all(row["mask_file"] == "sample001_mask.tif" for row in rows)
 
 
 def test_run_patching_pipeline_grid_mode_stamps_image_file_only(tmp_path):

@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased] - Image/mask pairing of the preprocessing brick (issue #45)
+
+### Changed
+- Images and masks are paired with the MorphoBricks preprocessing brick's rule
+  (`morphobricks_preprocessing.find_masks`, through `cellpatcher.io.pair_masks`), so every brick
+  pairs the same files: a mask is a TIFF file `<image>_<mask type>.tif` or
+  `<mask type>/<condition>/.../<image>.tif` in the masks folder. The whole tree is paired at
+  once.
+- Notebook, **Advanced: mask type** replaces *Advanced: image ↔ mask filename matching*: enter
+  the mask type to use when the masks folder holds several (`cells`, `nuclei`, ...); leave it
+  empty when it holds one. The match strategy, suffix list and case options are gone.
+- Masks named exactly like their image (`masks/.../img1.tif`), masks that are not TIFF files,
+  and mask names that could belong to two images are refused; masks of any type
+  (`img1_cells.tif`) and the `<mask type>/` folder layout now pair.
+
 ## [Unreleased] - Channel selection for single-channel patches (follow-up C5)
 
 ### Added

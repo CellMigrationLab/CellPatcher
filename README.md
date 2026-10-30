@@ -10,7 +10,7 @@ CellPatcher helps you turn microscopy images into reproducible patch datasets wi
 - **Multidimensional C/Z/T data:** read `docs/preprocessing.md`.
 - **Normalizing intensities** with the MorphoBricks preprocessing statistics: read `docs/normalization.md`.
 
-- Matches image files and mask/label files with configurable matching strategies.
+- Pairs image files with mask/label files using the MorphoBricks preprocessing brick's pairing (`<image>_<mask type>.tif` or `<mask type>/<image>.tif`), so every brick pairs the same files.
 - Generates patch regions (`PatchRegion`) for `cell`, `random`, `grid`, and `whole_fov` modes.
 - Optionally filters regions, extracts arrays, resizes outputs, and exports patch files.
 - Optionally clears pixels outside the selected segmented object in cell mode (`apply_mask=True`).
