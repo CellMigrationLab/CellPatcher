@@ -1,5 +1,5 @@
 name: CellPatcher
-version: 0.0.1
+version: 0.1.0
 environment_file: environment.yaml
 installer_type: all
 license_file: LICENSE
@@ -8,6 +8,7 @@ keep_pkgs: false
 register_python: false
 initialize_conda: false
 extra_files:
+- .tools/meta/src_change.yaml: CellPatcher/src_change.yaml
 - app/bash_bat_scripts/pre_uninstall.sh: pre_uninstall.sh
 - app/bash_bat_scripts/uninstall.sh: uninstall.sh
 - app/menuinst/Welcome.ipynb: CellPatcher/notebooks/Welcome.ipynb
@@ -16,8 +17,40 @@ extra_files:
 - app/python_scripts/include_path.py: CellPatcher/include_path.py
 - construct.yaml: CellPatcher/construct.yaml
 - notebooks/CellPatcher/CellPatcher.ipynb: CellPatcher/notebooks/CellPatcher/CellPatcher.ipynb
+- notebooks/CellPatcher_Pytorch/CellPatcher_Pytorch.ipynb: CellPatcher/notebooks/CellPatcher_Pytorch/CellPatcher_Pytorch.ipynb
+- notebooks/CellPatcher_Strategy_Examples/CellPatcher_Strategy_Examples.ipynb: CellPatcher/notebooks/CellPatcher_Strategy_Examples/CellPatcher_Strategy_Examples.ipynb
 - notebooks/notebook_latest_versions.yaml: CellPatcher/notebook_latest_versions.yaml
 - requirements.txt: CellPatcher/requirements.txt
+- setup.py: CellPatcher/setup.py
+- src/cellpatcher/__init__.py: CellPatcher/src/cellpatcher/cellpatcher/__init__.py
+- src/cellpatcher/_deprecation.py: CellPatcher/src/cellpatcher/cellpatcher/_deprecation.py
+- src/cellpatcher/axes.py: CellPatcher/src/cellpatcher/cellpatcher/axes.py
+- src/cellpatcher/cell_scan.py: CellPatcher/src/cellpatcher/cellpatcher/cell_scan.py
+- src/cellpatcher/config.py: CellPatcher/src/cellpatcher/cellpatcher/config.py
+- src/cellpatcher/delivery.py: CellPatcher/src/cellpatcher/cellpatcher/delivery.py
+- src/cellpatcher/errors.py: CellPatcher/src/cellpatcher/cellpatcher/errors.py
+- src/cellpatcher/export.py: CellPatcher/src/cellpatcher/cellpatcher/export.py
+- src/cellpatcher/extract.py: CellPatcher/src/cellpatcher/cellpatcher/extract.py
+- src/cellpatcher/filters.py: CellPatcher/src/cellpatcher/cellpatcher/filters.py
+- src/cellpatcher/fractions.py: CellPatcher/src/cellpatcher/cellpatcher/fractions.py
+- src/cellpatcher/ids.py: CellPatcher/src/cellpatcher/cellpatcher/ids.py
+- src/cellpatcher/io.py: CellPatcher/src/cellpatcher/cellpatcher/io.py
+- src/cellpatcher/masking.py: CellPatcher/src/cellpatcher/cellpatcher/masking.py
+- src/cellpatcher/normalization.py: CellPatcher/src/cellpatcher/cellpatcher/normalization.py
+- src/cellpatcher/orchestration.py: CellPatcher/src/cellpatcher/cellpatcher/orchestration.py
+- src/cellpatcher/pipeline.py: CellPatcher/src/cellpatcher/cellpatcher/pipeline.py
+- src/cellpatcher/planes.py: CellPatcher/src/cellpatcher/cellpatcher/planes.py
+- src/cellpatcher/preprocess.py: CellPatcher/src/cellpatcher/cellpatcher/preprocess.py
+- src/cellpatcher/resize.py: CellPatcher/src/cellpatcher/cellpatcher/resize.py
+- src/cellpatcher/statistics.py: CellPatcher/src/cellpatcher/cellpatcher/statistics.py
+- src/cellpatcher/strategies/__init__.py: CellPatcher/src/cellpatcher/cellpatcher/strategies/__init__.py
+- src/cellpatcher/strategies/base.py: CellPatcher/src/cellpatcher/cellpatcher/strategies/base.py
+- src/cellpatcher/strategies/cell.py: CellPatcher/src/cellpatcher/cellpatcher/strategies/cell.py
+- src/cellpatcher/strategies/grid.py: CellPatcher/src/cellpatcher/cellpatcher/strategies/grid.py
+- src/cellpatcher/strategies/random.py: CellPatcher/src/cellpatcher/cellpatcher/strategies/random.py
+- src/cellpatcher/strategies/whole_fov.py: CellPatcher/src/cellpatcher/cellpatcher/strategies/whole_fov.py
+- src/cellpatcher/torch_dataset.py: CellPatcher/src/cellpatcher/cellpatcher/torch_dataset.py
+- src/cellpatcher/types.py: CellPatcher/src/cellpatcher/cellpatcher/types.py
 post_install: app/bash_bat_scripts/post_install.bat # [win]
 post_install: app/bash_bat_scripts/post_install.sh # [unix]
 pre_uninstall: app/bash_bat_scripts/pre_uninstall.bat # [win]
