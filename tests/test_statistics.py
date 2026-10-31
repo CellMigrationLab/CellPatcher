@@ -24,7 +24,6 @@ from cellpatcher.statistics import (
     check_images,
     check_planes,
     load_plane_statistics,
-    require_preprocessing,
 )
 
 needs_preprocessing = pytest.mark.skipif(
@@ -93,12 +92,14 @@ def _codes(error_info):
 # ---------------------------------------------------------------------------
 
 
-def test_require_preprocessing_is_deprecated():
-    # CP-6 (D86): the preprocessing brick is a core dependency, so there is nothing to require.
-    import morphobricks_preprocessing
+def test_require_preprocessing_is_gone():
+    # CP-6 (D86): the preprocessing brick is a core dependency, so there is nothing to require;
+    # removed in v0.1.1 (owner decision).
+    import cellpatcher
+    import cellpatcher.statistics
 
-    with pytest.warns(DeprecationWarning, match="removed in CellPatcher v0.2.0"):
-        assert require_preprocessing() is morphobricks_preprocessing
+    assert not hasattr(cellpatcher.statistics, "require_preprocessing")
+    assert "require_preprocessing" not in cellpatcher.__all__
 
 
 def test_the_zarr_extra_is_the_install_command():

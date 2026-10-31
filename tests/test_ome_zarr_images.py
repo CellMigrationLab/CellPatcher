@@ -14,7 +14,6 @@ from cellpatcher.config import CellPatcherConfig, GridConfig
 from cellpatcher.io import (
     conform_axes,
     discover_condition_repeat_folders,
-    image_stem,
     list_supported_files,
     read_array,
     read_image,
@@ -72,10 +71,6 @@ def test_a_store_next_to_subfolders_is_a_mixed_folder(tmp_path):
 
 @needs_zarr
 def test_store_stems_match_tiff_masks(tmp_path):
-    with pytest.warns(DeprecationWarning, match="removed in CellPatcher v0.2.0"):
-        assert image_stem("img.ome.zarr") == "img"
-    with pytest.warns(DeprecationWarning, match="position_id"):
-        assert image_stem("img.ome.tif") == "img.ome"
     # A real store: the mask's header is checked against the image's Y and X sizes
     # (find_masks' mask_size_mismatch, refused for the mask type used).
     write_ngff(tmp_path / "images" / "a.ome.zarr", np.zeros((4, 4), dtype=np.uint16), "yx")

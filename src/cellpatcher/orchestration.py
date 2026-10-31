@@ -29,7 +29,7 @@ from cellpatcher.io import (
     list_supported_files,
     is_ome_zarr,
     read_image,
-    check_legacy_matching,
+    refuse_removed_matching,
     pair_masks,
     refuse_image_header_axes,
     refuse_mask_header_axes,
@@ -452,10 +452,8 @@ def run_patching_pipeline(
     *,
     config: CellPatcherConfig | None = None,
     mask_folder_path=None,
-    strategy=None,
-    mask_suffixes=None,
-    case_sensitive=None,
     overrides: dict[str, Any] | None = None,
+    **removed_options,
 ):
     """Orchestrate a folder-based patching run end-to-end.
 
@@ -534,11 +532,10 @@ def run_patching_pipeline(
           (those modes do not consume masks; a ``ValueError`` is raised if
           this argument is set for those modes).
     strategy, mask_suffixes, case_sensitive:
-        Former matching options, no longer used: images and masks are
-        paired with the preprocessing brick's rule
-        (:func:`~cellpatcher.io.pair_masks`; choose the mask type with
-        ``config.matching.mask_type``). Accepted only at their old defaults
-        (``DeprecationWarning``), refused otherwise.
+        Former matching options, removed in v0.1.1 and refused by name:
+        images and masks are paired with the preprocessing brick's rule
+        (:func:`~cellpatcher.io.pair_masks`); choose the mask type with
+        ``config.matching.mask_type``.
     overrides:
         Optional dotted-path overrides applied on top of *config* before
         running.  Keys follow the same ``"<section>.<field>"`` convention as
@@ -560,9 +557,7 @@ def run_patching_pipeline(
         raise TypeError("config must be a CellPatcherConfig instance.")
     if overrides:
         config = apply_overrides(config, overrides)
-    check_legacy_matching(
-        "run_patching_pipeline", strategy=strategy, mask_suffixes=mask_suffixes, case_sensitive=case_sensitive
-    )
+    refuse_removed_matching("run_patching_pipeline", removed_options)
     check_config_identity(config)  # before any image or mask is listed or read (D85)
     # The preprocessing brick's discovery (issue #45): a folder mixing images with
     # subfolders, PNG/NumPy/... images and a mask folder inside it are refused here.
@@ -659,12 +654,10 @@ def run_patching_condition_repeat_tree(
     *,
     config: CellPatcherConfig | None = None,
     mask_root_path=None,
-    strategy=None,
-    mask_suffixes=None,
-    case_sensitive=None,
     overrides: dict[str, Any] | None = None,
     combine_metadata: bool = False,
     progress_callback=None,
+    **removed_options,
 ) -> list[ConditionRepeatResult]:
     """Run :func:`run_patching_pipeline` once per
     ``<condition>/<biological_repeat>[/<technical_repeat>]`` leaf.
@@ -717,8 +710,9 @@ def run_patching_condition_repeat_tree(
         Required for ``mode='cell'``; optional for ``mode='random'``, where,
         when given, every image of the tree must have a mask; ignored for
         ``'grid'``/``'whole_fov'``.
-    strategy, mask_suffixes, case_sensitive, overrides:
-        Same as :func:`run_patching_pipeline`, applied to every leaf.
+    overrides:
+        Same as :func:`run_patching_pipeline`, applied to every leaf. The
+        removed matching options are refused by name, as there.
     combine_metadata:
         When ``True`` (requires ``config.export.enabled`` and
         ``config.common.output_dir``), a single ``patches.csv``, a single
@@ -766,12 +760,7 @@ def run_patching_condition_repeat_tree(
             "combine_metadata=True requires config.export.enabled=True and config.common.output_dir to be set."
         )
 
-    check_legacy_matching(
-        "run_patching_condition_repeat_tree",
-        strategy=strategy,
-        mask_suffixes=mask_suffixes,
-        case_sensitive=case_sensitive,
-    )
+    refuse_removed_matching("run_patching_condition_repeat_tree", removed_options)
     if config.common.mask_source == "ngff_labels" and mask_root_path is not None:
         raise ValueError(
             "common.mask_source='ngff_labels' reads the masks from the OME-Zarr images' own labels; "

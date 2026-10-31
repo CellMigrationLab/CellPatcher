@@ -7,7 +7,8 @@ from cellpatcher.io import (
     SINGLE_BIOLOGICAL_REPEAT_LABEL,
     SINGLE_CONDITION_LABEL,
     SINGLE_TECHNICAL_REPEAT_LABEL,
-    check_legacy_matching,
+    REMOVED_MATCHING_OPTIONS,
+    refuse_removed_matching,
 )
 from cellpatcher.ids import validate_object_set
 from cellpatcher.planes import validate_plane_policies
@@ -493,7 +494,8 @@ class NormalizationConfig:
             raise ValueError(f"normalization.memory_limit must be a positive int (bytes); got {self.memory_limit!r}.")
 
 
-_LEGACY_MATCHING_FIELDS = ("strategy", "mask_suffixes", "case_sensitive", "ignore_unrequested_masks")
+# The default of the removed options below: "not given".
+_NOT_GIVEN = object()
 
 
 @dataclass
@@ -512,23 +514,20 @@ class MatchConfig:
     type in the mask folder, and refuses a folder holding several.
 
     The former options ``strategy``, ``mask_suffixes``, ``case_sensitive``
-    and ``ignore_unrequested_masks`` are accepted only at their old defaults
-    (with a ``DeprecationWarning``, so an old ``run_config.json`` still
-    loads) and refused otherwise; they are not stored.
+    and ``ignore_unrequested_masks`` were removed in v0.1.1: given here, set
+    later or found in an old ``run_config.json``, they are refused by name
+    with a ``ValueError`` saying to use ``mask_type``.
     """
     mask_type: str | None = None
-    strategy: InitVar[str | None] = None
-    mask_suffixes: InitVar[tuple[str, ...] | None] = None
-    case_sensitive: InitVar[bool | None] = None
-    ignore_unrequested_masks: InitVar[bool | None] = None
+    strategy: InitVar[object] = _NOT_GIVEN
+    mask_suffixes: InitVar[object] = _NOT_GIVEN
+    case_sensitive: InitVar[object] = _NOT_GIVEN
+    ignore_unrequested_masks: InitVar[object] = _NOT_GIVEN
 
     def __post_init__(self, strategy, mask_suffixes, case_sensitive, ignore_unrequested_masks) -> None:
-        check_legacy_matching(
-            "MatchConfig",
-            strategy=strategy,
-            mask_suffixes=mask_suffixes,
-            case_sensitive=case_sensitive,
-            ignore_unrequested_masks=ignore_unrequested_masks,
+        given = dict(zip(REMOVED_MATCHING_OPTIONS, (strategy, mask_suffixes, case_sensitive, ignore_unrequested_masks)))
+        refuse_removed_matching(
+            "MatchConfig", {name: value for name, value in given.items() if value is not _NOT_GIVEN}
         )
         if self.mask_type is not None and (not isinstance(self.mask_type, str) or not self.mask_type.strip()):
             raise ValueError(f"matching.mask_type must be None or a non-empty name; got {self.mask_type!r}.")
@@ -536,9 +535,8 @@ class MatchConfig:
     def __setattr__(self, name, value) -> None:
         # The former options are not fields: setting one after construction
         # (cfg.matching.strategy = "substring") must not be silently ignored.
-        if name in _LEGACY_MATCHING_FIELDS:
-            check_legacy_matching(f"matching.{name}", **{name: value})
-            return
+        if name in REMOVED_MATCHING_OPTIONS:
+            refuse_removed_matching(f"matching.{name}", {name: value})
         super().__setattr__(name, value)
 
 

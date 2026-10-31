@@ -37,7 +37,7 @@ Typical tasks:
 - apply max/mean/sum projection on image Z
 - keep/select/project channels
 - repeat grayscale to RGB for model-facing workflows
-- optional percentile/min-max normalization (`normalize=`/`percentile=`; **deprecated** since Milestone 3 of the [plan](plan.md), to be removed in CellPatcher v0.2.0: use `config.normalization`, which uses the preprocessing brick's statistics at a chosen scope and records the parameters; `percentile_normalize`/`minmax_normalize` are deprecated too, and each use warns)
+- no normalization: the former per-image percentile/min-max normalization (`normalize=`/`percentile=`, `percentile_normalize`/`minmax_normalize`), deprecated since Milestone 3 of the [plan](plan.md), was removed in v0.1.1 (D86): use `config.normalization`, which uses the preprocessing brick's statistics at a chosen scope and records the parameters
 
 ## Label preparation helpers (cell mode)
 

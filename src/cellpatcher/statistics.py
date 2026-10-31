@@ -23,7 +23,6 @@ bricks read other file versions than this CellPatcher.
 
 from __future__ import annotations
 
-import warnings
 from collections import defaultdict
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
@@ -102,27 +101,6 @@ def _preprocessing() -> ModuleType:
             "which installs the versions it is tested with."
         )
     return morphobricks_preprocessing
-
-
-def require_preprocessing() -> ModuleType:
-    """Return the ``morphobricks_preprocessing`` package (deprecated).
-
-    The preprocessing brick is a core dependency of CellPatcher, so there is
-    nothing to require: import ``morphobricks_preprocessing`` directly. This
-    function warns and will be removed in CellPatcher v0.2.0.
-
-    Raises
-    ------
-    PreprocessingUnavailableError
-        If the installed bricks read other file versions than this CellPatcher.
-    """
-    warnings.warn(
-        "cellpatcher.statistics.require_preprocessing is deprecated and will be removed in CellPatcher "
-        "v0.2.0: morphobricks-preprocessing is a core dependency, import morphobricks_preprocessing directly.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    return _preprocessing()
 
 
 def require_normalization() -> ModuleType:

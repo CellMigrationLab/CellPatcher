@@ -340,6 +340,6 @@ owner approval in a later version.
 
 | Deprecated | Where |
 |---|---|
-| `normalize=`, `percentile=` arguments | `prepare_image_for_patching`, `iter_image_planes_for_patching`, `iter_cell_planes_for_patching` |
-| `percentile_normalize`, `minmax_normalize` | `cellpatcher.preprocess` |
+| `normalize=`, `percentile=` arguments (**removed in v0.1.1**, D86) | `prepare_image_for_patching`, `iter_image_planes_for_patching`, `iter_cell_planes_for_patching` |
+| `percentile_normalize`, `minmax_normalize` (**removed in v0.1.1**, D86) | `cellpatcher.preprocess` |
 | `scale_policy="auto"` rescaling an integer patch by its dtype maximum (the default) | `PatchTensorConfig` in `cellpatcher.torch_dataset`; it never rescales normalized float patches |
