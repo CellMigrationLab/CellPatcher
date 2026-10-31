@@ -7,6 +7,7 @@ import numpy as np
 
 from cellpatcher.axes import normalize_axes, require_spatial_axes
 from cellpatcher.config import CellConfig
+from cellpatcher.object_geometry import object_boxes
 from cellpatcher.strategies.cell import CellSegmentationStrategy
 
 
@@ -148,25 +149,22 @@ def scan_cell_objects(*, image_shape, labels, image_id=None, config=None, image_
     if labeled.shape != (image_h, image_w):
         raise ValueError(f"labels shape {labeled.shape} must match image YX shape {(image_h, image_w)}.")
 
-    object_ids = [int(v) for v in np.unique(labeled) if int(v) != 0]
+    # Every object's box in one pass (cellpatcher.object_boxes, shared with the
+    # other bricks through object_sides/border_labels), instead of one pass over
+    # the mask per object.
+    boxes = object_boxes(labeled)
     records: list[CellObjectRecord] = []
     image_id_value = image_id if image_id is not None else "image_0000"
 
     # One record per labeled object, regardless of whether it would pass
     # the size/border filters -- scan_cell_patch_size needs the excluded
     # objects too, to report why they were skipped.
-    for label_id in sorted(object_ids):
-        ys, xs = np.where(labeled == label_id)
-        if ys.size == 0:
-            continue
-
-        area_px = int(ys.size)
-        y_min, y_max = int(ys.min()), int(ys.max())
-        x_min, x_max = int(xs.min()), int(xs.max())
-        bbox_height = y_max - y_min + 1
-        bbox_width = x_max - x_min + 1
-        square_size = int(max(bbox_height, bbox_width))
-        touches_border = y_min == 0 or x_min == 0 or y_max == image_h - 1 or x_max == image_w - 1
+    for label, area, height, width, side, border in zip(
+        boxes.labels, boxes.area, boxes.height, boxes.width, boxes.side, boxes.touches_border
+    ):
+        label_id, area_px = int(label), int(area)
+        bbox_height, bbox_width, square_size = int(height), int(width), int(side)
+        touches_border = bool(border)
 
         # Border exclusion takes priority over the area check when deciding
         # why an object is excluded, matching CellSegmentationStrategy's
