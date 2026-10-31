@@ -85,7 +85,10 @@ def save_image_table_csv(image_records, csv_path):
         writer = csv.DictWriter(f, fieldnames=list(IMAGE_TABLE_COLUMNS))
         writer.writeheader()
         for record in image_records:
-            writer.writerow(record.to_dict())
+            row = record.to_dict()
+            if isinstance(row["image_read_transposed"], bool):
+                row["image_read_transposed"] = "true" if row["image_read_transposed"] else "false"
+            writer.writerow(row)
 
 
 def image_records_from_patches(patches) -> list[ImageRecord]:

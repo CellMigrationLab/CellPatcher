@@ -242,6 +242,7 @@ def _image_record(config: CellPatcherConfig, image_id: str, meta, image_shape=No
         image_height=height,
         image_width=width,
         position_id=None if meta.get("position_id") is None else str(meta["position_id"]),
+        image_read_transposed=meta.get("image_read_transposed"),
     )
 
 

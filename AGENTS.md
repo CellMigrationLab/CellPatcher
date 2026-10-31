@@ -327,7 +327,8 @@ Two ways to point CellPatcher at input data:
   later, `position_id` (the one its patches carry, also for an image
   without patches; always filled since decision D45) and
   `n_regions`/`n_kept`/`n_normalized` (counts after the patch mode, the
-  filters and normalization). There is no
+  filters and normalization) and `image_read_transposed` (the image's
+  header Y and X declared swapped, read transposed; v0.1.2). There is no
   `failed` status: a failing image stops the run with an error before any
   table is written. Every `patches.csv` row joins exactly one `images.csv`
   row on `condition`/`biological_repeat`/`technical_repeat`/`image_id`/

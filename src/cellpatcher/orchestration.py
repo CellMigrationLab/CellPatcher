@@ -5,6 +5,7 @@ import functools
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 import json
+import warnings
 from typing import Any
 
 from cellpatcher._deprecation import accept_deprecated_repeat
@@ -367,6 +368,25 @@ def _mask_loaders(experiment_root, mask_folder_path, image_files, config, pairin
     return loaders, [selected[image].name for image in image_files], pairing.mask_type
 
 
+def _warn_transposed(paths) -> None:
+    """Warn that the images in *paths* are read with their header's Y and X swapped, as declared.
+
+    The swap is accepted by the preprocessing brick's ``check_declared_axes``
+    (owner decision of 31 October 2026) and recorded per image in
+    ``images.csv`` (``image_read_transposed``).
+    """
+    if not paths:
+        return
+    names = sorted(Path(path).name for path in paths)
+    warnings.warn(
+        f"common.image_axes declares Y and X swapped relative to the header of {len(names)} image file(s) "
+        f"({', '.join(names[:10])}{', ...' if len(names) > 10 else ''}): they are read transposed, and "
+        "images.csv records it (image_read_transposed).",
+        UserWarning,
+        stacklevel=3,
+    )
+
+
 def _read_mask_file(path: Path, axes: str):
     return read_image(path, axes), path.name
 
@@ -424,7 +444,13 @@ def _check_mask_object_sets(config: CellPatcherConfig, image_files, mask_files, 
 
 
 def _image_metadata(
-    image_path: Path, mask_file: str | None, experiment_root, config: CellPatcherConfig, mask_type: str | None = None
+    image_path: Path,
+    mask_file: str | None,
+    experiment_root,
+    config: CellPatcherConfig,
+    mask_type: str | None = None,
+    *,
+    image_transposed: bool | None = None,
 ) -> dict:
     """Build one image's ``run_patching(image_metadata=...)`` entry.
 
@@ -434,9 +460,13 @@ def _image_metadata(
     passing this into ``run_patching`` rather than stamping the result
     afterwards is what makes that ordering guarantee hold. The image file
     name also gives the image's default ``position_id``, and the mask its
-    ``object_set`` (:func:`_mask_object_set`).
+    ``object_set`` (:func:`_mask_object_set`). Whether the image is read
+    transposed (its header's Y and X declared swapped) goes to
+    ``images.csv``; None where it was not checked.
     """
     meta = {"image_file": image_path.name}
+    if image_transposed is not None:
+        meta["image_read_transposed"] = image_transposed
     if mask_file is not None:
         meta["mask_file"] = mask_file
     if experiment_root is not None:
@@ -592,7 +622,12 @@ def _run_folder_patching(
     if len(image_files) == 0:
         raise ValueError("No supported image files found in image folder.")
     check_source_identities(config, image_files)  # from the names, before any read
-    refuse_image_header_axes(image_files, config.common.image_axes)  # headers only, before any pixel is read
+    # Headers only, before any pixel is read.
+    transposed_images = refuse_image_header_axes(image_files, config.common.image_axes)
+    _warn_transposed(transposed_images)
+    image_transposed = [  # an OME-Zarr image is matched by role, not checked against its header
+        None if is_ome_zarr(path) else path in transposed_images for path in image_files
+    ]
     # image_files' sorted order fixes the image_0000, image_0001, ...
     # image_id values (a run-local index); patch_id does not use them.
     loaders, matched_mask_files, mask_type = _mask_loaders(
@@ -609,7 +644,10 @@ def _run_folder_patching(
             for index, image_path in enumerate(image_files):
                 mask, mask_file = loaders[index]() if loaders is not None else (None, None)
                 yield (
-                    _image_metadata(image_path, mask_file, experiment_root, config, mask_type),
+                    _image_metadata(
+                        image_path, mask_file, experiment_root, config, mask_type,
+                        image_transposed=image_transposed[index],
+                    ),
                     iter_file_planes(
                         image_path, common.image_axes, mask, common.mask_axes, common,
                         single_planes=config.normalization.enabled,
@@ -624,8 +662,10 @@ def _run_folder_patching(
     # OME-Zarr images are put into common.image_axes by role (read_image).
     images = [read_image(path, common.image_axes) for path in image_files]
     image_metadata = [
-        _image_metadata(path, mask_file, experiment_root, config, mask_type)
-        for path, mask_file in zip(image_files, mask_files)
+        _image_metadata(
+            path, mask_file, experiment_root, config, mask_type, image_transposed=image_transposed[index],
+        )
+        for index, (path, mask_file) in enumerate(zip(image_files, mask_files))
     ]
     return run_patching(images=images, masks=masks, config=config, image_metadata=image_metadata)
 

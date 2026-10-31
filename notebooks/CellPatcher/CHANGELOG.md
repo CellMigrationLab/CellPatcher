@@ -4,6 +4,31 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased] - Declared axes checked with the shared rule; Y and X swapped recorded
+
+### Changed
+- `common.image_axes` and `common.mask_axes` are checked against each TIFF file's header with the
+  preprocessing brick's `check_declared_axes` (its contract §16, owner decision of 31 October
+  2026); CellPatcher's own comparison is gone. In folder runs, tree runs and lazy delivery:
+  - Y and X declared swapped relative to an image's header (`ZYX` declared `ZXY`; also a plain 2D
+    TIFF declared `XY`) are still accepted, and the image is read transposed, as before; now it
+    warns, naming the images, and `images.csv` records it in the new last column
+    `image_read_transposed` (`true`/`false`; empty for in-memory arrays and OME-Zarr images).
+  - Y and X declared swapped for a **mask** file are now refused (they were accepted, but the
+    mask was read as stored: CellPatcher takes a label plane's dimensions as Y and X in their
+    stored order, so on a square image the mask was silently misaligned).
+  - A plain TIFF without axis metadata (a 2D page or a plain stack of pages) is now checked too:
+    a declaration with another number of axes (`ZYX` for a 2D page, `TZYX` for a 3-page stack)
+    is refused before any pixel is read; any order of its open axes is accepted (a plain `QYX`
+    stack declared `YXC` or `CYX`), as before.
+  - A file whose header cannot be read is refused at this check, naming it, where before it
+    failed later when read.
+  - Refusals carry the preprocessing brick's message (`The axes declared for a.tif ('TYX') do not
+    fit the axes in its header ('ZYX'): ...`) after `common.image_axes='TYX' does not fit the header
+    of N image file(s):`.
+- `cellpatcher.io.header_axes_disagreement` returns `(message or None, read transposed)`;
+  `refuse_image_header_axes` returns the images read transposed.
+
 ## [Unreleased] - The experiment design is read with the shared reader
 
 ### Changed
