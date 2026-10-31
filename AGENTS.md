@@ -349,6 +349,11 @@ Two ways to point CellPatcher at input data:
   `normalization.memory_limit`) or one patch at a time
   (`cellpatcher.iter_patch_arrays`, `PatchTorchDataset`); every delivery mode
   gives the same arrays.
+- Read back for other bricks (D86): `cellpatcher.read_patch_table(csv)` gives a
+  `patches.csv` as typed `PatchRegion` objects plus its `run_config.json`
+  (the inverse of `save_metadata_csv`); `cellpatcher.object_sides`/
+  `border_labels`/`object_boxes` give object bounding boxes of an instance
+  mask, the ones `scan_cell_objects` uses.
 - Consumed downstream by feature-extraction repos — currently
   [fiberfeatures](https://github.com/CellMigrationLab/fiberfeatures/tree/main)
   (an early starting point, expected to change), and in future by other

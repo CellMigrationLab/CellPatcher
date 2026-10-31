@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased] - Reading patches.csv back (D86, C2)
+
+### Added
+- `cellpatcher.read_patch_table(csv_path)` reads a `patches.csv` back as `PatchRegion` objects
+  with its `run_config.json`: the typed inverse of `save_metadata_csv`, for the bricks that
+  parsed the table themselves (MorphoRelate, fiberfeatures). Integers from integer text only,
+  labels and ids as text, `mask_fraction_<name>` and normalization parameter columns read back;
+  every problem is listed with its line (`cellpatcher.PatchTableError`). A column CellPatcher
+  does not write and a repeated `patch_id` are refused.
+
 ## [Unreleased] - Object bounding boxes for other bricks (D86, C1)
 
 ### Added
