@@ -44,6 +44,7 @@ from cellpatcher.io import (
     run_patching_from_folders,
 )
 from cellpatcher.filters import compute_threshold, filter_regions, foreground_fraction
+from cellpatcher.object_geometry import ObjectBoxes, border_labels, object_boxes, object_sides
 from cellpatcher.pipeline import RUN_CONFIG_FILENAME, PatchingResult, run_patching
 from cellpatcher.preprocess import (
     PreparedPlane,
@@ -150,6 +151,10 @@ __all__ = [
     "CellPatchSizeSummary",
     "scan_cell_objects",
     "scan_cell_patch_size",
+    "ObjectBoxes",
+    "object_boxes",
+    "object_sides",
+    "border_labels",
     "percentile_normalize",
     "minmax_normalize",
     "repeat_to_rgb",

@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased] - Object bounding boxes for other bricks (D86, C1)
+
+### Added
+- `cellpatcher.object_sides(labels)` (label -> bounding-box side of every object that does not
+  touch the image border), `cellpatcher.border_labels(labels)` and `cellpatcher.object_boxes`
+  (every object's area and box), computed in one pass over a 2D instance mask. MorphoFeature
+  and MorphoEmbed kept copies of the first two; labels are checked with the preprocessing
+  brick's `check_labels` (int32, float masks refused).
+
+### Changed
+- `scan_cell_objects` and `scan_cell_patch_size` use `object_boxes` instead of one pass over
+  the mask per object: identical records, faster on masks with many objects (a 2048 x 2048
+  mask with 1,269 objects: 13.9 s before, 0.8 s after, same records).
+
 ## [Unreleased] - Dependencies: preprocessing v0.3.3, normalization declared (D86)
 
 ### Changed
