@@ -1,5 +1,5 @@
 name: CellPatcher
-version: 0.1.0
+version: 0.1.1
 environment_file: environment.yaml
 installer_type: all
 license_file: LICENSE
@@ -37,7 +37,9 @@ extra_files:
 - src/cellpatcher/io.py: CellPatcher/src/cellpatcher/cellpatcher/io.py
 - src/cellpatcher/masking.py: CellPatcher/src/cellpatcher/cellpatcher/masking.py
 - src/cellpatcher/normalization.py: CellPatcher/src/cellpatcher/cellpatcher/normalization.py
+- src/cellpatcher/object_geometry.py: CellPatcher/src/cellpatcher/cellpatcher/object_geometry.py
 - src/cellpatcher/orchestration.py: CellPatcher/src/cellpatcher/cellpatcher/orchestration.py
+- src/cellpatcher/patch_checks.py: CellPatcher/src/cellpatcher/cellpatcher/patch_checks.py
 - src/cellpatcher/pipeline.py: CellPatcher/src/cellpatcher/cellpatcher/pipeline.py
 - src/cellpatcher/planes.py: CellPatcher/src/cellpatcher/cellpatcher/planes.py
 - src/cellpatcher/preprocess.py: CellPatcher/src/cellpatcher/cellpatcher/preprocess.py
