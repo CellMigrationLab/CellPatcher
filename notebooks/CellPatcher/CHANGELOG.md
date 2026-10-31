@@ -4,6 +4,28 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased] - Shared MorphoBricks rules for labels, identity and sources (D86)
+
+### Changed
+- Labels, `position_id` and the condition/repeat labels follow the preprocessing brick's
+  identity rules (owner decision D-e), as every brick does: text with leading or trailing spaces
+  and names tables read as missing (`NA`, `nan`, `none`, `null`, `n/a`, `<NA>`, empty; any case)
+  are refused, where before only empty text was. Names of one level that differ only in case
+  are refused in the whole run (`A` and `a` as technical repeats; `Img` and `img` in one
+  technical repeat, even as different time points).
+- Plane indices in `image_metadata` (`t`, `z`, `c`) must be integers: text such as `"1"` is
+  refused (it was read as 1).
+- Masks are checked with the preprocessing brick's `check_labels` (owner decision D-b): labels
+  from 0 to 2,147,483,647, as before; a float mask is now refused even when it holds only 0.0
+  and 1.0 (it was treated as a binary mask): save the mask as integers. Messages changed.
+- With a `run_manifest.json`, `statistics.check_images` uses the preprocessing brick's
+  `check_sources`: an image that no longer exists is reported (`images_missing`), a recorded
+  `position_id` that its name does not give is refused (`identity_differs`), an OME-Zarr image
+  is compared by its files' total size and newest time, and its axes are now checked against
+  the run's roles too (they were skipped).
+- `SINGLE_CONDITION_LABEL`, `SINGLE_BIOLOGICAL_REPEAT_LABEL`, `SINGLE_REPEAT_LABEL` and
+  `SINGLE_TECHNICAL_REPEAT_LABEL` are the normalization brick's `SINGLE` (same value).
+
 ## [Unreleased] - Patch rectangle and region-mask checks for other bricks (D86, C3)
 
 ### Added

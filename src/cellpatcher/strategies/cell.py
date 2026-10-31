@@ -9,8 +9,6 @@ from cellpatcher.errors import LabelRangeError
 from cellpatcher.strategies.base import BasePatchStrategy, _spatial_shape_from_axes
 from cellpatcher.types import PatchRegion
 
-_INT32_MAX = int(np.iinfo(np.int32).max)
-
 
 class CellSegmentationStrategy(BasePatchStrategy):
     mode = "cell"
@@ -61,11 +59,16 @@ class CellSegmentationStrategy(BasePatchStrategy):
         """The object labels of a 2D mask plane as int32, and whether they were computed.
 
         Decision D47: an integer mask is instance labels, used as given (a
-        0/1 or 0/255 mask is one object). A boolean mask, or a float mask
-        of 0.0/1.0, has no object ids: it is refused unless
-        ``binary_mask_policy="connected_components"``, which labels its
-        connected components with a warning (the second value is then
-        True: the labels are not the mask's values).
+        0/1 or 0/255 mask is one object). A boolean mask has no object ids:
+        it is refused unless ``binary_mask_policy="connected_components"``,
+        which labels its connected components with a warning (the second
+        value is then True: the labels are not the mask's values).
+
+        Integer labels are checked with the preprocessing brick's
+        ``check_labels``, the one label rule of every MorphoBricks brick
+        (decision D-b): from 0 to the int32 maximum. A float mask is refused,
+        even when every value is a whole number or 0.0/1.0: save the mask as
+        integers.
 
         Raises
         ------
@@ -73,17 +76,14 @@ class CellSegmentationStrategy(BasePatchStrategy):
             (a ``ValueError``) for negative labels or labels above the int32
             maximum.
         ValueError
-            For a float
-            mask with other values than 0.0/1.0, a binary mask without the
-            opt-in, or another dtype.
+            For a float mask, a binary mask without the opt-in, or another
+            dtype.
         """
+        from morphobricks_preprocessing.masks import check_labels
+
         where = f" (image {image_id})" if image_id is not None else ""
-        if selected.dtype == bool or np.issubdtype(selected.dtype, np.floating):
-            if selected.dtype != bool and not np.all(np.isin(np.unique(selected), [0.0, 1.0])):
-                raise ValueError(
-                    f"Non-binary float label arrays are ambiguous{where}. Float masks must contain only 0.0 "
-                    "and 1.0. For labeled masks, use an integer dtype."
-                )
+        name = f"The mask{where}"
+        if selected.dtype == bool:
             if self.config.binary_mask_policy != "connected_components":
                 raise ValueError(
                     f"The mask{where} is binary ({selected.dtype}), so it has no object ids. Give integer "
@@ -98,20 +98,15 @@ class CellSegmentationStrategy(BasePatchStrategy):
                 UserWarning,
                 stacklevel=3,
             )
-            return self._label_connected_components(selected.astype(bool)), True
+            return self._label_connected_components(selected), True
         if not np.issubdtype(selected.dtype, np.integer):
-            raise ValueError(f"labels must hold integers (instance labels){where}; got dtype {selected.dtype}.")
-        if selected.min() < 0:
-            raise LabelRangeError(
-                "labels must be non-negative. Found negative values in the label array.",
-                label=int(selected.min()),
-            )
-        if int(selected.max()) > _INT32_MAX:
-            raise LabelRangeError(
-                f"The mask{where} holds label {int(selected.max())}, above the int32 maximum ({_INT32_MAX}) "
-                "CellPatcher stores labels in; relabel the mask with smaller values.",
-                label=int(selected.max()),
-            )
+            check_labels(selected, name)  # refuses floats and other pixel types, naming the type
+            raise ValueError(f"{name} does not hold integer labels (pixel type {selected.dtype}).")
+        try:
+            check_labels(selected, name)
+        except ValueError as exc:
+            smallest = int(selected.min())
+            raise LabelRangeError(str(exc), label=smallest if smallest < 0 else int(selected.max())) from None
         return selected.astype(np.int32, copy=False), False
 
     def _select_label_plane(self, labels):

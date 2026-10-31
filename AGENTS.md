@@ -500,7 +500,14 @@ columns: `patch_id`, `image_id`, `mode`, `y0`/`y1`/`x0`/`x1`, `height`/
   D85, 2026-10-29, amending D45: `img.ome.tif` gives `img`; no copy of the
   rule here), so every plane and channel patch of one image shares it. It is
   unique within its technical repeat, compared case-insensitively; equal
-  file names in two wells are two FOVs through `technical_repeat`. An
+  file names in two wells are two FOVs through `technical_repeat`. Labels,
+  `position_id` and plane indices follow the preprocessing brick's identity
+  rules (D86, owner decision D-e: `check_identity_text`,
+  `check_plane_index`, `check_identity_case`): no surrounding whitespace, no
+  `NA`/`nan`/`none`/`null`/`n/a`/`<NA>`/empty names, integer plane indices
+  only, and names of one level differing only in case are refused across
+  the run. Labels are checked with its `check_labels` (int32, float masks
+  refused, D-b). An
   in-memory image given to `run_patching` with neither a `position_id`
   nor an `image_file` is refused (owner decision, 2026-10-26): never a
   run-order value. A file holding several images or series (OME-Zarr plate,

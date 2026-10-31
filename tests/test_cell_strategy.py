@@ -62,7 +62,7 @@ def test_labels_above_int32_max_are_refused_not_wrapped():
     labels = np.zeros((4, 4), dtype=np.uint32)
     labels[1:3, 1:3] = 2**31
     s = CellSegmentationStrategy(CellConfig(exclude_border=False))
-    with pytest.raises(ValueError, match="int32 maximum"):
+    with pytest.raises(ValueError, match="holds labels above 2147483647"):
         s.generate_regions(image_shape=(4, 4), labels=labels)
 
 
@@ -248,10 +248,20 @@ def test_out_of_range_mask_channel_raises():
 # Float and negative label validation tests
 # ---------------------------------------------------------------------------
 
-def test_float_binary_mask_works():
-    """Float mask with only 0.0 and 1.0 should be treated as binary."""
+@pytest.mark.parametrize("policy", ["single_object", "connected_components"])
+def test_a_float_binary_mask_is_refused(policy):
+    """Owner decision D-b (preprocessing check_labels): a float mask is refused even when it holds
+    only 0.0 and 1.0, whatever binary_mask_policy; before D86 it was treated as a binary mask."""
     labels = np.zeros((6, 6), dtype=float)
     labels[2:4, 2:4] = 1.0
+    s = CellSegmentationStrategy(CellConfig(exclude_border=False, binary_mask_policy=policy))
+    with pytest.raises(ValueError, match="save the mask as integers"):
+        s.generate_regions(image_shape=(6, 6), labels=labels)
+
+
+def test_a_boolean_mask_still_takes_the_connected_components_opt_in():
+    labels = np.zeros((6, 6), dtype=bool)
+    labels[2:4, 2:4] = True
     s = CellSegmentationStrategy(CellConfig(exclude_border=False, binary_mask_policy="connected_components"))
     with pytest.warns(UserWarning, match="connected components"):
         patches = s.generate_regions(image_shape=(6, 6), labels=labels)
@@ -262,7 +272,7 @@ def test_non_binary_float_labels_raise():
     """Float mask with values like 1.7, 2.3 must raise ValueError."""
     labels = np.array([[0.0, 1.7], [2.3, 0.0]], dtype=float)
     s = CellSegmentationStrategy(CellConfig(exclude_border=False))
-    with pytest.raises(ValueError, match="Non-binary float"):
+    with pytest.raises(ValueError, match="does not hold whole-number labels"):
         s.generate_regions(image_shape=(2, 2), labels=labels)
 
 
@@ -270,7 +280,7 @@ def test_negative_integer_labels_raise():
     """Labels containing negative values must raise ValueError."""
     labels = np.array([[0, -1], [1, 0]], dtype=int)
     s = CellSegmentationStrategy(CellConfig(exclude_border=False))
-    with pytest.raises(ValueError, match="non-negative"):
+    with pytest.raises(ValueError, match="negative labels"):
         s.generate_regions(image_shape=(2, 2), labels=labels)
 
 

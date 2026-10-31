@@ -80,12 +80,14 @@ class CellConfig:
 
     Masks are instance labels (decision D47, 2026-10-26): an integer mask is
     used as given, each non-zero value one object (a 0/1 integer mask is one
-    object, label 1). ``binary_mask_policy`` only matters for a boolean mask
-    (or a float mask of 0.0/1.0), which has no object ids: ``"single_object"``
-    (default) refuses it; ``"connected_components"`` is the explicit opt-in
-    that labels its connected components (4-connected), with a warning, and
-    is recorded in ``run_config.json``. Labels above the int32 maximum are
-    refused.
+    object, label 1). ``binary_mask_policy`` only matters for a boolean mask,
+    which has no object ids: ``"single_object"`` (default) refuses it;
+    ``"connected_components"`` is the explicit opt-in that labels its
+    connected components (4-connected), with a warning, and is recorded in
+    ``run_config.json``. Labels are checked with the preprocessing brick's
+    ``check_labels`` (decision D-b): negative labels and labels above the
+    int32 maximum are refused, and so is a float mask, even of whole numbers
+    or 0.0/1.0.
     """
 
     patch_size: int | str = "auto"

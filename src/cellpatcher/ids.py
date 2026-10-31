@@ -47,6 +47,12 @@ import re
 from collections import Counter
 
 import numpy as np
+from morphobricks_preprocessing.discovery import (
+    FOV_KEY,
+    check_identity_case,
+    check_identity_text,
+    check_plane_index,
+)
 
 from cellpatcher.io import image_stem
 
@@ -58,14 +64,19 @@ _SEPARATORS = "_-. "
 
 
 def identity_text(value, name: str) -> str:
-    """Return *value* unchanged if it is non-empty text, else raise ``ValueError``.
+    """Return a label or ``position_id`` unchanged if every brick can use it as an identity, else raise.
 
-    FOV labels, ``position_id`` and ``object_set`` are identity: they are never converted (a
-    number ``7`` is not the label ``"7"``, D85), so a value of another type is refused.
+    The preprocessing brick's ``check_identity_text`` (owner decision D-e): text (never
+    converted, a number ``7`` is not the label ``"7"``, D85) without leading or trailing
+    whitespace, and not ``""``, ``NA``, ``nan``, ``none``, ``null``, ``n/a`` or ``<NA>`` in any
+    case, which table readers read as missing.
+
+    Raises
+    ------
+    morphobricks_preprocessing.IdentityError
+        (a ``ValueError``) naming *name* and the value.
     """
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError(f"{name} must be non-empty text (identity is never converted, D85); got {value!r}.")
-    return value
+    return check_identity_text(value, name)
 
 
 def validate_object_set(value, *, name: str = "common.object_set") -> None:
@@ -150,20 +161,15 @@ def resolve_position_id(labels, meta, *, image_index=None) -> str:
     Raises
     ------
     ValueError
-        If a given ``position_id`` is not non-empty text (it is never coerced), or
+        If a given ``position_id`` is not an identity text (``identity_text``; it is never
+        coerced), or
         if neither a ``position_id`` nor an ``image_file`` is given: an
         in-memory image has no identity of its own, and its place in the run
         (*image_index*, named in the message) is not one.
     """
     if meta.get("position_id") is not None:
-        value = meta["position_id"]
-        if not isinstance(value, str) or not value.strip():
-            which = "an image" if image_index is None else f"image {image_index} of the run"
-            raise ValueError(
-                f"The position_id given for {which} must be non-empty text (kept verbatim, D85); "
-                f"got {value!r}."
-            )
-        return value
+        which = "an image" if image_index is None else f"image {image_index} of the run"
+        return check_identity_text(meta["position_id"], f"the position_id given for {which}")
     if meta.get("image_file"):
         from morphobricks_preprocessing.discovery import position_id
 
@@ -179,44 +185,44 @@ def resolve_position_id(labels, meta, *, image_index=None) -> str:
 def plane_index(meta, axis: str) -> int | None:
     """The plane index *meta* gives along *axis* (``"t"``, ``"z"`` or ``"c"``) as patches carry it.
 
-    ``None`` when absent, else the integer: the one representation stamped on patches, hashed
-    into random seeds and compared for uniqueness, so ``1`` and ``"1"`` are one plane. Only a
-    non-negative integer (not a bool) or its canonical decimal text is accepted; ``True``,
-    ``1.5``, ``1.0``, ``"1.0"``, ``"01"`` and negatives raise ``ValueError`` (identity is never
-    coerced, D85).
+    ``None`` when absent, else the plain ``int`` stamped on patches, hashed into random seeds and
+    compared for uniqueness. The preprocessing brick's ``check_plane_index`` (owner decision
+    D-e): a Python or NumPy integer of at least 0; a bool, a float (``1.0`` too) and text
+    (``"1"`` too) raise ``ValueError`` (identity is never coerced, D85).
     """
-    value = meta.get(axis)
-    if value is None:
-        return None
-    if isinstance(value, str) and re.fullmatch(r"0|[1-9][0-9]*", value):
-        return int(value)
-    if isinstance(value, (int, np.integer)) and not isinstance(value, (bool, np.bool_)) and value >= 0:
-        return int(value)
-    raise ValueError(
-        f"image_metadata gives {axis}={value!r}: a plane index is a non-negative integer (or its "
-        "decimal text, e.g. 1 or \"1\"); it is never rounded or converted from another value."
-    )
+    return check_plane_index(meta.get(axis), f'image_metadata["{axis}"]')
 
 
 def check_unique_position(seen: dict, labels, meta, index) -> None:
     """Refuse a source image whose FOV key another image of the run already has (D85).
 
-    ``position_id`` is unique within its technical repeat whatever its case, so the key is
-    ``(condition, biological_repeat, technical_repeat, position_id.casefold())`` plus the
+    The key is ``(condition, biological_repeat, technical_repeat, position_id)`` plus the
     plane indices (``t``, ``z``, ``c``) *meta* gives, if any: images of one position told
     apart by their planes are legal. Called once per source image, before any plane split,
     geometry or filter, so an image that yields no patch is checked too. *seen* maps the
-    keys met so far to their image index and is updated.
+    keys met so far to their image index and is updated. Names that differ only in case are
+    refused for the whole run by :func:`check_run_identity_case`.
     """
-    key = (*map(str, labels), str(meta["position_id"]).casefold(), *(plane_index(meta, axis) for axis in "tzc"))
+    key = (*map(str, labels), str(meta["position_id"]), *(plane_index(meta, axis) for axis in "tzc"))
     if key in seen:
         raise ValueError(
             f"Images {seen[key]} and {index} of the run have the same position_id within technical repeat "
-            f"{key[:3]!r} ({meta['position_id']!r}; position_id is unique within its technical repeat "
-            "whatever its case, D85) and no different t/z/c plane indices. Give each image its own "
+            f"{key[:3]!r} ({meta['position_id']!r}; position_id is unique within its technical repeat, "
+            "D85) and no different t/z/c plane indices. Give each image its own "
             'position_id (image_metadata[i]["position_id"]) or its plane indices ("t", "z", "c").'
         )
     seen[key] = index
+
+
+def check_run_identity_case(seen: dict) -> None:
+    """Refuse names of one run that differ only in case (owner decision D-e).
+
+    The preprocessing brick's ``check_identity_case`` over the FOV keys *seen* holds (from
+    :func:`check_unique_position`): a condition, biological or technical repeat spelled two
+    ways anywhere in the run, or two ``position_id`` values of one technical repeat equal
+    ignoring case, raise ``IdentityError`` (a ``ValueError``) naming both spellings.
+    """
+    check_identity_case(key[: len(FOV_KEY)] for key in seen)
 
 
 # The plane indices each random seed scope includes (config.RandomConfig.seed_scope).
@@ -269,14 +275,8 @@ def patch_token(patch) -> str:
 
 
 def _fov_key(patch) -> list[str]:
-    """The patch's FOV key: condition, biological and technical repeat, position_id (D85)."""
-    key = [patch.condition, patch.biological_repeat, patch.technical_repeat, patch.position_id]
-    if not all(isinstance(part, str) and part for part in key):
-        raise ValueError(
-            "A patch needs its condition, biological_repeat, technical_repeat and position_id "
-            f"as text to build its patch_id (never converted, D85); got {key}."
-        )
-    return key
+    """The patch's FOV key (``FOV_KEY``: condition, biological and technical repeat, position_id, D85)."""
+    return [check_identity_text(getattr(patch, name), f"the patch's {name}") for name in FOV_KEY]
 
 
 def build_patch_id(patch) -> str:

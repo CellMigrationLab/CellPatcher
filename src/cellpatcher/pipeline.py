@@ -14,6 +14,7 @@ from cellpatcher.filters import filter_regions
 from cellpatcher.fractions import check_fraction_masks, stamp_mask_fractions
 from cellpatcher.ids import (
     assign_patch_ids,
+    check_run_identity_case,
     check_unique_position,
     identity_text,
     plane_index,
@@ -96,6 +97,7 @@ def check_source_identities(config: CellPatcherConfig, image_files) -> None:
         labels = _image_labels(config, meta)
         meta["position_id"] = resolve_position_id(labels, meta, image_index=index)
         check_unique_position(seen, labels, meta, index)
+    check_run_identity_case(seen)
 
 
 def _stamp_run_context(config: CellPatcherConfig, patches: list[PatchRegion]) -> None:
@@ -212,6 +214,7 @@ def _identity_metadata(config: CellPatcherConfig, image_list, image_metadata) ->
         if config.mode == "cell":
             meta["object_set"] = resolve_object_set(meta, config.common)
         filled.append(meta)
+    check_run_identity_case(seen)
     return filled
 
 
