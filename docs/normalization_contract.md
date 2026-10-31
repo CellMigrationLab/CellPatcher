@@ -120,7 +120,7 @@ Rules for `"ngff_labels"`:
 |---|---|---|
 | `plane_histograms.csv` | For the `biological_repeat` and `image` scopes | Path given in `normalization.plane_histograms`. Not needed for the `patch` scope. |
 | `run_manifest.json` | Never | Given in `normalization.manifest`, or found next to the CSV. An explicitly given path that does not exist is an error. |
-| `experiment_design.csv` | For the `biological_repeat` scope | Given in `normalization.experiment_design`, or found next to the CSV. It must exist, every repeat group must be confirmed with one folder per condition (the preprocessing brick's `design_issues`), its SHA-256 must equal the manifest's `experiment_design_sha256` when the manifest records one, and every image's condition and biological repeat must be in it. Checked before any image is read. |
+| `experiment_design.csv` | For the `biological_repeat` scope | Given in `normalization.experiment_design`, or found next to the CSV. It is read with the preprocessing brick's shared reader `read_confirmed_design` (its contract §16; since CellPatcher v0.1.2): the file exactly as the brick writes it (no byte-order mark, the columns in order, one value per column in every row, no blank line, no value with outer whitespace, `true`/`false`, ISO `confirmed_on`, valid labels without case-only differences), every repeat group confirmed with one folder per condition, its SHA-256 equal to the manifest's `experiment_design_sha256` when the manifest records one, and every image's condition and biological repeat must be in it. Checked before any image is read. |
 
 Checks before any patch is normalized; every failure blocks the run:
 
