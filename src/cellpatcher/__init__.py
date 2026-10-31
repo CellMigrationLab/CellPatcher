@@ -53,6 +53,7 @@ from cellpatcher.io import (
 )
 from cellpatcher.filters import compute_threshold, filter_regions, foreground_fraction
 from cellpatcher.object_geometry import ObjectBoxes, border_labels, object_boxes, object_sides
+from cellpatcher.patch_checks import PatchBoundsError, check_patch_bounds, check_region_mask
 from cellpatcher.pipeline import RUN_CONFIG_FILENAME, PatchingResult, run_patching
 from cellpatcher.preprocess import (
     PreparedPlane,
@@ -165,6 +166,9 @@ __all__ = [
     "object_boxes",
     "object_sides",
     "border_labels",
+    "PatchBoundsError",
+    "check_patch_bounds",
+    "check_region_mask",
     "percentile_normalize",
     "minmax_normalize",
     "repeat_to_rgb",
