@@ -32,7 +32,11 @@ _REPLACEMENT = (
 
 def _warn_deprecated(what: str, stacklevel: int = 3) -> None:
     """Warn that an old normalization is deprecated (docs/normalization_contract.md §15)."""
-    warnings.warn(f"{what} is deprecated; {_REPLACEMENT}.", DeprecationWarning, stacklevel=stacklevel)
+    warnings.warn(
+        f"{what} is deprecated and will be removed in CellPatcher v0.2.0; {_REPLACEMENT}.",
+        DeprecationWarning,
+        stacklevel=stacklevel,
+    )
 
 
 def percentile_normalize(image, p_low=1.0, p_high=99.8, *, dtype=np.float32):

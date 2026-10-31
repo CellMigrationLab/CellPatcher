@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased] - Deprecated leftovers scheduled for removal (D86, CP-2/CP-5)
+
+### Deprecated
+- `cellpatcher.io.image_stem` warns: it is not the image name MorphoBricks uses
+  (`image_stem("img.ome.tif")` is `"img.ome"`); use
+  `morphobricks_preprocessing.discovery.position_id`.
+- The deprecation warnings of the former image/mask matchers (`find_candidate_matches`,
+  `filter_shared_matches`, `select_requested_masks`, the former matching options) and of
+  per-image normalization (`percentile_normalize`, `minmax_normalize`, `normalize=` of the
+  preprocessing helpers) now name the release that removes them: CellPatcher v0.2.0.
+
+### Removed
+- `cellpatcher.ids.object_set_from_mask_file`, which nothing called (the object set of a mask
+  file is its mask type from the preprocessing brick's pairing).
+
 ## [Unreleased] - Shared MorphoBricks rules for labels, identity and sources (D86)
 
 ### Changed

@@ -135,12 +135,26 @@ def is_ome_zarr(path) -> bool:
 
 
 def image_stem(path) -> str:
-    """File name without its extension, used to match images and masks.
+    """File name without its extension, as the former image/mask matchers compared names (deprecated).
 
-    For an OME-Zarr image the whole ``.ome.zarr``/``.zarr`` ending is
-    removed (``img.ome.zarr`` -> ``img``), so it matches ``img.tif`` or
-    ``img_mask.tif``; for every other file it is ``Path.stem``.
+    It differs from the name every MorphoBricks brick uses, the preprocessing
+    brick's ``discovery.position_id`` (``image_stem("img.ome.tif")`` is
+    ``"img.ome"``, ``position_id`` gives ``"img"``; D85). It warns and will be
+    removed in CellPatcher v0.2.0, with the matchers that use it: use
+    ``morphobricks_preprocessing.discovery.position_id``.
     """
+    warnings.warn(
+        "cellpatcher.io.image_stem is deprecated and will be removed in CellPatcher v0.2.0: it is not the "
+        "image name MorphoBricks uses (image_stem('img.ome.tif') is 'img.ome'); use "
+        "morphobricks_preprocessing.discovery.position_id.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return _legacy_stem(path)
+
+
+def _legacy_stem(path) -> str:
+    """``image_stem`` without the warning, for the deprecated matchers."""
     path = Path(path)
     if not is_ome_zarr(path):
         return path.stem
@@ -629,8 +643,8 @@ def read_array_shape(file_path) -> tuple[int, ...]:
 def _warn_old_matcher(name: str) -> None:
     warnings.warn(
         f"{name} is CellPatcher's former image/mask matching, no longer used by CellPatcher and to be "
-        "removed: images and masks are paired with the preprocessing brick's rule (cellpatcher.io.pair_masks, "
-        "issue #45).",
+        "removed in CellPatcher v0.2.0: images and masks are paired with the preprocessing brick's rule "
+        "(cellpatcher.io.pair_masks, issue #45).",
         DeprecationWarning,
         stacklevel=3,
     )
@@ -669,14 +683,14 @@ def find_candidate_matches(
     # case_sensitive=False compares lower-cased stems; True compares as-is.
     normalize = (lambda value: value) if case_sensitive else (lambda value: value.lower())
     suffixes = tuple(normalize(value) for value in mask_suffixes)
-    mask_names = {Path(m): normalize(image_stem(m)) for m in mask_files}
+    mask_names = {Path(m): normalize(_legacy_stem(m)) for m in mask_files}
     out = {}
     # For each image, collect every mask whose stem matches under the
     # chosen strategy -- possibly more than one, which
     # validate_image_and_mask_folders then refuses.
     for image in image_files:
         image = Path(image)
-        key = normalize(image_stem(image))
+        key = normalize(_legacy_stem(image))
         matches: list[Path] = []
         for mask_path, mask_name in mask_names.items():
             if strategy == "exact":
@@ -734,7 +748,7 @@ def filter_shared_matches(candidate_matches) -> dict[Path, list[Path]]:
 
 
 def _ends_with_suffix(path, suffixes, case_sensitive: bool) -> bool:
-    stem = image_stem(path) if case_sensitive else image_stem(path).lower()
+    stem = _legacy_stem(path) if case_sensitive else _legacy_stem(path).lower()
     return any(stem.endswith(suffix if case_sensitive else suffix.lower()) for suffix in suffixes)
 
 
@@ -798,7 +812,8 @@ def warn_legacy_matching_removed(where: str, stacklevel: int = 2) -> None:
     """Emit the ``DeprecationWarning`` for a legacy matching option given at its old default."""
     warnings.warn(
         f"{where}: the matching options strategy, mask_suffixes, case_sensitive and "
-        "ignore_unrequested_masks no longer have any effect and will be removed; images and masks "
+        "ignore_unrequested_masks no longer have any effect and will be removed in CellPatcher v0.2.0; "
+        "images and masks "
         "are paired with the preprocessing brick's rule (issue #45). Use matching.mask_type to choose "
         "the mask type.",
         DeprecationWarning,

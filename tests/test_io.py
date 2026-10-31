@@ -563,6 +563,8 @@ def test_the_former_matchers_warn_that_they_are_unused():
         find_candidate_matches(["a.tif"], ["a_mask.tif"])
     with pytest.warns(DeprecationWarning, match="no longer used by CellPatcher"):
         filter_shared_matches({})
+    with pytest.warns(DeprecationWarning, match="removed in CellPatcher v0.2.0"):
+        filter_shared_matches({})
 
 
 def test_validate_ignores_macos_resource_forks_in_both_folders(tmp_path):

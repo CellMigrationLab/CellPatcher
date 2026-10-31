@@ -43,6 +43,8 @@ def test_the_normalize_functions_warn_and_keep_their_values():
     result, caught = _record(lambda: minmax_normalize(plane))
     np.testing.assert_array_equal(result, _minmax_normalize(plane))
     assert len(caught) == 1 and "minmax_normalize is deprecated" in str(caught[0].message)
+    # CP-5 (D86): the removal is announced.
+    assert "removed in CellPatcher v0.2.0" in str(caught[0].message)
 
 
 def test_prepare_image_warns_only_with_normalize():

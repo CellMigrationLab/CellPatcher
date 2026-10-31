@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 
 from cellpatcher.config import CellPatcherConfig, CommonConfig, ExtractionConfig, GridConfig
-from cellpatcher.ids import DEFAULT_OBJECT_SET, object_set_from_mask_file
+from cellpatcher.ids import DEFAULT_OBJECT_SET
 from cellpatcher.io import write_array
 from cellpatcher.orchestration import run_patching_condition_repeat_tree, run_patching_pipeline
 from cellpatcher.pipeline import RUN_CONFIG_FILENAME, run_patching
@@ -267,18 +267,13 @@ def test_random_planes_are_seeded_by_their_own_indices():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("image_file", "mask_file", "expected"),
-    [
-        ("img.tif", "img_cells.tif", "cells"),
-        ("img.tif", "IMG-Nuclei.tif", "Nuclei"),
-        ("img.ome.zarr", "img_mask.tif", "mask"),
-        ("img.tif", "img.tif", None),
-        ("img1.tif", "cells_img1.tif", None),
-    ],
-)
-def test_object_set_from_the_mask_file_name(image_file, mask_file, expected):
-    assert object_set_from_mask_file(image_file, mask_file) == expected
+def test_the_unused_mask_file_name_rule_is_gone():
+    # CP-2 (D86): object_set_from_mask_file had no caller and read "img.ome.tif" as "img.ome";
+    # the object set of a mask file is its preprocessing mask type (object_set_from_mask_type).
+    from cellpatcher import ids
+
+    assert not hasattr(ids, "object_set_from_mask_file")
+    assert ids.object_set_from_mask_type("Nuclei") == "Nuclei"
 
 
 def test_object_set_precedence(tmp_path):
