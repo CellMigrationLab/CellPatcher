@@ -125,26 +125,6 @@ def cached_statistics(plane_histograms, manifest=None) -> PlaneStatistics:
     return _STATISTICS_CACHE[key]
 
 
-@dataclass(frozen=True)
-class ExperimentDesignInput:
-    """The preprocessing brick's ``experiment_design.csv``, checked for the ``biological_repeat`` scope.
-
-    Attributes
-    ----------
-    path
-        The file read.
-    sha256
-        Its SHA-256.
-    repeat_groups
-        ``{(condition, biological_repeat): repeat group label}``, the pairing
-        the normalization brick's ``scope_groups`` takes.
-    """
-
-    path: Path
-    sha256: str
-    repeat_groups: dict
-
-
 def experiment_design_path(settings) -> Path:
     """``normalization.experiment_design``, or the ``experiment_design.csv`` next to ``plane_histograms``."""
     _preprocessing()
@@ -155,66 +135,45 @@ def experiment_design_path(settings) -> Path:
     return Path(settings.plane_histograms).expanduser().parent / DESIGN_FILENAME
 
 
-def load_experiment_design(settings, statistics: PlaneStatistics) -> ExperimentDesignInput:
+def load_experiment_design(settings, statistics: PlaneStatistics):
     """Read and check the experiment design of the ``biological_repeat`` scope, before any image is read.
+
+    The file is read with the preprocessing brick's one shared reader,
+    ``read_confirmed_design`` (contract §16; CellPatcher keeps no reader of
+    its own): exactly as the brick writes it, every repeat group confirmed
+    with one folder per condition, and, when the run manifest records an
+    ``experiment_design_sha256``, the file that run used.
+
+    Returns
+    -------
+    morphobricks_preprocessing.ConfirmedDesign
+        Its ``path``, ``sha256`` and ``repeat_groups``
+        (``{(condition, biological_repeat): repeat group}``, the pairing the
+        normalization brick's ``scope_groups`` takes).
 
     Raises
     ------
     PreprocessingCheckError
-        If the file does not exist or cannot be read, a repeat group is not
-        confirmed or holds two folders of one condition (the preprocessing
-        brick's ``design_issues``), or the file is not the one the
-        preprocessing manifest was written with.
+        With the reader's errors (``missing_experiment_design``,
+        ``unreadable_experiment_design``, ``repeat_group_conflict``,
+        ``design_not_confirmed``, ``changed_experiment_design``).
     """
     _preprocessing()
-    from morphobricks_preprocessing.design import (
-        DESIGN_FILENAME,
-        DesignFormatError,
-        design_issues,
-        read_experiment_design,
-    )
-    from morphobricks_preprocessing.manifest import file_sha256
-    from morphobricks_preprocessing.validation import error
+    from morphobricks_preprocessing.design import DesignCheckError, read_confirmed_design
 
     path = experiment_design_path(settings)
-    rerun = (
-        "Run step 1 of the preprocessing brick on this experiment (it pairs and confirms the biological "
-        "repeats), then run the preprocessing brick again."
-    )
-    if not path.is_file():
-        raise PreprocessingCheckError([
-            error(
-                "missing_experiment_design",
-                "normalization.scope='biological_repeat' pools each biological repeat across the conditions, "
-                f"as paired in the preprocessing brick's {DESIGN_FILENAME}, but {path} does not exist.",
-                [str(path)],
-                f"{rerun} Or give the file in normalization.experiment_design.",
-            )
-        ])
-    try:
-        design = read_experiment_design(path)
-    except DesignFormatError as exc:
-        raise PreprocessingCheckError([
-            error("unreadable_experiment_design", f"The experiment design cannot be read: {exc}", [str(path)], rerun)
-        ]) from exc
-    issues = design_issues(design)
-    if issues:
-        raise PreprocessingCheckError(issues)
-    sha256 = file_sha256(path)
     manifest = statistics.manifest
     expected = None if manifest is None else getattr(manifest, "experiment_design_sha256", None)
-    if expected is not None and expected != sha256:
-        raise PreprocessingCheckError([
-            error(
-                "changed_experiment_design",
-                f"{path.name} changed after the preprocessing run that wrote {statistics.plane_histograms.name}: "
-                "its SHA-256 differs from the one in the run manifest, so the repeat groups may not be the ones "
-                "the statistics were checked with.",
-                [str(path)],
-                "Run the preprocessing brick again on this experiment, or give the experiment design of that run.",
-            )
-        ])
-    return ExperimentDesignInput(path, sha256, design.repeat_groups())
+    try:
+        return read_confirmed_design(path, expected_sha256=expected)
+    except DesignCheckError as exc:
+        issues = [
+            # Where CellPatcher looks for the file is CellPatcher's setting.
+            replace(issue, action=f"{issue.action} Or give the file in normalization.experiment_design.")
+            if issue.code == "missing_experiment_design" else issue
+            for issue in exc.issues
+        ]
+        raise PreprocessingCheckError(issues) from exc
 
 
 def _warn_unchecked_inputs(settings, statistics: PlaneStatistics) -> None:

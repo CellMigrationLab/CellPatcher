@@ -784,6 +784,62 @@ def test_a_design_changed_after_preprocessing_is_refused(tmp_path):
     assert [issue.code for issue in caught.value.issues] == ["changed_experiment_design"]
 
 
+def _design_edited(tmp_path, edit):
+    """An unpaired experiment whose experiment_design.csv is edited by *edit* (text -> text).
+
+    The manifest's design hash is removed, so only the reader can refuse the edit.
+    """
+    root, _, csv_path = _unpaired_experiment(tmp_path)
+    manifest_path = csv_path.parent / "run_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest.pop("experiment_design_sha256")
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    design_path = csv_path.parent / "experiment_design.csv"
+    design_path.write_bytes(edit(design_path.read_bytes().decode("utf-8")).encode("utf-8"))
+    return root, csv_path
+
+
+@pytest.mark.parametrize("edit, match", [
+    # Before v0.1.2 CellPatcher read the design leniently: each of these was accepted.
+    (lambda text: text.replace(",true,", ",yes,"), r"line 2.*confirmed"),
+    (lambda text: text.replace("\ncontrol,", "\n control,", 1), r"line 2.*condition"),
+    (lambda text: "\ufeff" + text, "byte-order mark"),
+    (lambda text: text.replace("\ntreated,", "\n\ntreated,", 1), r"line 3 has 0 values"),
+], ids=["confirmed-yes", "padded-condition", "byte-order-mark", "blank-line"])
+def test_the_design_is_read_with_the_shared_strict_reader(tmp_path, edit, match):
+    root, csv_path = _design_edited(tmp_path, edit)
+    config = _config(csv_path, image_axes="YX", scope="biological_repeat")
+    with pytest.raises(PreprocessingCheckError, match=match) as caught:
+        run_patching_condition_repeat_tree(root, config=config)
+    assert [issue.code for issue in caught.value.issues] == ["unreadable_experiment_design"]
+
+
+def test_the_design_reader_is_the_preprocessing_brick_s(tmp_path, monkeypatch):
+    import morphobricks_preprocessing.design as design_module
+
+    calls = []
+    reader = design_module.read_confirmed_design
+
+    def recording(path, *, expected_sha256=None):
+        calls.append(expected_sha256)
+        return reader(path, expected_sha256=expected_sha256)
+
+    monkeypatch.setattr(design_module, "read_confirmed_design", recording)
+    root, _, csv_path = _unpaired_experiment(tmp_path)
+    manifest = json.loads((csv_path.parent / "run_manifest.json").read_text(encoding="utf-8"))
+    run_patching_condition_repeat_tree(root, config=_config(csv_path, image_axes="YX", scope="biological_repeat"))
+    assert calls and set(calls) == {manifest["experiment_design_sha256"]}
+
+
+def test_a_missing_design_says_where_cellpatcher_looks(tmp_path):
+    root, _, csv_path = _unpaired_experiment(tmp_path, design=None)
+    with pytest.raises(PreprocessingCheckError) as caught:
+        run_patching_condition_repeat_tree(root, config=_config(csv_path, image_axes="YX", scope="biological_repeat"))
+    (issue,) = caught.value.issues
+    assert issue.code == "missing_experiment_design"
+    assert "normalization.experiment_design" in issue.action
+
+
 def test_repeat_groups_missing_a_condition_are_reported(tmp_path):
     root = tmp_path / "incomplete"
     for path in ("control/rep1/a.tif", "control/rep2/b.tif", "treated/rep1/c.tif"):

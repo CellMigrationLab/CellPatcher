@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased] - The experiment design is read with the shared reader
+
+### Changed
+- With `normalization.scope='biological_repeat'`, `experiment_design.csv` is read with the
+  preprocessing brick's `read_confirmed_design` (its contract §16), the one reader every brick
+  uses; CellPatcher's own reading is gone. The file must be as the preprocessing brick writes
+  it. Refused now (`unreadable_experiment_design`, naming the line and column), where before
+  they were accepted: a byte-order mark (a file saved by a spreadsheet program), columns in
+  another order, a blank line, a row with an extra value, a value with leading or trailing
+  spaces, `control`/`confirmed` other than `true`/`false` (`yes`, `1`, `TRUE`), a table without
+  rows, and condition or biological-repeat labels that are NA-like or differ only in case.
+  Missing, unconfirmed, conflicting and changed designs are
+  refused as before (same issue codes); the missing-design message comes from the
+  preprocessing brick and still says to give the file in `normalization.experiment_design`.
+- `cellpatcher.normalization.load_experiment_design` returns the preprocessing brick's
+  `ConfirmedDesign` (same `path`, `sha256` and `repeat_groups`, now read-only);
+  `cellpatcher.normalization.ExperimentDesignInput` is removed.
+
 ## [Unreleased] - read_patch_table checks the table's structure
 
 ### Changed
