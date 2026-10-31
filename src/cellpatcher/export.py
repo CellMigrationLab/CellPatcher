@@ -197,3 +197,225 @@ def export_patches(
         save_image_table_csv(image_records, out_dir / image_table_filename)
 
     return saved_files
+
+
+class PatchTableError(ValueError):
+    """A ``patches.csv`` cannot be read back as patches; the message lists every problem with its line."""
+
+
+# Columns of tables written by earlier CellPatcher versions, read but not fields themselves:
+# the ;-separated parameters of tables before 2026-10-28 (normalization brick N47).
+_LEGACY_PARAMETER_COLUMNS = ("normalization_offset", "normalization_scale")
+_INTEGER_TEXT = re.compile(r"[+-]?[0-9]+")
+_BOOLEAN_TEXT = {"true": True, "false": False}
+
+
+def _field_kinds() -> dict[str, tuple[type, bool]]:
+    """PatchRegion column -> (int, float, bool or str; whether it may be None)."""
+    import typing
+
+    hints = typing.get_type_hints(PatchRegion)
+    kinds = {}
+    for item in fields(PatchRegion):
+        if item.name in ("normalization_parameters", "mask_fractions"):
+            continue
+        arguments = typing.get_args(hints[item.name])
+        optional = type(None) in arguments
+        base = next((kind for kind in (arguments or (hints[item.name],)) if kind is not type(None)), str)
+        kinds[item.name] = (base, optional)
+    return kinds
+
+
+def _typed(text: str, kind: type, optional: bool, column: str):
+    """The value of one CSV cell, as :func:`save_metadata_csv` wrote it; ValueError otherwise."""
+    if text == "":
+        if optional:
+            return None
+        raise ValueError(f"{column} is empty")
+    if kind is str:
+        return text
+    if kind is bool:
+        value = _BOOLEAN_TEXT.get(text.lower())
+        if value is None:
+            raise ValueError(f"{column}={text!r} is not true or false")
+        return value
+    if kind is int:
+        if not _INTEGER_TEXT.fullmatch(text):
+            raise ValueError(f"{column}={text!r} is not an integer")
+        return int(text)
+    if kind is float:
+        try:
+            value = float(text)
+        except ValueError:
+            raise ValueError(f"{column}={text!r} is not a number") from None
+        if not np.isfinite(value):
+            raise ValueError(f"{column}={text!r} is not a finite number")
+        return value
+    raise TypeError(f"no reader for {column} ({kind})")
+
+
+def _read_run_config(csv_path: Path, names: set[str], problems: list[str]):
+    """The ``run_config.json`` the rows' ``config_file`` names (relative to the CSV's folder), or None."""
+    import json
+
+    named = names - {""}
+    if not named:
+        return None
+    if "" in names:
+        problems.append("only some rows name a config_file; CellPatcher names it in every row or in none")
+        return None
+    if len(named) > 1:
+        problems.append(f"the rows name several config files {sorted(named)}; CellPatcher writes one per table")
+        return None
+    path = csv_path.parent / named.pop()
+    if not path.is_file():
+        problems.append(f"config file {path} does not exist")
+        return None
+    try:
+        run_config = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        problems.append(f"config file {path} cannot be read as JSON: {exc}")
+        return None
+    if not isinstance(run_config, dict):
+        problems.append(f"config file {path} holds a {type(run_config).__name__}, not the JSON object CellPatcher writes")
+        return None
+    return run_config
+
+
+def read_patch_table(csv_path) -> tuple[list[PatchRegion], dict | None]:
+    """Read a ``patches.csv`` back as :class:`PatchRegion` objects, with its ``run_config.json``.
+
+    The typed inverse of :func:`patch_metadata_to_rows`/:func:`save_metadata_csv`
+    (D86 API C2), for the bricks that read CellPatcher's patches instead of
+    parsing the table themselves. Every column is read with its
+    ``PatchRegion`` field's type: integers from integer text only (``"12.0"``
+    is refused), booleans from ``true``/``false`` in any case, an empty cell
+    as None (refused for a field that cannot be None: ``patch_id``, the
+    rectangle, ``touches_border``, ``valid``); labels and ids stay text
+    (``"001"`` is not a number). ``height``/``width`` must equal the
+    rectangle's; ``mask_fraction_<name>`` columns give ``mask_fractions``;
+    ``Normalization_Offset_C<i>``/``Normalization_Scale_C<i>`` (or the
+    ``;``-separated ``normalization_offset``/``normalization_scale`` of tables
+    written before 2026-10-28) give ``normalization_parameters``, read with
+    the normalization settings of the run config. A ``repeat`` column of a
+    table written before the rename is read as ``biological_repeat`` with a
+    ``DeprecationWarning``. A column CellPatcher does not write, and two rows
+    with one ``patch_id``, are refused. A column the table lacks (a table
+    written before it was added) leaves the field at its default.
+
+    Parameters
+    ----------
+    csv_path
+        The ``patches.csv``.
+
+    Returns
+    -------
+    tuple
+        The patches in row order, and the ``run_config.json`` the rows'
+        ``config_file`` names, relative to the CSV's folder, as a dict (None
+        when no row names one).
+
+    Raises
+    ------
+    FileNotFoundError
+        If the table does not exist.
+    PatchTableError
+        (a ``ValueError``) listing every problem: a missing column
+        (``patch_id``, ``y0``, ``y1``, ``x0``, ``x1``), a cell that is not of
+        its field's type, a rectangle that is not one, an unknown or
+        duplicate column, a duplicate ``patch_id``, or a config file that
+        is missing, not a JSON object, or not the same for every row.
+    """
+    from cellpatcher._deprecation import upgrade_legacy_repeat_column
+
+    path = Path(csv_path).expanduser()
+    if not path.is_file():
+        raise FileNotFoundError(f"The patch table {path} does not exist.")
+    with path.open(newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        header = list(reader.fieldnames or [])
+        rows = [(reader.line_num, row) for row in reader]
+    lines = [line for line, _ in rows]
+    rows = upgrade_legacy_repeat_column(header, [row for _, row in rows], str(path))
+    header = ["biological_repeat" if name == "repeat" and "biological_repeat" not in header else name for name in header]
+
+    kinds = _field_kinds()
+    problems: list[str] = []
+    duplicated = sorted(name for name, count in Counter(header).items() if count > 1)
+    if duplicated:
+        problems.append(f"duplicate columns {duplicated}")
+    known = set(kinds) | {"height", "width", *_LEGACY_PARAMETER_COLUMNS}
+    unknown = [
+        name for name in header
+        if name not in known
+        and not name.startswith(MASK_FRACTION_PREFIX)
+        and not re.fullmatch(r"Normalization_(Offset|Scale)_C[0-9]+", name)
+    ]
+    if unknown:
+        problems.append(f"columns CellPatcher does not write: {unknown}")
+    missing = [name for name in ("patch_id", "y0", "y1", "x0", "x1") if name not in header]
+    if missing:
+        problems.append(f"missing columns {missing}")
+    if problems:
+        raise PatchTableError(f"{path}: " + "; ".join(problems))
+
+    run_config = _read_run_config(path, {row.get("config_file") or "" for row in rows}, problems)
+    settings = (run_config or {}).get("normalization") or {}
+    patches: list[PatchRegion] = []
+    for line, row in zip(lines, rows):
+        row_problems: list[str] = []
+        if row.get(None):
+            row_problems.append(f"{len(row[None])} more cell(s) than the header has columns")
+        values = {}
+        for name in header:
+            if name in kinds:
+                try:
+                    values[name] = _typed(row[name] or "", *kinds[name], name)
+                except ValueError as exc:
+                    row_problems.append(str(exc))
+        fractions = {}
+        for name in header:
+            if name.startswith(MASK_FRACTION_PREFIX) and row[name]:
+                try:
+                    fractions[name[len(MASK_FRACTION_PREFIX):]] = _typed(row[name], float, False, name)
+                except ValueError as exc:
+                    row_problems.append(str(exc))
+        if fractions:
+            values["mask_fractions"] = fractions
+        has_parameters = any(
+            row[name] for name in header
+            if name in _LEGACY_PARAMETER_COLUMNS or name.startswith("Normalization_")
+        )
+        if has_parameters:
+            if run_config is None:
+                row_problems.append(
+                    "normalization parameters cannot be read without the run_config.json naming the "
+                    "normalization settings (no config_file)"
+                )
+            else:
+                from cellpatcher.normalization import parameters_from_row
+
+                try:
+                    values["normalization_parameters"] = parameters_from_row(row, settings)
+                except ValueError as exc:
+                    row_problems.append(f"normalization parameters: {exc}")
+        if not row_problems:
+            try:
+                patch = PatchRegion(**values)
+            except ValueError as exc:
+                row_problems.append(str(exc))
+            else:
+                for name, size in (("height", patch.height), ("width", patch.width)):
+                    if name in header and row[name] != str(size):
+                        row_problems.append(f"{name}={row[name]!r} is not the rectangle's {size}")
+        if row_problems:
+            problems.append(f"line {line} (patch_id {row.get('patch_id')!r}): " + "; ".join(row_problems))
+        else:
+            patches.append(patch)
+    counts = Counter(patch.patch_id for patch in patches)
+    repeated = sorted(patch_id for patch_id, count in counts.items() if count > 1)
+    if repeated:
+        problems.append(f"patch_id values on several rows: {repeated[:10]}")
+    if problems:
+        raise PatchTableError(f"{path}: " + "; ".join(problems))
+    return patches, run_config
