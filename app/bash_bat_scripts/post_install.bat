@@ -9,8 +9,8 @@ IF EXIST "%PREFIX%\CellPatcher\requirements-windows.txt" (
 SET "PROJECT_ROOT=%PREFIX%\CellPatcher"
 IF EXIST "%PROJECT_ROOT%\setup.py" (
     echo Found setup.py, installing CellPatcher package locally >> "%PREFIX%\menuinst_debug.log"
-    REM With the "preprocessing" extra (normalization and OME-Zarr images), fetched from GitHub with the bundled git.
-    "%PREFIX%\python.exe" -m pip install "%PROJECT_ROOT%[preprocessing]" >> "%PREFIX%\menuinst_debug.log"
+    REM With the "zarr" extra (OME-Zarr images); the MorphoBricks bricks are fetched from GitHub with the bundled git.
+    "%PREFIX%\python.exe" -m pip install "%PROJECT_ROOT%[zarr]" >> "%PREFIX%\menuinst_debug.log"
 ) ELSE (
     echo No setup.py detected, skipping local pip install >> "%PREFIX%\menuinst_debug.log"
 )

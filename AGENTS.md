@@ -19,7 +19,7 @@
 | Tests       | `PYTHONPATH=src python -m pytest -q` (equivalent to `pytest tests/` once the package is installed editable)                                              |
 | Environment | `python -m pip install -e .` (add extras as needed: `.[test]`, `.[notebook]`, `.[torch]`) or `conda env create -f environment.yaml`                       |
 
-Key dependencies: `numpy`, `scipy`, `tifffile`, `imageio` (core, required). Optional extras: `ipywidgets`, `matplotlib`, `pillow`, `tqdm`, `joblib`, `jl-hidecode` (notebook extra); `torch` (optional `cellpatcher.torch_dataset` adapter only — never a core dependency); `morphobricks-preprocessing[zarr]` from GitHub at a pinned tag, which brings `morphobricks-normalization` (no separate pin; MorphoFeature decision D79) (`preprocessing` extra, for `cellpatcher.statistics` and normalization — never a core dependency; histograms, the plane table, plane IDs, pooling and normalization parameters are imported from `morphobricks_normalization`, not from their deprecated preprocessing paths).
+Key dependencies: `numpy`, `scipy`, `tifffile`, `imageio`, and the MorphoBricks bricks `morphobricks-preprocessing` and `morphobricks-normalization` from GitHub at pinned tags (core, required; normalization is declared at the tag the preprocessing tag pins, owner decision D-h, checked by `tests/test_dependency_pins.py`; histograms, the plane table, plane IDs, pooling and normalization parameters are imported from `morphobricks_normalization`, not from their deprecated preprocessing paths). Optional extras: `ipywidgets`, `matplotlib`, `pillow`, `tqdm`, `joblib`, `jl-hidecode` (notebook extra); `torch` (optional `cellpatcher.torch_dataset` adapter only — never a core dependency); `morphobricks-preprocessing[zarr]` at the same tag (`zarr` extra, formerly `preprocessing`: OME-Zarr images and OME-NGFF label masks).
 
 Current health snapshot (2026-10-29, after the normalization follow-ups C1–C5): 764 tests passing on Python 3.12 (Windows) with `torch` installed. Earlier (2026-10-28, schema version 4 with preprocessing `v0.3.0`): 728 passing, plus `test_torch_dataset.py::test_exported_patch_torch_dataset_filename_column_and_relative_path`, which failed on Windows only (it compared a `/` path with a `\` one; fixed on 2026-10-29). Earlier (schema version 3, preprocessing `v0.2.0`): 717 passing on Python 3.11 with `torch`. Earlier (2026-10-26): 685 passing, 4 skipped, on Python 3.11 and 3.13.
 
@@ -359,8 +359,8 @@ Two ways to point CellPatcher at input data:
 **Status: implemented** (Milestones 1–5 and the normalization brick's
 CellPatcher follow-ups C1–C5, all merged by 2026-10-29; user guide
 `docs/normalization.md`). The rules are in `docs/normalization_contract.md`,
-the decisions in `docs/plan.md`. With the optional `preprocessing` extra
-(pinned tag in `setup.py`), CellPatcher:
+the decisions in `docs/plan.md`. With the preprocessing and normalization
+bricks (core dependencies, pinned tags in `setup.py`), CellPatcher:
 
 - fills the `source_relative_path` `PatchRegion` field/`patches.csv` column
   in folder and tree runs from each image's path under the root (a linked
@@ -384,7 +384,7 @@ the decisions in `docs/plan.md`. With the optional `preprocessing` extra
 The notebook offers all of these, with the image type taken from the
 manifest by `statistics.recorded_image_type` (follow-up C4). In summary:
 
-- **Inputs:** with the optional `preprocessing` extra, CellPatcher reads
+- **Inputs:** CellPatcher reads
   `plane_histograms.csv` from
   [morphobricks-preprocessing](https://github.com/CellMigrationLab/morphobricks-preprocessing)
 (needed for the biological-repeat and image scopes) and, optionally, its `run_manifest.json` for extra checks. It still

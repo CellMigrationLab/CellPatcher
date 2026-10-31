@@ -59,7 +59,7 @@ def patch_array(patch, image, config, *, mask=None) -> np.ndarray:
         ``label_id`` and ``normalization_*`` fields are used).
     image
         Its source image, in ``config.common.image_axes``: an array, or a
-        file path (with the ``preprocessing`` extra, only the patch's plane is
+        file path (for a TIFF or OME-Zarr image, only the patch's plane is
         read).
     config
         The run's ``CellPatcherConfig``.

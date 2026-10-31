@@ -11,9 +11,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Without and with the optional preprocessing extra, whose tests
+        # Without and with the optional zarr extra (OME-Zarr images), whose tests
         # skip when it is not installed.
-        extras: ['test', 'test,preprocessing']
+        extras: ['test', 'test,zarr']
     steps:
       - name: Checkout
         uses: actions/checkout@v4

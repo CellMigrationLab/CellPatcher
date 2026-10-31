@@ -11,13 +11,19 @@ setup(
         "scipy",
         "tifffile",
         "imageio",
-        # The image name every MorphoBricks brick uses as position_id
-        # (discovery.position_id, MorphoBricks decision D85): one function, no
-        # copy here. The same pin as the ``preprocessing`` extra below, without
-        # its zarr reader: v0.3.2 (D85's naming suffixes; its discovery refuses a
-        # folder of images and subfolders; find_masks' mask header checks).
+        # The MorphoBricks preprocessing brick: image discovery and names
+        # (position_id, D85), mask pairing and header checks, plane statistics,
+        # manifests and the shared D86 rules (labels, identity text, source
+        # checks). Pinned to its tag and raised deliberately; the ``zarr`` extra
+        # below adds its OME-Zarr reader at the same tag.
         "morphobricks-preprocessing @ git+https://github.com/CellMigrationLab/"
-        "morphobricks-preprocessing@v0.3.2",
+        "morphobricks-preprocessing@v0.3.3",
+        # CellPatcher imports the normalization brick directly (plane histograms,
+        # the plane table, pooling, normalization parameters, SINGLE), so it
+        # declares it, at the tag the preprocessing tag above pins (owner
+        # decision D-h; tests/test_dependency_pins.py checks that they agree).
+        "morphobricks-normalization @ git+https://github.com/CellMigrationLab/"
+        "morphobricks-normalization.git@v0.3.2",
     ],
     extras_require={
         "test": [
@@ -34,17 +40,13 @@ setup(
         "torch": [
             "torch",
         ],
-        # Plane statistics of the MorphoBricks preprocessing brick, used for
-        # normalization (docs/normalization_contract.md §1). Pinned to its tag
-        # and raised deliberately. Histograms, the plane table, pooling and
-        # normalization parameters moved to the normalization brick, which
-        # CellPatcher imports directly; the preprocessing tag brings it (v0.3.2
-        # for v0.3.2: plane_histograms.csv schema version 4), with no separate
-        # pin, so every MorphoBricks brick installs one version (MorphoFeature
-        # decision D79).
-        "preprocessing": [
+        # OME-Zarr images and OME-NGFF label masks: the preprocessing brick's
+        # zarr reader, at the same tag as the core dependency above. The former
+        # name of this extra, ``preprocessing``, is gone: the preprocessing brick
+        # is a core dependency.
+        "zarr": [
             "morphobricks-preprocessing[zarr] @ git+https://github.com/CellMigrationLab/"
-            "morphobricks-preprocessing@v0.3.2",
+            "morphobricks-preprocessing@v0.3.3",
         ],
     },
 )

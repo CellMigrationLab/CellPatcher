@@ -193,8 +193,8 @@ def patch_plane_choice(patch, image_axes, common) -> PlaneChoice:
 def read_file_plane(path, image_axes, choice: PlaneChoice, common):
     """Read the plane *choice* of an image file: ``(pixels, axes)``.
 
-    With the ``preprocessing`` extra, a TIFF or OME-Zarr plane is read on its
-    own (as :func:`iter_file_planes` does); otherwise the image is read whole
+    A TIFF or OME-Zarr plane is read on its
+    own (as :func:`iter_file_planes` does); any other image is read whole
     and the plane taken from it.
     """
     from cellpatcher.io import read_image
@@ -227,7 +227,7 @@ def select_mask_plane(mask, mask_axes, choice: PlaneChoice):
 def iter_file_planes(path, image_axes, mask, mask_axes, common, *, single_planes=False) -> Iterator[ImagePlane]:
     """Yield the planes of an image file chosen by the policies, reading only those planes when possible.
 
-    With the ``preprocessing`` extra, a TIFF or OME-Zarr image whose planes
+    A TIFF or OME-Zarr image whose planes
     are split or selected (``"all"``, ``"first"``, ``"select"``) is read one
     2D plane at a time with the preprocessing brick's ``read_plane``
     (``docs/normalization_contract.md`` §3): only the chosen planes are
@@ -285,17 +285,14 @@ def _read_choice(mbp, path: Path, mapping, shape, dtype, target: str, choice: Pl
 def _plane_reader(path, common):
     """The preprocessing package when *path* can be read plane by plane under *common*, else None."""
     from cellpatcher.io import is_ome_zarr
-    from cellpatcher.statistics import PreprocessingUnavailableError, require_preprocessing
+    from cellpatcher.statistics import _preprocessing
 
     policies = (common.z_policy, common.t_policy)
     if not splits_planes(common) or any(policy in _PROJECTIONS for policy in policies):
         return None
     if not (is_ome_zarr(path) or Path(path).suffix.lower() in (".tif", ".tiff")):
         return None
-    try:
-        return require_preprocessing()
-    except PreprocessingUnavailableError:
-        return None
+    return _preprocessing()
 
 
 def _file_layout(mbp, path: Path, target: str):

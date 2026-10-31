@@ -10,7 +10,6 @@ import importlib.util
 import json
 import os
 import shutil
-import sys
 
 import numpy as np
 import pytest
@@ -30,7 +29,7 @@ from cellpatcher.statistics import (
 
 needs_preprocessing = pytest.mark.skipif(
     importlib.util.find_spec("morphobricks_preprocessing") is None,
-    reason="needs the 'preprocessing' extra",
+    reason="needs morphobricks-preprocessing (a core dependency)",
 )
 
 # Image paths of the simulated experiment: a condition without repeat folders,
@@ -94,19 +93,27 @@ def _codes(error_info):
 # ---------------------------------------------------------------------------
 
 
-def test_missing_extra_names_the_install_command(monkeypatch):
-    monkeypatch.setitem(sys.modules, "morphobricks_preprocessing", None)
+def test_require_preprocessing_is_deprecated():
+    # CP-6 (D86): the preprocessing brick is a core dependency, so there is nothing to require.
+    import morphobricks_preprocessing
 
-    with pytest.raises(PreprocessingUnavailableError, match="not installed") as error_info:
-        require_preprocessing()
-    assert INSTALL_COMMAND in str(error_info.value)
-    with pytest.raises(PreprocessingUnavailableError):
+    with pytest.warns(DeprecationWarning, match="removed in CellPatcher v0.2.0"):
+        assert require_preprocessing() is morphobricks_preprocessing
+
+
+def test_the_zarr_extra_is_the_install_command():
+    assert INSTALL_COMMAND == 'pip install "cellpatcher[zarr]"'
+
+
+def test_other_file_versions_are_refused(monkeypatch):
+    import morphobricks_normalization.csv_io
+
+    monkeypatch.setattr(morphobricks_normalization.csv_io, "SCHEMA_VERSION", "3")
+    with pytest.raises(PreprocessingUnavailableError, match="Reinstall CellPatcher"):
         load_plane_statistics("plane_histograms.csv")
 
 
-def test_module_imports_without_the_extra():
-    # cellpatcher.statistics is imported at the top of this file, which also
-    # runs when the extra is missing; importing cellpatcher must never need it.
+def test_the_package_exports_the_statistics_functions():
     import cellpatcher
 
     assert cellpatcher.load_plane_statistics is load_plane_statistics
@@ -457,8 +464,9 @@ def test_cellpatcher_patches_link_to_the_preprocessing_rows(tmp_path):
 
     root = tmp_path / "experiment"
     rng = np.random.default_rng(1)
-    # Labels such as NA and 001 must survive both CSVs as text.
-    for relative_path in ("NA/img.tif", "treated/001/wellA/field.tif", "treated/001/wellB/field.tif"):
+    # Labels such as 001 must survive both CSVs as text ("NA" is refused as a
+    # label since preprocessing v0.3.3, owner decision D-e).
+    for relative_path in ("0012/img.tif", "treated/001/wellA/field.tif", "treated/001/wellB/field.tif"):
         _write_tiff(root / relative_path, rng.integers(0, 255, (16, 16), dtype=np.uint8), "YX")
     output = _preprocess(root, tmp_path / "preprocessing", "YX")
     statistics = load_plane_statistics(output / mbn.OUTPUT_FILENAME)
@@ -466,7 +474,7 @@ def test_cellpatcher_patches_link_to_the_preprocessing_rows(tmp_path):
     config = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=8))
     patches = [patch for leaf in run_patching_condition_repeat_tree(root, config=config) for patch in leaf.result.patches]
     paths = {patch.source_relative_path for patch in patches}
-    assert paths == {"NA/img.tif", "treated/001/wellA/field.tif", "treated/001/wellB/field.tif"}
+    assert paths == {"0012/img.tif", "treated/001/wellA/field.tif", "treated/001/wellB/field.tif"}
 
     check_images(statistics, {path: "YX" for path in paths}, experiment_root=root)
     planes = []

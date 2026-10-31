@@ -14,8 +14,9 @@ before.
 
 ## The workflow
 
-1. **Install** the optional extra: `pip install "cellpatcher[preprocessing]"` (the notebook's
-   first cell does this on Google Colab). It also enables OME-Zarr images.
+1. **Install** CellPatcher: the preprocessing and normalization bricks are core dependencies.
+   OME-Zarr images need the optional extra `pip install "cellpatcher[zarr]"` (the notebook's
+   first cell installs it on Google Colab).
 2. **Run the preprocessing notebook** (or `morphobricks-preprocessing run`) on your experiment
    folder. It writes `plane_histograms.csv` and `run_manifest.json` to an output folder next to
    the experiment.
@@ -176,7 +177,7 @@ planes and what to do:
 | *Normalization needs one plane per patch* | Set `z_policy`/`t_policy` to `"all"`, `"first"` or `"select"`. |
 | *... cannot be computed for N group(s)* | A group has no finite pixels or no intensity spread: choose a larger scope or another method. |
 | *Keeping the normalized patches in memory needs about ...* | Use `iter_patch_arrays`, export to files, or raise `normalization.memory_limit`. |
-| *... needs the optional 'preprocessing' extra* | `pip install "cellpatcher[preprocessing]"`. |
+| *Reading the OME-Zarr image ... needs the zarr package* | `pip install "cellpatcher[zarr]"`. |
 
 Warnings (the run continues): parameters that are approximations, background in group
 statistics, the `biological_repeat` scope (what it keeps and removes), repeat groups without

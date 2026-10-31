@@ -609,7 +609,7 @@ def _run_folder_patching(
 
     if splits_planes(common):
         # One image at a time: its mask, then only its chosen planes
-        # (read plane by plane with the preprocessing extra).
+        # (TIFF and OME-Zarr images read plane by plane with the preprocessing brick).
         def sources():
             for index, image_path in enumerate(image_files):
                 mask, mask_file = loaders[index]() if loaders is not None else (None, None)

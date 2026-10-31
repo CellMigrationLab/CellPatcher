@@ -19,11 +19,11 @@ from cellpatcher.pipeline import RUN_CONFIG_FILENAME, run_patching
 from tests.helpers import write_ngff, write_ngff_labels
 
 needs_preprocessing = pytest.mark.skipif(
-    importlib.util.find_spec("morphobricks_preprocessing") is None, reason="needs the 'preprocessing' extra"
+    importlib.util.find_spec("morphobricks_preprocessing") is None, reason="needs morphobricks-preprocessing (a core dependency)"
 )
 needs_zarr = pytest.mark.skipif(
     importlib.util.find_spec("morphobricks_preprocessing") is None or importlib.util.find_spec("zarr") is None,
-    reason="needs the 'preprocessing' extra with zarr",
+    reason="needs the 'zarr' extra",
 )
 
 
@@ -353,24 +353,6 @@ def test_a_multi_series_tiff_read_whole_is_refused(tmp_path, z_policy):
     config.common.image_axes, config.common.z_policy = "ZYX", z_policy
     with pytest.raises(ValueError, match="plate.tif holds 2 image series"):
         run_patching_pipeline(path.parent, config=config)
-
-
-def test_a_multi_series_tiff_is_refused_without_the_preprocessing_extra(tmp_path, monkeypatch):
-    import tifffile
-
-    import cellpatcher.statistics as statistics
-
-    def unavailable():
-        raise statistics.PreprocessingUnavailableError("not installed")
-
-    monkeypatch.setattr(statistics, "require_preprocessing", unavailable)
-    path = tmp_path / "plate.tif"
-    tifffile.imwrite(path, np.zeros((2, 16, 16), dtype=np.uint16))
-    tifffile.imwrite(path, np.ones((2, 16, 16), dtype=np.uint16), append=True)
-    config = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=8))
-    config.common.image_axes, config.common.z_policy = "ZYX", "all"
-    with pytest.raises(ValueError, match="plate.tif holds 2 image series"):
-        run_patching_pipeline(tmp_path, config=config)
 
 
 @needs_preprocessing

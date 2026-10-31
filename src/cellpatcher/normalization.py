@@ -23,7 +23,7 @@ Implements ``docs/normalization_contract.md`` §6–§9 for ``config.normalizati
   :func:`cellpatcher.statistics.check_planes` before anything is normalized.
 
 Histograms, pooling, fitting and the parameter columns all come from
-``morphobricks_normalization`` (installed by the ``preprocessing`` extra); this
+``morphobricks_normalization`` (a core dependency); this
 module chooses the groups and pixels and records the result. A group with no
 finite pixels or zero spread stops the run (contract §7), and a patch whose own
 pixels have no finite values or zero spread is discarded and reported
@@ -46,11 +46,11 @@ from cellpatcher.statistics import (
     PlaneStatistics,
     PreprocessingCheckError,
     SourcePlane,
+    _preprocessing,
     check_images,
     check_planes,
     load_plane_statistics,
     require_normalization,
-    require_preprocessing,
 )
 
 CSV_SCOPES = ("biological_repeat", "image")
@@ -75,7 +75,8 @@ def validate_normalization(config) -> None:
     Raises
     ------
     cellpatcher.statistics.PreprocessingUnavailableError
-        If normalization is enabled without the ``preprocessing`` extra.
+        If normalization is enabled and the installed bricks read other
+        file versions than this CellPatcher.
     ValueError
         If a CSV scope has no ``plane_histograms``, a ``"mask"``/``"bbox"``
         patch region is used outside ``cell`` mode, or ``"rgb"`` images are
@@ -84,7 +85,7 @@ def validate_normalization(config) -> None:
     settings = config.normalization
     if not settings.enabled:
         return
-    require_preprocessing()
+    _preprocessing()
     if settings.image_type == "rgb" and config.extraction.split_channels is not False:
         raise ValueError(
             "normalization.image_type='rgb' normalizes the R, G and B channels together and keeps them in one "
@@ -145,7 +146,7 @@ class ExperimentDesignInput:
 
 def experiment_design_path(settings) -> Path:
     """``normalization.experiment_design``, or the ``experiment_design.csv`` next to ``plane_histograms``."""
-    require_preprocessing()
+    _preprocessing()
     from morphobricks_preprocessing.design import DESIGN_FILENAME
 
     if settings.experiment_design is not None:
@@ -164,7 +165,7 @@ def load_experiment_design(settings, statistics: PlaneStatistics) -> ExperimentD
         brick's ``design_issues``), or the file is not the one the
         preprocessing manifest was written with.
     """
-    require_preprocessing()
+    _preprocessing()
     from morphobricks_preprocessing.design import (
         DESIGN_FILENAME,
         DesignFormatError,
@@ -285,7 +286,7 @@ def run_inputs(config) -> dict | None:
     settings = config.normalization
     if not settings.enabled or settings.scope not in CSV_SCOPES or settings.plane_histograms is None:
         return None
-    mbp = require_preprocessing()
+    mbp = _preprocessing()
     mbn = require_normalization()
     statistics = cached_statistics(settings.plane_histograms, settings.manifest)
     manifest = statistics.manifest

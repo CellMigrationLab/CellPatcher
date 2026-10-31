@@ -349,7 +349,7 @@ def test_combined_tree_run_writes_one_table_for_every_image(tmp_path):
 
 
 @pytest.mark.skipif(
-    importlib.util.find_spec("morphobricks_preprocessing") is None, reason="needs the 'preprocessing' extra"
+    importlib.util.find_spec("morphobricks_preprocessing") is None, reason="needs morphobricks-preprocessing (a core dependency)"
 )
 def test_an_image_whose_patches_are_all_discarded_by_normalization(tmp_path):
     varied = np.arange(256, dtype=np.uint8).reshape(16, 16)
