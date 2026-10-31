@@ -16,7 +16,7 @@ from tests.helpers import write_ngff, write_ngff_labels
 
 pytestmark = pytest.mark.skipif(
     importlib.util.find_spec("morphobricks_preprocessing") is None or importlib.util.find_spec("zarr") is None,
-    reason="needs the 'preprocessing' extra with zarr",
+    reason="needs the 'zarr' extra",
 )
 
 
