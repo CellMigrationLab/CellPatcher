@@ -135,3 +135,76 @@ def test_masks_that_are_not_instance_labels_are_refused(mask, match):
     for function in (object_sides, border_labels, object_boxes):
         with pytest.raises(ValueError, match=match):
             function(mask)
+
+
+def _edge_masks():
+    """Hand-made masks the random ones may miss (reviewer's edge cases)."""
+    single = np.zeros((9, 7), dtype=np.uint16)
+    single[3:6, 2:4] = 1
+    yield "single object", single
+    whole = np.full((5, 6), 4, dtype=np.int32)
+    yield "object filling the image (touches every border)", whole
+    frame = np.zeros((7, 8), dtype=np.int32)
+    frame[0, :] = frame[-1, :] = frame[:, 0] = frame[:, -1] = 9
+    frame[3, 3:5] = 2
+    yield "ring touching every border around an interior object", frame
+    gaps = np.zeros((10, 10), dtype=np.uint16)
+    gaps[1:3, 1:4], gaps[5:9, 2:3], gaps[4, 6:9] = 2, 40, 65_535
+    yield "label gaps up to the uint16 maximum", gaps
+    huge = np.zeros((6, 6), dtype=np.int64)
+    huge[1:4, 2:4] = 2_147_483_647
+    huge[0, 5] = 2_147_483_646
+    huge[4, 1] = 1
+    yield "labels at the int32 maximum", huge
+    one_pixel = np.zeros((1, 1), dtype=np.uint8)
+    one_pixel[0, 0] = 3
+    yield "a one-pixel image", one_pixel
+
+
+@pytest.mark.parametrize("config", [CellConfig(), CellConfig(exclude_border=False, min_area=1)])
+def test_edge_cases_match_the_old_scan_and_the_copies(config):
+    for description, mask in _edge_masks():
+        new = [
+            (r.label_id, r.area_px, r.bbox_height, r.bbox_width, r.square_size, r.touches_border, r.included, r.reason)
+            for r in scan_cell_objects(image_shape=mask.shape, labels=mask, config=config)
+        ]
+        assert new == _old_scan(mask.astype(np.int32), config), description
+        assert border_labels(mask) == _reference_border_labels(mask), description
+        assert object_sides(mask) == _reference_object_sides(mask), description
+
+
+def test_edge_case_values():
+    masks = dict(_edge_masks())
+    assert object_sides(masks["single object"]) == {1: 3}
+    assert border_labels(masks["object filling the image (touches every border)"]) == frozenset({4})
+    assert object_sides(masks["object filling the image (touches every border)"]) == {}
+    assert object_sides(masks["ring touching every border around an interior object"]) == {2: 2}
+    assert object_sides(masks["label gaps up to the uint16 maximum"]) == {2: 3, 40: 4, 65_535: 3}
+    boxes = object_boxes(masks["labels at the int32 maximum"])
+    assert boxes.labels.tolist() == [1, 2_147_483_646, 2_147_483_647]
+    assert boxes.area.tolist() == [1, 1, 6]
+    assert object_sides(masks["labels at the int32 maximum"]) == {1: 1, 2_147_483_647: 3}
+    assert border_labels(masks["a one-pixel image"]) == frozenset({3})
+    assert object_sides(masks["a one-pixel image"]) == {}
+
+
+@pytest.mark.parametrize("dtype", [np.uint8, np.uint16, np.int16, np.int32, np.uint32, np.int64, np.uint64])
+def test_the_label_dtype_does_not_change_the_result(dtype):
+    for mask in _random_masks():
+        # Labels from 1 to 100, which every dtype holds.
+        reference = np.where(mask > 0, mask.astype(np.int64) % 100 + 1, 0).astype(np.int32)
+        cast = reference.astype(dtype)
+        assert object_sides(cast) == object_sides(reference)
+        assert border_labels(cast) == border_labels(reference)
+        boxes, expected = object_boxes(cast), object_boxes(reference)
+        for field in ("labels", "area", "y_min", "y_max", "x_min", "x_max"):
+            assert getattr(boxes, field).tolist() == getattr(expected, field).tolist()
+        assert all(type(key) is int and type(value) is int for key, value in object_sides(cast).items())
+
+
+def test_a_label_one_above_the_int32_maximum_is_refused():
+    mask = np.zeros((4, 4), dtype=np.int64)
+    mask[1, 1] = 2_147_483_648
+    for function in (object_sides, border_labels, object_boxes):
+        with pytest.raises(ValueError, match="2147483647"):
+            function(mask)
