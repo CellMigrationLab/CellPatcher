@@ -154,3 +154,12 @@ def test_written_patches_round_trip_without_a_run(tmp_path):
     save_metadata_csv(patches, tmp_path / "patches.csv")
     read, _ = read_patch_table(tmp_path / "patches.csv")
     assert [patch.to_dict() for patch in read] == [patch.to_dict() for patch in patches]
+
+
+def test_every_unknown_column_is_named(tmp_path):
+    # Owner decision: unknown columns are refused, and the message names each of them.
+    header = ["patch_id", "colour", "y0", "y1", "x0", "x1", "notes", "mask_fraction_cells", "Normalization_Offset_C0x"]
+    path = _write(tmp_path / "patches.csv", header, [["p", "red", "0", "4", "0", "4", "n", "0.5", "1"]])
+    with pytest.raises(PatchTableError) as error:
+        read_patch_table(path)
+    assert "columns CellPatcher does not write: ['colour', 'notes', 'Normalization_Offset_C0x']" in str(error.value)
