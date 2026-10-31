@@ -54,13 +54,10 @@ from morphobricks_preprocessing.discovery import (
     check_plane_index,
 )
 
-from cellpatcher.io import image_stem
-
 # The object set of a cell-mode patch whose mask has no name of its own: the
 # mask role, not a guessed object name.
 DEFAULT_OBJECT_SET = "mask"
 _OBJECT_SET_PATTERN = re.compile(r"[A-Za-z0-9._-]+")
-_SEPARATORS = "_-. "
 
 
 def identity_text(value, name: str) -> str:
@@ -93,30 +90,12 @@ def validate_object_set(value, *, name: str = "common.object_set") -> None:
         )
 
 
-def object_set_from_mask_file(image_file, mask_file) -> str | None:
-    """The object-set name a mask file's name gives, or None when it gives none.
-
-    The part of the mask's stem after the image's stem, without leading
-    separators (``img_cells.tif`` for ``img.tif`` -> ``"cells"``), with any
-    other character than letters, digits, ``.``, ``_`` and ``-`` replaced by
-    ``_``. None when the mask is named like its image or does not start with
-    the image's stem (case-insensitively), so no name is guessed.
-    """
-    image, mask = image_stem(image_file), image_stem(mask_file)
-    if not mask.lower().startswith(image.lower()):
-        return None
-    rest = re.sub(r"[^A-Za-z0-9._-]", "_", mask[len(image):].lstrip(_SEPARATORS))
-    rest = rest.strip("_")
-    return rest or None
-
-
 def object_set_from_mask_type(mask_type) -> str | None:
     """The object-set name of a mask type from the preprocessing pairing, or None for an empty one.
 
     The type is the mask's folder or the part of its name after
     ``<image name>_`` (``img_cells.tif`` -> ``"cells"``), with any other
-    character than letters, digits, ``.``, ``_`` and ``-`` replaced by ``_``,
-    exactly as :func:`object_set_from_mask_file` treats the end of a name.
+    character than letters, digits, ``.``, ``_`` and ``-`` replaced by ``_``.
     """
     return re.sub(r"[^A-Za-z0-9._-]", "_", str(mask_type)).strip("_") or None
 

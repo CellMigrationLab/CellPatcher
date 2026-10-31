@@ -134,20 +134,6 @@ def is_ome_zarr(path) -> bool:
     return Path(path).suffix.lower() == ZARR_SUFFIX
 
 
-def image_stem(path) -> str:
-    """File name without its extension, used to match images and masks.
-
-    For an OME-Zarr image the whole ``.ome.zarr``/``.zarr`` ending is
-    removed (``img.ome.zarr`` -> ``img``), so it matches ``img.tif`` or
-    ``img_mask.tif``; for every other file it is ``Path.stem``.
-    """
-    path = Path(path)
-    if not is_ome_zarr(path):
-        return path.stem
-    stem = path.stem
-    return stem[: -len(".ome")] if stem.lower().endswith(".ome") else stem
-
-
 def _is_image(path: Path, exts: set[str]) -> bool:
     # An OME-Zarr image is a folder; discovery lists it and never enters it.
     suffix = path.suffix.lower()
@@ -626,165 +612,11 @@ def read_array_shape(file_path) -> tuple[int, ...]:
     return tuple(read_array(file_path).shape)
 
 
-def _warn_old_matcher(name: str) -> None:
-    warnings.warn(
-        f"{name} is CellPatcher's former image/mask matching, no longer used by CellPatcher and to be "
-        "removed: images and masks are paired with the preprocessing brick's rule (cellpatcher.io.pair_masks, "
-        "issue #45).",
-        DeprecationWarning,
-        stacklevel=3,
-    )
-
-
-def find_candidate_matches(
-    image_files,
-    mask_files,
-    *,
-    strategy="exact_or_suffix",
-    mask_suffixes=("_mask", "_labels", "_label", "_seg", "_segmentation"),
-    case_sensitive=False,
-) -> dict[Path, list[Path]]:
-    """Find candidate mask matches for each image path.
-
-    Matching strategies:
-    - ``exact``: image stem == mask stem
-    - ``exact_or_suffix`` (default): exact stem or exact stem + allowed suffix
-    - ``substring``: legacy permissive behavior (``image_stem in mask_stem``)
-
-    Note:
-        ``substring`` can false-match names such as ``img1`` and ``img10_mask``.
-        Prefer ``exact_or_suffix`` for most datasets.
-
-    Deprecated: CellPatcher no longer pairs with this function; it uses the
-    preprocessing brick's pairing (:func:`pair_masks`, issue #45).
-    """
-    _warn_old_matcher("find_candidate_matches")
-    if strategy not in {"exact", "exact_or_suffix", "substring"}:
-        raise ValueError("strategy must be one of: 'exact', 'exact_or_suffix', 'substring'.")
-    if not isinstance(mask_suffixes, (tuple, list)) or not all(isinstance(value, str) for value in mask_suffixes):
-        raise ValueError("mask_suffixes must be a tuple/list of strings.")
-    if not isinstance(case_sensitive, bool):
-        raise ValueError("case_sensitive must be a bool.")
-
-    # case_sensitive=False compares lower-cased stems; True compares as-is.
-    normalize = (lambda value: value) if case_sensitive else (lambda value: value.lower())
-    suffixes = tuple(normalize(value) for value in mask_suffixes)
-    mask_names = {Path(m): normalize(image_stem(m)) for m in mask_files}
-    out = {}
-    # For each image, collect every mask whose stem matches under the
-    # chosen strategy -- possibly more than one, which
-    # validate_image_and_mask_folders then refuses.
-    for image in image_files:
-        image = Path(image)
-        key = normalize(image_stem(image))
-        matches: list[Path] = []
-        for mask_path, mask_name in mask_names.items():
-            if strategy == "exact":
-                if mask_name == key:
-                    matches.append(mask_path)
-            elif strategy == "exact_or_suffix":
-                if mask_name == key or any(mask_name == f"{key}{suffix}" for suffix in suffixes):
-                    matches.append(mask_path)
-            else:  # substring compatibility
-                if key in mask_name:
-                    matches.append(mask_path)
-        out[image] = matches
-    return out
-
-
-def filter_shared_matches(candidate_matches) -> dict[Path, list[Path]]:
-    """Prune shared candidates when an image has exclusive alternatives.
-
-    Candidate generation can produce masks shared across multiple images.
-    For images with multiple candidates, shared masks are removed if that image
-    also has at least one exclusive (image-unique) candidate. This pruning is
-    repeated until stable.
-
-    Deprecated, kept for callers that use it directly. CellPatcher no longer
-    applies it: it pairs with the preprocessing brick's rule
-    (:func:`pair_masks`), which refuses every ambiguous pairing (issue #45).
-    """
-    _warn_old_matcher("filter_shared_matches")
-    filtered = {img: list(matches) for img, matches in candidate_matches.items()}
-
-    # Iterate to a fixed point: dropping a shared mask from one image can
-    # make another mask newly exclusive for a different image, which in
-    # turn may let a further shared mask be dropped, and so on.
-    changed = True
-    while changed:
-        changed = False
-        # Build the reverse mapping (mask -> images currently pointing to
-        # it) fresh each pass, since the previous pass may have changed it.
-        mask_to_images = {}
-        for img, matches in filtered.items():
-            for mask in matches:
-                mask_to_images.setdefault(mask, []).append(img)
-
-        for img, matches in filtered.items():
-            if len(matches) <= 1:
-                continue
-            # Keep only this image's exclusive candidates, but only if that
-            # doesn't throw away every candidate it has.
-            exclusive = [m for m in matches if len(mask_to_images.get(m, [])) == 1]
-            if exclusive and len(exclusive) != len(matches):
-                filtered[img] = exclusive
-                changed = True
-
-    return filtered
-
-
-def _ends_with_suffix(path, suffixes, case_sensitive: bool) -> bool:
-    stem = image_stem(path) if case_sensitive else image_stem(path).lower()
-    return any(stem.endswith(suffix if case_sensitive else suffix.lower()) for suffix in suffixes)
-
-
-def select_requested_masks(mask_files, *, strategy, mask_suffixes, case_sensitive) -> list[Path]:
-    """Keep the masks whose stem ends with one of *mask_suffixes*, before any matching.
-
-    Used by ``ignore_unrequested_masks=True``: a mask folder may hold several
-    masks of each image (``img_cells.tif``, ``img_nuclei.tif``, ...), and only
-    the requested ones take part in matching, so the others are neither
-    candidates nor reported as masks without an image. A mask named exactly
-    like its image (no suffix) ends with no suffix and is skipped too.
-
-    Raises
-    ------
-    ValueError
-        If *strategy* is ``"exact"`` (it uses no suffix), *mask_suffixes* is
-        empty, or no mask ends with a requested suffix.
-
-    Deprecated: replaced by ``matching.mask_type`` with the preprocessing
-    brick's pairing (:func:`pair_masks`, issue #45).
-    """
-    _warn_old_matcher("select_requested_masks")
-    if strategy == "exact":
-        raise ValueError(
-            "ignore_unrequested_masks=True keeps the masks ending with one of mask_suffixes, which "
-            "strategy='exact' does not use; use strategy='exact_or_suffix' (or 'substring')."
-        )
-    if len(mask_suffixes) == 0:
-        raise ValueError("ignore_unrequested_masks=True needs the suffixes to keep, but mask_suffixes is empty.")
-    kept = [Path(mask) for mask in mask_files if _ends_with_suffix(mask, mask_suffixes, case_sensitive)]
-    if not kept:
-        raise ValueError(
-            f"No mask file ends with a requested suffix {tuple(mask_suffixes)} "
-            f"({'case-sensitive' if case_sensitive else 'any case'}); all {len(mask_files)} masks end in none of "
-            "them. Set mask_suffixes to the suffix of the masks to use."
-        )
-    return kept
-
-
 # The matching options CellPatcher had before it adopted the preprocessing
-# brick's pairing (issue #45), with their old defaults. They are still
-# accepted at these values (an old run_config.json holds them) but have no
-# effect; any other value is refused, because it asked for a pairing that no
-# longer exists.
-LEGACY_MATCHING_DEFAULTS = {
-    "strategy": "exact_or_suffix",
-    "mask_suffixes": ("_mask", "_labels", "_label", "_seg", "_segmentation"),
-    "case_sensitive": False,
-    "ignore_unrequested_masks": False,
-}
+# brick's pairing (issue #45). They were accepted at their old defaults with a
+# DeprecationWarning until v0.1.1, which removed them (D86, owner decision of
+# 2026-10-31): any use, an old run_config.json included, is refused by name.
+REMOVED_MATCHING_OPTIONS = ("strategy", "mask_suffixes", "case_sensitive", "ignore_unrequested_masks")
 
 MASK_LAYOUT_HELP = (
     "Masks are paired with the MorphoBricks preprocessing brick's rule (its find_masks): a mask is a "
@@ -794,50 +626,37 @@ MASK_LAYOUT_HELP = (
 )
 
 
-def warn_legacy_matching_removed(where: str, stacklevel: int = 2) -> None:
-    """Emit the ``DeprecationWarning`` for a legacy matching option given at its old default."""
-    warnings.warn(
-        f"{where}: the matching options strategy, mask_suffixes, case_sensitive and "
-        "ignore_unrequested_masks no longer have any effect and will be removed; images and masks "
-        "are paired with the preprocessing brick's rule (issue #45). Use matching.mask_type to choose "
-        "the mask type.",
-        DeprecationWarning,
-        stacklevel=stacklevel + 1,
-    )
+def refuse_removed_matching(where: str, options) -> None:
+    """Refuse the removed matching options among *options* by name, and any other unknown option.
 
+    *options* maps the names given to their values (a function's ``**kwargs``,
+    a ``matching`` section of a config file). The former options
+    (:data:`REMOVED_MATCHING_OPTIONS`) raise ``ValueError`` saying to use
+    ``matching.mask_type``, whatever their value; any other name raises
+    ``TypeError``.
 
-def check_legacy_matching(where: str, **options) -> None:
-    """Refuse a legacy matching option set to anything but its old default (issue #45).
-
-    *options* maps legacy option names to the values given; None means not
-    given. The old default is accepted with a ``DeprecationWarning`` (it
-    selects nothing the new pairing does not do, and old ``run_config.json``
-    files hold it); any other value is refused with ``ValueError``, since
-    ignoring it would pair differently from what was asked.
+    Raises
+    ------
+    ValueError
+        If a removed matching option is given.
+    TypeError
+        If another unknown option is given.
     """
-    given = {name: value for name, value in options.items() if value is not None}
-    if not given:
+    names = list(options)
+    if not names:
         return
-    unknown = sorted(set(given) - set(LEGACY_MATCHING_DEFAULTS))
+    unknown = sorted(name for name in names if name not in REMOVED_MATCHING_OPTIONS)
     if unknown:
-        raise TypeError(f"{where}: unknown matching option(s) {unknown}.")
-    changed = {
-        name: value
-        for name, value in given.items()
-        if (tuple(value) if isinstance(value, list) else value) != LEGACY_MATCHING_DEFAULTS[name]
-    }
-    if not changed:
-        warn_legacy_matching_removed(where, stacklevel=3)
-        return
+        raise TypeError(f"{where}: unknown option(s) {unknown}.")
     hint = ""
-    suffixes = given.get("mask_suffixes")
+    suffixes = options.get("mask_suffixes")
     if isinstance(suffixes, (tuple, list)) and len(suffixes) == 1 and str(suffixes[0]).startswith("_"):
         hint = f" For masks named <image>{suffixes[0]}.tif, set matching.mask_type={suffixes[0][1:]!r}."
     raise ValueError(
-        f"{where}: {', '.join(f'{name}={value!r}' for name, value in sorted(changed.items()))} is no longer "
-        "supported. CellPatcher no longer pairs images and masks by its own rules (exact/suffix/substring "
-        "matching); it uses the preprocessing brick's pairing, so every brick pairs the same files (issue "
-        f"#45). {MASK_LAYOUT_HELP}{hint}"
+        f"{where}: the matching option(s) {', '.join(sorted(names))} were removed in CellPatcher v0.1.1. "
+        "Images and masks are paired with the preprocessing brick's rule (issue #45); choose the mask "
+        f"type with matching.mask_type (mask_type= for the functions). {MASK_LAYOUT_HELP}{hint} Remove "
+        "these options, also from an old run_config.json."
     )
 
 
@@ -1157,10 +976,7 @@ def validate_image_and_mask_folders(
     mask_folder_path,
     *,
     mask_type=None,
-    strategy=None,
-    mask_suffixes=None,
-    case_sensitive=None,
-    ignore_unrequested_masks=None,
+    **removed_options,
 ) -> dict[Path, Path]:
     """Pair every image of a folder with exactly one mask, or raise listing every problem.
 
@@ -1169,23 +985,16 @@ def validate_image_and_mask_folders(
     ``<mask type>/<image name>.tif`` in *mask_folder_path*. With several mask
     types in the folder, *mask_type* says which to use.
 
-    *strategy*, *mask_suffixes*, *case_sensitive* and
-    *ignore_unrequested_masks* are the former matching options: accepted
-    only at their old defaults (with a ``DeprecationWarning``), refused
-    otherwise (:func:`check_legacy_matching`).
+    The former matching options (``strategy``, ``mask_suffixes``,
+    ``case_sensitive``, ``ignore_unrequested_masks``) were removed in
+    v0.1.1 and are refused by name (:func:`refuse_removed_matching`).
 
     Returns
     -------
     dict
         Each image path mapped to its mask path.
     """
-    check_legacy_matching(
-        "validate_image_and_mask_folders",
-        strategy=strategy,
-        mask_suffixes=mask_suffixes,
-        case_sensitive=case_sensitive,
-        ignore_unrequested_masks=ignore_unrequested_masks,
-    )
+    refuse_removed_matching("validate_image_and_mask_folders", removed_options)
     mask_folder = Path(mask_folder_path).expanduser()
     if not mask_folder.is_dir():
         raise ValueError(f"Folder does not exist or is not a directory: {mask_folder}")
@@ -1200,9 +1009,7 @@ def run_patching_from_folders(
     *,
     config=None,
     mask_folder_path=None,
-    strategy=None,
-    mask_suffixes=None,
-    case_sensitive=None,
+    **removed_options,
 ):
     """Convenience alias for :func:`cellpatcher.orchestration.run_patching_pipeline`.
 
@@ -1214,7 +1021,5 @@ def run_patching_from_folders(
         image_folder_path,
         config=config,
         mask_folder_path=mask_folder_path,
-        strategy=strategy,
-        mask_suffixes=mask_suffixes,
-        case_sensitive=case_sensitive,
+        **removed_options,
     )

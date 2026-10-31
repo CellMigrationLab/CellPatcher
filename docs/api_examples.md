@@ -199,7 +199,7 @@ image_rgb, image_axes = prepare_image_for_patching(
 )
 ```
 
-(`normalize="percentile"` used to normalize here too; it is deprecated in favour of `config.normalization`, which normalizes the patches with the preprocessing brick's statistics and records the parameters.)
+(`normalize="percentile"` used to normalize here too; it was removed in v0.1.1: use `config.normalization`, which normalizes the patches with the preprocessing brick's statistics and records the parameters.)
 
 This pattern is handy for DINO-style model inputs, while CellPatcher itself still does not run DINO/Torch inference.
 

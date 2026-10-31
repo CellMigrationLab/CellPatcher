@@ -4,6 +4,28 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased] - Legacy functions and options removed (D86, CP-2/CP-5/CP-6)
+
+### Removed (breaking)
+- The former image/mask matching: `find_candidate_matches`, `filter_shared_matches`,
+  `select_requested_masks`, `LEGACY_MATCHING_DEFAULTS` and `cellpatcher.io.image_stem`. Images
+  and masks are paired by `cellpatcher.io.pair_masks` (the preprocessing brick's `find_masks`);
+  the image name is `morphobricks_preprocessing.discovery.position_id`.
+- The matching options `strategy`, `mask_suffixes`, `case_sensitive` and
+  `ignore_unrequested_masks`, until now accepted at their old defaults with a warning: in
+  `MatchConfig`, a `run_config.json` and as arguments of `validate_image_and_mask_folders`,
+  `run_patching_pipeline`, `run_patching_condition_repeat_tree` and `run_patching_from_folders`
+  they are refused by name, saying to use `matching.mask_type`. An old `run_config.json` holding
+  them fails until they are deleted from its `matching` section.
+- Per-image normalization: `percentile_normalize`, `minmax_normalize` and the
+  `normalize=`/`percentile=` arguments of `prepare_image_for_patching`,
+  `iter_image_planes_for_patching` and `iter_cell_planes_for_patching`. Use
+  `config.normalization`.
+- `cellpatcher.require_preprocessing()`: import `morphobricks_preprocessing` directly (a core
+  dependency).
+- `cellpatcher.ids.object_set_from_mask_file`, which nothing called (the object set of a mask
+  file is its mask type from the preprocessing brick's pairing).
+
 ## [Unreleased] - Shared MorphoBricks rules for labels, identity and sources (D86)
 
 ### Changed
@@ -72,8 +94,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   issue #45, so normalization needs no extra.
 
 ### Deprecated
-- `cellpatcher.require_preprocessing()` warns and will be removed in v0.2.0: import
-  `morphobricks_preprocessing` directly.
+- `cellpatcher.require_preprocessing()` warns: import `morphobricks_preprocessing` directly
+  (removed by the v0.1.1 entry above).
 
 ## [Unreleased] - Image/mask pairing of the preprocessing brick (issue #45)
 

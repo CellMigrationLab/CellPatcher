@@ -1,12 +1,9 @@
 import re
-from pathlib import Path
 
 import numpy as np
 import pytest
 
 from cellpatcher.io import (
-    filter_shared_matches,
-    find_candidate_matches,
     list_supported_files,
     read_array,
     validate_image_and_mask_folders,
@@ -56,97 +53,6 @@ def test_read_array_rejects_unsupported_extension(tmp_path):
 def test_write_array_rejects_unsupported_extension(tmp_path):
     with pytest.raises(ValueError):
         write_array(tmp_path / "arr.xyz", np.zeros((2, 2)))
-
-
-def test_find_candidate_matches_exact_strategy():
-    images = [Path("img1.tif")]
-    masks = [Path("img1.tif"), Path("other.tif")]
-    matches = find_candidate_matches(images, masks, strategy="exact")
-    assert matches[images[0]] == [masks[0]]
-
-
-def test_find_candidate_matches_default_exact_or_suffix():
-    images = [Path("img1.tif")]
-    masks = [Path("img1_mask.tif"), Path("other.tif")]
-    matches = find_candidate_matches(images, masks)
-    assert matches[images[0]] == [masks[0]]
-
-
-def test_find_candidate_matches_default_does_not_match_substring_pitfall():
-    images = [Path("img1.tif")]
-    masks = [Path("img10_mask.tif")]
-    matches = find_candidate_matches(images, masks)
-    assert matches[images[0]] == []
-
-
-def test_find_candidate_matches_substring_compatibility_mode():
-    images = [Path("img1.tif")]
-    masks = [Path("img10_mask.tif")]
-    matches = find_candidate_matches(images, masks, strategy="substring")
-    assert matches[images[0]] == [masks[0]]
-
-
-def test_find_candidate_matches_case_insensitive_by_default():
-    images = [Path("IMG1.TIF")]
-    masks = [Path("img1_mask.TIF")]
-    matches = find_candidate_matches(images, masks)
-    assert matches[images[0]] == [masks[0]]
-
-
-def test_find_candidate_matches_case_sensitive_option():
-    images = [Path("IMG1.TIF")]
-    masks = [Path("img1_mask.TIF")]
-    matches = find_candidate_matches(images, masks, case_sensitive=True)
-    assert matches[images[0]] == []
-
-
-def test_find_candidate_matches_invalid_strategy_raises():
-    images = [Path("img1.tif")]
-    masks = [Path("img1_mask.tif")]
-    with pytest.raises(ValueError):
-        find_candidate_matches(images, masks, strategy="bad")
-
-
-def test_find_candidate_matches_invalid_mask_suffixes_raises():
-    images = [Path("img1.tif")]
-    masks = [Path("img1_mask.tif")]
-    with pytest.raises(ValueError):
-        find_candidate_matches(images, masks, mask_suffixes=[1])
-
-
-def test_find_candidate_matches_invalid_case_sensitive_raises():
-    images = [Path("img1.tif")]
-    masks = [Path("img1_mask.tif")]
-    with pytest.raises(ValueError):
-        find_candidate_matches(images, masks, case_sensitive="yes")
-
-
-def test_filter_shared_matches_prefers_exclusive_candidates():
-    img1 = Path("a.tif")
-    img2 = Path("ab.tif")
-    m1 = Path("a_mask.tif")
-    m2 = Path("ab_mask.tif")
-    candidate = {img1: [m1, m2], img2: [m2]}
-    out = filter_shared_matches(candidate)
-    assert out[img1] == [m1]
-    assert out[img2] == [m2]
-
-
-def test_filter_shared_matches_iterative_pruning_converges():
-    # img1 starts with three candidates; img2 and img3 each hold one exclusively.
-    # First pass prunes img1 to its own exclusive candidate (m1).
-    # Second pass finds the result is already stable.
-    img1 = Path("img1.tif")
-    img2 = Path("img2.tif")
-    img3 = Path("img3.tif")
-    m1 = Path("m1.tif")
-    m2 = Path("m2.tif")
-    m3 = Path("m3.tif")
-    candidate = {img1: [m1, m2, m3], img2: [m2], img3: [m3]}
-    out = filter_shared_matches(candidate)
-    assert out[img1] == [m1]
-    assert out[img2] == [m2]
-    assert out[img3] == [m3]
 
 
 def test_validate_image_and_mask_folders_empty_image_folder_raises(tmp_path):
@@ -253,7 +159,12 @@ def test_run_patching_from_folders_cell_requires_mask_folder(tmp_path):
     with pytest.raises(ValueError, match="mask_folder_path"):
         run_patching_from_folders(img_dir, config=CellPatcherConfig(mode="cell"))
 
-from cellpatcher.orchestration import load_config, run_patching_pipeline, save_default_config
+from cellpatcher.orchestration import (
+    load_config,
+    run_patching_condition_repeat_tree,
+    run_patching_pipeline,
+    save_default_config,
+)
 
 
 def test_run_patching_pipeline_alias_grid_mode(tmp_path):
@@ -545,24 +456,30 @@ def test_a_mask_folder_inside_the_image_folder_is_refused_like_preprocessing(tmp
         validate_image_and_mask_folders(img_dir, img_dir / "masks")
 
 
-def test_the_former_matching_options_are_refused_unless_at_their_old_defaults(tmp_path):
+def test_the_former_matching_options_are_refused_by_name(tmp_path):
+    # Removed in v0.1.1 (D86, owner decision): refused whatever their value, old defaults included.
     img_dir, mask_dir = _folders(tmp_path, ["a.tif"], ["a_mask.tif"])
-    with pytest.raises(ValueError, match="strategy='substring' is no longer supported"):
-        validate_image_and_mask_folders(img_dir, mask_dir, strategy="substring")
+    with pytest.raises(ValueError, match="strategy were removed in CellPatcher v0.1.1.*mask_type"):
+        validate_image_and_mask_folders(img_dir, mask_dir, strategy="exact_or_suffix")
     with pytest.raises(ValueError, match="set matching.mask_type='cells'"):
         validate_image_and_mask_folders(img_dir, mask_dir, mask_suffixes=("_cells",), ignore_unrequested_masks=True)
-    with pytest.warns(DeprecationWarning, match="no longer have any effect"):
-        out = validate_image_and_mask_folders(img_dir, mask_dir, strategy="exact_or_suffix", case_sensitive=False)
-    assert [mask.name for mask in out.values()] == ["a_mask.tif"]
-    with pytest.raises(ValueError, match="case_sensitive=True"):
-        run_patching_pipeline(img_dir, mask_folder_path=mask_dir, case_sensitive=True)
+    with pytest.raises(ValueError, match="case_sensitive were removed"):
+        run_patching_pipeline(img_dir, mask_folder_path=mask_dir, case_sensitive=False)
+    with pytest.raises(ValueError, match="mask_suffixes were removed"):
+        run_patching_condition_repeat_tree(img_dir, mask_root_path=mask_dir, mask_suffixes=("_mask",))
+    with pytest.raises(TypeError, match=r"unknown option\(s\) \['colour'\]"):
+        validate_image_and_mask_folders(img_dir, mask_dir, colour="red")
+    assert [mask.name for mask in validate_image_and_mask_folders(img_dir, mask_dir).values()] == ["a_mask.tif"]
 
 
-def test_the_former_matchers_warn_that_they_are_unused():
-    with pytest.warns(DeprecationWarning, match="no longer used by CellPatcher"):
-        find_candidate_matches(["a.tif"], ["a_mask.tif"])
-    with pytest.warns(DeprecationWarning, match="no longer used by CellPatcher"):
-        filter_shared_matches({})
+def test_the_former_matchers_are_gone():
+    import cellpatcher
+    from cellpatcher import io
+
+    for name in ("find_candidate_matches", "filter_shared_matches", "select_requested_masks", "image_stem",
+                 "LEGACY_MATCHING_DEFAULTS", "check_legacy_matching", "warn_legacy_matching_removed"):
+        assert not hasattr(io, name), name
+        assert name not in cellpatcher.__all__
 
 
 def test_validate_ignores_macos_resource_forks_in_both_folders(tmp_path):

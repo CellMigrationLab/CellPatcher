@@ -1,4 +1,3 @@
-import warnings
 from dataclasses import dataclass
 
 import numpy as np
@@ -22,80 +21,6 @@ class PreparedPlanePair:
     label_axes: str
     metadata: dict
     plane_id: str
-
-
-_REPLACEMENT = (
-    "normalize patches with config.normalization (cellpatcher.config.NormalizationConfig), which uses "
-    "the preprocessing brick's statistics at a chosen scope and records the parameters in patches.csv"
-)
-
-
-def _warn_deprecated(what: str, stacklevel: int = 3) -> None:
-    """Warn that an old normalization is deprecated (docs/normalization_contract.md §15)."""
-    warnings.warn(f"{what} is deprecated; {_REPLACEMENT}.", DeprecationWarning, stacklevel=stacklevel)
-
-
-def percentile_normalize(image, p_low=1.0, p_high=99.8, *, dtype=np.float32):
-    """Rescale the image's own percentiles to 0–1, clipped (deprecated: use ``config.normalization``)."""
-    _warn_deprecated("percentile_normalize")
-    return _percentile_normalize(image, p_low, p_high, dtype=dtype)
-
-
-def minmax_normalize(image, *, dtype=np.float32):
-    """Rescale the image's own minimum and maximum to 0–1 (deprecated: use ``config.normalization``)."""
-    _warn_deprecated("minmax_normalize")
-    return _minmax_normalize(image, dtype=dtype)
-
-
-def _percentile_normalize(image, p_low=1.0, p_high=99.8, *, dtype=np.float32):
-    if not (0 <= float(p_low) < float(p_high) <= 100):
-        raise ValueError("Percentiles must satisfy 0 <= p_low < p_high <= 100.")
-
-    arr = np.asarray(image)
-    out = np.zeros(arr.shape, dtype=dtype)
-    if arr.size == 0:
-        return out
-
-    # NaN/Inf values would otherwise skew the percentile computation, so
-    # they're excluded from it and forced to 0.0 in the output below.
-    finite = np.isfinite(arr)
-    if not np.any(finite):
-        return out
-
-    # Percentiles (rather than min/max) computed only over finite values
-    # make normalization robust to a small number of outlier pixels.
-    finite_vals = arr[finite]
-    lo = float(np.percentile(finite_vals, p_low))
-    hi = float(np.percentile(finite_vals, p_high))
-    if not np.isfinite(lo) or not np.isfinite(hi) or hi <= lo:
-        return out
-
-    # Clip to [lo, hi], then linearly rescale that range to [0, 1].
-    clipped = np.clip(arr.astype(np.float64, copy=False), lo, hi)
-    scaled = (clipped - lo) / (hi - lo)
-    scaled = np.where(finite, scaled, 0.0)
-    return scaled.astype(dtype, copy=False)
-
-
-def _minmax_normalize(image, *, dtype=np.float32):
-    arr = np.asarray(image)
-    out = np.zeros(arr.shape, dtype=dtype)
-    if arr.size == 0:
-        return out
-
-    finite = np.isfinite(arr)
-    if not np.any(finite):
-        return out
-
-    finite_vals = arr[finite]
-    lo = float(np.min(finite_vals))
-    hi = float(np.max(finite_vals))
-    if not np.isfinite(lo) or not np.isfinite(hi) or hi <= lo:
-        return out
-
-    scaled = (arr.astype(np.float64, copy=False) - lo) / (hi - lo)
-    scaled = np.where(finite, scaled, 0.0)
-    return scaled.astype(dtype, copy=False)
 
 
 def select_axis_index(array, axes, axis, index):
@@ -234,18 +159,15 @@ def prepare_image_for_patching(
     t_index=None,
     channel_policy="keep",
     channel_index=None,
-    normalize=None,
-    percentile=(1.0, 99.8),
 ):
     """Resolve the T, Z and C axes of an image to one 2D (optionally multichannel) plane.
 
-    ``normalize``/``percentile`` are deprecated: use ``config.normalization``.
+    The former per-image normalization (``normalize``/``percentile``) was
+    removed in v0.1.1: normalize patches with ``config.normalization``.
     """
-    if normalize is not None:
-        _warn_deprecated("prepare_image_for_patching(normalize=...)")
     return _prepare_image(
         image, axes, z_policy=z_policy, z_index=z_index, t_policy=t_policy, t_index=t_index,
-        channel_policy=channel_policy, channel_index=channel_index, normalize=normalize, percentile=percentile,
+        channel_policy=channel_policy, channel_index=channel_index,
     )
 
 
@@ -259,8 +181,6 @@ def _prepare_image(
     t_index,
     channel_policy,
     channel_index,
-    normalize,
-    percentile,
 ):
     arr = np.asarray(image)
     ax = normalize_axes(axes, arr.ndim)
@@ -299,15 +219,7 @@ def _prepare_image(
 
     # After T/Z/C handling, exactly one Y and one X axis must remain.
     require_spatial_axes(ax)
-
-    if normalize is None:
-        return arr, ax
-    if normalize == "percentile":
-        p_low, p_high = percentile
-        return _percentile_normalize(arr, p_low=p_low, p_high=p_high), ax
-    if normalize == "minmax":
-        return _minmax_normalize(arr), ax
-    raise ValueError(f"Unsupported normalize policy: {normalize}")
+    return arr, ax
 
 
 def prepare_labels_for_cell_patching(
@@ -399,11 +311,7 @@ def iter_image_planes_for_patching(
     t_index=None,
     channel_policy="keep",
     channel_index=None,
-    normalize=None,
-    percentile=(1.0, 99.8),
 ):
-    if normalize is not None:
-        _warn_deprecated("iter_image_planes_for_patching(normalize=...)")
     arr = np.asarray(image)
     ax = normalize_axes(axes, arr.ndim)
 
@@ -453,8 +361,6 @@ def iter_image_planes_for_patching(
                 t_index=eff_t_index,
                 channel_policy=channel_policy,
                 channel_index=channel_index,
-                normalize=normalize,
-                percentile=percentile,
             )
             yield PreparedPlane(array=out_arr, axes=out_axes, metadata=metadata, plane_id=_plane_id_for_metadata(metadata))
 
@@ -473,11 +379,7 @@ def iter_cell_planes_for_patching(
     image_channel_index=None,
     label_channel_policy="error",
     label_channel_index=None,
-    normalize=None,
-    percentile=(1.0, 99.8),
 ):
-    if normalize is not None:
-        _warn_deprecated("iter_cell_planes_for_patching(normalize=...)")
     img = np.asarray(image)
     lab = np.asarray(labels)
     i_ax = normalize_axes(image_axes, img.ndim)
@@ -540,8 +442,6 @@ def iter_cell_planes_for_patching(
                 t_index=eff_t_index,
                 channel_policy=image_channel_policy,
                 channel_index=image_channel_index,
-                normalize=normalize,
-                percentile=percentile,
             )
             prepared_labels, prepared_label_axes = prepare_labels_for_cell_patching(
                 lab,

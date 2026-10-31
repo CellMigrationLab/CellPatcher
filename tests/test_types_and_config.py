@@ -79,21 +79,6 @@ def test_grid_config_rejects_invalid_overlap():
         GridConfig(overlap=1.0)
 
 
-def test_match_config_rejects_invalid_strategy():
-    with pytest.raises(ValueError):
-        MatchConfig(strategy="bad")
-
-
-def test_match_config_rejects_invalid_mask_suffixes_type():
-    with pytest.raises(ValueError):
-        MatchConfig(mask_suffixes=[1])
-
-
-def test_match_config_rejects_invalid_case_sensitive_type():
-    with pytest.raises(ValueError):
-        MatchConfig(case_sensitive="yes")
-
-
 def test_match_config_holds_the_mask_type_only():
     # Issue #45: the pairing is the preprocessing brick's; only the mask type is chosen.
     from dataclasses import asdict
@@ -102,11 +87,15 @@ def test_match_config_holds_the_mask_type_only():
     with pytest.raises(ValueError, match="mask_type"):
         MatchConfig(mask_type="")
     config = MatchConfig()
-    with pytest.raises(ValueError, match="no longer supported"):
-        config.strategy = "substring"  # never silently ignored
+    with pytest.raises(ValueError, match="removed in CellPatcher v0.1.1"):
+        config.strategy = "exact_or_suffix"  # never silently ignored, old default included
+    for name, value in (("strategy", "exact_or_suffix"), ("mask_suffixes", ("_mask",)), ("case_sensitive", False),
+                        ("ignore_unrequested_masks", False), ("strategy", None)):
+        with pytest.raises(ValueError, match=f"{name} were removed in CellPatcher v0.1.1.*mask_type"):
+            MatchConfig(**{name: value})
 
 
-def test_an_old_run_config_with_the_default_matching_still_loads(tmp_path):
+def test_an_old_run_config_with_the_former_matching_fails_clearly(tmp_path):
     import json
 
     from cellpatcher.orchestration import load_config
@@ -121,12 +110,16 @@ def test_an_old_run_config_with_the_default_matching_still_loads(tmp_path):
         },
     }
     (tmp_path / "run_config.json").write_text(json.dumps(old))
-    with pytest.warns(DeprecationWarning, match="no longer have any effect"):
-        assert load_config(tmp_path / "run_config.json").matching == MatchConfig()
-    old["matching"]["mask_suffixes"] = ["_cells"]
-    (tmp_path / "run_config.json").write_text(json.dumps(old))
-    with pytest.raises(ValueError, match="no longer supported"):
+    # Removed in v0.1.1 (owner decision): every former option is named, with mask_type as the way.
+    with pytest.raises(
+        ValueError,
+        match="case_sensitive, ignore_unrequested_masks, mask_suffixes, strategy were removed in CellPatcher "
+        "v0.1.1.*matching.mask_type",
+    ):
         load_config(tmp_path / "run_config.json")
+    old["matching"] = {"mask_type": "cells"}
+    (tmp_path / "run_config.json").write_text(json.dumps(old))
+    assert load_config(tmp_path / "run_config.json").matching == MatchConfig(mask_type="cells")
 
 
 def test_run_patching_cell_mode_requires_images_and_masks():

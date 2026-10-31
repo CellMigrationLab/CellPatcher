@@ -180,9 +180,12 @@ CellPatcher-specific conventions:
   Image/mask pairing is the preprocessing brick's `find_masks`, called by
   `io.pair_masks` (issue #45, owner decision 2026-10-30): TIFF masks named
   `<image>_<type>.tif` or `<type>/<image>.tif`; `matching.mask_type` picks
-  the type. CellPatcher has no pairing rule of its own; the former
-  `exact`/`exact_or_suffix`/`substring` options are refused (old defaults
-  accepted with a `DeprecationWarning`).
+  the type. CellPatcher has no pairing rule of its own; the former matching
+  options (`strategy`, `mask_suffixes`, `case_sensitive`,
+  `ignore_unrequested_masks`) and matchers (`find_candidate_matches`, ...)
+  were removed in v0.1.1 (D86, owner decision 2026-10-31): the options are
+  refused by name, also in an old `run_config.json`, pointing to
+  `matching.mask_type`.
 * `scan_cell_patch_size` computes dataset-level patch-size recommendations.
 * `ExtractionConfig.apply_mask` is cell-mode oriented and clears pixels
   outside selected labels before resize/export.

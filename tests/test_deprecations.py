@@ -1,4 +1,4 @@
-"""The old normalizations are deprecated in favour of config.normalization (contract §15)."""
+"""Deprecations still in place: the torch scale policy (the old normalizations were removed in v0.1.1)."""
 
 import importlib
 import importlib.util
@@ -8,16 +8,6 @@ import warnings
 
 import numpy as np
 import pytest
-
-from cellpatcher.preprocess import (
-    _minmax_normalize,
-    _percentile_normalize,
-    iter_cell_planes_for_patching,
-    iter_image_planes_for_patching,
-    minmax_normalize,
-    percentile_normalize,
-    prepare_image_for_patching,
-)
 
 
 def _deprecations(caught):
@@ -32,43 +22,6 @@ def _record(action):
 
 
 IMAGE = np.arange(3 * 8 * 8, dtype=np.uint16).reshape(3, 8, 8)
-
-
-def test_the_normalize_functions_warn_and_keep_their_values():
-    plane = IMAGE[0]
-    result, caught = _record(lambda: percentile_normalize(plane, 2.0, 98.0))
-    np.testing.assert_array_equal(result, _percentile_normalize(plane, 2.0, 98.0))
-    assert len(caught) == 1 and "config.normalization" in str(caught[0].message)
-
-    result, caught = _record(lambda: minmax_normalize(plane))
-    np.testing.assert_array_equal(result, _minmax_normalize(plane))
-    assert len(caught) == 1 and "minmax_normalize is deprecated" in str(caught[0].message)
-
-
-def test_prepare_image_warns_only_with_normalize():
-    (_, axes), caught = _record(lambda: prepare_image_for_patching(IMAGE, "ZYX", z_policy="first"))
-    assert axes == "YX" and caught == []
-    (result, _), caught = _record(
-        lambda: prepare_image_for_patching(IMAGE, "ZYX", z_policy="first", normalize="minmax")
-    )
-    assert len(caught) == 1 and "prepare_image_for_patching(normalize=...)" in str(caught[0].message)
-    np.testing.assert_array_equal(result, _minmax_normalize(IMAGE[0]))
-
-
-def test_the_plane_iterators_warn_once_per_call():
-    planes, caught = _record(
-        lambda: list(iter_image_planes_for_patching(IMAGE, "ZYX", z_policy="all", normalize="percentile"))
-    )
-    assert len(planes) == 3 and len(caught) == 1
-
-    labels = np.ones((3, 8, 8), dtype=np.uint16)
-    pairs, caught = _record(
-        lambda: list(iter_cell_planes_for_patching(IMAGE, "ZYX", labels, "ZYX", z_policy="all", normalize="minmax"))
-    )
-    assert len(pairs) == 3 and len(caught) == 1
-
-    _, caught = _record(lambda: list(iter_image_planes_for_patching(IMAGE, "ZYX", z_policy="all")))
-    assert caught == []
 
 
 @pytest.fixture

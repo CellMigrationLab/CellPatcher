@@ -2,72 +2,17 @@ import numpy as np
 import pytest
 
 from cellpatcher import CellConfig, CellPatcherConfig, CommonConfig, run_patching
-
-# These tests keep covering the deprecated normalizations (docs/normalization_contract.md §15).
-pytestmark = pytest.mark.filterwarnings("ignore:.*config.normalization:DeprecationWarning")
 from cellpatcher.preprocess import (
     PreparedPlane,
     PreparedPlanePair,
     iter_cell_planes_for_patching,
     iter_image_planes_for_patching,
-    minmax_normalize,
-    percentile_normalize,
     prepare_image_for_patching,
     prepare_labels_for_cell_patching,
     project_axis,
     repeat_to_rgb,
     select_axis_index,
 )
-
-
-def test_percentile_normalize_scales_finite_values():
-    arr = np.array([0, 5, 10], dtype=np.float32)
-    out = percentile_normalize(arr, p_low=0, p_high=100)
-    assert out.dtype == np.float32
-    assert np.all(out >= 0) and np.all(out <= 1)
-    assert out[0] == 0 and out[-1] == 1
-
-
-def test_percentile_normalize_constant_returns_zeros():
-    out = percentile_normalize(np.ones((3, 3)))
-    assert np.all(out == 0)
-
-
-def test_percentile_normalize_all_nonfinite_returns_zeros():
-    out = percentile_normalize(np.array([np.nan, np.inf, -np.inf]))
-    assert np.all(out == 0)
-
-
-def test_percentile_normalize_nonfinite_becomes_zero():
-    arr = np.array([0.0, 1.0, np.nan, np.inf])
-    out = percentile_normalize(arr, p_low=0, p_high=100)
-    assert out[2] == 0 and out[3] == 0
-
-
-def test_percentile_normalize_invalid_percentiles_raise():
-    with pytest.raises(ValueError):
-        percentile_normalize(np.arange(5), p_low=90, p_high=10)
-
-
-def test_minmax_normalize_scales_finite_values():
-    out = minmax_normalize(np.array([2.0, 4.0, 6.0]))
-    assert np.all(out >= 0) and np.all(out <= 1)
-    assert out[0] == 0 and out[-1] == 1
-
-
-def test_minmax_constant_returns_zeros():
-    out = minmax_normalize(np.full((2, 2), 7.0))
-    assert np.all(out == 0)
-
-
-def test_minmax_all_nonfinite_returns_zeros():
-    out = minmax_normalize(np.array([np.nan, np.inf]))
-    assert np.all(out == 0)
-
-
-def test_minmax_nonfinite_becomes_zero():
-    out = minmax_normalize(np.array([1.0, 3.0, np.nan]))
-    assert out[-1] == 0
 
 
 def test_select_axis_index_zyx_select_z():
@@ -193,18 +138,12 @@ def test_prepare_image_for_patching_t_and_c_behaviors():
     assert out.shape == (6, 7) and ax == "YX"
 
 
-def test_prepare_image_for_patching_repeat_to_rgb_and_normalize_and_errors():
+def test_prepare_image_for_patching_repeat_to_rgb_and_errors():
     out, ax = prepare_image_for_patching(np.zeros((6, 7)), "YX", channel_policy="repeat_to_rgb")
     assert out.shape == (6, 7, 3) and ax == "YXC"
 
     out, ax = prepare_image_for_patching(np.zeros((6, 7, 3)), "YXC", channel_policy="repeat_to_rgb")
     assert out.shape == (6, 7, 3) and ax == "YXC"
-
-    out, _ = prepare_image_for_patching(np.array([[0.0, 1.0, 2.0]]), "YX", normalize="minmax")
-    assert out.dtype == np.float32
-
-    out, _ = prepare_image_for_patching(np.array([[0.0, 1.0, 2.0]]), "YX", normalize="percentile", percentile=(0, 100))
-    assert out.dtype == np.float32
 
     with pytest.raises(ValueError):
         prepare_image_for_patching(np.zeros((2, 6, 7)), "ZYX", z_policy="all")
@@ -220,8 +159,12 @@ def test_prepare_image_for_patching_repeat_to_rgb_and_normalize_and_errors():
         prepare_image_for_patching(np.zeros((2, 6, 7)), "ZYX", z_policy="bad")
     with pytest.raises(ValueError):
         prepare_image_for_patching(np.zeros((2, 6, 7)), "TYX", t_policy="bad")
-    with pytest.raises(ValueError):
-        prepare_image_for_patching(np.zeros((6, 7)), "YX", normalize="bad")
+    # The per-image normalization was removed in v0.1.1 (D86, CP-5): use config.normalization.
+    for name in ("normalize", "percentile"):
+        with pytest.raises(TypeError, match=name):
+            prepare_image_for_patching(np.zeros((6, 7)), "YX", **{name: "minmax"})
+        with pytest.raises(TypeError, match=name):
+            list(iter_image_planes_for_patching(np.zeros((6, 7)), "YX", **{name: "minmax"}))
 
 
 def test_prepare_labels_for_cell_patching_behaviors():
@@ -356,14 +299,6 @@ def test_iter_cell_planes_integration_run_patching_cell_mode():
     assert len(result.patches) > 0
     assert result.patch_arrays is not None
     assert [patch.z0 for patch in result.patches] == [0, 1]
-
-
-def test_percentile_and_minmax_dtype_override():
-    arr = np.array([0.0, 1.0, 2.0], dtype=np.float32)
-    p_out = percentile_normalize(arr, p_low=0, p_high=100, dtype=np.float64)
-    m_out = minmax_normalize(arr, dtype=np.float64)
-    assert p_out.dtype == np.float64
-    assert m_out.dtype == np.float64
 
 
 def test_select_axis_index_does_not_squeeze_other_axes():
