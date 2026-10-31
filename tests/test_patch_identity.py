@@ -19,11 +19,11 @@ from cellpatcher.pipeline import RUN_CONFIG_FILENAME, run_patching
 from tests.helpers import write_ngff, write_ngff_labels
 
 needs_preprocessing = pytest.mark.skipif(
-    importlib.util.find_spec("morphobricks_preprocessing") is None, reason="needs the 'preprocessing' extra"
+    importlib.util.find_spec("morphobricks_preprocessing") is None, reason="needs morphobricks-preprocessing (a core dependency)"
 )
 needs_zarr = pytest.mark.skipif(
     importlib.util.find_spec("morphobricks_preprocessing") is None or importlib.util.find_spec("zarr") is None,
-    reason="needs the 'preprocessing' extra with zarr",
+    reason="needs the 'zarr' extra",
 )
 
 
