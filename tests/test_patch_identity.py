@@ -394,6 +394,10 @@ def test_a_duplicate_position_is_refused_even_when_it_yields_no_patch():
     images, masks = [_image(0), _image(1)], [np.zeros((32, 32), np.uint16), _labels(1)]
     with pytest.raises(ValueError, match="same position_id"):
         run_patching(images=images, masks=masks, config=_cell_config(),
+                     image_metadata=[{"position_id": "img"}, {"position_id": "img"}])
+    # Spelled two ways: the case rule of every brick (preprocessing check_identity_case, D-e).
+    with pytest.raises(ValueError, match="differ only in upper/lower case"):
+        run_patching(images=images, masks=masks, config=_cell_config(),
                      image_metadata=[{"position_id": "Img"}, {"position_id": "img"}])
 
 
@@ -401,12 +405,12 @@ def test_a_duplicate_position_is_refused_whatever_tokens_its_patches_get():
     """Cell labels or random rectangles that differ between the two images do not hide the duplicate."""
     with pytest.raises(ValueError, match="same position_id"):
         run_patching(images=[_image(0), _image(1)], masks=[_labels(0), _labels(1)], config=_cell_config(),
-                     image_metadata=[{"position_id": "Img"}, {"position_id": "img"}])
+                     image_metadata=[{"position_id": "img"}, {"position_id": "img"}])
     config = CellPatcherConfig(mode="random")
     config.random.patch_size, config.random.n_patches, config.random.seed = 8, 2, 3
     with pytest.raises(ValueError, match="same position_id"):
         run_patching(images=[_image(0), _image(1)], config=config,
-                     image_metadata=[{"position_id": "Img"}, {"position_id": "img"}])
+                     image_metadata=[{"position_id": "img"}, {"position_id": "img"}])
 
 
 def test_a_duplicate_position_is_refused_in_a_folder_run(tmp_path):
@@ -419,52 +423,62 @@ def test_a_duplicate_position_is_refused_in_a_folder_run(tmp_path):
         run_patching_pipeline(tmp_path, config=config)
 
 
-def test_only_the_position_is_case_insensitive():
-    """Technical repeats "A" and "a" are distinct labels: one position name in each is legal, and
-    images of one position told apart by their planes are legal too."""
+def test_names_differing_only_in_case_clash_in_the_run():
+    """Owner decision D-e (preprocessing check_identity_case): technical repeats "A" and "a" clash
+    anywhere in the run, and so do positions "img" and "IMG" of one technical repeat, even told
+    apart by their planes. Before D86 both were accepted. One spelling with several planes is legal."""
     config = CellPatcherConfig(mode="whole_fov")
     wells = [{"position_id": "img", "technical_repeat": "A"}, {"position_id": "img", "technical_repeat": "a"}]
-    result = run_patching(images=[np.zeros((4, 4))] * 2, config=config, image_metadata=wells)
-    assert [p.patch_id for p in result.patches] == ["single/single/A/img/whole_fov", "single/single/a/img/whole_fov"]
+    with pytest.raises(ValueError, match="technical_repeat 'A' and 'a' differ only in upper/lower case"):
+        run_patching(images=[np.zeros((4, 4))] * 2, config=config, image_metadata=wells)
     planes = [{"position_id": "img", "t": 0}, {"position_id": "IMG", "t": 1}]
+    with pytest.raises(ValueError, match="position_id 'img' and 'IMG' differ only in upper/lower case"):
+        run_patching(images=[np.zeros((4, 4))] * 2, config=config, image_metadata=planes)
+    planes = [{"position_id": "img", "t": 0}, {"position_id": "img", "t": 1}]
     assert len(run_patching(images=[np.zeros((4, 4))] * 2, config=config, image_metadata=planes).patches) == 2
 
 
 @pytest.mark.parametrize("axis", ["t", "z", "c"])
-def test_plane_indices_given_as_text_are_the_same_plane(axis):
-    """Re-audit of #41: uniqueness compares the indices as patches carry them (int), so 1 and "1"
-    are one plane and two case-differing positions there are refused."""
+def test_numpy_plane_indices_are_the_same_plane(axis):
+    """Re-audit of #41: uniqueness compares the indices as patches carry them (int), so 1 and
+    numpy.int64(1) are one plane."""
     config = CellPatcherConfig(mode="whole_fov")
-    metadata = [{"position_id": "Img", axis: 1}, {"position_id": "img", axis: "1"}]
+    metadata = [{"position_id": "img", axis: 1}, {"position_id": "img", axis: np.int64(1)}]
     with pytest.raises(ValueError, match="same position_id"):
         run_patching(images=[np.zeros((4, 4))] * 2, config=config, image_metadata=metadata)
 
 
-@pytest.mark.parametrize("value", [7, "", "  ", 1.5])
-def test_a_supplied_position_id_must_be_text(value):
+@pytest.mark.parametrize("value, match", [
+    (7, "must be text"), (1.5, "must be text"), ("", "missing value"), ("  ", "whitespace"),
+    # Owner decision D-e (preprocessing check_identity_text): accepted before D86.
+    ("NA", "missing value"), ("None", "missing value"), ("n/a", "missing value"), (" img", "whitespace"),
+])
+def test_a_supplied_position_id_must_be_text(value, match):
     """D85: a supplied position_id is kept verbatim, so a number or an empty one is refused, not
-    converted (also for an image yielding no patch)."""
-    with pytest.raises(ValueError, match="must be non-empty text"):
+    converted (also for an image yielding no patch); D-e: nor a name tables read as missing."""
+    with pytest.raises(ValueError, match=match):
         run_patching(images=[_image(0)], masks=[np.zeros((32, 32), np.uint16)], config=_cell_config(),
                      image_metadata=[{"position_id": value}])
 
 
-@pytest.mark.parametrize("value", [True, 1.5, 1.0, -1, "1.0", "-1", "01", " 1"])
+@pytest.mark.parametrize("value", [True, 1.5, 1.0, -1, "1.0", "-1", "01", " 1", "1", np.float64(1.0)])
 @pytest.mark.parametrize("axis", ["t", "z", "c"])
 def test_a_plane_index_is_never_coerced(axis, value):
-    """Re-audit of #41: a plane index is a non-negative integer or its decimal text; anything
-    int() would round or convert is refused rather than becoming another plane."""
+    """Re-audit of #41 and owner decision D-e (preprocessing check_plane_index): a plane index is
+    a Python or NumPy integer of at least 0; anything else, text "1" included (accepted before
+    D86), is refused rather than becoming a plane."""
     config = CellPatcherConfig(mode="whole_fov")
-    with pytest.raises(ValueError, match="plane index is a non-negative integer"):
+    with pytest.raises(ValueError, match=f"image_metadata\\[\"{axis}\"\\] must be an int of at least 0"):
         run_patching(images=[np.zeros((4, 4))], config=config,
                      image_metadata=[{"position_id": "p1", axis: value}])
 
 
-def test_integer_plane_indices_of_numpy_and_text_are_accepted():
+def test_integer_plane_indices_of_numpy_are_accepted():
     config = CellPatcherConfig(mode="whole_fov")
-    metadata = [{"position_id": "p1", "t": np.int64(2)}, {"position_id": "p1", "t": "3"}]
+    metadata = [{"position_id": "p1", "t": np.int64(2)}, {"position_id": "p1", "t": np.uint8(3)}]
     result = run_patching(images=[np.zeros((4, 4))] * 2, config=config, image_metadata=metadata)
     assert [patch.t for patch in result.patches] == [2, 3]
+    assert all(type(patch.t) is int for patch in result.patches)
 
 
 @pytest.mark.parametrize("mode", ["grid", "random"])
@@ -514,11 +528,13 @@ def test_a_supplied_t_is_refused_with_a_t_policy():
 
 @pytest.mark.parametrize(
     ("where", "value"),
-    [("technical_repeat", 7), ("object_set", 7), ("technical_repeat", "")],
+    [("technical_repeat", 7), ("object_set", 7), ("technical_repeat", ""), ("technical_repeat", "nan"),
+     ("technical_repeat", "wellA ")],
 )
 def test_supplied_identity_labels_must_be_text(where, value):
-    """Re-audit of #41: a per-image label is identity, never converted (7 is not "7")."""
-    with pytest.raises(ValueError, match="must be"):
+    """Re-audit of #41: a per-image label is identity, never converted (7 is not "7"); D-e: nor
+    empty, a missing-value name or padded with whitespace."""
+    with pytest.raises(ValueError, match="must be|missing value|whitespace"):
         run_patching(images=[_image(0)], masks=[_labels(0)], config=_cell_config(),
                      image_metadata=[{"position_id": "p1", where: value}])
 
@@ -527,7 +543,7 @@ def test_supplied_identity_labels_must_be_text(where, value):
 def test_config_fov_labels_must_be_text(field):
     config = CellPatcherConfig(mode="whole_fov")
     setattr(config.common, field, 2026)
-    with pytest.raises(ValueError, match=f"common.{field} must be non-empty text"):
+    with pytest.raises(ValueError, match=f"common.{field} must be text"):
         run_patching(images=[np.zeros((4, 4))], config=config, image_metadata=[{"position_id": "p1"}])
 
 
@@ -644,3 +660,23 @@ def test_a_tree_refuses_a_later_leaf_mask_object_set_before_reading_any_leaf(tmp
     monkeypatch.setattr(orchestration, "object_set_from_mask_type", bad_in_second_leaf)
     with pytest.raises(ValueError, match="object set from mask 'img_cells.tif'"):
         run_patching_condition_repeat_tree(images, config=_cell_config(), mask_root_path=masks)
+
+
+@pytest.mark.parametrize("value", ["NA", "nan", "None", "NULL", "<NA>", " ctrl", "ctrl "])
+def test_config_labels_that_read_as_missing_are_refused(value):
+    """Owner decision D-e (preprocessing check_identity_text): accepted before D86."""
+    config = CellPatcherConfig(mode="whole_fov")
+    config.common.condition = value
+    with pytest.raises(ValueError, match="common.condition .*(missing value|whitespace)"):
+        run_patching(images=[np.zeros((4, 4))], config=config, image_metadata=[{"position_id": "p1"}])
+
+
+def test_the_single_labels_are_the_normalization_brick_single():
+    # CP-1 (D86): one "single" for every brick.
+    from morphobricks_normalization.records import SINGLE
+
+    import cellpatcher
+
+    for name in ("SINGLE_CONDITION_LABEL", "SINGLE_BIOLOGICAL_REPEAT_LABEL", "SINGLE_REPEAT_LABEL",
+                 "SINGLE_TECHNICAL_REPEAT_LABEL"):
+        assert getattr(cellpatcher, name) is SINGLE

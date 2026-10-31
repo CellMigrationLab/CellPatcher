@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+from morphobricks_normalization.records import SINGLE
 
 from cellpatcher._deprecation import accept_deprecated_repeat
 from cellpatcher.axes import normalize_axes
@@ -38,11 +39,15 @@ UNSUPPORTED_IMAGE_EXTENSIONS = (
 # the formats exported patches may be written in (export.patch_format).
 ARRAY_EXTENSIONS = {*SUPPORTED_EXTENSIONS, *FORMER_IMAGE_EXTENSIONS}
 
+# The label of an absent folder level is the normalization brick's SINGLE
+# ("single"), shared by every MorphoBricks brick (D86, CP-1); the names below
+# are public aliases of it.
+
 # Biological-repeat label stamped when a condition folder holds images
 # directly, with no biological-repeat subfolder (see
 # discover_condition_repeat_folders below). Treated as "this condition has
 # exactly one biological repeat" rather than an error.
-SINGLE_BIOLOGICAL_REPEAT_LABEL = "single"
+SINGLE_BIOLOGICAL_REPEAT_LABEL = SINGLE
 
 # Name kept from before `repeat` was renamed `biological_repeat`; same value,
 # still public and not deprecated.
@@ -51,13 +56,13 @@ SINGLE_REPEAT_LABEL = SINGLE_BIOLOGICAL_REPEAT_LABEL
 # Condition label stamped when the root folder itself holds the images, with
 # no condition subfolders: the whole dataset is one condition and one
 # biological repeat.
-SINGLE_CONDITION_LABEL = "single"
+SINGLE_CONDITION_LABEL = SINGLE
 
 # Technical-repeat label stamped when a repeat folder holds its images
 # directly, with no <technical_repeat> subfolders (a well, a dish): the
 # repeat is one technical repeat. Never a biological repeat, which stays in
 # `repeat` (see discover_condition_repeat_folders below).
-SINGLE_TECHNICAL_REPEAT_LABEL = "single"
+SINGLE_TECHNICAL_REPEAT_LABEL = SINGLE
 
 
 def list_supported_files(folder_path, supported_extensions=None) -> list[Path]:
@@ -999,8 +1004,6 @@ def _discovery_of(experiment_root, relative_paths):
     are the folder names, ``single`` for missing levels; ``find_masks`` reads
     only the folders and image names.
     """
-    # SINGLE lives in the normalization brick (preprocessing v0.3.2 deprecates its re-export).
-    from morphobricks_normalization.records import SINGLE
     from morphobricks_preprocessing import DiscoveryResult, LeafFolder
 
     by_folder: dict[str, list[str]] = {}

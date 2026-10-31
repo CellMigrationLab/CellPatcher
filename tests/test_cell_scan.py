@@ -72,9 +72,19 @@ def test_non_contiguous_labels_preserved():
     assert [r.label_id for r in records] == [1, 5, 42]
 
 
-def test_float_binary_labels_need_the_connected_components_opt_in():
+def test_float_binary_labels_are_refused():
+    # Owner decision D-b: float masks are refused even of 0.0/1.0, whatever binary_mask_policy.
     labels = np.zeros((5, 5), dtype=np.float32)
     labels[2:4, 2:4] = 1.0
+    for policy in ("single_object", "connected_components"):
+        with pytest.raises(ValueError, match="save the mask as integers"):
+            scan_cell_objects(image_shape=(5, 5), labels=labels,
+                              config=CellConfig(exclude_border=False, binary_mask_policy=policy))
+
+
+def test_boolean_labels_need_the_connected_components_opt_in():
+    labels = np.zeros((5, 5), dtype=bool)
+    labels[2:4, 2:4] = True
 
     with pytest.raises(ValueError, match="binary"):
         scan_cell_objects(image_shape=(5, 5), labels=labels, config=CellConfig(exclude_border=False))

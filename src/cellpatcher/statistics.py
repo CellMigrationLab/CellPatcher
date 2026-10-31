@@ -38,7 +38,7 @@ from cellpatcher.io import SINGLE_CONDITION_LABEL as SINGLE_LABEL
 
 if TYPE_CHECKING:
     from morphobricks_normalization import PlaneRecord
-    from morphobricks_preprocessing import AxisMapping, RunManifest, ValidationIssue
+    from morphobricks_preprocessing import RunManifest, ValidationIssue
 
 # The optional part of the preprocessing brick: its OME-Zarr reader (zarr).
 # The brick itself is a core dependency (CP-6 of the D86 audit), so this extra,
@@ -462,10 +462,15 @@ def check_images(
     """Run the per-image checks of contract §5.
 
     Every image must have rows in the table; all images without rows are
-    reported in one message. With a manifest, each image with rows must also
-    have the size and modification time recorded for it
-    (``manifest.source_fingerprint``), and CellPatcher's axes must give every
-    axis the role of the manifest's ``axis_mapping``.
+    reported in one message. With a manifest, the images with rows go through
+    the preprocessing brick's ``check_sources`` (D86, formerly this
+    function's own checks): each is in the manifest, still exists, is
+    unchanged by ``source_fingerprint`` (an OME-Zarr folder: its files' total
+    size and newest time), its recorded ``position_id`` is the one its name
+    gives, and CellPatcher's axes give every axis the role the run recorded
+    for the file. A TIFF image's axes are ``image_axes``; an OME-Zarr image's
+    are its own OME-NGFF axes, which CellPatcher puts into
+    ``common.image_axes`` by role (``io.read_image``), so both are checked.
 
     Parameters
     ----------
@@ -484,7 +489,6 @@ def check_images(
         If any check fails; the message lists every failure.
     """
     mbp = _preprocessing()
-    from morphobricks_preprocessing.manifest import source_fingerprint
     from morphobricks_preprocessing.validation import error, plural
 
     csv_name = statistics.plane_histograms.name
@@ -507,59 +511,25 @@ def check_images(
         if experiment_root is None:
             raise ValueError("experiment_root is required to check images against run_manifest.json.")
         root = Path(experiment_root).expanduser()
-        not_in_manifest, changed, axes_differ = [], [], []
-        for path, axes in image_axes.items():
-            if path not in known:
-                continue
-            entry = manifest.file(path)
-            if entry is None:
-                not_in_manifest.append(path)
-                continue
-            if source_fingerprint(root / path) != (entry.size, entry.mtime_ns):
-                changed.append(path)
-            # The preprocessing brick's own resolution of the experiment
-            # mapping for this image (OME-Zarr images may store another axis
-            # order); reads the header only.
-            if path.lower().endswith(".zarr"):
-                # CellPatcher takes an OME-Zarr image's axes by role from the
-                # same metadata the preprocessing brick read (io.read_image).
-                continue
-            file_mapping = mbp.file_mapping_for(
-                mbp.inspect_image(root / path, path),
-                manifest.mapping,
-                missing_as_singleton=manifest.settings.missing_as_singleton,
-            )
-            if not _axes_agree(normalize_axes(axes), file_mapping):
-                preprocessing_roles = "none fit" if file_mapping is None else file_mapping.roles_string
-                axes_differ.append(f"{path} (CellPatcher {normalize_axes(axes)}, preprocessing {preprocessing_roles})")
-        manifest_name = statistics.manifest_path.name if statistics.manifest_path else "the manifest"
-        if not_in_manifest:
-            issues.append(error(
-                "images_not_in_manifest",
-                f"{plural(len(not_in_manifest), 'image')} with rows in {csv_name} "
-                f"{'is' if len(not_in_manifest) == 1 else 'are'} missing from {manifest_name}.",
-                not_in_manifest,
-                "Give the table and manifest of the same preprocessing run.",
-            ))
-        if changed:
-            issues.append(error(
-                "images_changed",
-                f"{plural(len(changed), 'image')} changed after the preprocessing brick read "
-                f"{'it' if len(changed) == 1 else 'them'}: the size or modification time differs "
-                f"from {manifest_name}.",
-                changed,
-                _RERUN_ACTION,
-            ))
-        if axes_differ:
-            issues.append(error(
-                "axis_mapping_mismatch",
-                f"CellPatcher's axes give some axes of {plural(len(axes_differ), 'image')} another "
-                f"role than the axis mapping confirmed in the preprocessing brick.",
-                axes_differ,
-                "Set common.image_axes to the roles confirmed in the preprocessing brick.",
-            ))
+        with_rows = [path for path in image_axes if path in known]
+        axes = {path: _checked_axes(mbp, root, path, image_axes[path]) for path in with_rows}
+        issues += mbp.check_sources(manifest, root, with_rows, image_axes=axes)
     if issues:
         raise PreprocessingCheckError(issues)
+
+
+def _checked_axes(mbp: ModuleType, root: Path, path: str, axes: str) -> str:
+    """The axes CellPatcher reads *path* with, one letter per stored dimension.
+
+    A TIFF image is read in ``common.image_axes``. An OME-Zarr image is read
+    in its own OME-NGFF axes, put into ``common.image_axes`` by role
+    (``io.read_image``), so those are the axes to compare with the run's
+    roles (an unreadable store gives no axes and fails the comparison).
+    """
+    if not path.lower().endswith(".zarr"):
+        return normalize_axes(axes)
+    header = mbp.inspect_image(root / path, path)
+    return header.axes or ""
 
 
 def check_planes(
@@ -726,18 +696,6 @@ def _read_manifest(mbp: ModuleType, path: Path) -> RunManifest:
             )
         ])
     return manifest
-
-
-def _axes_agree(image_axes: str, mapping: AxisMapping | None) -> bool:
-    """Whether CellPatcher's axes give every dimension the manifest's role.
-
-    A dimension without a role in the manifest has length 1 (preprocessing
-    contract §2), so its planes have coordinate 0 whichever role CellPatcher
-    gives it (contract §3), and any role fits it.
-    """
-    if mapping is None or len(mapping.roles) != len(image_axes):
-        return False
-    return all(role is None or role == axis for role, axis in zip(mapping.roles, image_axes))
 
 
 def _labels_text(labels) -> str:

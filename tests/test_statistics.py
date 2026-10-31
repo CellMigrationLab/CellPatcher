@@ -296,7 +296,50 @@ def test_check_images_detects_other_axis_roles(stack_experiment):
         check_images(statistics, images, experiment_root=root)
     (issue,) = error_info.value.issues
     assert issue.code == "axis_mapping_mismatch"
-    assert issue.paths == ("control/img1.tif (CellPatcher CYX, preprocessing ZYX)",)
+    assert issue.paths == ("control/img1.tif",)
+    assert "control/img1.tif: given CYX, preprocessing ZYX" in issue.message
+
+
+@needs_preprocessing
+def test_check_images_reports_a_missing_image(stack_experiment):
+    # preprocessing check_sources (D86): a vanished image is an issue, not a FileNotFoundError.
+    import morphobricks_normalization as mbn
+
+    root, output = stack_experiment
+    (root / "control" / "img1.tif").unlink()
+    with pytest.raises(PreprocessingCheckError) as error_info:
+        check_images(load_plane_statistics(output / mbn.OUTPUT_FILENAME), {p: "ZYX" for p in STACK_IMAGES},
+                     experiment_root=root)
+    (issue,) = error_info.value.issues
+    assert (issue.code, issue.paths) == ("images_missing", ("control/img1.tif",))
+
+
+@pytest.mark.skipif(importlib.util.find_spec("zarr") is None, reason="needs the 'zarr' extra")
+def test_check_images_compares_the_axes_of_an_ome_zarr_image(tmp_path):
+    # Before D86 the axes of OME-Zarr images were not compared with the run's at all. CellPatcher
+    # reads a store in its own OME-NGFF axes (by role), so those are compared with the roles the
+    # preprocessing run recorded for the file.
+    import morphobricks_normalization as mbn
+
+    from tests.helpers import write_ngff
+
+    root = tmp_path / "experiment"
+    write_ngff(root / "control" / "a.ome.zarr", np.arange(192, dtype=np.uint16).reshape(3, 8, 8) + 1, "zyx")
+    output = _preprocess(root, tmp_path / "preprocessing", "ZYX")
+    statistics = load_plane_statistics(output / mbn.OUTPUT_FILENAME)
+    # common.image_axes may differ from the store's order: CellPatcher matches by role.
+    check_images(statistics, {"control/a.ome.zarr": "ZXY"}, experiment_root=root)
+
+    manifest_path = output / "run_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["files"][0]["roles"] = ["T", "Y", "X"]
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(PreprocessingCheckError) as error_info:
+        check_images(load_plane_statistics(output / mbn.OUTPUT_FILENAME), {"control/a.ome.zarr": "ZYX"},
+                     experiment_root=root)
+    (issue,) = error_info.value.issues
+    assert issue.code == "axis_mapping_mismatch"
+    assert "control/a.ome.zarr: given ZYX, preprocessing TYX" in issue.message
 
 
 @needs_preprocessing

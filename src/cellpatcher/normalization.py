@@ -39,6 +39,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 import numpy as np
+from morphobricks_normalization.records import SINGLE
 
 from cellpatcher.axes import normalize_axes
 from cellpatcher.masking import _label_to_2d
@@ -700,10 +701,10 @@ class Normalizer:
         unknown = sorted({
             (metadata[index].get("source_relative_path"), tuple(labels[index][:2]))
             for index in channel_planes
-            if tuple(label or "single" for label in labels[index][:2]) not in self.repeat_groups
+            if tuple(label or SINGLE for label in labels[index][:2]) not in self.repeat_groups
         })
         if unknown:
-            pairs = sorted({"/".join(label or "single" for label in pair) for _, pair in unknown})
+            pairs = sorted({"/".join(label or SINGLE for label in pair) for _, pair in unknown})
             raise PreprocessingCheckError([
                 error(
                     "image_not_in_design",

@@ -35,7 +35,7 @@ def test_labels_above_int32_max_are_a_typed_refusal():
     image = np.zeros((4, 4), dtype=np.uint8)
     labels = np.zeros((4, 4), dtype=np.uint32)
     labels[1:3, 1:3] = 2**31
-    with pytest.raises(LabelRangeError, match="int32 maximum") as info:
+    with pytest.raises(LabelRangeError, match="holds labels above 2147483647") as info:
         run_patching(images=[image], masks=[labels], config=config, image_metadata=named([image]))
     assert info.value.label == 2**31
 
@@ -45,7 +45,7 @@ def test_negative_labels_are_a_typed_refusal():
 
     labels = np.zeros((4, 4), dtype=np.int16)
     labels[0, 0] = -3
-    with pytest.raises(LabelRangeError, match="non-negative") as info:
+    with pytest.raises(LabelRangeError, match="negative labels") as info:
         CellSegmentationStrategy(CellConfig(exclude_border=False)).generate_regions(
             image_shape=(4, 4), labels=labels
         )
