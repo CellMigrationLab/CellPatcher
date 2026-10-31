@@ -91,9 +91,59 @@ def test_a_mask_declared_swapped_is_refused(tmp_path):
     write_tiff(tmp_path / "exp" / "a.tif", image, "YX")
     write_tiff(tmp_path / "masks" / "a_cells.tif", np.ascontiguousarray(labels.T.astype(np.uint16)), "YX")
     with pytest.raises(ValueError, match=r"common.mask_axes='XY' declares Y and X swapped relative to the header "
-                                         r"of 1 mask file\(s\): a_cells.tif. CellPatcher cannot read a mask transposed"):
+                                         r"of 1 mask file\(s\): a_cells.tif \(header axes 'YX'\). CellPatcher "
+                                         r"cannot read a mask transposed") as error_info:
         run_patching_pipeline(str(tmp_path / "exp"), config=_cell_config("YX", "XY"),
                               mask_folder_path=str(tmp_path / "masks"))
+    # The refusal says how to fix the masks (owner decision of 31 October 2026).
+    assert "To fix the masks, save each one with Y before X" in str(error_info.value)
+    assert "numpy.swapaxes(mask, -1, -2)" in str(error_info.value)
+
+
+@pytest.mark.parametrize("mode", ["cell", "random"])
+def test_an_in_memory_mask_with_x_before_y_is_refused(mode):
+    # Before v0.1.2, mask_axes='XY' was ignored for an in-memory mask: the strategies took the
+    # label plane as Y, X in its stored order, so with image_axes='XY' too the patches missed
+    # their objects without a word. A mask is never read transposed: refused, with the fix.
+    image, labels, _ = make_synthetic_cell_image_and_labels(shape=(32, 32))
+    config = _cell_config("XY", "XY")
+    config.mode = mode
+    with pytest.raises(ValueError, match=r"common.mask_axes='XY' puts X before Y, but CellPatcher cannot read a "
+                                         r"mask transposed.*To fix the masks"):
+        run_patching(images=[image], masks=[labels], config=config, image_metadata=named([image]))
+
+
+def test_a_mask_file_whose_header_names_x_before_y_is_refused(tmp_path):
+    # Declared as its header names it, but CellPatcher would still take its first dimension as Y.
+    image, labels, _ = make_synthetic_cell_image_and_labels(shape=(32, 32))
+    write_tiff(tmp_path / "exp" / "a.tif", image, "YX")
+    (tmp_path / "masks").mkdir()
+    tifffile.imwrite(tmp_path / "masks" / "a_cells.tif", labels.astype(np.uint16), metadata={"axes": "XY"})
+    with pytest.raises(ValueError, match=r"common.mask_axes='XY' puts X before Y"):
+        run_patching_pipeline(str(tmp_path / "exp"), config=_cell_config("YX", "XY"),
+                              mask_folder_path=str(tmp_path / "masks"))
+
+
+def test_a_swap_the_preprocessing_run_did_not_declare_is_refused_with_its_statistics(tmp_path):
+    # With a CSV normalization scope, the preprocessing brick's check_sources compares
+    # common.image_axes with the roles the preprocessing run recorded for each file. A Y/X
+    # swap CellPatcher accepts against the header is refused there unless that run declared it
+    # too: the statistics were computed with the other roles (kept as is, owner decision of
+    # 31 October 2026).
+    from cellpatcher.orchestration import run_patching_condition_repeat_tree
+    from cellpatcher.statistics import PreprocessingCheckError
+    from tests.test_normalization import _config, _preprocess, _write_tiff
+
+    root = tmp_path / "experiment"
+    rng = np.random.default_rng(0)
+    for path in ("control/bio1/a.tif", "treated/bio1/b.tif"):
+        _write_tiff(root / path, rng.integers(0, 200, (2, 16, 16), dtype=np.uint8), "ZYX")
+    csv_path = _preprocess(root, tmp_path / "preprocessing", "ZYX")
+    with pytest.raises(PreprocessingCheckError) as error_info:
+        run_patching_condition_repeat_tree(root, config=_config(csv_path, image_axes="ZXY", scope="image"))
+    codes = {issue.code for issue in error_info.value.issues}
+    assert codes == {"axis_mapping_mismatch"}
+    assert "given ZXY, preprocessing ZYX" in str(error_info.value)
 
 
 def test_lazy_delivery_refuses_a_mask_declared_swapped(tmp_path):

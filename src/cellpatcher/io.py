@@ -702,6 +702,42 @@ MASK_CHANNEL_HELP = (
     "axes named (an ImageJ hyperstack or an OME-TIFF)."
 )
 
+MASK_TRANSPOSE_HELP = (
+    "To fix the masks, save each one with Y before X, as its image's patches are read: transpose "
+    "its last two axes, for example tifffile.imwrite(path, numpy.swapaxes(mask, -1, -2), "
+    "metadata={'axes': 'YX'}) ('ZYX' or 'TYX' for a stack), then set common.mask_axes to those "
+    "axes. Setting common.mask_axes to the masks' header axes without saving them again is right "
+    "only if the masks really are stored with Y before X; a mask stored like an image whose Y and "
+    "X are declared swapped would then not match its image. Reading masks transposed is planned "
+    "for a later CellPatcher version."
+)
+
+
+def _swap_y_x(axes: str) -> str:
+    return axes.translate(str.maketrans("YX", "XY"))
+
+
+def refuse_transposed_mask_axes(mask_axes) -> None:
+    """Refuse ``common.mask_axes`` that put X before Y: CellPatcher cannot read a mask transposed.
+
+    The cell and random strategies take a label plane's two dimensions as Y
+    and X in their stored order, so a mask declared with X first (``'XY'``,
+    ``'ZXY'``) would not be read transposed while its image is: the patches
+    would not match their objects (on a square image without any error).
+    Refused, never ignored (owner decision of 31 October 2026), for in-memory
+    masks as for mask files; :data:`MASK_TRANSPOSE_HELP` says how to fix the
+    masks.
+    """
+    if mask_axes is None:
+        return
+    axes = normalize_axes(mask_axes)
+    if "X" in axes and "Y" in axes and axes.index("X") < axes.index("Y"):
+        raise ValueError(
+            f"common.mask_axes={mask_axes!r} puts X before Y, but CellPatcher cannot read a mask "
+            "transposed: it takes a label plane's dimensions as Y, X in their stored order, so the "
+            f"mask would not match its image. {MASK_TRANSPOSE_HELP}"
+        )
+
 
 def refuse_mask_channel_axis(mask_axes) -> None:
     """Refuse ``common.mask_axes`` with a C axis for masks read from a mask folder.
@@ -814,11 +850,12 @@ def refuse_mask_header_axes(mask_paths, mask_axes) -> None:
         names = sorted(Path(path).name for path in transposed)
         raise ValueError(
             f"common.mask_axes={mask_axes!r} declares Y and X swapped relative to the header of "
-            f"{len(names)} mask file(s): {', '.join(names[:10])}{', ...' if len(names) > 10 else ''}. "
-            "CellPatcher cannot read a mask transposed (a label plane's dimensions are taken as Y, X in "
-            "their stored order). Set common.mask_axes to the masks' header axes, or save the masks with "
-            "their Y and X in the image's order."
+            f"{len(names)} mask file(s): {', '.join(names[:10])}{', ...' if len(names) > 10 else ''} "
+            f"(header axes {_swap_y_x(normalize_axes(mask_axes))!r}). CellPatcher cannot read a mask "
+            "transposed: it takes a label plane's dimensions as Y, X in their stored order. "
+            f"{MASK_TRANSPOSE_HELP}"
         )
+    refuse_transposed_mask_axes(mask_axes)  # a header naming X before Y, declared as named
 
 
 def source_relative_path(image_path, experiment_root) -> str:

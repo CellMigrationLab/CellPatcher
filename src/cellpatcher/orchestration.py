@@ -34,6 +34,7 @@ from cellpatcher.io import (
     pair_masks,
     refuse_image_header_axes,
     refuse_mask_header_axes,
+    refuse_transposed_mask_axes,
     read_ngff_mask,
     refuse_mask_channel_axis,
     source_relative_path,
@@ -350,6 +351,7 @@ def _mask_loaders(experiment_root, mask_folder_path, image_files, config, pairin
                 f"{len(not_zarr)} image(s) are not OME-Zarr: {', '.join(not_zarr[:10])}. Use "
                 "common.mask_source='tiff_tree' with a mask folder for them."
             )
+        refuse_transposed_mask_axes(config.common.mask_axes)  # read by role into mask_axes, never transposed
         loaders = [
             functools.partial(read_ngff_mask, image, config.common.mask_label_name, config.common.mask_axes)
             for image in image_files
