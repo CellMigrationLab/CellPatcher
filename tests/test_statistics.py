@@ -29,7 +29,7 @@ from cellpatcher.statistics import (
 
 needs_preprocessing = pytest.mark.skipif(
     importlib.util.find_spec("morphobricks_preprocessing") is None,
-    reason="needs the 'preprocessing' extra",
+    reason="needs morphobricks-preprocessing (a core dependency)",
 )
 
 # Image paths of the simulated experiment: a condition without repeat folders,
