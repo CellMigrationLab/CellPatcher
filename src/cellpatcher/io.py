@@ -702,6 +702,42 @@ MASK_CHANNEL_HELP = (
     "axes named (an ImageJ hyperstack or an OME-TIFF)."
 )
 
+MASK_TRANSPOSE_HELP = (
+    "To fix the masks, save each one with Y before X, as its image's patches are read: transpose "
+    "its last two axes, for example tifffile.imwrite(path, numpy.swapaxes(mask, -1, -2), "
+    "metadata={'axes': 'YX'}) ('ZYX' or 'TYX' for a stack), then set common.mask_axes to those "
+    "axes. Setting common.mask_axes to the masks' header axes without saving them again is right "
+    "only if the masks really are stored with Y before X; a mask stored like an image whose Y and "
+    "X are declared swapped would then not match its image. Reading masks transposed is planned "
+    "for a later CellPatcher version."
+)
+
+
+def _swap_y_x(axes: str) -> str:
+    return axes.translate(str.maketrans("YX", "XY"))
+
+
+def refuse_transposed_mask_axes(mask_axes) -> None:
+    """Refuse ``common.mask_axes`` that put X before Y: CellPatcher cannot read a mask transposed.
+
+    The cell and random strategies take a label plane's two dimensions as Y
+    and X in their stored order, so a mask declared with X first (``'XY'``,
+    ``'ZXY'``) would not be read transposed while its image is: the patches
+    would not match their objects (on a square image without any error).
+    Refused, never ignored (owner decision of 31 October 2026), for in-memory
+    masks as for mask files; :data:`MASK_TRANSPOSE_HELP` says how to fix the
+    masks.
+    """
+    if mask_axes is None:
+        return
+    axes = normalize_axes(mask_axes)
+    if "X" in axes and "Y" in axes and axes.index("X") < axes.index("Y"):
+        raise ValueError(
+            f"common.mask_axes={mask_axes!r} puts X before Y, but CellPatcher cannot read a mask "
+            "transposed: it takes a label plane's dimensions as Y, X in their stored order, so the "
+            f"mask would not match its image. {MASK_TRANSPOSE_HELP}"
+        )
+
 
 def refuse_mask_channel_axis(mask_axes) -> None:
     """Refuse ``common.mask_axes`` with a C axis for masks read from a mask folder.
@@ -719,77 +755,107 @@ def refuse_mask_channel_axis(mask_axes) -> None:
         )
 
 
-def header_axes_disagreement(path, declared_axes: str) -> str | None:
-    """Say how *declared_axes* disagree with the axes a TIFF file's header names, or None.
+def header_axes_disagreement(path, declared_axes: str) -> tuple[str | None, bool]:
+    """Check *declared_axes* against a TIFF file's header with the preprocessing brick's rule.
 
-    The header is read with the preprocessing brick's ``inspect_image`` and its
-    ``tifffile`` letters are given roles with its ``prefill_mapping`` (``S``
-    becomes C when there is no C; ``Q``, ``I`` and other letters get none). A
-    TIFF file is read in its stored order, so the declared letter of every
-    dimension must be the role its header names for it: a ZYX mask declared
-    TYX would read its depth slices as time points. Y and X need only be Y
-    or X (a file declared transposed, ``XY``), and dimensions the header names
-    no role for are not compared. A header naming no role besides Y and X (a
-    plain TIFF: ``tifffile`` calls any page's two axes Y and X) names no axes,
-    and the declared axes are kept, as before. Returns None for a file whose
-    header cannot be read (it is refused where it is read) and for an OME-Zarr
-    image, whose own axes are matched by role when it is read (:func:`conform_axes`).
+    The rule is the brick's ``check_declared_axes`` (its contract §16, shared
+    by every brick; CellPatcher keeps no copy): a declaration may name what
+    the header leaves open (a placeholder axis, and the positional Y and X of
+    a plain stack of pages), never contradict an axis the metadata names,
+    except that the named Y and X may be declared swapped (owner decision of
+    31 October 2026): the file is then read transposed, which the brick's
+    ``declared_axes_transposed`` reports. An OME-Zarr image is not checked
+    here: its own axes are matched by role when it is read
+    (:func:`conform_axes`).
+
+    Returns
+    -------
+    tuple
+        The brick's message when the declaration does not fit the header (or
+        the header cannot be read), else None; and whether the file is read
+        with its named Y and X swapped.
     """
-    from morphobricks_preprocessing import inspect_image, prefill_mapping
+    from morphobricks_preprocessing import check_declared_axes, declared_axes_transposed, inspect_image
 
-    meta = inspect_image(path)
-    if not meta.readable or meta.is_ome_zarr:
-        return None  # OME-Zarr axes are matched by role when read (conform_axes), not by position
+    path = Path(path)
+    meta = inspect_image(path, path.name)
+    if meta.is_ome_zarr:
+        return None, False  # OME-Zarr axes are matched by role when read (conform_axes), not by position
     declared = normalize_axes(declared_axes)
-    roles = prefill_mapping(meta.axes).roles
-    if all(role in (None, "Y", "X") for role in roles):
-        return None  # no axis named besides tifffile's Y and X, which a plain page always has
-    disagree = len(roles) != len(declared) or any(
-        role is not None and (axis not in "YX" if role in "YX" else axis != role)
-        for role, axis in zip(roles, declared)
-    )
-    if not disagree:
-        return None
-    return f"{Path(path).name}: declared axes {declared!r}, header axes {meta.axes!r}"
+    issue = check_declared_axes(meta, declared)
+    if issue is not None:
+        return issue.message, False
+    return None, declared_axes_transposed(meta, declared)
 
 
-def refuse_header_axes(paths, declared_axes, *, setting: str, what: str) -> None:
-    """Refuse *declared_axes* (the setting named *setting*) that disagree with the header axes of *paths*.
+def refuse_header_axes(paths, declared_axes, *, setting: str, what: str) -> set:
+    """Refuse *declared_axes* (the setting named *setting*) that do not fit the header axes of *paths*.
 
     Every file is checked before any is read; all disagreements are listed in
     one message. See :func:`header_axes_disagreement`.
+
+    Returns
+    -------
+    set
+        The paths (as given) read transposed: their header's named Y and X
+        declared swapped.
     """
-    problems = [p for p in (header_axes_disagreement(path, declared_axes) for path in paths) if p]
+    problems, transposed = [], set()
+    for path in paths:
+        problem, swapped = header_axes_disagreement(path, declared_axes)
+        if problem:
+            problems.append(problem)
+        elif swapped:
+            transposed.add(path)
     if problems:
         raise ValueError(
-            f"{setting}={declared_axes!r} disagrees with the axes named in the header of "
-            f"{len(problems)} {what} file(s): {'; '.join(problems[:10])}{'; ...' if len(problems) > 10 else ''}. "
-            f"Axes are never reinterpreted: set {setting} to the {what}s' header axes, or fix the "
-            f"{what}s' metadata."
+            f"{setting}={declared_axes!r} does not fit the header of "
+            f"{len(problems)} {what} file(s): {' '.join(problems[:10])}{' ...' if len(problems) > 10 else ''} "
+            f"Axes are never reinterpreted: set {setting} to the {what}s' header axes"
+            + (" (Y and X may be declared swapped: the image is then read transposed)" if what == "image" else "")
+            + f", or fix the {what}s' metadata."
         )
+    return transposed
 
 
-def refuse_image_header_axes(image_paths, image_axes) -> None:
-    """Refuse ``common.image_axes`` that disagree with an image file's own header axes.
+def refuse_image_header_axes(image_paths, image_axes) -> set:
+    """Refuse ``common.image_axes`` that do not fit an image file's own header axes.
 
     A TIFF image is read in its stored order and then interpreted with
     *image_axes*, so an image whose header names its axes ZYX would, with
     ``image_axes='TYX'``, have its depth slices read as time points (or, with
-    ``'CYX'``, as channels). See :func:`header_axes_disagreement`.
+    ``'CYX'``, as channels). Returns the images read transposed. See
+    :func:`header_axes_disagreement`.
     """
-    refuse_header_axes(image_paths, image_axes, setting="common.image_axes", what="image")
+    return refuse_header_axes(image_paths, image_axes, setting="common.image_axes", what="image")
 
 
 def refuse_mask_header_axes(mask_paths, mask_axes) -> None:
-    """Refuse ``common.mask_axes`` that disagree with a mask file's own header axes.
+    """Refuse ``common.mask_axes`` that do not fit a mask file's own header axes.
 
     A mask TIFF is read in its stored order and then interpreted with
     *mask_axes*, so a mask whose header names its axes ZYX would, with
     ``mask_axes='TYX'``, have its depth slices read as time points: a guessed
     axis. Every mask is checked before any is read; all disagreements are
     listed in one message. See :func:`header_axes_disagreement`.
+
+    A mask declared with its header's Y and X swapped is refused too, although
+    the shared rule accepts it for an image: CellPatcher takes a label plane's
+    two dimensions as Y and X in their stored order, so the mask would not be
+    read transposed while its image is (a square mask would be silently
+    misaligned).
     """
-    refuse_header_axes(mask_paths, mask_axes, setting="common.mask_axes", what="mask")
+    transposed = refuse_header_axes(mask_paths, mask_axes, setting="common.mask_axes", what="mask")
+    if transposed:
+        names = sorted(Path(path).name for path in transposed)
+        raise ValueError(
+            f"common.mask_axes={mask_axes!r} declares Y and X swapped relative to the header of "
+            f"{len(names)} mask file(s): {', '.join(names[:10])}{', ...' if len(names) > 10 else ''} "
+            f"(header axes {_swap_y_x(normalize_axes(mask_axes))!r}). CellPatcher cannot read a mask "
+            "transposed: it takes a label plane's dimensions as Y, X in their stored order. "
+            f"{MASK_TRANSPOSE_HELP}"
+        )
+    refuse_transposed_mask_axes(mask_axes)  # a header naming X before Y, declared as named
 
 
 def source_relative_path(image_path, experiment_root) -> str:

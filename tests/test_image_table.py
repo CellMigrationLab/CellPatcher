@@ -94,6 +94,7 @@ def test_folder_run_lists_images_with_and_without_patches(tmp_path):
         "source_relative_path": "a.tif", "image_height": "96", "image_width": "128",
         "n_patches": "4", "status": "processed", "reason": "",
         "position_id": "a", "n_regions": "4", "n_kept": "4", "n_normalized": "4",
+        "image_read_transposed": "false",
     }
     # The image whose mask holds no cell is listed, not dropped.
     assert by_file["b.tif"]["n_patches"] == "0"

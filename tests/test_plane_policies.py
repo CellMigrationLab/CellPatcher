@@ -246,7 +246,7 @@ def test_mask_axes_that_disagree_with_the_mask_header_are_refused(tmp_path):
     write_tiff(mask_folder / "a_cells.tif", mask, "ZYX")
     config = _cell_config(image_axes="TYX", mask_axes="TYX", t_policy="all")
 
-    with pytest.raises(ValueError, match=r"declared axes 'TYX', header axes 'ZYX'"):
+    with pytest.raises(ValueError, match=r"axes declared for a_cells.tif \('TYX'\) do not fit the axes in its header \('ZYX'\)"):
         run_patching_pipeline(str(image_folder), config=config, mask_folder_path=str(mask_folder))
 
 
@@ -267,7 +267,7 @@ def test_image_axes_that_disagree_with_the_image_header_are_refused(tmp_path):
     # time points; declared CYX, as channels. Refused naming both the declared and the header axes.
     write_tiff(tmp_path / "exp" / "a.tif", _stack(), "ZYX")
     for declared, policy in (("TYX", {"t_policy": "all"}), ("CYX", {})):
-        with pytest.raises(ValueError, match=rf"common.image_axes='{declared}'.*declared axes '{declared}', header axes 'ZYX'"):
+        with pytest.raises(ValueError, match=rf"common.image_axes='{declared}'.*axes declared for a.tif \('{declared}'\) do not fit the axes in its header \('ZYX'\)"):
             run_patching_pipeline(str(tmp_path / "exp"), config=_grid_config(image_axes=declared, **policy))
 
 
@@ -279,7 +279,7 @@ def test_image_axes_are_checked_for_every_tree_leaf_before_any_leaf_runs(tmp_pat
     write_tiff(root / "b_cond" / "r1" / "b.tif", _stack(), "ZYX")  # a later leaf disagrees
     config = _grid_config(image_axes="TYX", t_policy="all")
     config.common.output_dir = str(tmp_path / "out")
-    with pytest.raises(ValueError, match=r"b.tif: declared axes 'TYX', header axes 'ZYX'"):
+    with pytest.raises(ValueError, match=r"axes declared for b.tif \('TYX'\) do not fit the axes in its header \('ZYX'\)"):
         run_patching_condition_repeat_tree(str(root), config=config)
     assert not (tmp_path / "out").exists()  # no leaf ran
 
@@ -305,11 +305,11 @@ def test_lazy_delivery_refuses_image_and_mask_files_whose_header_disagrees(tmp_p
     write_tiff(tmp_path / "z.tif", _stack(), "ZYX")
     config = _grid_config(image_axes="TYX", t_policy="all")
     np.testing.assert_array_equal(patch_array(patch, tmp_path / "exp" / "a.tif", config), result.patch_arrays[0])
-    with pytest.raises(ValueError, match=r"common.image_axes='TYX'.*header axes 'ZYX'"):
+    with pytest.raises(ValueError, match=r"common.image_axes='TYX'.*z.tif \('TYX'\) do not fit the axes in its header \('ZYX'\)"):
         patch_array(patch, tmp_path / "z.tif", config)
     mask = np.ones((3, 16, 16), dtype=np.uint16)
     write_tiff(tmp_path / "m.tif", mask, "ZYX")
     config.common.mask_axes = "TYX"
     config.extraction.apply_mask = True
-    with pytest.raises(ValueError, match=r"common.mask_axes='TYX'.*header axes 'ZYX'"):
+    with pytest.raises(ValueError, match=r"common.mask_axes='TYX'.*m.tif \('TYX'\) do not fit the axes in its header \('ZYX'\)"):
         patch_array(patch, tmp_path / "exp" / "a.tif", config, mask=tmp_path / "m.tif")

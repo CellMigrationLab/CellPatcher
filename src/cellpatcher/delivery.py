@@ -32,7 +32,13 @@ import numpy as np
 
 from cellpatcher.axes import normalize_axes
 from cellpatcher.extract import extract_patch
-from cellpatcher.io import read_array, read_image, refuse_image_header_axes, refuse_mask_header_axes
+from cellpatcher.io import (
+    read_array,
+    read_image,
+    refuse_image_header_axes,
+    refuse_mask_header_axes,
+    refuse_transposed_mask_axes,
+)
 from cellpatcher.masking import apply_label_mask_to_patch
 from cellpatcher.normalization import PatchNormalization, parameters_from_row
 from cellpatcher.planes import apply_plane_choice, patch_plane_choice, read_file_plane, select_mask_plane
@@ -212,6 +218,7 @@ def _mask_plane(mask, choice, config):
         refuse_mask_header_axes([mask], common.mask_axes)
         mask = read_image(mask, common.mask_axes)
     else:
+        refuse_transposed_mask_axes(common.mask_axes)
         mask = np.asarray(mask)
     return select_mask_plane(mask, normalize_axes(common.mask_axes, mask.ndim), choice)
 

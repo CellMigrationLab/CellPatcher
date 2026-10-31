@@ -27,6 +27,7 @@ from cellpatcher.io import (
     SINGLE_BIOLOGICAL_REPEAT_LABEL,
     SINGLE_CONDITION_LABEL,
     SINGLE_TECHNICAL_REPEAT_LABEL,
+    refuse_transposed_mask_axes,
 )
 from cellpatcher.masking import apply_label_masks_to_patches
 from cellpatcher.delivery import raw_export_array
@@ -242,6 +243,7 @@ def _image_record(config: CellPatcherConfig, image_id: str, meta, image_shape=No
         image_height=height,
         image_width=width,
         position_id=None if meta.get("position_id") is None else str(meta["position_id"]),
+        image_read_transposed=meta.get("image_read_transposed"),
     )
 
 
@@ -964,6 +966,8 @@ def run_patching(images=None, masks=None, config=None, image_metadata=None, frac
     if images is not None:
         _check_split_channels(config, _normalize_images(images))
         image_metadata = _identity_metadata(config, _normalize_images(images), image_metadata)
+    if masks is not None:
+        refuse_transposed_mask_axes(config.common.mask_axes)  # a mask is never read transposed
     if config.mode == "cell" and masks is not None:
         _refuse_masking_computed_labels(config, _normalize_masks(masks))
     if fraction_masks is not None:
