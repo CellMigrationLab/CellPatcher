@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased] - read_patch_table checks the table's structure
+
+### Changed
+- `cellpatcher.read_patch_table` checks a `patches.csv`'s CSV structure before reading any value,
+  and refuses (`PatchTableError`), naming the line or column:
+  - a row with fewer cells than the header has columns (before, the missing cells were read as
+    empty, so an optional field became None);
+  - an unclosed quote: at the end of the table (before, the cell was read with a line break in
+    it), or one that swallows the following lines into one cell (before, those rows were lost
+    without a message); CellPatcher never writes a cell holding a line break;
+  - a column name with leading or trailing whitespace (before, refused as a column CellPatcher
+    does not write), and a repeated column name, now with its column positions.
+  Blank lines are still skipped.
+
 ## [Unreleased] - Dependencies: preprocessing v0.3.4
 
 ### Changed
