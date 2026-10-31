@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased] - Patch rectangle and region-mask checks for other bricks (D86, C3)
+
+### Added
+- `cellpatcher.check_patch_bounds(bounds, shape)` and `cellpatcher.check_region_mask(mask, shape)`:
+  the checks the feature bricks made on the patches MorphoFeature hands them, in one place.
+  Bounds `(y0, y1, x0, x1)` must be four integers (floats such as `4.0` are refused, never
+  converted), a non-empty rectangle, inside the plane; a region mask must be an integer or
+  boolean array of the plane's shape (`cellpatcher.PatchBoundsError`).
+
 ## [Unreleased] - Reading patches.csv back (D86, C2)
 
 ### Added

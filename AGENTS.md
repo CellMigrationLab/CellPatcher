@@ -353,7 +353,9 @@ Two ways to point CellPatcher at input data:
   `patches.csv` as typed `PatchRegion` objects plus its `run_config.json`
   (the inverse of `save_metadata_csv`); `cellpatcher.object_sides`/
   `border_labels`/`object_boxes` give object bounding boxes of an instance
-  mask, the ones `scan_cell_objects` uses.
+  mask, the ones `scan_cell_objects` uses; `cellpatcher.check_patch_bounds`/
+  `check_region_mask` check the rectangles and region masks MorphoFeature
+  hands the feature bricks (integers only, non-empty, inside the plane).
 - Consumed downstream by feature-extraction repos — currently
   [fiberfeatures](https://github.com/CellMigrationLab/fiberfeatures/tree/main)
   (an early starting point, expected to change), and in future by other
