@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased] - Dependencies: preprocessing v0.3.4
+
+### Changed
+- CellPatcher requires `morphobricks-preprocessing` `v0.3.4` (also in the `zarr` extra) and still
+  declares `morphobricks-normalization` `v0.3.2`, the tag preprocessing `v0.3.4` pins (owner
+  decision D-h; `tests/test_dependency_pins.py` checks that the two pins agree).
+- With `normalization.scope='biological_repeat'`, an `experiment_design.csv` whose
+  `repeat_group` is empty, `NA`-like (`NA`, `nan`, `none`, `null`, `n/a`, `<NA>`, any case),
+  has leading or trailing spaces or is spelled with different case in different rows, or whose
+  `confirmed_on` is not empty or a `YYYY-MM-DD` date, is now refused naming the line and column
+  (`unreadable_experiment_design`; preprocessing v0.3.4, owner decision of 31 October 2026).
+
 ## [Unreleased] - Legacy functions and options removed (D86, CP-2/CP-5/CP-6)
 
 ### Removed (breaking)
