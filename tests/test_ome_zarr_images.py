@@ -1,7 +1,7 @@
 """OME-Zarr images (folders ending in ``.zarr``): discovery, reading, axes and patching.
 
-See docs/normalization_contract.md §2. Reading needs the ``preprocessing``
-extra (with ``zarr``); those tests skip without it.
+See docs/normalization_contract.md §2. Reading needs the ``zarr`` extra;
+those tests skip without it.
 """
 
 import importlib.util
@@ -27,7 +27,7 @@ from tests.helpers import write_ngff
 
 needs_zarr = pytest.mark.skipif(
     importlib.util.find_spec("morphobricks_preprocessing") is None or importlib.util.find_spec("zarr") is None,
-    reason="needs the 'preprocessing' extra with zarr",
+    reason="needs the 'zarr' extra",
 )
 
 def _fake_store(path):
@@ -89,8 +89,9 @@ def test_writing_a_store_is_refused(tmp_path):
 
 
 def test_reading_a_store_without_the_extra_names_the_install_command(tmp_path, monkeypatch):
-    monkeypatch.setitem(sys.modules, "morphobricks_preprocessing", None)
-    with pytest.raises(PreprocessingUnavailableError, match="cellpatcher\\[preprocessing\\]"):
+    # The preprocessing brick is a core dependency; only its zarr reader is the "zarr" extra (CP-6).
+    monkeypatch.setitem(sys.modules, "zarr", None)
+    with pytest.raises(PreprocessingUnavailableError, match="cellpatcher\\[zarr\\]"):
         read_array(_fake_store(tmp_path / "a.ome.zarr"))
 
 

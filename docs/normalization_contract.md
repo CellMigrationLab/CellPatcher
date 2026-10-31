@@ -48,7 +48,7 @@ brick's
 
 | Rule | Detail |
 |---|---|
-| Extra | `pip install "cellpatcher[preprocessing]"` installs `morphobricks-preprocessing[zarr]` and the `morphobricks-normalization` it requires. It is never a core dependency. Histograms, the plane table, plane IDs, pooling and normalization parameters, which moved to the normalization brick, are imported from `morphobricks_normalization`. |
+| Dependencies | `morphobricks-preprocessing` and `morphobricks-normalization` are core dependencies, pinned to tags in `setup.py`; normalization at the tag the preprocessing tag pins (owner decision D-h, checked by `tests/test_dependency_pins.py`). The `zarr` extra (`pip install "cellpatcher[zarr]"`, formerly `preprocessing`) installs `morphobricks-preprocessing[zarr]` at the same tag, for OME-Zarr images. Histograms, the plane table, plane IDs, pooling and normalization parameters, which moved to the normalization brick, are imported from `morphobricks_normalization`. |
 | Version | Installed from GitHub at a pinned commit or tag, recorded in `setup.py` and raised deliberately. |
 | Formats | Reads `plane_histograms.csv` schema version `2` (every row has `z`, `c` and `t`) and `run_manifest.json` manifest version `1`; any other version is an error. |
 | Needed for | Normalization (every scope), OME-Zarr images and labels, and plane-by-plane image reading. |

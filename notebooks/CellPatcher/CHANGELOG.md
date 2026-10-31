@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased] - Dependencies: preprocessing v0.3.3, normalization declared (D86)
+
+### Changed
+- CellPatcher requires `morphobricks-preprocessing` `v0.3.3` and declares
+  `morphobricks-normalization` `v0.3.2`, the tag preprocessing `v0.3.3` pins (owner decision
+  D-h; a test checks that the two pins agree). Preprocessing `v0.3.3` refuses folder and image
+  names with leading or trailing spaces, or named `NA`, `nan`, `none`, `null`, `n/a` or `<NA>`
+  (any case), and names of one level that differ only in case anywhere in the experiment.
+- The `preprocessing` extra is now called `zarr`: install OME-Zarr support with
+  `pip install "cellpatcher[zarr]"`. The preprocessing brick has been a core dependency since
+  issue #45, so normalization needs no extra.
+
+### Deprecated
+- `cellpatcher.require_preprocessing()` warns and will be removed in v0.2.0: import
+  `morphobricks_preprocessing` directly.
+
 ## [Unreleased] - Image/mask pairing of the preprocessing brick (issue #45)
 
 ### Changed

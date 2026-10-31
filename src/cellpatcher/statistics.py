@@ -13,16 +13,17 @@ run before any patch is normalized:
   labels, ``dtype``, pixel count, exact finite extrema and finite pixel count.
 
 Reading, histograms, plane identifiers and messages all come from the
-MorphoBricks bricks of the optional ``preprocessing`` extra: the plane table,
+MorphoBricks bricks, core dependencies of CellPatcher: the plane table,
 histograms and plane identifiers from ``morphobricks_normalization`` (where
 the preprocessing brick moved them), images, the manifest and messages from
-``morphobricks_preprocessing``. This module only links and compares. It
-imports without the extra; each function raises
-:class:`PreprocessingUnavailableError` when the extra is missing.
+``morphobricks_preprocessing``. This module only links and compares. Each
+function raises :class:`PreprocessingUnavailableError` when the installed
+bricks read other file versions than this CellPatcher.
 """
 
 from __future__ import annotations
 
+import warnings
 from collections import defaultdict
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
@@ -39,7 +40,10 @@ if TYPE_CHECKING:
     from morphobricks_normalization import PlaneRecord
     from morphobricks_preprocessing import AxisMapping, RunManifest, ValidationIssue
 
-INSTALL_COMMAND = 'pip install "cellpatcher[preprocessing]"'
+# The optional part of the preprocessing brick: its OME-Zarr reader (zarr).
+# The brick itself is a core dependency (CP-6 of the D86 audit), so this extra,
+# named ``preprocessing`` before, is now ``zarr``.
+INSTALL_COMMAND = 'pip install "cellpatcher[zarr]"'
 
 # Versions of plane_histograms.csv and run_manifest.json this CellPatcher reads
 # (contract §1). The installed preprocessing package must read the same ones.
@@ -57,7 +61,7 @@ _RERUN_ACTION = "Run the preprocessing brick again so its statistics describe th
 
 
 class PreprocessingUnavailableError(ImportError):
-    """The ``preprocessing`` extra is not installed, or installed in a version CellPatcher cannot use."""
+    """The ``zarr`` extra is missing for an OME-Zarr image, or a brick is installed in a version CellPatcher cannot use."""
 
 
 class PreprocessingCheckError(ValueError):
@@ -76,49 +80,65 @@ class PreprocessingCheckError(ValueError):
         super().__init__("\n".join(str(issue) for issue in self.issues))
 
 
-def require_preprocessing() -> ModuleType:
-    """Return the ``morphobricks_preprocessing`` package.
+def _preprocessing() -> ModuleType:
+    """Return the ``morphobricks_preprocessing`` package, checked for the file versions CellPatcher reads.
 
     Raises
     ------
     PreprocessingUnavailableError
-        If the ``preprocessing`` extra is not installed, or the installed
-        package reads other file versions than this CellPatcher supports.
+        If the installed bricks read other versions of ``plane_histograms.csv``
+        or ``run_manifest.json`` than this CellPatcher (an install other than
+        the pinned tags).
     """
-    try:
-        import morphobricks_preprocessing
-        from morphobricks_normalization.csv_io import SCHEMA_VERSION
-        from morphobricks_preprocessing.manifest import MANIFEST_VERSION
-    except ImportError as exc:
-        raise PreprocessingUnavailableError(
-            "Using the statistics of the preprocessing brick needs the optional 'preprocessing' "
-            "extra (morphobricks-preprocessing with morphobricks-normalization), which is not "
-            f"installed or is an older version. Install it with: {INSTALL_COMMAND}"
-        ) from exc
+    import morphobricks_preprocessing
+    from morphobricks_normalization.csv_io import SCHEMA_VERSION
+    from morphobricks_preprocessing.manifest import MANIFEST_VERSION
+
     if (SCHEMA_VERSION, MANIFEST_VERSION) != (SUPPORTED_SCHEMA_VERSION, SUPPORTED_MANIFEST_VERSION):
         raise PreprocessingUnavailableError(
             f"The installed morphobricks-preprocessing reads plane_histograms.csv version "
             f"{SCHEMA_VERSION!r} and run_manifest.json version {MANIFEST_VERSION!r}, but this "
-            f"CellPatcher reads version {SUPPORTED_SCHEMA_VERSION!r} of both. Install the version "
-            f"CellPatcher is tested with: {INSTALL_COMMAND}"
+            f"CellPatcher reads version {SUPPORTED_SCHEMA_VERSION!r} of both. Reinstall CellPatcher, "
+            "which installs the versions it is tested with."
         )
     return morphobricks_preprocessing
 
 
-def require_normalization() -> ModuleType:
-    """Return the ``morphobricks_normalization`` package.
+def require_preprocessing() -> ModuleType:
+    """Return the ``morphobricks_preprocessing`` package (deprecated).
 
-    Plane histograms, the ``plane_histograms.csv`` reader, plane identifiers,
-    pooling and normalization parameters moved there from the preprocessing
-    brick, whose old import paths only warn and forward. The ``preprocessing``
-    extra installs it.
+    The preprocessing brick is a core dependency of CellPatcher, so there is
+    nothing to require: import ``morphobricks_preprocessing`` directly. This
+    function warns and will be removed in CellPatcher v0.2.0.
 
     Raises
     ------
     PreprocessingUnavailableError
-        As :func:`require_preprocessing`.
+        If the installed bricks read other file versions than this CellPatcher.
     """
-    require_preprocessing()
+    warnings.warn(
+        "cellpatcher.statistics.require_preprocessing is deprecated and will be removed in CellPatcher "
+        "v0.2.0: morphobricks-preprocessing is a core dependency, import morphobricks_preprocessing directly.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return _preprocessing()
+
+
+def require_normalization() -> ModuleType:
+    """Return the ``morphobricks_normalization`` package, checked like :func:`_preprocessing`.
+
+    Plane histograms, the ``plane_histograms.csv`` reader, plane identifiers,
+    pooling and normalization parameters moved there from the preprocessing
+    brick, whose old import paths only warn and forward. CellPatcher declares
+    it at the tag the preprocessing brick pins.
+
+    Raises
+    ------
+    PreprocessingUnavailableError
+        As :func:`_preprocessing`.
+    """
+    _preprocessing()
     import morphobricks_normalization
 
     return morphobricks_normalization
@@ -352,7 +372,7 @@ def load_plane_statistics(plane_histograms, manifest=None) -> PlaneStatistics:
     Raises
     ------
     PreprocessingUnavailableError
-        If the ``preprocessing`` extra is not installed.
+        If the installed bricks read other file versions than this CellPatcher.
     FileNotFoundError
         If the table, or an explicitly given manifest, does not exist.
     PreprocessingCheckError
@@ -360,7 +380,7 @@ def load_plane_statistics(plane_histograms, manifest=None) -> PlaneStatistics:
         has duplicate planes or no rows, or (with a manifest) the table is
         not the one the manifest was written with.
     """
-    mbp = require_preprocessing()
+    mbp = _preprocessing()
     mbn = require_normalization()
     from morphobricks_normalization.csv_io import CsvFormatError
     from morphobricks_preprocessing.manifest import file_sha256
@@ -463,7 +483,7 @@ def check_images(
     PreprocessingCheckError
         If any check fails; the message lists every failure.
     """
-    mbp = require_preprocessing()
+    mbp = _preprocessing()
     from morphobricks_preprocessing.manifest import source_fingerprint
     from morphobricks_preprocessing.validation import error, plural
 
@@ -653,13 +673,13 @@ def recorded_image_type(plane_histograms, manifest=None) -> str | None:
     Raises
     ------
     PreprocessingUnavailableError
-        If the ``preprocessing`` extra is not installed.
+        If the installed bricks read other file versions than this CellPatcher.
     FileNotFoundError
         If an explicitly given manifest does not exist.
     PreprocessingCheckError
         If the manifest cannot be read or has an unsupported version.
     """
-    mbp = require_preprocessing()
+    mbp = _preprocessing()
     csv_path = Path(plane_histograms).expanduser()
     manifest_path = _manifest_path(csv_path, manifest, mbp.MANIFEST_FILENAME)
     if manifest_path is None:

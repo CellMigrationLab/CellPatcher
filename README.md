@@ -94,7 +94,8 @@ Open the notebook in Colab:
   - tests: `python -m pip install -e .[test]`
   - notebooks: `python -m pip install -e .[notebook]`
   - optional Torch adapter: `python -m pip install -e .[torch]`
-  - normalization and OME-Zarr images (MorphoBricks preprocessing): `python -m pip install -e .[preprocessing]`
+  - OME-Zarr images: `python -m pip install -e .[zarr]` (the MorphoBricks preprocessing and
+    normalization bricks, used for discovery, pairing and normalization, are core dependencies)
 - `requirements.txt` remains a pinned notebook/tooling environment snapshot.
 
 **Google Colab (private repo):**
@@ -110,7 +111,7 @@ token = userdata.get("GITHUB_TOKEN")
 encoded = quote(token, safe="")
 subprocess.run([
     sys.executable, "-m", "pip", "install", "-q",
-    f"cellpatcher[preprocessing] @ git+https://x-access-token:{encoded}@github.com/CellMigrationLab/CellPatcher.git",
+    f"cellpatcher[zarr] @ git+https://x-access-token:{encoded}@github.com/CellMigrationLab/CellPatcher.git",
 ], check=True)
 ```
 

@@ -26,9 +26,9 @@ fi
 PROJECT_ROOT="$PREFIX/CellPatcher"
 if [ -f "$PROJECT_ROOT/setup.py" ]; then
     echo "Found setup.py, installing CellPatcher package locally" >> "$PREFIX/menuinst_debug.log" 
-    # With the "preprocessing" extra (normalization and OME-Zarr images); it is
+    # With the "zarr" extra (OME-Zarr images); the MorphoBricks bricks are
     # fetched from GitHub with the git bundled in environment.yaml.
-    "$PREFIX/bin/python" -m pip install "${PROJECT_ROOT}[preprocessing]" >> "$PREFIX/menuinst_debug.log"
+    "$PREFIX/bin/python" -m pip install "${PROJECT_ROOT}[zarr]" >> "$PREFIX/menuinst_debug.log"
 else
     echo "No setup.py detected, skipping local pip install" >> "$PREFIX/menuinst_debug.log"
 fi

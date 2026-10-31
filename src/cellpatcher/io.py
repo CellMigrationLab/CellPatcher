@@ -7,8 +7,9 @@ import numpy as np
 from cellpatcher._deprecation import accept_deprecated_repeat
 from cellpatcher.axes import normalize_axes
 
-# ".zarr" is an OME-Zarr image: a folder, read with the preprocessing extra
-# (docs/normalization_contract.md §2); every other extension is a file.
+# ".zarr" is an OME-Zarr image: a folder, read with the preprocessing brick's
+# reader and the ``zarr`` extra (docs/normalization_contract.md §2); every other
+# extension is a file.
 ZARR_SUFFIX = ".zarr"
 
 # The images CellPatcher discovers: those of the preprocessing brick's
@@ -448,13 +449,11 @@ def channel_names(path) -> tuple[str | None, ...]:
     """The channel names an OME-TIFF or OME-Zarr image records, read from its header; () when unknown.
 
     Only the header is read, with the preprocessing brick's reader. Other
-    formats, files whose header names no channel, and installs without the
-    ``preprocessing`` extra give (); the names are for display only.
+    formats and files whose header names no channel give (); the names are
+    for display only.
     """
-    try:
-        from morphobricks_preprocessing.metadata import inspect_image
-    except ImportError:
-        return ()
+    from morphobricks_preprocessing.metadata import inspect_image
+
     header = inspect_image(path)
     return tuple(header.channel_names) if header.readable else ()
 
@@ -472,15 +471,15 @@ def read_ome_zarr(path) -> tuple[np.ndarray, str]:
     Raises
     ------
     cellpatcher.statistics.PreprocessingUnavailableError
-        If the ``preprocessing`` extra (with ``zarr``) is not installed.
+        If the ``zarr`` extra is not installed.
     ValueError
         If the folder is not an OME-Zarr image that can be read, or holds
         more than one image (several positions, series or wells), which is
         an error as in the preprocessing brick.
     """
-    from cellpatcher.statistics import INSTALL_COMMAND, PreprocessingUnavailableError, require_preprocessing
+    from cellpatcher.statistics import INSTALL_COMMAND, PreprocessingUnavailableError, _preprocessing
 
-    mbp = require_preprocessing()
+    mbp = _preprocessing()
     path = Path(path).expanduser()
     if not path.is_dir():
         raise ValueError(f"OME-Zarr image does not exist: {path}")
@@ -520,14 +519,14 @@ def read_ngff_mask(path, label_name: str | None, axes: str) -> tuple[np.ndarray,
     Raises
     ------
     cellpatcher.statistics.PreprocessingUnavailableError
-        If the ``preprocessing`` extra (with ``zarr``) is not installed.
+        If the ``zarr`` extra is not installed.
     ValueError
         If the image has no such label image, the name is ambiguous, or the
         label image does not fit the image.
     """
-    from cellpatcher.statistics import INSTALL_COMMAND, PreprocessingUnavailableError, require_preprocessing
+    from cellpatcher.statistics import INSTALL_COMMAND, PreprocessingUnavailableError, _preprocessing
 
-    mbp = require_preprocessing()
+    mbp = _preprocessing()
     path = Path(path).expanduser()
     try:
         image = mbp.open_ngff(path)

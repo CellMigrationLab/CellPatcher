@@ -38,7 +38,7 @@ from cellpatcher.normalization import (
     split_channel_normalization,
     validate_normalization,
 )
-from cellpatcher.statistics import require_preprocessing
+from cellpatcher.statistics import _preprocessing
 from cellpatcher.planes import iter_image_planes, plane_choices, splits_planes
 from cellpatcher.resize import normalize_output_size, resize_patches
 from cellpatcher.strategies.base import _spatial_shape_from_axes
@@ -545,7 +545,7 @@ def _check_eager_memory(config: CellPatcherConfig, image_list, patches) -> None:
         estimate += others * height * width * np.dtype(np.float32).itemsize
     held = _EAGER_BYTES_HELD.get()
     if held + estimate > settings.memory_limit:
-        format_bytes = require_preprocessing().planes.format_bytes
+        format_bytes = _preprocessing().planes.format_bytes
         raise ValueError(
             f"Keeping the normalized patches in memory needs about {format_bytes(held + estimate)}, more than "
             f"normalization.memory_limit ({format_bytes(settings.memory_limit)}). Use "
