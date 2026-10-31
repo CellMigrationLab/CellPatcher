@@ -163,3 +163,78 @@ def test_every_unknown_column_is_named(tmp_path):
     with pytest.raises(PatchTableError) as error:
         read_patch_table(path)
     assert "columns CellPatcher does not write: ['colour', 'notes', 'Normalization_Offset_C0x']" in str(error.value)
+
+
+# CSV structure (owner decision of 2026-10-31, CellPatcher v0.1.2): MorphoRelate
+# checked it itself before calling read_patch_table. Nothing is filled in, shifted or lost.
+
+
+def _write_text(path, text):
+    path.write_text(text, encoding="utf-8", newline="")
+    return path
+
+
+def test_a_short_row_is_refused_not_read_with_empty_cells(tmp_path):
+    # Before v0.1.2 the missing condition was read as None.
+    path = _write_text(tmp_path / "patches.csv", "patch_id,y0,y1,x0,x1,condition\np,0,4,0,4,ctrl\nq,0,4,0,4\n")
+    with pytest.raises(PatchTableError, match=r"line 3: 1 fewer cell\(s\) than the header has columns \(5 for 6\)"):
+        read_patch_table(path)
+
+
+def test_an_unclosed_quote_that_swallows_the_next_rows_is_refused(tmp_path):
+    # Before v0.1.2 rows q and r became part of p's condition: one patch read, two lost.
+    path = _write_text(
+        tmp_path / "patches.csv",
+        'patch_id,y0,y1,x0,x1,condition\np,0,4,0,4,"ctrl\nq,0,4,0,4,ctrl\nr,0,4,0,4,ctrl"\n',
+    )
+    with pytest.raises(PatchTableError, match=r"line 2, column 'condition': a quoted cell runs over several lines"):
+        read_patch_table(path)
+
+
+def test_an_unclosed_quote_at_the_end_of_the_table_is_refused(tmp_path):
+    # Before v0.1.2 the last row's condition was read as 'ctrl\n'.
+    path = _write_text(tmp_path / "patches.csv", 'patch_id,y0,y1,x0,x1,condition\np,0,4,0,4,"ctrl\n')
+    with pytest.raises(PatchTableError, match=r"line 2: not a well-formed CSV row .*quote is not closed"):
+        read_patch_table(path)
+
+
+def test_a_padded_column_name_is_named_as_padded(tmp_path):
+    path = _write(tmp_path / "patches.csv", ["patch_id", "y0", "y1", "x0", "x1", " condition"],
+                  [["p", "0", "4", "0", "4", "ctrl"]])
+    with pytest.raises(PatchTableError) as error:
+        read_patch_table(path)
+    message = str(error.value)
+    assert "column 6 ' condition' has leading or trailing whitespace" in message
+    assert "does not write" not in message
+
+
+def test_a_padded_required_column_name_is_named_as_padded(tmp_path):
+    path = _write(tmp_path / "patches.csv", ["patch_id ", "y0", "y1", "x0", "x1"], [["p", "0", "4", "0", "4"]])
+    with pytest.raises(PatchTableError, match=r"column 1 'patch_id ' has leading or trailing whitespace"):
+        read_patch_table(path)
+
+
+def test_a_duplicate_column_is_named_with_its_positions(tmp_path):
+    path = _write(tmp_path / "patches.csv", ["patch_id", "y0", "y1", "x0", "x1", "condition", "condition"],
+                  [["p", "0", "4", "0", "4", "a", "b"]])
+    with pytest.raises(PatchTableError, match=r"duplicate column 'condition' \(columns 6, 7\)"):
+        read_patch_table(path)
+
+
+def test_every_structural_problem_is_listed(tmp_path):
+    path = _write_text(
+        tmp_path / "patches.csv",
+        "patch_id,y0,y1,x0,x1,x1, label_id\np,0,4,0,4,4,1\nq,0,4\nr,0,4,0,4,4,1,9\n",
+    )
+    with pytest.raises(PatchTableError) as error:
+        read_patch_table(path)
+    message = str(error.value)
+    for part in ("column 7 ' label_id'", "duplicate column 'x1' (columns 5, 6)", "line 3: 4 fewer",
+                 "line 4: 1 more"):
+        assert part in message
+
+
+def test_blank_lines_are_still_skipped(tmp_path):
+    path = _write_text(tmp_path / "patches.csv", "patch_id,y0,y1,x0,x1\np,0,4,0,4\n\nq,0,4,0,4\n")
+    patches, _ = read_patch_table(path)
+    assert [patch.patch_id for patch in patches] == ["p", "q"]

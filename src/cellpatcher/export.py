@@ -282,6 +282,67 @@ def _read_run_config(csv_path: Path, names: set[str], problems: list[str]):
     return run_config
 
 
+def _table_cells(path: Path) -> tuple[list[str], list[tuple[int, dict]]]:
+    """The header and the rows (with their line numbers) of a ``patches.csv``, as written.
+
+    The table's structure is checked before any value is read, so a cell is
+    never shifted to another column, filled in or lost: an unclosed quote
+    (which would swallow the following lines into one cell), a quoted cell
+    holding a line break (CellPatcher writes none), a row with fewer or more
+    cells than the header has columns, a repeated column name and a column
+    name with leading or trailing whitespace are refused, naming the line or
+    the column. Blank lines are skipped, as before.
+
+    Raises
+    ------
+    PatchTableError
+        Listing every structural problem.
+    """
+    problems: list[str] = []
+    records: list[tuple[int, list[str]]] = []
+    with path.open(newline="", encoding="utf-8") as handle:
+        reader = csv.reader(handle, strict=True)
+        start = 1
+        try:
+            for cells in reader:
+                records.append((start, cells))
+                start = reader.line_num + 1
+        except csv.Error as exc:
+            problems.append(
+                f"line {start}: not a well-formed CSV row ({exc}); a cell's quote is not closed, "
+                "or a quote stands inside a cell"
+            )
+    records = [(line, cells) for line, cells in records if cells]  # blank lines
+    header = records[0][1] if records else []
+    for index, name in enumerate(header, start=1):
+        if name != name.strip():
+            problems.append(f"column {index} {name!r} has leading or trailing whitespace")
+    positions: dict[str, list[int]] = {}
+    for index, name in enumerate(header, start=1):
+        positions.setdefault(name, []).append(index)
+    for name, indices in positions.items():
+        if len(indices) > 1:
+            problems.append(f"duplicate column {name!r} (columns {', '.join(map(str, indices))})")
+    rows: list[tuple[int, dict]] = []
+    for line, cells in records[1:]:
+        for index, cell in enumerate(cells[: len(header)]):
+            if "\n" in cell or "\r" in cell:
+                problems.append(
+                    f"line {line}, column {header[index]!r}: a quoted cell runs over several lines "
+                    "(an unclosed quote?)"
+                )
+        if len(cells) != len(header):
+            difference = len(cells) - len(header)
+            problems.append(
+                f"line {line}: {abs(difference)} {'more' if difference > 0 else 'fewer'} cell(s) than "
+                f"the header has columns ({len(cells)} for {len(header)})"
+            )
+        rows.append((line, dict(zip(header, cells))))
+    if problems:
+        raise PatchTableError(f"{path}: " + "; ".join(problems))
+    return header, rows
+
+
 def read_patch_table(csv_path) -> tuple[list[PatchRegion], dict | None]:
     """Read a ``patches.csv`` back as :class:`PatchRegion` objects, with its ``run_config.json``.
 
@@ -301,7 +362,10 @@ def read_patch_table(csv_path) -> tuple[list[PatchRegion], dict | None]:
     table written before the rename is read as ``biological_repeat`` with a
     ``DeprecationWarning``. A column CellPatcher does not write, and two rows
     with one ``patch_id``, are refused. A column the table lacks (a table
-    written before it was added) leaves the field at its default.
+    written before it was added) leaves the field at its default. The
+    table's structure is checked first: an unclosed quote, a row with fewer
+    or more cells than the header, and a repeated or padded column name are
+    refused, naming the line or column, never filled in or shifted.
 
     Parameters
     ----------
@@ -323,31 +387,29 @@ def read_patch_table(csv_path) -> tuple[list[PatchRegion], dict | None]:
         (a ``ValueError``) listing every problem: a missing column
         (``patch_id``, ``y0``, ``y1``, ``x0``, ``x1``), a cell that is not of
         its field's type, a rectangle that is not one, an unknown or
-        duplicate column, a duplicate ``patch_id``, or a config file that
-        is missing, not a JSON object, or not the same for every row.
+        duplicate column, a column name with leading or trailing whitespace,
+        an unclosed quote (or a cell holding a line break), a row with fewer
+        or more cells than the header, a duplicate ``patch_id``, or a config
+        file that is missing, not a JSON object, or not the same for every
+        row; each with its line or column.
     """
     from cellpatcher._deprecation import upgrade_legacy_repeat_column
 
     path = Path(csv_path).expanduser()
     if not path.is_file():
         raise FileNotFoundError(f"The patch table {path} does not exist.")
-    with path.open(newline="", encoding="utf-8") as handle:
-        reader = csv.DictReader(handle)
-        header = list(reader.fieldnames or [])
-        rows = [(reader.line_num, row) for row in reader]
+    header, rows = _table_cells(path)
     lines = [line for line, _ in rows]
     rows = upgrade_legacy_repeat_column(header, [row for _, row in rows], str(path))
     header = ["biological_repeat" if name == "repeat" and "biological_repeat" not in header else name for name in header]
 
     kinds = _field_kinds()
     problems: list[str] = []
-    duplicated = sorted(name for name, count in Counter(header).items() if count > 1)
-    if duplicated:
-        problems.append(f"duplicate columns {duplicated}")
     known = set(kinds) | {"height", "width", *_LEGACY_PARAMETER_COLUMNS}
     unknown = [
         name for name in header
         if name not in known
+        and name == name.strip()  # a padded name is reported by _table_cells
         and not name.startswith(MASK_FRACTION_PREFIX)
         and not re.fullmatch(r"Normalization_(Offset|Scale)_C[0-9]+", name)
     ]
@@ -364,8 +426,6 @@ def read_patch_table(csv_path) -> tuple[list[PatchRegion], dict | None]:
     patches: list[PatchRegion] = []
     for line, row in zip(lines, rows):
         row_problems: list[str] = []
-        if row.get(None):
-            row_problems.append(f"{len(row[None])} more cell(s) than the header has columns")
         values = {}
         for name in header:
             if name in kinds:
