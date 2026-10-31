@@ -19,7 +19,7 @@ from cellpatcher.orchestration import run_patching_condition_repeat_tree
 
 pytestmark = [
     pytest.mark.skipif(
-        importlib.util.find_spec("morphobricks_preprocessing") is None, reason="needs the 'preprocessing' extra"
+        importlib.util.find_spec("morphobricks_preprocessing") is None, reason="needs morphobricks-preprocessing (a core dependency)"
     ),
     pytest.mark.filterwarnings("ignore::cellpatcher.normalization.NormalizationWarning"),
 ]
