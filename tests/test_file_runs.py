@@ -111,6 +111,37 @@ def test_a_file_runs_patches_are_delivered_lazily_through_the_run_where_it_is_no
                                    experiment_root=moved, masks_root=moved_masks))
 
 
+def test_run_patching_at_a_csv_scope_opens_a_moved_experiment_where_normalization_says(tmp_path):
+    # Owner decision 4 (2026-11-02): normalization.experiment_root/masks_root. Old main had no such
+    # setting: run_patching opened the run where it recorded the experiment, refusing a moved one.
+    from cellpatcher import run_patching
+    from cellpatcher.config import NormalizationConfig
+
+    run = _clean_run(tmp_path, axes="YX", shape=(16, 20), mask_types=("Cells",))
+    moved, moved_masks = tmp_path / "moved" / "experiment", tmp_path / "moved" / "masks"
+    moved.parent.mkdir()
+    shutil.move(run.experiment, moved)
+    shutil.move(run.masks, moved_masks)
+    (path,) = sorted((moved / "ctrl" / "rep1").glob("a.*"))
+    config = CellPatcherConfig(mode="grid")
+    config.grid.tile_size, config.common.extract_arrays = 8, True
+    config.common.condition, config.common.biological_repeat = "ctrl", "rep1"
+    config.normalization = NormalizationConfig(
+        enabled=True, scope="image", plane_histograms=str(run.output / "plane_histograms.csv")
+    )
+    meta = [{"image_file": path.name, "source_relative_path": path.relative_to(moved).as_posix()}]
+    with pytest.raises(PreprocessingCheckError, match="4 images changed or missing since the run"):
+        run_patching(images=[tifffile.imread(path)], config=config, image_metadata=meta)
+    config.normalization.experiment_root, config.normalization.masks_root = str(moved), str(moved_masks)
+    result = run_patching(images=[tifffile.imread(path)], config=config, image_metadata=meta)
+    assert len(result.patch_arrays) == 4 and all(array.dtype == np.float32 for array in result.patch_arrays)
+    # A folder or tree run is told where the experiment is by its arguments, not by these settings.
+    file_config = _cell_config(run)
+    file_config.normalization.experiment_root = str(moved)
+    with pytest.raises(ValueError, match=r"normalization.experiment_root=.*the image folder or root"):
+        run_patching_condition_repeat_tree(moved, mask_root_path=moved_masks, config=file_config)
+
+
 def test_a_copied_experiment_is_checked_where_it_is_read(tmp_path):
     # CP-2a closes a CP-1 gap: with a copy of the experiment (the original in place), the run
     # was opened at the original, and the copy's masks were read without any check. A mask
@@ -133,7 +164,7 @@ def test_an_opened_run_is_not_reused_once_a_mask_or_another_image_changed(tmp_pa
     # Former code (CP-1): cached_statistics kept the opened run for the session, keyed on the
     # table and manifest; a mask, or an image not patched, changed after the first open was
     # not checked again. Now every call opens the run again (cellpatcher.run_session).
-    from cellpatcher.normalization import cached_statistics
+    from cellpatcher.run_open import cached_statistics
 
     run = _clean_run(tmp_path, axes="YX", shape=(16, 20), mask_types=("Cells",))
     table = run.output / "plane_histograms.csv"

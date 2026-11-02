@@ -4,7 +4,8 @@ Design v0.4 §6: CellPatcher reads a preprocessing run only through ``RunInputs.
 refuses a run before v0.4.0, a table or design whose SHA-256 is not the manifest's, and an
 image or mask changed or missing since the run. An experiment moved or copied since its run is
 opened with where it is now (``experiment_root``, ``masks_root``). Re-exported by
-:mod:`cellpatcher.statistics`, where these functions were before CP-2a.
+:mod:`cellpatcher.statistics`, where these functions were before CP-2a. :func:`cached_statistics`
+(moved from :mod:`cellpatcher.normalization` in CP-2b) keeps an opened run for one call.
 """
 
 from __future__ import annotations
@@ -14,12 +15,13 @@ from collections import defaultdict
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from cellpatcher.run_session import remember
+from cellpatcher.run_session import remember, session_statistics
 
 if TYPE_CHECKING:
     from morphobricks_normalization import PlaneRecord
     from morphobricks_preprocessing.run_inputs import RunInputs
 
+    from cellpatcher.config import NormalizationConfig
     from cellpatcher.statistics import PlaneStatistics
 
 
@@ -76,6 +78,45 @@ def load_plane_statistics(
     if manifest is not None:
         _refuse_other_file("normalization.manifest", Path(manifest).expanduser(), folder / MANIFEST_FILENAME)
     return statistics_of(open_run(folder, experiment_root=experiment_root, masks_root=masks_root))
+
+
+def cached_statistics(
+    plane_histograms: str | os.PathLike,
+    manifest: str | os.PathLike | None = None,
+    *,
+    experiment_root: str | os.PathLike | None = None,
+    masks_root: str | os.PathLike | None = None,
+) -> PlaneStatistics:
+    """:func:`~cellpatcher.statistics.load_plane_statistics`, opened once per CellPatcher call.
+
+    Within one call (:mod:`cellpatcher.run_session`: a tree run normalizes every leaf with
+    the same, possibly large, table) the run is opened once; outside a call, or in the next
+    one, it is opened again, so ``RunInputs.open`` checks every image and mask of the run each
+    time. Nothing is reused across calls.
+    """
+    csv_path = Path(plane_histograms).expanduser()
+    statistics = session_statistics(
+        csv_path,
+        lambda: load_plane_statistics(csv_path, manifest, experiment_root=experiment_root, masks_root=masks_root),
+    )
+    if manifest is not None:
+        _refuse_other_file("normalization.manifest", Path(manifest).expanduser(), statistics.manifest_path)
+    return statistics
+
+
+def settings_statistics(settings: NormalizationConfig) -> PlaneStatistics:
+    """Return :func:`cached_statistics` of ``settings.plane_histograms``, opened where the experiment is now.
+
+    ``normalization.experiment_root``/``masks_root`` say where the run's experiment and masks
+    folder are when they moved since the run (owner decision of 2026-11-02); a folder or tree
+    run gives them as its arguments instead.
+    """
+    return cached_statistics(
+        settings.plane_histograms,
+        settings.manifest,
+        experiment_root=settings.experiment_root,
+        masks_root=settings.masks_root,
+    )
 
 
 def statistics_of(inputs: RunInputs) -> PlaneStatistics:

@@ -127,6 +127,12 @@ def refuse_file_run_settings(config: CellPatcherConfig, where: str) -> None:
         if getattr(common, name) != _DEFAULT_AXES
     ]
     problems += [
+        f"normalization.{name}={getattr(config.normalization, name)!r}: where the experiment and masks are now "
+        "is the image folder or root and mask_folder_path or mask_root_path of the run; leave it unset"
+        for name in ("experiment_root", "masks_root")
+        if getattr(config.normalization, name) is not None
+    ]
+    problems += [
         f"common.{name}={getattr(common, name)!r}: each image's labels are its folders, as the preprocessing "
         "run recorded them; leave it unset"
         for name in _LABELS

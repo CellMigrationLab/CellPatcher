@@ -26,12 +26,10 @@ class CommonConfig:
     # The output folder of the clean preprocessing run (v0.4) a folder or tree run reads its
     # images, masks and labels through (RunInputs, design v0.4 §6); required for file runs.
     preprocessing_run: str | None = None
-    # The MorphoBricks shared-CSV-contract `condition`/`biological_repeat`/`technical_repeat`
-    # columns (AGENTS.md §5) of in-memory run_patching; a label not given (or None) is
-    # "single", as for a missing folder level. Folder and tree runs take each image's labels
-    # from the preprocessing run and refuse other values. technical_repeat is the well/dish/
-    # coverslip; per-image image_metadata["technical_repeat"] overrides it. `repeat` stays
-    # accepted as a deprecated alias of biological_repeat (DeprecationWarning).
+    # The shared-CSV-contract labels (AGENTS.md §5) of in-memory run_patching; None is "single",
+    # as for a missing folder level. Folder and tree runs take each image's from the run and
+    # refuse other values. technical_repeat (well/dish/coverslip) is overridden per image by
+    # image_metadata["technical_repeat"]; `repeat` is a deprecated alias of biological_repeat.
     condition: str | None = SINGLE_CONDITION_LABEL
     biological_repeat: str | None = SINGLE_BIOLOGICAL_REPEAT_LABEL
     technical_repeat: str | None = SINGLE_TECHNICAL_REPEAT_LABEL
@@ -45,12 +43,10 @@ class CommonConfig:
     z_index: int | None = None
     t_policy: str = "keep"
     t_index: int | None = None
-    # The object set of cell-mode patches (the `object_set` column and a
-    # level of patch_id, cellpatcher.ids). None: folder and tree runs name it
-    # after the mask type the preprocessing run recorded (a folder name, or an
-    # OME-NGFF label name), and "mask" when the mask gives no name (in-memory
-    # run_patching). Set it to name it
-    # explicitly; image_metadata["object_set"] overrides it per image.
+    # The object set of cell-mode patches (the `object_set` column and a level of patch_id,
+    # cellpatcher.ids). None: folder and tree runs name it after the mask type the run recorded
+    # (a folder name, or an OME-NGFF label name), in-memory run_patching "mask". Set it to name
+    # it explicitly; image_metadata["object_set"] overrides it per image.
     object_set: str | None = None
 
     def __post_init__(self) -> None:
@@ -360,6 +356,9 @@ class NormalizationConfig:
     manifest
         The run's ``run_manifest.json``: None, or the one in the table's
         folder (another file is refused).
+    experiment_root, masks_root
+        For ``run_patching`` at a CSV scope: where the run's experiment and masks
+        folder are now, if moved since the run (None: where it recorded them).
     method
         ``"minmax"``, ``"percentile"`` (default), ``"zscore"`` or
         ``"robust_zscore"`` (MAD x 1.4826); only ``"percentile"`` for
@@ -415,6 +414,8 @@ class NormalizationConfig:
     enabled: bool = False
     plane_histograms: str | None = None
     manifest: str | None = None
+    experiment_root: str | None = None
+    masks_root: str | None = None
     method: str = "percentile"
     percentile: tuple[float, float] = (1.0, 99.8)
     clip: tuple[float, float] | None = None

@@ -44,8 +44,7 @@ from morphobricks_normalization.records import SINGLE
 
 from cellpatcher.axes import normalize_axes
 from cellpatcher.masking import _label_to_2d
-from cellpatcher.run_open import _refuse_other_file
-from cellpatcher.run_session import session_statistics
+from cellpatcher.run_open import _refuse_other_file, settings_statistics
 from cellpatcher.statistics import (
     PlaneStatistics,
     PreprocessingCheckError,
@@ -53,13 +52,10 @@ from cellpatcher.statistics import (
     _preprocessing,
     check_images,
     check_planes,
-    load_plane_statistics,
     require_normalization,
 )
 
 if TYPE_CHECKING:
-    import os
-
     from morphobricks_preprocessing import ConfirmedDesign
 
     from cellpatcher.config import CellPatcherConfig, NormalizationConfig
@@ -114,30 +110,6 @@ def validate_normalization(config) -> None:
             f"normalization.patch_region={region!r} uses each patch's own label, which only mode='cell' "
             "has. Use patch_region='patch' (all pixels of the patch) or another scope."
         )
-
-
-def cached_statistics(
-    plane_histograms: str | os.PathLike,
-    manifest: str | os.PathLike | None = None,
-    *,
-    experiment_root: str | os.PathLike | None = None,
-    masks_root: str | os.PathLike | None = None,
-) -> PlaneStatistics:
-    """:func:`~cellpatcher.statistics.load_plane_statistics`, opened once per CellPatcher call.
-
-    Within one call (:mod:`cellpatcher.run_session`: a tree run normalizes every leaf with
-    the same, possibly large, table) the run is opened once; outside a call, or in the next
-    one, it is opened again, so ``RunInputs.open`` checks every image and mask of the run each
-    time. Nothing is reused across calls.
-    """
-    csv_path = Path(plane_histograms).expanduser()
-    statistics = session_statistics(
-        csv_path,
-        lambda: load_plane_statistics(csv_path, manifest, experiment_root=experiment_root, masks_root=masks_root),
-    )
-    if manifest is not None:
-        _refuse_other_file("normalization.manifest", Path(manifest).expanduser(), statistics.manifest_path)
-    return statistics
 
 
 def experiment_design_path(settings: NormalizationConfig) -> Path:
@@ -244,7 +216,7 @@ def normalization_inputs(config: CellPatcherConfig) -> dict | None:
     settings = config.normalization
     if not settings.enabled or settings.scope not in CSV_SCOPES or settings.plane_histograms is None:
         return None
-    statistics = cached_statistics(settings.plane_histograms, settings.manifest)
+    statistics = settings_statistics(settings)
     manifest = statistics.manifest
     inputs = {
         "plane_histograms_sha256": manifest.csv_sha256,
@@ -499,7 +471,7 @@ class Normalizer:
         validate_normalization(config)
         statistics, repeat_groups = None, None
         if settings.scope in CSV_SCOPES:
-            statistics = cached_statistics(settings.plane_histograms, settings.manifest)
+            statistics = settings_statistics(settings)
             check_image_type(settings, statistics)
             warnings.warn(
                 "The group and image statistics of the preprocessing brick come from whole planes, "
