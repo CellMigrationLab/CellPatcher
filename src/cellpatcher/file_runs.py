@@ -138,7 +138,8 @@ def refuse_file_run_settings(config: CellPatcherConfig, where: str) -> None:
         raise ValueError(
             f"{where} reads the images, masks and labels through the preprocessing run since CellPatcher "
             "v0.2.0 (design v0.4 §6), so these settings are not used for files: " + "; ".join(problems) + ". "
-            "They still describe in-memory arrays given to run_patching."
+            "The axes and labels still describe in-memory arrays given to run_patching; mask_source and "
+            "mask_label_name are not used there."
         )
     if common.preprocessing_run is None:
         _refuse_without_run(where)
