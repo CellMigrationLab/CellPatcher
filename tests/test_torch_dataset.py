@@ -14,72 +14,80 @@ from cellpatcher.torch_dataset import PatchTensorConfig, PatchTorchDataset, patc
 from cellpatcher.types import PatchRegion
 from tests.helpers import named
 
+KEPT = PatchTensorConfig(scale_policy="none")
+"""The channels and values as exported (channel_policy defaults to "keep" since v0.2.0)."""
+OLD_DEFAULTS = PatchTensorConfig(channel_policy="repeat_to_rgb", scale_policy="auto")
+"""The behaviour of PatchTensorConfig() before v0.2.0, now only when named."""
+
 
 def test_tensor_config_validation():
-    PatchTensorConfig()
+    PatchTensorConfig(scale_policy="none")
+    with pytest.raises(TypeError, match="explicit scale_policy"):
+        PatchTensorConfig()
     with pytest.raises(ValueError):
-        PatchTensorConfig(channel_policy="bad")
+        PatchTensorConfig(scale_policy="none", channel_policy="bad")
     with pytest.raises(ValueError):
-        PatchTensorConfig(dtype_policy="bad")
+        PatchTensorConfig(scale_policy="none", dtype_policy="bad")
     with pytest.raises(ValueError):
         PatchTensorConfig(scale_policy="bad")
     with pytest.raises(ValueError):
-        PatchTensorConfig(squeeze_singleton_zt="yes")
+        PatchTensorConfig(scale_policy="none", squeeze_singleton_zt="yes")
     with pytest.raises(ValueError):
-        PatchTensorConfig(reject_non_singleton_zt=1)
+        PatchTensorConfig(scale_policy="none", reject_non_singleton_zt=1)
     with pytest.raises(ValueError):
-        PatchTensorConfig(return_metadata="false")
+        PatchTensorConfig(scale_policy="none", return_metadata="false")
 
 
 def test_patch_array_to_tensor_core_behaviors():
-    t = patch_array_to_tensor(np.array([[0, 255]], dtype=np.uint8), axes="YX")
+    rgb = PatchTensorConfig(channel_policy="repeat_to_rgb", scale_policy="none")
+    t = patch_array_to_tensor(np.array([[0, 255]], dtype=np.uint8), axes="YX", config=OLD_DEFAULTS)
     assert tuple(t.shape) == (3, 1, 2)
     assert str(t.dtype).endswith("float32")
     assert float(t.max()) == pytest.approx(1.0)
 
-    t = patch_array_to_tensor(np.ones((2, 3), dtype=np.uint8), axes="YX", config=PatchTensorConfig(channel_policy="keep"))
+    t = patch_array_to_tensor(np.ones((2, 3), dtype=np.uint8), axes="YX", config=KEPT)
     assert tuple(t.shape) == (1, 2, 3)
 
-    t = patch_array_to_tensor(np.ones((3, 4, 5), dtype=np.uint8), axes="CYX")
+    t = patch_array_to_tensor(np.ones((3, 4, 5), dtype=np.uint8), axes="CYX", config=rgb)
     assert tuple(t.shape) == (3, 4, 5)
 
-    t = patch_array_to_tensor(np.ones((4, 5, 3), dtype=np.uint8), axes="YXC")
+    t = patch_array_to_tensor(np.ones((4, 5, 3), dtype=np.uint8), axes="YXC", config=rgb)
     assert tuple(t.shape) == (3, 4, 5)
 
-    t = patch_array_to_tensor(np.ones((1, 4, 5), dtype=np.uint8), axes="CYX")
+    t = patch_array_to_tensor(np.ones((1, 4, 5), dtype=np.uint8), axes="CYX", config=rgb)
     assert tuple(t.shape) == (3, 4, 5)
 
-    t = patch_array_to_tensor(np.ones((4, 5, 1), dtype=np.uint8), axes="YXC")
+    t = patch_array_to_tensor(np.ones((4, 5, 1), dtype=np.uint8), axes="YXC", config=rgb)
     assert tuple(t.shape) == (3, 4, 5)
 
-    t = patch_array_to_tensor(np.ones((2, 4, 5), dtype=np.uint8), axes="CYX", config=PatchTensorConfig(channel_policy="keep"))
+    t = patch_array_to_tensor(np.ones((2, 4, 5), dtype=np.uint8), axes="CYX", config=KEPT)
     assert tuple(t.shape) == (2, 4, 5)
 
-    t = patch_array_to_tensor(np.ones((4, 5, 4), dtype=np.uint8), axes="YXC", config=PatchTensorConfig(channel_policy="keep"))
+    t = patch_array_to_tensor(np.ones((4, 5, 4), dtype=np.uint8), axes="YXC", config=KEPT)
     assert tuple(t.shape) == (4, 4, 5)
 
     with pytest.raises(ValueError, match="channel_policy='keep'"):
-        patch_array_to_tensor(np.ones((2, 4, 5), dtype=np.uint8), axes="CYX")
+        patch_array_to_tensor(np.ones((2, 4, 5), dtype=np.uint8), axes="CYX", config=rgb)
 
-    t = patch_array_to_tensor(np.ones((1, 4, 5), dtype=np.uint16), axes="ZYX")
+    t = patch_array_to_tensor(np.ones((1, 4, 5), dtype=np.uint16), axes="ZYX", config=rgb)
     assert tuple(t.shape) == (3, 4, 5)
 
     with pytest.raises(ValueError, match="prepare_image_for_patching"):
-        patch_array_to_tensor(np.ones((2, 4, 5), dtype=np.uint16), axes="ZYX")
+        patch_array_to_tensor(np.ones((2, 4, 5), dtype=np.uint16), axes="ZYX", config=rgb)
 
-    t = patch_array_to_tensor(np.ones((1, 4, 5), dtype=np.uint16), axes="TYX")
+    t = patch_array_to_tensor(np.ones((1, 4, 5), dtype=np.uint16), axes="TYX", config=rgb)
     assert tuple(t.shape) == (3, 4, 5)
 
     with pytest.raises(ValueError, match="iter_image_planes_for_patching"):
-        patch_array_to_tensor(np.ones((2, 4, 5), dtype=np.uint16), axes="TYX")
+        patch_array_to_tensor(np.ones((2, 4, 5), dtype=np.uint16), axes="TYX", config=rgb)
 
-    t = patch_array_to_tensor(np.array([[0.5, 2.0]], dtype=np.float64), axes="YX")
+    t = patch_array_to_tensor(np.array([[0.5, 2.0]], dtype=np.float64), axes="YX", config=OLD_DEFAULTS)
     assert float(t.max()) == pytest.approx(2.0)
 
     t = patch_array_to_tensor(
         np.array([[1, 2]], dtype=np.uint16),
         axes="YX",
-        config=PatchTensorConfig(dtype_policy="keep", channel_policy="keep"),
+        config=PatchTensorConfig(scale_policy="none", dtype_policy="keep", channel_policy="keep"),
     )
     assert "uint16" in str(t.dtype)
 
@@ -87,7 +95,7 @@ def test_patch_array_to_tensor_core_behaviors():
 def test_patch_array_to_tensor_scale_and_dtype_policies():
     arr = np.array([[0, 65535]], dtype=np.uint16)
 
-    t_auto = patch_array_to_tensor(arr, axes="YX", config=PatchTensorConfig(channel_policy="keep"))
+    t_auto = patch_array_to_tensor(arr, axes="YX", config=PatchTensorConfig(scale_policy="auto"))
     assert str(t_auto.dtype).endswith("float32")
     assert float(t_auto.max()) == pytest.approx(1.0)
 
@@ -116,15 +124,15 @@ def test_patch_array_to_tensor_scale_and_dtype_policies():
 
 def test_patch_array_to_tensor_invalid_axes_and_noncontiguous():
     with pytest.raises(ValueError):
-        patch_array_to_tensor(np.ones((3, 4), dtype=np.uint8), axes="CX")
+        patch_array_to_tensor(np.ones((3, 4), dtype=np.uint8), axes="CX", config=KEPT)
 
     with pytest.raises(ValueError):
-        patch_array_to_tensor(np.ones((3, 4), dtype=np.uint8), axes="CYX")
+        patch_array_to_tensor(np.ones((3, 4), dtype=np.uint8), axes="CYX", config=KEPT)
 
     arr = np.arange(3 * 4 * 5, dtype=np.uint8).reshape(3, 4, 5)
     arr_nc = np.transpose(arr, (0, 2, 1))  # non-contiguous CYX-like with changed spatial order
     assert not arr_nc.flags.c_contiguous
-    t = patch_array_to_tensor(arr_nc, axes="CYX", config=PatchTensorConfig(channel_policy="keep"))
+    t = patch_array_to_tensor(arr_nc, axes="CYX", config=KEPT)
     assert tuple(t.shape) == (3, 5, 4)
     assert t.is_contiguous()
 
@@ -133,33 +141,34 @@ def test_patch_torch_dataset_core_behaviors():
     image = np.arange(64, dtype=np.uint16).reshape(8, 8)
     patches = [PatchRegion(patch_id="p1", image_id="image_0000", y0=0, y1=4, x0=0, x1=4, label_id=1)]
 
-    ds = PatchTorchDataset(images=image, patches=patches, image_axes="YX")
+    ds = PatchTorchDataset(images=image, patches=patches, image_axes="YX", tensor_config=KEPT)
     assert len(ds) == 1
     sample = ds[0]
     assert isinstance(sample, dict)
-    assert tuple(sample["image"].shape) == (3, 4, 4)
+    assert tuple(sample["image"].shape) == (1, 4, 4)
     assert sample["patch_id"] == "p1"
 
     ds_plain = PatchTorchDataset(
         images=image,
         patches=patches,
         image_axes="YX",
-        tensor_config=PatchTensorConfig(return_metadata=False),
+        tensor_config=PatchTensorConfig(scale_policy="none", return_metadata=False),
     )
     tensor = ds_plain[0]
-    assert tuple(tensor.shape) == (3, 4, 4)
+    assert tuple(tensor.shape) == (1, 4, 4)
 
     ds_transform = PatchTorchDataset(
         images=image,
         patches=patches,
         image_axes="YX",
         transform=lambda x: x + 2,
-        tensor_config=PatchTensorConfig(return_metadata=False),
+        tensor_config=PatchTensorConfig(scale_policy="none", return_metadata=False),
     )
     assert float(ds_transform[0].min()) >= float(ds_plain[0].min()) + 2
 
     with pytest.raises(ValueError, match="Unknown image_id"):
-        PatchTorchDataset(images=image, patches=[PatchRegion(patch_id="x", image_id="bad", y0=0, y1=2, x0=0, x1=2)])
+        PatchTorchDataset(images=image, patches=[PatchRegion(patch_id="x", image_id="bad", y0=0, y1=2, x0=0, x1=2)],
+                          tensor_config=KEPT)
 
 
 def test_patch_torch_dataset_mask_resize_and_extra_metadata():
@@ -177,13 +186,15 @@ def test_patch_torch_dataset_mask_resize_and_extra_metadata():
         mask_axes="YX",
         extraction=extraction,
         extra_metadata_by_image_id={"image_0000": {"plane_id": "z000"}},
+        tensor_config=KEPT,
     )
     sample = ds[0]
-    assert tuple(sample["image"].shape) == (3, 4, 4)
+    assert tuple(sample["image"].shape) == (1, 4, 4)
     assert sample["extra_metadata"]["plane_id"] == "z000"
 
     with pytest.raises(ValueError, match="requires masks"):
-        PatchTorchDataset(images=image, patches=[patch], image_axes="YX", extraction=ExtractionConfig(apply_mask=True))
+        PatchTorchDataset(images=image, patches=[patch], image_axes="YX", extraction=ExtractionConfig(apply_mask=True),
+                          tensor_config=KEPT)
 
     with pytest.raises(ValueError, match="patch.label_id"):
         PatchTorchDataset(
@@ -192,6 +203,7 @@ def test_patch_torch_dataset_mask_resize_and_extra_metadata():
             image_axes="YX",
             masks=mask,
             extraction=ExtractionConfig(apply_mask=True),
+            tensor_config=KEPT,
         )
 
 
@@ -199,7 +211,7 @@ def test_patch_torch_dataset_helper_parity_resize_only():
     image = np.arange(100, dtype=np.uint16).reshape(10, 10)
     patch = PatchRegion(patch_id="p1", image_id="image_0000", y0=1, y1=7, x0=2, x1=8)
     extraction = ExtractionConfig(output_size=(4, 6), apply_mask=False)
-    cfg = PatchTensorConfig(channel_policy="keep", return_metadata=False)
+    cfg = PatchTensorConfig(scale_policy="none", return_metadata=False)
 
     ds = PatchTorchDataset(images=image, patches=[patch], image_axes="YX", extraction=extraction, tensor_config=cfg)
     actual = ds[0].numpy()
@@ -218,7 +230,7 @@ def test_patch_torch_dataset_helper_parity_mask_and_resize():
     patch = PatchRegion(patch_id="p1", image_id="image_0000", y0=1, y1=7, x0=1, x1=7, label_id=5)
 
     extraction = ExtractionConfig(apply_mask=True, output_size=5, mask_fill_value=17)
-    cfg = PatchTensorConfig(channel_policy="keep", return_metadata=False)
+    cfg = PatchTensorConfig(scale_policy="none", return_metadata=False)
     ds = PatchTorchDataset(
         images=image,
         patches=[patch],
@@ -251,7 +263,7 @@ def test_patch_torch_dataset_lazy_init_sentinel(monkeypatch):
 
     image = np.arange(64, dtype=np.uint16).reshape(8, 8)
     patch = PatchRegion(patch_id="p1", image_id="image_0000", y0=0, y1=4, x0=0, x1=4)
-    ds = PatchTorchDataset(images=image, patches=[patch], image_axes="YX")
+    ds = PatchTorchDataset(images=image, patches=[patch], image_axes="YX", tensor_config=KEPT)
     assert calls["n"] == 0
     assert len(ds) == 1
     _ = ds[0]
@@ -265,7 +277,7 @@ def test_patch_torch_dataset_multichannel_and_plane_lookup_bridge():
         images=image,
         patches=[patch],
         image_axes="CYX",
-        tensor_config=PatchTensorConfig(channel_policy="keep", return_metadata=False),
+        tensor_config=PatchTensorConfig(scale_policy="none", return_metadata=False),
     )
     assert tuple(ds[0].shape) == (2, 4, 4)
 
@@ -274,14 +286,15 @@ def test_patch_torch_dataset_multichannel_and_plane_lookup_bridge():
         images=image_yxc,
         patches=[patch],
         image_axes="YXC",
-        tensor_config=PatchTensorConfig(channel_policy="keep", return_metadata=False),
+        tensor_config=PatchTensorConfig(scale_policy="none", return_metadata=False),
     )
     assert tuple(ds_yxc[0].shape) == (4, 4, 4)
 
     planes = list(iter_image_planes_for_patching(np.zeros((2, 6, 6)), "ZYX", z_policy="all"))
     patches = [PatchRegion(patch_id="z0", image_id="image_0000", y0=0, y1=3, x0=0, x1=3)]
     lookup = {f"image_{i:04d}": {"plane_id": p.plane_id, **p.metadata} for i, p in enumerate(planes)}
-    ds2 = PatchTorchDataset(images=[p.array for p in planes], patches=patches, image_axes=planes[0].axes, extra_metadata_by_image_id=lookup)
+    ds2 = PatchTorchDataset(images=[p.array for p in planes], patches=patches, image_axes=planes[0].axes,
+                            extra_metadata_by_image_id=lookup, tensor_config=KEPT)
     assert ds2[0]["extra_metadata"]["plane_id"] == "z000"
 
 
@@ -293,11 +306,11 @@ def test_patch_torch_dataset_real_fixture_smoke():
     cfg = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=128, overlap=0.0, include_partial=False))
     cfg.common.image_axes = "YX"
     result = run_patching(images=image, config=cfg, image_metadata=named(image))
-    ds = PatchTorchDataset(images=image, patches=result.patches, image_axes="YX")
+    ds = PatchTorchDataset(images=image, patches=result.patches, image_axes="YX", tensor_config=KEPT)
     assert len(ds) == len(result.patches)
     assert len(ds) > 0
     sample = ds[0]
-    assert tuple(sample["image"].shape)[0] == 3
+    assert tuple(sample["image"].shape)[0] == 1  # one channel, kept
     assert str(sample["image"].dtype).endswith("float32")
     assert "patch_id" in sample
     assert "image_id" in sample
@@ -328,10 +341,10 @@ def test_exported_patch_torch_dataset_basic_npy_load(tmp_path):
         {"patch_id": "p2", "image_id": "image_0001", "label_id": "2"},
     ])
 
-    ds = ExportedPatchTorchDataset(csv_path)
+    ds = ExportedPatchTorchDataset(csv_path, tensor_config=KEPT)
     assert len(ds) == 2
     sample = ds[0]
-    assert tuple(sample["image"].shape) == (3, 4, 4)
+    assert tuple(sample["image"].shape) == (1, 4, 4)
     assert sample["patch_id"] == "p1"
     assert sample["image_id"] == "image_0000"
     assert sample["label_id"] == "1"
@@ -351,7 +364,7 @@ def test_exported_patch_torch_dataset_prefers_patch_file_column(tmp_path):
         [{"patch_id": "p1", "image_id": "image_0000", "patch_file": "actual_export_name.npy"}],
     )
 
-    ds = ExportedPatchTorchDataset(csv_path)
+    ds = ExportedPatchTorchDataset(csv_path, tensor_config=KEPT)
     sample = ds[0]
     assert sample["path"].endswith("actual_export_name.npy")
 
@@ -366,7 +379,7 @@ def test_exported_patch_torch_dataset_loads_real_export_patches_output(tmp_path)
     cfg.common.output_dir = str(tmp_path)
 
     result = run_patching(images=image, config=cfg, image_metadata=named(image))
-    ds = ExportedPatchTorchDataset(result.metadata_file)
+    ds = ExportedPatchTorchDataset(result.metadata_file, tensor_config=KEPT)
     assert len(ds) == 1
     sample = ds[0]
     assert sample["path"] == str(tmp_path / result.patches[0].patch_file)
@@ -385,7 +398,7 @@ def test_exported_patch_torch_dataset_prefer_format_bypasses_patch_file_column(t
 
     # prefer_format is an explicit resolution strategy; it should win over
     # an (in this case stale) patch_file column rather than raising.
-    ds = ExportedPatchTorchDataset(csv_path, prefer_format="npy")
+    ds = ExportedPatchTorchDataset(csv_path, prefer_format="npy", tensor_config=KEPT)
     sample = ds[0]
     assert sample["path"].endswith("p1.npy")
 
@@ -399,16 +412,17 @@ def test_exported_patch_torch_dataset_return_tensor_transform_and_extra_metadata
 
     ds = ExportedPatchTorchDataset(
         csv_path,
-        tensor_config=PatchTensorConfig(return_metadata=False),
+        tensor_config=PatchTensorConfig(scale_policy="none", return_metadata=False),
         transform=lambda x: x + 1,
     )
     t = ds[0]
-    assert tuple(t.shape) == (3, 2, 2)
+    assert tuple(t.shape) == (1, 2, 2)
     assert float(t.min()) == pytest.approx(1.0)
 
     ds_meta = ExportedPatchTorchDataset(
         csv_path,
         extra_metadata_by_image_id={"image_0000": {"plane_id": "z001"}},
+        tensor_config=KEPT,
     )
     assert ds_meta[0]["extra_metadata"]["plane_id"] == "z001"
 
@@ -422,7 +436,7 @@ def test_exported_patch_torch_dataset_filename_column_and_relative_path(tmp_path
     csv_path = tmp_path / "patches.csv"
     _write_csv(csv_path, ["patch_id", "filename"], [{"patch_id": "p1", "filename": "nested/custom.npy"}])
 
-    ds = ExportedPatchTorchDataset(csv_path, filename_column="filename")
+    ds = ExportedPatchTorchDataset(csv_path, filename_column="filename", tensor_config=KEPT)
     sample = ds[0]
     # Compare path parts, not text: the path uses the platform's separator.
     assert Path(sample["path"]).parts[-2:] == ("nested", "custom.npy")
@@ -432,17 +446,17 @@ def test_exported_patch_torch_dataset_error_cases(tmp_path):
     from cellpatcher.torch_dataset import ExportedPatchTorchDataset
 
     with pytest.raises(FileNotFoundError):
-        ExportedPatchTorchDataset(tmp_path / "missing.csv")
+        ExportedPatchTorchDataset(tmp_path / "missing.csv", tensor_config=KEPT)
 
     bad_csv = tmp_path / "bad.csv"
     _write_csv(bad_csv, ["image_id"], [{"image_id": "image_0000"}])
     with pytest.raises(ValueError, match="patch_id"):
-        ExportedPatchTorchDataset(bad_csv)
+        ExportedPatchTorchDataset(bad_csv, tensor_config=KEPT)
 
     csv_missing_patch = tmp_path / "missing_patch.csv"
     _write_csv(csv_missing_patch, ["patch_id"], [{"patch_id": "not_here"}])
     with pytest.raises(FileNotFoundError):
-        ExportedPatchTorchDataset(csv_missing_patch)[0]
+        ExportedPatchTorchDataset(csv_missing_patch, tensor_config=KEPT)[0]
 
 
 def test_exported_patch_torch_dataset_ambiguous_and_prefer_format(tmp_path):
@@ -459,13 +473,13 @@ def test_exported_patch_torch_dataset_ambiguous_and_prefer_format(tmp_path):
 
     # Default prefer_format=None: ambiguous → raises ValueError
     with pytest.raises(ValueError, match="Multiple exported patch files"):
-        ExportedPatchTorchDataset(csv_path)[0]
+        ExportedPatchTorchDataset(csv_path, tensor_config=KEPT)[0]
 
     # Explicit prefer_format resolves ambiguity
-    ds = ExportedPatchTorchDataset(csv_path, prefer_format="npy")
+    ds = ExportedPatchTorchDataset(csv_path, prefer_format="npy", tensor_config=KEPT)
     assert ds[0]["path"].endswith("p1.npy")
 
-    ds_tif = ExportedPatchTorchDataset(csv_path, prefer_format="tif")
+    ds_tif = ExportedPatchTorchDataset(csv_path, prefer_format="tif", tensor_config=KEPT)
     assert ds_tif[0]["path"].endswith("p1.tif")
 
 
@@ -479,7 +493,7 @@ def test_exported_patch_torch_dataset_axes_conversion_yxc(tmp_path):
     ds = ExportedPatchTorchDataset(
         csv_path,
         axes="YXC",
-        tensor_config=PatchTensorConfig(channel_policy="keep"),
+        tensor_config=KEPT,
     )
     assert tuple(ds[0]["image"].shape) == (3, 4, 5)
 
@@ -495,9 +509,9 @@ def test_exported_patch_torch_dataset_integration_with_run_patching_export(tmp_p
     cfg.export = ExportConfig(enabled=True, image_format="npy", save_metadata_csv=True)
 
     result = run_patching(images=image, config=cfg, image_metadata=named(image))
-    ds = ExportedPatchTorchDataset(result.metadata_file, axes=cfg.common.image_axes)
+    ds = ExportedPatchTorchDataset(result.metadata_file, axes=cfg.common.image_axes, tensor_config=KEPT)
     sample = ds[0]
-    assert tuple(sample["image"].shape)[0] == 3
+    assert tuple(sample["image"].shape)[0] == 1  # one channel, kept
 
 
 def test_real_tiff_fixture_exported_torch_dataset(tmp_path):
@@ -513,13 +527,13 @@ def test_real_tiff_fixture_exported_torch_dataset(tmp_path):
     result = run_patching(images=image, config=cfg, image_metadata=named(image))
     assert result.metadata_file is not None
 
-    dataset = ExportedPatchTorchDataset(result.metadata_file, axes=cfg.common.image_axes)
+    dataset = ExportedPatchTorchDataset(result.metadata_file, axes=cfg.common.image_axes, tensor_config=KEPT)
     assert len(dataset) == len(result.patches)
     assert len(dataset) > 0
 
     sample = dataset[0]
     assert isinstance(sample, dict)
-    assert tuple(sample["image"].shape)[0] == 3
+    assert tuple(sample["image"].shape)[0] == 1  # one channel, kept
     assert str(sample["image"].dtype).endswith("float32")
     assert sample["patch_id"]
     assert sample["image_id"]
@@ -548,12 +562,13 @@ def test_real_tiff_fixture_cell_apply_mask_torch_dataset():
         masks=labels,
         mask_axes=cfg.common.mask_axes,
         extraction=cfg.extraction,
+        tensor_config=KEPT,
     )
 
     assert len(ds) == len(result.patches)
     assert len(ds) > 0
     sample = ds[0]
-    assert tuple(sample["image"].shape) == (3, 32, 32)
+    assert tuple(sample["image"].shape) == (1, 32, 32)
     assert "label_id" in sample
 
 
@@ -562,9 +577,9 @@ def test_a_file_path_is_refused_when_the_dataset_is_built(tmp_path):
     # and its own header check) when an item was loaded, inside a DataLoader worker.
     patch = PatchRegion(patch_id="p", image_id="image_0000", mode="whole_fov", y0=0, y1=4, x0=0, x1=4)
     with pytest.raises(TypeError, match=r"got the path .*img.tif.*iter_run_patch_arrays"):
-        PatchTorchDataset([tmp_path / "img.tif"], [patch])
+        PatchTorchDataset([tmp_path / "img.tif"], [patch], tensor_config=KEPT)
     with pytest.raises(TypeError, match=r"masks of run_patching as arrays; got the path .*m.tif"):
-        PatchTorchDataset([np.zeros((4, 4))], [patch], masks=[str(tmp_path / "m.tif")])
+        PatchTorchDataset([np.zeros((4, 4))], [patch], masks=[str(tmp_path / "m.tif")], tensor_config=KEPT)
 
 
 @pytest.mark.parametrize(("image_axes", "mask_axes", "refused"), [("XY", "YX", "image"), ("YX", "XY", "mask")])
@@ -574,4 +589,4 @@ def test_axes_with_x_before_y_are_refused_when_the_dataset_is_built(image_axes, 
     patch = PatchRegion(patch_id="p", image_id="image_0000", mode="whole_fov", y0=0, y1=4, x0=0, x1=4)
     with pytest.raises(ValueError, match=rf"common.{refused}_axes='XY' puts X before Y"):
         PatchTorchDataset([np.zeros((4, 4))], [patch], image_axes=image_axes, masks=[np.ones((4, 4), np.int32)],
-                          mask_axes=mask_axes)
+                          mask_axes=mask_axes, tensor_config=KEPT)

@@ -4,6 +4,49 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.2.0] - Unreleased: no silent rescale or channel repetition in the torch adapters (CP-4)
+
+Owner decision of 2026-11-02 (the CP-3b review's question): the torch adapters' defaults change
+before the final `v0.2.0`; `v0.2.0rc1` ships with the old ones.
+
+### Breaking
+- **`PatchTensorConfig.scale_policy` has no default.** `PatchTensorConfig()`, a config without
+  `scale_policy`, `patch_array_to_tensor(..., config=None)` and `PatchTorchDataset`/
+  `ExportedPatchTorchDataset` without `tensor_config` raise a `TypeError` naming the choices:
+  `"none"` keeps the values; `"auto"` (deprecated) divides an integer patch by its dtype maximum.
+  Before, the default `"auto"` turned a uint16 patch of 1000 into 0.0153. A required choice, not
+  a `"none"` default: code written for the old default stops with an error instead of receiving
+  values up to 65535 times larger without a word (contract §15).
+- **`PatchTensorConfig.channel_policy` defaults to `"keep"`** (the channels as exported). Before,
+  the default `"repeat_to_rgb"` repeated a single channel to three. A one-channel patch is now a
+  `(1, H, W)` tensor; patches with 2 or more than 3 channels, refused by the old default, are kept.
+- Each dataset item records the repetition beside the divisor: `channel_repeat` (3 when a single
+  channel was repeated to three, else 1; `cellpatcher.torch_dataset.channel_repeat`), as
+  `scale_divisor` (1.0 when unscaled) records a rescale.
+
+**Migration.**
+- Keep the values (recommended; normalize with `config.normalization`):
+  `PatchTensorConfig(scale_policy="none")`. The PyTorch notebook (`cellpatcher.torch_session`)
+  already uses it with `channel_policy="keep"`; nothing changes there.
+- The old behaviour, exactly: `PatchTensorConfig(channel_policy="repeat_to_rgb",
+  scale_policy="auto")`. `"auto"` still warns when it rescales (`ScalePolicyDeprecationWarning`,
+  kept: it now marks the named, deprecated option, no longer a default) and is recorded per item.
+- An RGB model on normalized patches: `PatchTensorConfig(channel_policy="repeat_to_rgb",
+  scale_policy="none")`.
+
+**Downstream calls (no other repository is changed here).** MorphoEmbed `main` `a8e88df`:
+`src/morphoembed/provider_crops.py` already passes `channel_policy="keep"`, `scale_policy="none"`
+(`TENSOR_CONFIG`), unaffected; its `ROADMAP.md` (lines 126-127) describes the old defaults.
+MorphoFeature `main` `4e6970f`: documentation only (`AGENTS.md` line 247,
+`docs/audits/pytorch-encoder-phenome-audit.md`), which already names `scale_policy="none"`.
+MorphoRelate `ea19bb0`, fiberfeatures `362f1ba`, MorphoObjects `ca548cd`: no use.
+
+### Changed
+- `docs/api_examples.md`, `docs/quick_start.md`: every `PatchTensorConfig` names its
+  `scale_policy` (`"none"`), and the RGB examples their `channel_policy`; contract §3 and §15 and
+  `docs/plan.md` §6.8 record the decision.
+
+---
 ## [0.2.0rc1] - 2026-11-02
 
 ### Changed

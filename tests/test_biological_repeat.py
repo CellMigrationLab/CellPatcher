@@ -296,11 +296,12 @@ def test_current_csv_rows_are_left_unchanged_without_warning():
 
 def test_torch_dataset_reads_legacy_repeat_column(tmp_path):
     pytest.importorskip("torch")
-    from cellpatcher.torch_dataset import ExportedPatchTorchDataset
+    from cellpatcher.torch_dataset import ExportedPatchTorchDataset, PatchTensorConfig
 
     np.save(tmp_path / "p0.npy", np.ones((8, 8), dtype=np.float32))
     (tmp_path / "patches.csv").write_text("patch_id,condition,repeat,patch_file\np0,treated,2026_01_01,p0.npy\n")
     with pytest.warns(DeprecationWarning) as records:
-        dataset = ExportedPatchTorchDataset(tmp_path / "patches.csv")
+        dataset = ExportedPatchTorchDataset(tmp_path / "patches.csv",
+                                            tensor_config=PatchTensorConfig(scale_policy="none"))
     assert len(_deprecations(records)) == 1
     assert dataset[0]["patch"]["biological_repeat"] == "2026_01_01"

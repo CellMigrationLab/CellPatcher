@@ -110,8 +110,8 @@ After patching, choose how to use the results.
 | In-memory arrays only | `common.extract_arrays=True` | `result.patch_arrays` |
 | Patch files + CSV metadata on disk (`.npy`, recommended for Torch) | `ExportConfig(enabled=True, image_format="npy", save_metadata_csv=True)` + `common.output_dir=...` | `.npy` files + `patches.csv` + `images.csv` (one row per input image) in `output_dir` |
 | Patch files + CSV metadata on disk (TIFF) | `ExportConfig(enabled=True, image_format="tif")` + `common.output_dir=...` | `.tif` files + `patches.csv` + `images.csv` |
-| Live Torch dataset (no disk round-trip) | `common.extract_arrays=False`, no export | `PatchTorchDataset(images, result.patches, ...)` |
-| Torch dataset from exported files (decoupled export + training) | Export to disk first, then load | `ExportedPatchTorchDataset(result.metadata_file, axes=..., tensor_config=...)` |
+| Live Torch dataset (no disk round-trip) | `common.extract_arrays=False`, no export | `PatchTorchDataset(images, result.patches, ..., tensor_config=PatchTensorConfig(scale_policy=...))` |
+| Torch dataset from exported files (decoupled export + training) | Export to disk first, then load | `ExportedPatchTorchDataset(result.metadata_file, axes=..., tensor_config=PatchTensorConfig(scale_policy=...))` |
 
 > **DINO/model recommendation:** keep CellPatcher responsible for coordinates, masking, resize, and export; apply channel merge and model normalization in your Torch transform. This decouples patch generation from model experiments so you can iterate channel and normalization strategies without regenerating patches.
 
@@ -241,7 +241,9 @@ result = run_patching(images=prepared_images, masks=prepared_labels, config=cfg,
 torch_ds = ExportedPatchTorchDataset(
     result.metadata_file,   # path to patches.csv; root_dir defaults to metadata_file.parent
     axes="YX",
-    tensor_config=PatchTensorConfig(channel_policy="repeat_to_rgb"),
+    # Named, never defaults: one channel repeated to three for an RGB model, values as exported
+    # (normalize with config.normalization or in your transform; nothing is rescaled).
+    tensor_config=PatchTensorConfig(channel_policy="repeat_to_rgb", scale_policy="none"),
 )
 sample = torch_ds[0]  # CHW tensor compatible with common DINO pipelines
 ```
@@ -267,10 +269,11 @@ This keeps core patch generation model-agnostic and lets you iterate on channel/
 
 Practical guidance:
 
-- `PatchTensorConfig(channel_policy="repeat_to_rgb")` supports only 1- or 3-channel patches.
+- `PatchTensorConfig` needs an explicit `scale_policy` (since v0.2.0; an omitted one is a `TypeError`), and its `channel_policy` defaults to `"keep"`: nothing is rescaled or repeated unless asked.
+- `PatchTensorConfig(channel_policy="repeat_to_rgb", scale_policy=...)` supports only 1- or 3-channel patches; each item records the repetition (`channel_repeat`).
 - For >3 channels (for example Cell Painting), implement an explicit 6->3 mapping in your Torch transform.
 - Apply DINO/ImageNet-style normalization in that same transform stage.
-- `scale_policy="auto"` in `PatchTensorConfig` is only dtype-based integer scaling, not model normalization; it is deprecated in favour of `config.normalization` (it warns when it rescales, and each item records the divisor as `scale_divisor`).
+- `scale_policy="auto"` in `PatchTensorConfig` is only dtype-based integer scaling, not model normalization (the default before v0.2.0, now only when named); it is deprecated in favour of `config.normalization` (it warns when it rescales, and each item records the divisor as `scale_divisor`).
 
 Visual QA tip (recommended):
 

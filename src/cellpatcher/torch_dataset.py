@@ -22,32 +22,57 @@ except ImportError as exc:  # pragma: no cover - exercised in runtime import che
 class ScalePolicyDeprecationWarning(DeprecationWarning):
     """``PatchTensorConfig(scale_policy='auto')`` divided an integer patch by its dtype maximum.
 
-    A ``DeprecationWarning`` raised inside a library is hidden by Python's default warning
-    filters; this one is shown (the filter below), because it changes the values silently
-    otherwise. Each dataset item also records the divisor (``scale_divisor``).
+    ``"auto"`` is no longer a default (v0.2.0, CP-4): it is only used when a caller names it, and
+    stays deprecated in favour of ``config.normalization`` (contract §15). A ``DeprecationWarning``
+    raised inside a library is hidden by Python's default warning filters; this one is shown (the
+    filter below). Each dataset item also records the divisor (``scale_divisor``).
     """
 
 
 # Show the rescaling warning once per place it is raised, also when warnings are left at Python's defaults.
 warnings.filterwarnings("default", category=ScalePolicyDeprecationWarning)
 
+SCALE_POLICIES = ("none", "auto")
+"""``PatchTensorConfig.scale_policy`` choices: keep the values, or divide an integer patch by its dtype
+maximum (deprecated)."""
+CHANNEL_POLICIES = ("keep", "repeat_to_rgb")
+"""``PatchTensorConfig.channel_policy`` choices: keep the channels as exported, or repeat one channel to three."""
+
 
 @dataclass
 class PatchTensorConfig:
-    channel_policy: str = "repeat_to_rgb"
+    """How a patch array becomes a ``(C, H, W)`` tensor in the torch adapters.
+
+    *scale_policy* has no default (v0.2.0, CP-4): ``"none"`` keeps the values, ``"auto"``
+    (deprecated) divides an integer patch by its dtype maximum, as the default did before, and
+    is recorded per item (``scale_divisor``). It is refused when omitted, so code written for the
+    old default stops with an error instead of receiving values 65535 times larger without a word.
+    *channel_policy* defaults to ``"keep"``, the channels as exported; ``"repeat_to_rgb"`` (the
+    default before v0.2.0) repeats a single channel to three, recorded per item
+    (``channel_repeat``).
+    """
+
+    channel_policy: str = "keep"
     dtype_policy: str = "float32"
-    scale_policy: str = "auto"
+    scale_policy: str | None = None
     squeeze_singleton_zt: bool = True
     reject_non_singleton_zt: bool = True
     return_metadata: bool = True
 
     def __post_init__(self) -> None:
-        if self.channel_policy not in {"repeat_to_rgb", "keep"}:
-            raise ValueError("channel_policy must be one of: 'repeat_to_rgb', 'keep'.")
+        """Refuse an omitted *scale_policy* and any unknown policy, naming the choices."""
+        if self.scale_policy is None:
+            raise TypeError(
+                "PatchTensorConfig needs an explicit scale_policy (also as the torch datasets' tensor_config): "
+                "'none' keeps the values; 'auto' (deprecated) divides an integer patch by its dtype maximum, "
+                "the default before CellPatcher v0.2.0. Normalize patches with config.normalization."
+            )
+        if self.channel_policy not in CHANNEL_POLICIES:
+            raise ValueError("channel_policy must be one of: 'keep', 'repeat_to_rgb'.")
         if self.dtype_policy not in {"float32", "keep"}:
             raise ValueError("dtype_policy must be one of: 'float32', 'keep'.")
-        if self.scale_policy not in {"auto", "none"}:
-            raise ValueError("scale_policy must be one of: 'auto', 'none'.")
+        if self.scale_policy not in SCALE_POLICIES:
+            raise ValueError("scale_policy must be one of: 'none', 'auto'.")
         for name in ("squeeze_singleton_zt", "reject_non_singleton_zt", "return_metadata"):
             if not isinstance(getattr(self, name), bool):
                 raise ValueError(f"{name} must be a bool.")
@@ -97,6 +122,29 @@ def scale_divisor(array: np.ndarray, config: PatchTensorConfig) -> float:
         return 1.0
     maximum = np.iinfo(dtype).max
     return float(maximum) if maximum > 0 else 1.0
+
+
+def channel_repeat(array: np.ndarray, *, axes: str, config: PatchTensorConfig) -> int:
+    """Return how many times :func:`patch_array_to_tensor` repeats *array*'s channel: 1 unless it does.
+
+    Parameters
+    ----------
+    array
+        The patch array, before it becomes a tensor.
+    axes
+        Its axes.
+    config
+        The tensor settings.
+
+    Returns
+    -------
+    int
+        3 for a single-channel *array* with ``channel_policy="repeat_to_rgb"``, else 1.
+    """
+    arr = np.asarray(array)
+    ax = normalize_axes(axes, arr.ndim)
+    channels = arr.shape[axis_index(ax, "C")] if "C" in ax else 1
+    return 3 if config.channel_policy == "repeat_to_rgb" and channels == 1 else 1
 
 
 def patch_array_to_tensor(array, *, axes, config=None):
@@ -187,6 +235,9 @@ class PatchTorchDataset(torch.utils.data.Dataset):
         the run's *config* to cut each patch from its plane (``z0``/``t`` with
         ``common.z_policy``/``t_policy``); it then also replaces *image_axes*,
         *mask_axes* and *extraction*.
+
+        *tensor_config* is required in practice: :class:`PatchTensorConfig` has no default
+        ``scale_policy`` (v0.2.0), so leaving it out is a ``TypeError`` naming the choices.
         """
         if isinstance(images, (list, tuple)):
             self._images = list(images)
@@ -271,6 +322,7 @@ class PatchTorchDataset(torch.utils.data.Dataset):
             "patch": patch.to_dict(),
             "extra_metadata": self._extra_metadata.get(patch.image_id, {}),
             "scale_divisor": scale_divisor(array, self._tensor_config),
+            "channel_repeat": channel_repeat(array, axes=axes, config=self._tensor_config),
         }
 
 
@@ -422,4 +474,5 @@ class ExportedPatchTorchDataset(torch.utils.data.Dataset):
             "extra_metadata": self._extra_metadata.get(image_id, {}),
             "path": str(path),
             "scale_divisor": scale_divisor(array, self._tensor_config),
+            "channel_repeat": channel_repeat(array, axes=self._axes, config=self._tensor_config),
         }
