@@ -3,7 +3,7 @@ version: 0.1.2
 environment_file: environment.yaml
 installer_type: all
 license_file: LICENSE
-conclusion_text: Thank you! You have successfully installed CellPatcher 0.0.1.
+conclusion_text: Thank you! You have successfully installed CellPatcher 0.1.2.
 keep_pkgs: false
 register_python: false
 initialize_conda: false
@@ -15,12 +15,14 @@ extra_files:
 - app/menuinst/notebook_launcher.json: CellPatcher/notebook_launcher.json
 - app/python_scripts/hide_code_cells.py: CellPatcher/hide_code_cells.py
 - app/python_scripts/include_path.py: CellPatcher/include_path.py
+- app/python_scripts/launch_jupyter.py: CellPatcher/launch_jupyter.py
 - construct.yaml: CellPatcher/construct.yaml
 - notebooks/CellPatcher/CellPatcher.ipynb: CellPatcher/notebooks/CellPatcher/CellPatcher.ipynb
 - notebooks/CellPatcher_Pytorch/CellPatcher_Pytorch.ipynb: CellPatcher/notebooks/CellPatcher_Pytorch/CellPatcher_Pytorch.ipynb
 - notebooks/CellPatcher_Strategy_Examples/CellPatcher_Strategy_Examples.ipynb: CellPatcher/notebooks/CellPatcher_Strategy_Examples/CellPatcher_Strategy_Examples.ipynb
 - notebooks/notebook_latest_versions.yaml: CellPatcher/notebook_latest_versions.yaml
 - requirements.txt: CellPatcher/requirements.txt
+- requirements_gpu.txt: CellPatcher/requirements_gpu.txt
 - setup.py: CellPatcher/setup.py
 - src/cellpatcher/__init__.py: CellPatcher/src/cellpatcher/cellpatcher/__init__.py
 - src/cellpatcher/_deprecation.py: CellPatcher/src/cellpatcher/cellpatcher/_deprecation.py
