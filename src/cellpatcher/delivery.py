@@ -40,7 +40,7 @@ from cellpatcher.masking import apply_label_mask_to_patch
 from cellpatcher.normalization import PatchNormalization, parameters_from_row
 from cellpatcher.planes import apply_plane_choice, patch_plane_choice, select_mask_plane
 from cellpatcher.resize import resize_patch
-from cellpatcher.run_config_file import delivery_config
+from cellpatcher.run_config_file import delivery_config, run_config_version
 
 if TYPE_CHECKING:
     from cellpatcher.config import CellPatcherConfig
@@ -166,6 +166,8 @@ def iter_exported_patches(metadata_file, *, root_dir=None) -> Iterator[tuple[dic
 
 def _normalize_on_load(row: Mapping, array, run_config: Mapping | None) -> np.ndarray:
     """Normalize a loaded patch file when its run exported raw values (else return it as stored)."""
+    if run_config is not None:
+        run_config_version(run_config, "run_config.json")
     settings = (run_config or {}).get("normalization") or {}
     if settings.get("export_values") != "raw":
         return array

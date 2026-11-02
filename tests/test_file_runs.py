@@ -276,15 +276,13 @@ def test_the_run_config_records_the_run_and_its_manifest_and_loads_back_for_a_fi
 
 @pytest.mark.parametrize("version", [3, "2", None])
 def test_a_run_config_of_an_unknown_version_is_refused_by_every_reader(tmp_path, version):
-    from cellpatcher import iter_exported_patches
+    from cellpatcher import PatchTableError, iter_exported_patches, read_patch_table
     from cellpatcher.orchestration import load_config
 
     run = _clean_run(tmp_path, axes="YX", shape=(16, 20), mask_types=("Cells",))
     config = _cell_config(run)
     config.export.enabled, config.common.output_dir = True, str(tmp_path / "out")
-    config.normalization.enabled, config.normalization.scope = True, "image"
-    config.normalization.export_values = "raw"
-    run_patching_condition_repeat_tree(run.experiment, config=config, combine_metadata=True)
+    run_patching_condition_repeat_tree(run.experiment, config=config, combine_metadata=True)  # files as delivered
     path = tmp_path / "out" / "run_config.json"
     path.write_text(json.dumps({**json.loads(path.read_text(encoding="utf-8")), "run_config_version": version}))
     refusal = rf"run_config_version {version!r}; this CellPatcher reads versions 1, 2"
@@ -292,6 +290,8 @@ def test_a_run_config_of_an_unknown_version_is_refused_by_every_reader(tmp_path,
         load_config(path)
     with pytest.raises(ValueError, match=refusal):
         list(iter_exported_patches(tmp_path / "out" / "patches.csv"))
+    with pytest.raises(PatchTableError, match=refusal):
+        read_patch_table(tmp_path / "out" / "patches.csv")
 
 
 def test_another_table_than_the_run_s_is_refused(tmp_path):

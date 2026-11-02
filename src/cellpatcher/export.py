@@ -279,6 +279,13 @@ def _read_run_config(csv_path: Path, names: set[str], problems: list[str]):
     if not isinstance(run_config, dict):
         problems.append(f"config file {path} holds a {type(run_config).__name__}, not the JSON object CellPatcher writes")
         return None
+    from cellpatcher.run_config_file import run_config_version
+
+    try:
+        run_config_version(run_config, f"config file {path}")
+    except ValueError as exc:
+        problems.append(str(exc))
+        return None
     return run_config
 
 
