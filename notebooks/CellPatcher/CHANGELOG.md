@@ -50,8 +50,11 @@ CP-2a and CP-2b, all part of it).
   `# noqa` ratchet); Ruff 0.17.3 in the `test` extra, a CI rules job.
 
 - In-memory X-before-Y axes are also refused by `scan_cell_patch_size`/`scan_cell_objects`
-  (before, a square mask declared `XY` gave the transposed mask's sizes) and by
-  `CellSegmentationStrategy(mask_axes=...)`.
+  (before, a square mask declared `XY` gave the transposed mask's sizes), by
+  `CellSegmentationStrategy(mask_axes=...)`, and by `PatchTorchDataset` when it is built (before,
+  only when an item was loaded, in a DataLoader worker).
+- `tools/check.py` runs Ruff with `--ignore-noqa`: a `# noqa` comment silences no finding past
+  the baseline.
 
 ### Not yet (follow-ups)
 - **CP-3b, before the `v0.2.0rc1` tag** (owner decisions of 2026-11-02):
