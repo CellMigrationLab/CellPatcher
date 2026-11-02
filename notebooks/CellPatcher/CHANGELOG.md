@@ -62,7 +62,28 @@ The follow-ups the owner decided on 2026-11-02, before `v0.2.0rc1` is tagged.
 - A missing file a table names (`FileNotFoundError`) is shown as a red settings card, not a
   traceback.
 - All three notebooks share one Step 0, checked by a test; each runs headless in a kernel in the
-  tests (the PyTorch notebook when `torch` is installed).
+  tests (the PyTorch notebook when `torch` is installed). **No CI job has `torch` yet**: the
+  PyTorch notebook's kernel run and the torch tests are skipped in CI; they were run locally with
+  CPU `torch` 2.15.0 (see "Not yet").
+
+### Fixed (independent review of CP-3b)
+- **The torch adapters' default rescaling was silent.** `PatchTensorConfig(scale_policy="auto")`
+  (the default) divides an integer patch by its dtype maximum. Its `DeprecationWarning` was raised
+  inside the library, where Python's default filters hide it, so `ExportedPatchTorchDataset` and
+  `PatchTorchDataset` rescaled without a word. The warning is now a
+  `cellpatcher.torch_dataset.ScalePolicyDeprecationWarning` (a `DeprecationWarning`, so existing
+  filters still match it) shown once per place under the default filters, naming the divisor, and
+  every dataset item records it as `scale_divisor` (1.0 when the values are not rescaled). The
+  default itself is unchanged (changing it needs an owner decision, contract §15).
+- **The PyTorch notebook's batch** was converted to float32 without a check (an int32/uint32 value
+  above 2^24 or a float64 value would have been rounded). The patches are now read in their
+  exported type and converted only when float32 holds every value exactly, otherwise refused; the
+  exported type is recorded (`TorchBatch.exported_dtype`) and shown.
+- The before/after figure titled a patch without a label with the end of its `patch_id` (cut at a
+  `/`); an identity is never parsed: it is now numbered.
+- The test extra installs `pip` (`tests/test_installers.py` pip-installs both installer layouts;
+  a venv made by `uv` has no pip), and the kernel tests put their IPC sockets in a short temporary
+  folder (pytest's `tmp_path` can exceed macOS's 104-byte socket path limit).
 
 ---
 ## [0.2.0rc1] - Preprocessing v0.4.0rc2, unrecorded files refused, the v0.2 notebook (CP-3)
@@ -120,6 +141,12 @@ CP-2a and CP-2b, all part of it).
 ### Not yet (follow-ups)
 - **CP-3b, before the `v0.2.0rc1` tag** (owner decisions of 2026-11-02): done, see the CP-3b
   section above (the other two notebooks, the normalization views, the installer layout).
+- **Before the final `v0.2.0` (not before `v0.2.0rc1`): one LabConstrictor template-sync PR**
+  (owner decision of 2026-11-02): sync `.github`/`.tools` with the current template (fixing
+  `bump_constructor.py`'s package layout upstream-style; `setup.py` reads both layouts until then),
+  re-apply CellPatcher's CI rules job, extras matrix and the release-candidate refusal of
+  `bump_version.py` (and propose them upstream), and **add a CPU-torch CI job**. Until then the
+  PyTorch notebook's kernel run and the torch tests are skipped in CI and run locally only.
 - **After preprocessing v0.4.0 is final:** the CellPatcher notebook will include the
   preprocessing steps through preprocessing's declared embedding API (`PreprocessingNotebook`,
   `notebook_style`), never a copy of its code. Until then, run the preprocessing notebook or

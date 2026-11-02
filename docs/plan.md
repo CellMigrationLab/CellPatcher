@@ -303,7 +303,10 @@ design **[D12]**:
   `DeprecationWarning` naming the replacement. Combining them with the new normalization is
   an error, to prevent normalizing twice.
 - `PatchTensorConfig.scale_policy="auto"` (the default): a `DeprecationWarning` when it
-  actually rescales an integer patch. It never rescales normalized float patches.
+  actually rescales an integer patch. It never rescales normalized float patches. Since the
+  CP-3b review the warning is a `ScalePolicyDeprecationWarning`, shown under Python's default
+  warning filters (a library's `DeprecationWarning` was hidden, so the dataset rescaled without
+  a word), and every dataset item records the divisor (`scale_divisor`, 1.0 when unscaled).
 - Removal and the change of the `scale_policy` default happen in a later version, with
   owner approval (AGENTS.md §8).
 
@@ -528,6 +531,19 @@ from GitHub at a pinned version) **[D1]**.
   version); the installer's package layout (the package copied to `src/cellpatcher/cellpatcher/`
   by this repository's stale copy of the template, which `setup.py` did not find) is read by
   `setup.py` too, tested for both layouts. Then tag `v0.2.0rc1`.
+  *Owner decisions of 2026-11-02 at the CP-3b review:* the PyTorch notebook is a user notebook
+  (it loads an export as tensors; the torch tests stay in the suite), and the strategy examples
+  need a preprocessing run (revisited when preprocessing is embedded, after v0.4.0). The
+  `setup.py` layout fix stays for now.
+- **Before the final `v0.2.0` (not before `v0.2.0rc1`): one LabConstrictor template-sync PR**
+  (owner decision of 2026-11-02). It syncs `.github`/`.tools` with the current LabConstrictor
+  template (which fixes `bump_constructor.py`'s layout, upstream `a76be61`), re-applies
+  CellPatcher's own changes the sync would drop (the code-rules job and the extras matrix of
+  `tests.yml`, and `bump_version.py`'s release-candidate refusal) and proposes them upstream,
+  and adds a **CPU-torch CI job**. Until then no CI job has `torch`: the PyTorch notebook's
+  kernel run (`tests/test_notebook_file.py`) and the torch tests (`test_torch_session.py`,
+  `test_torch_dataset.py`, the torch tests of `test_delivery.py` and
+  `test_biological_repeat.py`) are skipped in CI and run locally with CPU `torch`.
 - **Planned after preprocessing v0.4.0 is final: the preprocessing steps inside the CellPatcher
   notebook** (owner decision of 2026-11-02). Preprocessing is the essential first step, so the
   CellPatcher notebook should eventually include it, but not while preprocessing's notebook is

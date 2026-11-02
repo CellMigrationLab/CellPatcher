@@ -53,7 +53,11 @@ C/Z/T handling is explicit preprocessing (`prepare_*` helpers and iterators). Co
   `tests/test_installers.py` copies the files as each layout lists them, pip-installs them and
   imports `cellpatcher`. `construct.yaml` is left as the release workflow writes it. Syncing the
   template (`.github` and `.tools`) would also replace `tests.yml` (the rules job and the extras
-  matrix) and `bump_version.py` (the release-candidate refusal), so it is an owner decision.
+  matrix) and `bump_version.py` (the release-candidate refusal): the owner decided (2026-11-02)
+  that one PR before the final `v0.2.0` syncs the template, re-applies those files' CellPatcher
+  changes (proposing them upstream) and adds a CPU-torch CI job (`docs/plan.md`). Until then CI
+  skips the PyTorch notebook's kernel run and the torch tests; run them locally with CPU `torch`
+  (`pip install torch --index-url https://download.pytorch.org/whl/cpu`).
 - Strip outputs before committing; avoid duplicating backend patching logic in notebooks.
 
 ## Regenerate docs figures
