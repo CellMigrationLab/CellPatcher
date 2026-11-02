@@ -22,6 +22,7 @@ import numpy as np
 from IPython.display import display
 from matplotlib.patches import Rectangle
 from morphobricks_preprocessing import notebook_style as style
+from morphobricks_preprocessing.run_inputs import RunInputsError
 
 from cellpatcher import __version__
 from cellpatcher.cell_scan import CellPatchSizeSummary
@@ -44,7 +45,8 @@ GALLERY_SIZE = 12
 def issue_card(error: Exception) -> str:
     """Return the HTML status card of a refusal: each issue's message, files and action.
 
-    A :class:`~cellpatcher.statistics.PreprocessingCheckError` lists its issues; a
+    A :class:`~cellpatcher.statistics.PreprocessingCheckError` lists its issues; the brick's
+    ``RunInputsError`` (a file refused while it is read) its message as a refused run; a
     ``ValueError`` or ``TypeError`` (a setting refused) its message; anything else, which
     is a bug, its traceback.
     """
@@ -55,6 +57,8 @@ def issue_card(error: Exception) -> str:
             action = f" <i>What to do:</i> {html.escape(issue.action)}" if issue.action else ""
             lines.append(f"<b>[{html.escape(issue.code)}]</b> {html.escape(issue.message)}{html.escape(files)}{action}")
         return style.status("error", "The preprocessing run cannot be used as it is", lines, raw=True)
+    if isinstance(error, RunInputsError):  # refused while reading, e.g. a file changed since step 1
+        return style.status("error", "The preprocessing run cannot be used as it is", [str(error)])
     if isinstance(error, (ValueError, TypeError)):
         return style.status("error", "Please change the settings", [str(error)])
     trace = html.escape("".join(traceback.format_exception(error)))

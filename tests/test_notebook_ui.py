@@ -113,3 +113,9 @@ def test_an_unexpected_error_shows_its_traceback():
 
     refusal = issue_card(PreprocessingCheckError([issue("some_code", "a message", ["a.tif"], "do this")]))
     assert "[some_code]" in refusal and "a.tif" in refusal and "do this" in refusal
+    # A file refused while it is read (RunInputsError is a ValueError) is a refused run, not a setting.
+    from morphobricks_preprocessing.run_inputs import RunInputsError
+
+    changed = issue_card(RunInputsError("a.tif changed since the run"))
+    assert "The preprocessing run cannot be used as it is" in changed and "a.tif changed" in changed
+    assert "Please change the settings" not in changed
