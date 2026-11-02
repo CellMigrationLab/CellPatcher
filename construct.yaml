@@ -39,8 +39,10 @@ extra_files:
 - src/cellpatcher/masking.py: CellPatcher/src/cellpatcher/cellpatcher/masking.py
 - src/cellpatcher/normalization.py: CellPatcher/src/cellpatcher/cellpatcher/normalization.py
 - src/cellpatcher/normalization_review.py: CellPatcher/src/cellpatcher/cellpatcher/normalization_review.py
+- src/cellpatcher/notebook_examples.py: CellPatcher/src/cellpatcher/cellpatcher/notebook_examples.py
 - src/cellpatcher/notebook_form.py: CellPatcher/src/cellpatcher/cellpatcher/notebook_form.py
 - src/cellpatcher/notebook_session.py: CellPatcher/src/cellpatcher/cellpatcher/notebook_session.py
+- src/cellpatcher/notebook_torch.py: CellPatcher/src/cellpatcher/cellpatcher/notebook_torch.py
 - src/cellpatcher/notebook_ui.py: CellPatcher/src/cellpatcher/cellpatcher/notebook_ui.py
 - src/cellpatcher/object_geometry.py: CellPatcher/src/cellpatcher/cellpatcher/object_geometry.py
 - src/cellpatcher/orchestration.py: CellPatcher/src/cellpatcher/cellpatcher/orchestration.py
@@ -62,6 +64,7 @@ extra_files:
 - src/cellpatcher/strategies/random.py: CellPatcher/src/cellpatcher/cellpatcher/strategies/random.py
 - src/cellpatcher/strategies/whole_fov.py: CellPatcher/src/cellpatcher/cellpatcher/strategies/whole_fov.py
 - src/cellpatcher/torch_dataset.py: CellPatcher/src/cellpatcher/cellpatcher/torch_dataset.py
+- src/cellpatcher/torch_session.py: CellPatcher/src/cellpatcher/cellpatcher/torch_session.py
 - src/cellpatcher/types.py: CellPatcher/src/cellpatcher/cellpatcher/types.py
 post_install: app/bash_bat_scripts/post_install.bat # [win]
 post_install: app/bash_bat_scripts/post_install.sh # [unix]
