@@ -88,7 +88,9 @@ REM bundled, install it without a temporary build environment and verify that
 REM the generated import package is usable. Otherwise continue without it.
 IF EXIST "%PROJECT_ROOT%\setup.py" (
     echo Found setup.py, installing CellPatcher package locally without build isolation. >> "%LOG_FILE%"
-    "%PYTHON_EXE%" -m pip install --no-deps --no-build-isolation "%PROJECT_ROOT%" >> "%LOG_FILE%" 2>&1
+    REM CellPatcher: with the "zarr" extra for OME-Zarr images and with its dependencies, which are not in
+    REM requirements.txt: the MorphoBricks bricks are fetched from GitHub with the git bundled in environment.yaml.
+    "%PYTHON_EXE%" -m pip install --no-build-isolation "%PROJECT_ROOT%[zarr]" >> "%LOG_FILE%" 2>&1
     IF ERRORLEVEL 1 (
         SET "FAILURE_MESSAGE=CellPatcher package installation failed."
         GOTO :fail

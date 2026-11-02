@@ -15,13 +15,13 @@
       ],
       "platforms": {
         "win": {
-          "icon": "app/logo/CellPatcher_logo.ico"
+          "icon": ""
         },
         "linux": {
-          "icon": "app/logo/CellPatcher_logo.png"
+          "icon": ""
         },
         "osx": {
-          "icon": "app/logo/CellPatcher_logo.icns"
+          "icon": ""
         }
       }
     }

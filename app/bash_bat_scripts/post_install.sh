@@ -64,7 +64,9 @@ fi
 # constructor bundled setup.py and src/.
 if [ -f "$PROJECT_ROOT/setup.py" ]; then
     echo "Found setup.py, installing CellPatcher package locally without build isolation" >> "$LOG_FILE"
-    "$PYTHON_EXE" -m pip install --no-deps --no-build-isolation "$PROJECT_ROOT" >> "$LOG_FILE" 2>&1
+    # CellPatcher: with the "zarr" extra (OME-Zarr images) and with its dependencies, which are not in
+    # requirements.txt: the MorphoBricks bricks are fetched from GitHub with the git bundled in environment.yaml.
+    "$PYTHON_EXE" -m pip install --no-build-isolation "${PROJECT_ROOT}[zarr]" >> "$LOG_FILE" 2>&1
     # Tools first, only for an app whose package ships a <package>_lc_tools module: the app package may import labconstrictor_tools
     # at module level, so labconstrictor-tools must be installed BEFORE the import check below. A failed install is only a WARNING
     # (it never fails the installation by itself). LC_TOOLS_SPEC can point to another source (wheel, git URL, mirror).

@@ -1,21 +1,10 @@
-from pathlib import Path
-
 from setuptools import find_packages, setup
-
-# Where the package's folder is. In this repository and in LabConstrictor installers built
-# with the current template, it is src/cellpatcher. Installers built with the template synced
-# into this repository before its fix (.tools/python/bump_constructor.py, fixed upstream in
-# LabConstrictor a76be61) copy it to src/cellpatcher/cellpatcher, where find_packages(where="src")
-# finds nothing and the installed app has no cellpatcher module; read it from there instead.
-# tests/test_installers.py installs both layouts.
-HERE = Path(__file__).resolve().parent
-SOURCE_ROOT = "src/cellpatcher" if (HERE / "src/cellpatcher/cellpatcher/__init__.py").is_file() else "src"
 
 setup(
     name="cellpatcher",
     version="0.2.0rc1",
-    package_dir={"": SOURCE_ROOT},
-    packages=find_packages(where=SOURCE_ROOT),
+    package_dir={"": "src"},
+    packages=find_packages(where="src"),
     python_requires=">=3.11",
     install_requires=[
         "numpy",
@@ -42,6 +31,9 @@ setup(
             # tests/test_installers.py pip-installs the installer's layouts (a venv made
             # without pip, such as uv's, has none).
             "pip",
+            # tests/test_installers.py runs the release script .tools/python/bump_constructor.py
+            # (the installer's file list), which reads construct.yaml with PyYAML.
+            "pyyaml",
             # tools/check.py and tests/test_code_rules.py: the code standards (design v0.4
             # §9). Pinned, because the baseline of existing findings is Ruff's at this version.
             "ruff==0.17.3",
