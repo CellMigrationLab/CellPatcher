@@ -52,3 +52,41 @@ def test_scale_policy_auto_warns_only_when_it_rescales_an_integer_patch(torch_da
     none = PatchTensorConfig(channel_policy="keep", scale_policy="none")
     _, caught = _record(lambda: patch_array_to_tensor(IMAGE[0].astype(np.uint8), axes="YX", config=none))
     assert caught == []
+
+
+_DEFAULT_FILTERS_SCRIPT = """
+import sys
+from pathlib import Path
+
+import numpy as np
+
+from cellpatcher.torch_dataset import ExportedPatchTorchDataset, PatchTensorConfig
+
+folder = Path(sys.argv[1])
+np.save(folder / "p.npy", np.full((4, 4), 1000, dtype=np.uint16))
+(folder / "patches.csv").write_text("patch_id,patch_file\\np1,p.npy\\n", encoding="utf-8")
+for config in (None, PatchTensorConfig(channel_policy="keep", scale_policy="none")):
+    item = ExportedPatchTorchDataset(folder / "patches.csv", tensor_config=config)[0]
+    print(item["scale_divisor"], float(item["image"].max()))
+"""
+
+
+def test_the_default_scale_policy_rescaling_is_shown_and_recorded(tmp_path):
+    # Python hides a DeprecationWarning raised inside a library, so the default
+    # scale_policy='auto' divided integer patches by 65535 without a word (CP-3b review).
+    pytest.importorskip("torch", reason="the torch extra installs torch")
+    import os
+    import subprocess
+    import sys
+
+    result = subprocess.run(
+        [sys.executable, "-c", _DEFAULT_FILTERS_SCRIPT, str(tmp_path)],
+        capture_output=True, text=True, check=True,
+        env={key: value for key, value in os.environ.items() if key != "PYTHONWARNINGS"},
+    )
+    default, kept = result.stdout.strip().splitlines()
+    divisor, maximum = map(float, default.split())
+    assert (divisor, maximum) == (65535.0, pytest.approx(1000 / 65535))
+    assert kept.split() == ["1.0", "1000.0"]  # scale_policy='none': unscaled, nothing to record
+    assert "ScalePolicyDeprecationWarning" in result.stderr
+    assert "divided an integer patch by its dtype maximum (65535)" in result.stderr

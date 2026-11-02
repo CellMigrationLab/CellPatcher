@@ -272,7 +272,7 @@ Torch integration is optional. CellPatcher does not run DINO/Torch inference in 
 - Import from `cellpatcher.torch_dataset`
 - Dataset returns `C,H,W` tensors
 - Use your own transform for ImageNet/DINO normalization
-- `scale_policy="auto"` scales integer arrays by dtype max; it does not percentile-normalize or ImageNet-normalize data. This rescaling is **deprecated** (it warns when it rescales): normalize patches with `config.normalization` and use `scale_policy="none"`; normalized float patches are never rescaled
+- `scale_policy="auto"` scales integer arrays by dtype max; it does not percentile-normalize or ImageNet-normalize data. This rescaling is **deprecated**: it warns when it rescales (`ScalePolicyDeprecationWarning`, shown under Python's default filters) and each item records the divisor (`scale_divisor`, 1.0 when unscaled). Normalize patches with `config.normalization` and use `scale_policy="none"`; normalized float patches are never rescaled
 - For non-singleton Z/T, preprocess first with `prepare_image_for_patching(...)`, `iter_image_planes_for_patching(...)`, or `iter_cell_planes_for_patching(...)`
 - Keep `extra_metadata_by_image_id` values DataLoader-collate-friendly (for example strings, numbers, lists, or small dictionaries)
 
