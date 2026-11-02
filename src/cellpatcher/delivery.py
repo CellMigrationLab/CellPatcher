@@ -29,6 +29,7 @@ import os
 from collections.abc import Iterator, Mapping, Sequence
 from pathlib import Path
 from types import SimpleNamespace
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -40,6 +41,10 @@ from cellpatcher.normalization import PatchNormalization, parameters_from_row
 from cellpatcher.planes import apply_plane_choice, patch_plane_choice, select_mask_plane
 from cellpatcher.resize import resize_patch
 from cellpatcher.run_config_file import delivery_config
+
+if TYPE_CHECKING:
+    from cellpatcher.config import CellPatcherConfig
+    from cellpatcher.planes import PlaneChoice
 
 
 def patch_axes(config, patch) -> str:
@@ -200,12 +205,16 @@ def _splits_channel(config, patch, axes: str) -> bool:
     return bool(config.extraction.split_channels and patch.c is not None and "C" in axes)
 
 
-def _image_plane(image, choice, config):
+def _image_plane(image: np.ndarray, choice: PlaneChoice, config: CellPatcherConfig) -> tuple[np.ndarray, str]:
+    """Return the plane *choice* of an in-memory image, refusing a file path."""
     _refuse_file(image, "image")
     return apply_plane_choice(image, config.common.image_axes, choice)
 
 
-def _mask_plane(mask, choice, config):
+def _mask_plane(
+    mask: np.ndarray | None, choice: PlaneChoice, config: CellPatcherConfig
+) -> tuple[np.ndarray | None, str | None]:
+    """Return the mask plane for *choice* of an in-memory mask, refusing a file path or X before Y."""
     if mask is None:
         return None, None
     _refuse_file(mask, "mask")
@@ -214,7 +223,7 @@ def _mask_plane(mask, choice, config):
     return select_mask_plane(mask, normalize_axes(config.common.mask_axes, mask.ndim), choice)
 
 
-def _refuse_file(source, what: str) -> None:
+def _refuse_file(source: object, what: str) -> None:
     """Refuse a file path: since v0.2.0 files are read only through the preprocessing run (CP-2b)."""
     if isinstance(source, (str, os.PathLike)):
         raise TypeError(
