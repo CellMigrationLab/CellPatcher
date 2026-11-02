@@ -26,7 +26,7 @@ from __future__ import annotations
 import csv
 import json
 import os
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
@@ -45,6 +45,7 @@ from cellpatcher.run_config_file import delivery_config, run_config_version
 if TYPE_CHECKING:
     from cellpatcher.config import CellPatcherConfig
     from cellpatcher.planes import PlaneChoice
+    from cellpatcher.types import PatchRegion
 
 
 def patch_axes(config, patch) -> str:
@@ -57,7 +58,9 @@ def patch_axes(config, patch) -> str:
     return axes
 
 
-def patch_array(patch, image, config, *, mask=None) -> np.ndarray:
+def patch_array(
+    patch: PatchRegion, image: np.ndarray, config: CellPatcherConfig, *, mask: np.ndarray | None = None
+) -> np.ndarray:
     """Rebuild one patch's array from its source image, as the pipeline delivers it.
 
     Parameters
@@ -87,7 +90,13 @@ def patch_array(patch, image, config, *, mask=None) -> np.ndarray:
     return _finish_patch(patch, plane, axes, mask_plane, mask_axes, config)
 
 
-def iter_patch_arrays(patches, images: Sequence, config, *, masks: Sequence | None = None) -> Iterator[tuple]:
+def iter_patch_arrays(
+    patches: Iterable[PatchRegion],
+    images: Sequence,
+    config: CellPatcherConfig,
+    *,
+    masks: Sequence | None = None,
+) -> Iterator[tuple]:
     """Yield ``(patch, array)`` for every patch, one at a time (lazy delivery).
 
     Parameters
@@ -164,7 +173,7 @@ def iter_exported_patches(metadata_file, *, root_dir=None) -> Iterator[tuple[dic
         yield row, load_exported_patch(row, root_dir=root, run_config=run_configs[name])
 
 
-def _normalize_on_load(row: Mapping, array, run_config: Mapping | None) -> np.ndarray:
+def _normalize_on_load(row: Mapping, array: np.ndarray, run_config: Mapping | None) -> np.ndarray:
     """Normalize a loaded patch file when its run exported raw values (else return it as stored)."""
     if run_config is not None:
         run_config_version(run_config, "run_config.json")

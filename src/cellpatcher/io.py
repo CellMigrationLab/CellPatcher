@@ -531,7 +531,7 @@ MASK_TRANSPOSE_HELP = (
 )
 
 
-def refuse_transposed_mask_axes(mask_axes) -> None:
+def refuse_transposed_mask_axes(mask_axes: str) -> None:
     """Refuse ``common.mask_axes`` that put X before Y: CellPatcher cannot read a mask transposed.
 
     The cell and random strategies take a label plane's two dimensions as Y

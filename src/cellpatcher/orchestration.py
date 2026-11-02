@@ -204,7 +204,7 @@ def save_config_for_mode(mode: str, path) -> Path:
     return out
 
 
-def load_config(path) -> CellPatcherConfig:
+def load_config(path: str | os.PathLike) -> CellPatcherConfig:
     """Load a :class:`~cellpatcher.CellPatcherConfig` from a JSON file.
 
     The file is typically created by :func:`save_default_config` or

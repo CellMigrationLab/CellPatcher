@@ -254,7 +254,7 @@ def _typed(text: str, kind: type, optional: bool, column: str):
     raise TypeError(f"no reader for {column} ({kind})")
 
 
-def _read_run_config(csv_path: Path, names: set[str], problems: list[str]):
+def _read_run_config(csv_path: Path, names: set[str], problems: list[str]) -> dict | None:
     """The ``run_config.json`` the rows' ``config_file`` names (relative to the CSV's folder), or None."""
     import json
 

@@ -457,7 +457,7 @@ class Normalizer:
         self._groups: dict[tuple, object] = {}
 
     @classmethod
-    def for_config(cls, config) -> Normalizer | None:
+    def for_config(cls, config: CellPatcherConfig) -> Normalizer | None:
         """The run's normalizer, or None when ``config.normalization.enabled`` is False.
 
         Validates the settings, loads the statistics for a CSV scope (and,
