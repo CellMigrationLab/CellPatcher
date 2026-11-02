@@ -50,14 +50,26 @@ def test_an_empty_folder_is_asked_for():
         summarize_run("  ")
 
 
-def test_the_preview_gives_the_patches_the_export_gives(clean, tmp_path):
-    # The preview is the file-run code on one image: same patch ids, coordinates and pixels.
+def _normalized_config():
+    config = _cell_config()
+    config.normalization.enabled = True
+    config.normalization.scope = "image"
+    return config
+
+
+@pytest.mark.parametrize("make_config", [_cell_config, _normalized_config], ids=["raw", "normalized"])
+def test_the_preview_gives_the_patches_the_export_gives(clean, tmp_path, make_config):
+    # The preview is the file-run code on one image: the same patches (ids, coordinates, pixels;
+    # normalized with the run's statistics when normalization is on) as the export, and no other.
     summary = summarize_run(clean.output)
-    preview = preview_image(_cell_config(), summary, "drug/rep1/b.ome.tif")
+    preview = preview_image(make_config(), summary, "drug/rep1/b.ome.tif")
     assert preview.plane.shape == (2, 32, 40)
-    results = export_patches_of_run(_cell_config(), summary, tmp_path / "out")
+    results = export_patches_of_run(make_config(), summary, tmp_path / "out")
     exported = {patch.patch_id: patch for leaf in results for patch in leaf.result.patches}
     assert preview.result.patches
+    assert {p.patch_id for p in preview.result.patches} == {
+        p.patch_id for p in exported.values() if p.source_relative_path == "drug/rep1/b.ome.tif"
+    }
     for patch, array in zip(preview.result.patches, preview.result.patch_arrays, strict=True):
         assert patch.source_relative_path == "drug/rep1/b.ome.tif"
         twin = exported[patch.patch_id]
