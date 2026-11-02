@@ -361,9 +361,9 @@ def run_patching_pipeline(
         Without ``common.preprocessing_run``, or when ``RunInputs`` refuses
         the run (an image or mask changed or missing, a run before v0.4).
     ValueError
-        For ``common.image_axes``/``mask_axes`` other than ``"YX"``,
-        ``mask_source``/``mask_label_name``, or labels other than
-        ``"single"``: file runs read these from the run (the message says so).
+        For ``common.image_axes``/``mask_axes`` other than ``"YX"``, labels
+        other than ``"single"``, or ``normalization.experiment_root``/``masks_root``:
+        file runs read these from the run and its arguments (the message says so).
     """
     config = _checked_config(config, overrides)
     refuse_removed_matching("run_patching_pipeline", removed_options)

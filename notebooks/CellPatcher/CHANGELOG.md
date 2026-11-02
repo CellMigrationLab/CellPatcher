@@ -4,6 +4,52 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased] - File-run removals and run_config.json version 2 (CP-2b)
+
+### Changed
+- `run_config.json` is version 2 (`run_config_version`). When a preprocessing run was read
+  it has a `preprocessing` section: the run's folder (`run`), the SHA-256 of its
+  `run_manifest.json` taken when the call opened it (`manifest_sha256`), and for a folder or
+  tree run the array `layout` (`image`, `mask`) built from the run's recorded roles. A folder
+  or tree run no longer records `common.image_axes`, `mask_axes` or its labels there (they are
+  the run's, not settings), so its `run_config.json` loads back as a config a file run accepts.
+  `load_config` and the exported-patch readers refuse any version but 1 (no version: written
+  before v0.2.0, or a plain config file) and 2.
+- `validate_image_and_mask_folders(image_folder, mask_folder, *, preprocessing_run=, mask_type=)`
+  returns the pairing the preprocessing run recorded (opened where the folders are now); it
+  pairs nothing itself, and refuses without a run (`no_preprocessing_run`). It moved to
+  `cellpatcher.file_runs` (still `cellpatcher.validate_image_and_mask_folders`).
+- New `iter_run_patch_arrays(patches, config, *, experiment_root=, masks_root=)`: lazy
+  delivery of a folder or tree run's patches, each plane read with `RunInputs.read_plane`
+  (masks with `read_mask`) from the image the run recorded at the patch's
+  `source_relative_path`, refusing another image or FOV key.
+- `run_patching_pipeline` (and `run_patching_from_folders`) accept `mask_folder_path` in `grid`
+  and `whole_fov` mode (owner decision of 2026-11-02): it says where the run's masks folder is
+  now; those masks are checked there, never read. Before, it was refused.
+- `normalization.experiment_root`/`masks_root` (owner decision of 2026-11-02): where the
+  experiment and masks folder of a moved experiment are now, for `run_patching` at the `image`
+  or `biological_repeat` scope. Folder and tree runs refuse them (their arguments say it).
+
+### Removed (breaking)
+- `patch_array`, `iter_patch_arrays` and `PatchTorchDataset` take arrays only: a file path is a
+  `TypeError` naming `iter_run_patch_arrays` (before, CellPatcher read it with
+  `common.image_axes` and its own header check).
+- `images.csv` loses its last column `image_read_transposed` (always `false` or empty since
+  preprocessing v0.4), and `ImageRecord` its field.
+- `common.mask_source` and `common.mask_label_name`: `CommonConfig(mask_source=...)` is a
+  `TypeError`; a config or `run_config.json` with their defaults still loads, one with another
+  value is refused naming `matching.mask_type`.
+- `cellpatcher.io`: `pair_masks`, `MaskPairing`, `read_image`, `conform_axes`,
+  `read_ngff_mask`, `refuse_image_header_axes`, `refuse_mask_header_axes`,
+  `refuse_header_axes`, `header_axes_disagreement`, `refuse_mask_channel_axis`,
+  `source_relative_path`, `discover_folder_images` and `validate_image_and_mask_folders` (moved,
+  above); `cellpatcher.planes`: `iter_file_planes`, `read_file_plane`; `cellpatcher.ids`:
+  `object_set_from_label_path`; `cellpatcher.pipeline`: `check_source_identities`,
+  `run_config_data` (now `cellpatcher.run_config_file`). `cached_statistics` moved from
+  `cellpatcher.normalization` to `cellpatcher.run_open`.
+- The notebook still imports `pair_masks` and `read_ngff_mask` and offers the removed
+  settings; it is updated in CP-3.
+
 ## [Unreleased] - File runs read through the preprocessing run (CP-2a)
 
 ### Changed
@@ -13,7 +59,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   off (`no_preprocessing_run`, with the preprocessing command). The images patched are the
   run's, with their labels and `position_id` as it recorded them; images and masks are read
   with `RunInputs.read_plane`/`read_mask` in the roles it recorded, in one canonical layout per
-  run (T, Z, C, then Y, X), recorded in `run_config.json` as `common.image_axes`/`mask_axes`.
+  run (T, Z, C, then Y, X), recorded in `run_config.json` as `common.image_axes`/`mask_axes`
+  (in its `preprocessing.layout` since CP-2b).
   An image added to the experiment after the run is not patched, and nothing says so yet (known
   limitation, closed when CellPatcher calls the preprocessing check for added images, which is
   not in v0.4.0rc1).

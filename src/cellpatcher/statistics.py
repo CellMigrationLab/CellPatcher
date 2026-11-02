@@ -330,8 +330,7 @@ def check_images(
     size and newest time), its recorded ``position_id`` is the one its name
     gives, and CellPatcher's axes give every axis the role the run recorded
     for the file. A TIFF image's axes are ``image_axes``; an OME-Zarr image's
-    are its own OME-NGFF axes, which CellPatcher puts into
-    ``common.image_axes`` by role (``io.read_image``), so both are checked.
+    are its own OME-NGFF axes (matched by role), so both are checked.
 
     Parameters
     ----------
@@ -383,9 +382,9 @@ def _checked_axes(mbp: ModuleType, root: Path, path: str, axes: str) -> str:
     """The axes CellPatcher reads *path* with, one letter per stored dimension.
 
     A TIFF image is read in ``common.image_axes``. An OME-Zarr image is read
-    in its own OME-NGFF axes, put into ``common.image_axes`` by role
-    (``io.read_image``), so those are the axes to compare with the run's
-    roles (an unreadable store gives no axes and fails the comparison).
+    in its own OME-NGFF axes, matched by role, so those are the axes to
+    compare with the run's roles (an unreadable store gives no axes and fails
+    the comparison).
     """
     if not path.lower().endswith(".zarr"):
         return normalize_axes(axes)

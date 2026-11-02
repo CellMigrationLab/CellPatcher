@@ -525,10 +525,9 @@ def refuse_removed_matching(where: str, options) -> None:
 
 
 MASK_TRANSPOSE_HELP = (
-    "To fix the masks, save each one with Y before X, as its image is read: transpose its last "
-    "two axes, for example tifffile.imwrite(path, numpy.swapaxes(mask, -1, -2), "
-    "metadata={'axes': 'YX'}) ('ZYX' or 'TYX' for a stack), then set common.mask_axes to those "
-    "axes. Nothing is ever read transposed."
+    "To fix the masks, give each one with Y before X, as its image: transpose its last two axes, "
+    "for example numpy.swapaxes(mask, -1, -2), then set common.mask_axes to those axes ('YX', "
+    "or 'ZYX'/'TYX' for a stack). Nothing is ever read transposed."
 )
 
 
@@ -539,9 +538,10 @@ def refuse_transposed_mask_axes(mask_axes) -> None:
     and X in their stored order, so a mask declared with X first (``'XY'``,
     ``'ZXY'``) would be taken as if Y came first: the patches would not
     match their objects (on a square image without any error).
-    Refused, never ignored (owner decision of 31 October 2026), for in-memory
-    masks as for mask files; :data:`MASK_TRANSPOSE_HELP` says how to fix the
-    masks.
+    Refused, never ignored (owner decision of 31 October 2026). Only
+    in-memory masks are declared: a folder or tree run reads each mask in the
+    roles its preprocessing run recorded. :data:`MASK_TRANSPOSE_HELP` says how
+    to fix the masks.
     """
     if mask_axes is None:
         return
