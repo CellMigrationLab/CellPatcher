@@ -78,6 +78,39 @@ def test_a_moved_experiment_is_opened_where_it_is_now(tmp_path):
         run_patching_condition_repeat_tree(moved, config=_cell_config(run))
 
 
+def test_a_file_runs_patches_are_delivered_lazily_through_the_run_where_it_is_now(tmp_path):
+    # CP-2b: lazy delivery from a file path read the file itself (with common.image_axes and its
+    # own header check). A folder or tree run's patches are now read through their run.
+    from dataclasses import replace
+
+    from cellpatcher import iter_patch_arrays, iter_run_patch_arrays
+
+    run = _clean_run(tmp_path, axes="YX", shape=(16, 20), mask_types=("Cells",))
+    config = _cell_config(run)
+    config.extraction.apply_mask = True
+    leaves = run_patching_condition_repeat_tree(run.experiment, config=config)
+    eager = _patches(leaves)
+    patches = [patch for leaf in leaves for patch in leaf.result.patches]
+    with pytest.raises(TypeError, match=r"path .*a.ome.tif.*iter_run_patch_arrays\(patches, config\)"):
+        next(iter_patch_arrays(leaves[0].result.patches, [run.experiment / "ctrl" / "rep1" / "a.ome.tif"], config))
+    moved, moved_masks = tmp_path / "moved" / "experiment", tmp_path / "moved" / "masks"
+    moved.parent.mkdir()
+    shutil.move(run.experiment, moved)
+    shutil.move(run.masks, moved_masks)
+    lazy = dict(
+        ((patch.patch_id, patch.mask_file), array)
+        for patch, array in iter_run_patch_arrays(patches, config, experiment_root=moved, masks_root=moved_masks)
+    )
+    assert lazy.keys() == eager.keys() and len(lazy) == 8
+    assert all(np.array_equal(lazy[key], eager[key]) for key in eager)
+    with pytest.raises(ValueError, match="comes from 'ctrl/rep1/z.tif', which is not an image of the preprocessing run"):
+        list(iter_run_patch_arrays([replace(patches[0], source_relative_path="ctrl/rep1/z.tif")], config,
+                                   experiment_root=moved, masks_root=moved_masks))
+    with pytest.raises(ValueError, match=r"has the FOV key \('drug',.*but the preprocessing run recorded \('ctrl'"):
+        list(iter_run_patch_arrays([replace(patches[0], condition="drug")], config,
+                                   experiment_root=moved, masks_root=moved_masks))
+
+
 def test_a_copied_experiment_is_checked_where_it_is_read(tmp_path):
     # CP-2a closes a CP-1 gap: with a copy of the experiment (the original in place), the run
     # was opened at the original, and the copy's masks were read without any check. A mask
