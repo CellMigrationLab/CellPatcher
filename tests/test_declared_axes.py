@@ -127,6 +127,20 @@ def test_lazy_delivery_refuses_a_mask_file(tmp_path):
         patch_array(patch, image, config, mask=tmp_path / "m.tif")
 
 
+def test_lazy_delivery_refuses_an_in_memory_mask_declared_swapped():
+    # The in-memory half of the removed test_lazy_delivery_refuses_a_mask_declared_swapped (its
+    # file half is test_lazy_delivery_refuses_a_mask_file): an array mask with X before Y.
+    from cellpatcher.delivery import patch_array
+
+    image, labels, _ = make_synthetic_cell_image_and_labels(shape=(32, 32))
+    config = _cell_config("YX", "YX")
+    patch = run_patching(images=[image], masks=[labels], config=config, image_metadata=named([image])).patches[0]
+    config.common.mask_axes = "XY"
+    config.extraction.apply_mask = True
+    with pytest.raises(ValueError, match=r"common.mask_axes='XY' puts X before Y"):
+        patch_array(patch, image, config, mask=labels)
+
+
 def _cell_config(image_axes, mask_axes, output_dir=None):
     config = CellPatcherConfig(mode="cell")
     config.cell.patch_size = 6
