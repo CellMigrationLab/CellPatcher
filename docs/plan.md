@@ -552,7 +552,14 @@ from GitHub at a pinned version) **[D1]**.
   new **CPU-torch job** (`.[test,zarr,notebook]` + `torch` 2.15.0 from the CPU index; no skip
   allowed), so the torch tests and the PyTorch notebook's kernel run now run in CI. Proposals for
   the template are in `docs/labconstrictor-upstream-proposals.md` (not sent: the owner decides);
-  how to sync and what is changed are in `docs/developer_notes.md`.
+  how to sync and what is changed are in `docs/developer_notes.md`. The template's weekly sync
+  schedule is turned off (owner decision of 2026-11-02; syncs are run by hand).
+- **Release checklist for the final `v0.2.0`: a manual installer test on Windows, macOS and
+  Linux** (owner decision of 2026-11-02), before the release is announced: the installer
+  finishes, the shortcut launches JupyterLab, `import cellpatcher` works in the app's Python, the
+  notebook opens, and the bricks (`morphobricks_preprocessing`, `morphobricks_normalization`,
+  `zarr`) import. The steps are in `docs/developer_notes.md` (Notebook hygiene, "Manual
+  installer test before the final `v0.2.0`").
 - **Planned after preprocessing v0.4.0 is final: the preprocessing steps inside the CellPatcher
   notebook** (owner decision of 2026-11-02). Preprocessing is the essential first step, so the
   CellPatcher notebook should eventually include it, but not while preprocessing's notebook is

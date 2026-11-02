@@ -43,6 +43,20 @@ C/Z/T handling is explicit preprocessing (`prepare_*` helpers and iterators). Co
   changes anything, so no installer is built; the installers are built at the final release
   (`v0.2.0`). `tests/test_installers.py` checks the refusal (a CellPatcher change to a template
   file, see "LabConstrictor template" below).
+- **Manual installer test before the final `v0.2.0`** (owner decision of 2026-11-02): the
+  `v0.2.0` installers are the first built with the synced template's scripts, and CI cannot build
+  or run an installer. Before the final `v0.2.0` is announced, install the release's installer on
+  **Windows, macOS and Linux** (a computer without CellPatcher) and check on each that:
+  1. the installer finishes without an error (on failure, `<install folder>/menuinst_debug.log`
+     says which step stopped);
+  2. the CellPatcher shortcut launches JupyterLab;
+  3. `import cellpatcher` works in the app's Python (`<install folder>/bin/python`, or
+     `python.exe` on Windows), and `cellpatcher.__file__` is in that environment;
+  4. the CellPatcher notebook (`Welcome.ipynb` and the notebooks it links) opens in the app;
+  5. the bricks import in the app's Python: `import morphobricks_preprocessing,
+     morphobricks_normalization, zarr` (the package is installed with its dependencies and the
+     `zarr` extra, see "LabConstrictor template").
+  Record the operating systems and versions tested in the release notes.
 - Strip outputs before committing; avoid duplicating backend patching logic in notebooks.
 
 ## LabConstrictor template
@@ -54,7 +68,8 @@ LabConstrictor `139efea`).
 
 **How to sync.** Use the template's own mechanism
 (`.tools/docs/template_synchronization.md`): the **Sync with Template Repository** workflow
-(`.github/workflows/sync_template.yml`, weekly and on demand) compares this repository's
+(`.github/workflows/sync_template.yml`, run by hand: **Actions > Sync with Template Repository
+> Run workflow**; CellPatcher has turned off its weekly schedule) compares this repository's
 `template_version` with the template's; when the template is newer it checks out the template's
 `.template_sync/` and runs its migrations
 (`python3 .template_sync/sync.py --from-version <ours> --to-version <theirs>`), then opens a pull
@@ -84,7 +99,8 @@ each is guarded by a test and proposed upstream in
 | File | Change | Why | Guard |
 | --- | --- | --- | --- |
 | `.tools/python/bump_version.py` | refuses `a`/`b`/`rc` versions before changing anything | no installer for a release candidate (owner decision of 2026-11-02) | `test_no_installer_is_built_for_a_release_candidate` |
-| `app/bash_bat_scripts/post_install.sh`, `.bat` | `pip install --no-build-isolation "<app>[zarr]"`, with dependencies (the template passes `--no-deps`) | CellPatcher's dependencies, the MorphoBricks bricks from GitHub at pinned tags, are in `setup.py`, not in `requirements.txt`; the app reads OME-Zarr | `test_post_install_installs_the_package_with_its_dependencies_and_the_zarr_extra` |
+| `app/bash_bat_scripts/post_install.sh`, `.bat` | `pip install "<app>[zarr]"`, with dependencies and with build isolation (the template passes `--no-deps --no-build-isolation`) | CellPatcher's dependencies, the MorphoBricks bricks from GitHub at pinned tags, are in `setup.py`, not in `requirements.txt`; the app reads OME-Zarr. pip builds the bricks from source, with their build backend (hatchling), which the app's environment does not have: without build isolation the install fails | `test_post_install_installs_the_package_with_its_dependencies_and_the_zarr_extra` |
+| `.github/workflows/sync_template.yml` | no `schedule:` (the template's runs weekly); `workflow_dispatch` only | owner decision of 2026-11-02: template syncs are run by hand | `test_the_template_sync_runs_only_by_hand` |
 | `app/menuinst/notebook_launcher.json` | `"icon": ""` on every platform | CellPatcher has no logo; migration 0.1.10 writes `app/logo/CellPatcher_logo.*`, files that do not exist | `test_the_launcher_names_no_icon_file_the_repository_does_not_have` |
 
 `construct.yaml`, `environment.yaml`, `requirements.txt` and `requirements_gpu.txt` are written by

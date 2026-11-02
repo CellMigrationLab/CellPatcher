@@ -60,8 +60,12 @@ No change to the package or the notebooks. Before the final `v0.2.0` (owner deci
   tools-bridge hooks and actions pinned by commit SHA in the template workflows.
 - The installer copies the package to `<app>/src/cellpatcher/` (the template's fixed
   `bump_constructor.py`); `setup.py` reads `src/` only again (CP-3b's two-layout workaround is
-  removed). The app's package is still installed with its dependencies and the `zarr` extra, and
-  release candidates still get no installer.
+  removed). The app's package is still installed with its dependencies and the `zarr` extra (and
+  with build isolation, so pip can build the bricks from GitHub), and release candidates still get
+  no installer.
+- The template's weekly sync schedule is off: syncs are run by hand. The final `v0.2.0` installers
+  get a manual install test on Windows, macOS and Linux before the release is announced
+  (`docs/developer_notes.md`).
 - CI: the workflow is `.github/workflows/cellpatcher_tests.yml` (was `tests.yml`; same jobs), with
   a new job running every test with `.[test,zarr,notebook]` and CPU `torch` 2.15.0: the torch tests
   and the PyTorch notebook's kernel run now run in CI, and the job fails if any test is skipped.

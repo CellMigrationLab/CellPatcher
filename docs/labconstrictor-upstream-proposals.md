@@ -78,12 +78,26 @@ fails the sync pull request if one is dropped.
 **Today.** `post_install.sh` and `post_install.bat` install the app's package with
 `pip install --no-deps --no-build-isolation <app>`: everything must be in `requirements.txt`.
 CellPatcher's dependencies are in `setup.py` (the MorphoBricks bricks, from GitHub at pinned tags), and it needs its `zarr` extra. CellPatcher changed the line to
-`pip install --no-build-isolation "<app>[zarr]"` in both scripts.
+`pip install "<app>[zarr]"` in both scripts. `--no-build-isolation` had to go too: with
+dependencies, pip builds the bricks from source in the app's environment, which has no
+`hatchling` (their build backend), and stops with `BackendUnavailable: Cannot import
+'hatchling.build'`.
 
 **Proposal.** A setting for the package install, for example in a template config file or in
 `labconstrictor-app.yaml`: the extras to install and whether to install the
-package's dependencies (default: today's `--no-deps`). The scripts would read it instead of
-being edited.
+package's dependencies (default: today's `--no-deps`). When dependencies are installed, keep
+build isolation (or install the dependencies' build backends first). The scripts would read the
+setting instead of being edited.
+
+## 4b. The weekly sync schedule as a setting (`sync_template.yml`)
+
+**Today.** `sync_template.yml` runs weekly and on demand. CellPatcher runs template syncs by hand
+only (owner decision of 2026-11-02) and removed the `schedule:` trigger, a change to a template
+file that a later migration replacing the file would undo.
+
+**Proposal.** Leave the schedule to the app, for example a repository variable checked by the
+job (`if: github.event_name != 'schedule' || vars.LABCONSTRICTOR_SYNC_SCHEDULE != 'off'`), so an
+app can turn it off without editing the file.
 
 ## 5. Smaller findings from the sync
 
