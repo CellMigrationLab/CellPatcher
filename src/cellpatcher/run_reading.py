@@ -34,7 +34,6 @@ if TYPE_CHECKING:
     from cellpatcher.config import CommonConfig
 
 _STACK_ROLES = "TZC"
-_FOLDER = "folder"  # morphobricks_preprocessing.masks.FOLDER, the source of a masks-folder TIFF
 
 
 def run_layout(fovs: Sequence[Fov]) -> str:
@@ -157,8 +156,10 @@ def run_mask_layout(records: Sequence[Mapping]) -> str:
 
 def mask_file_name(record: Mapping) -> str:
     """Return a mask's ``mask_file``: its file name, or ``<image>/labels/<name>`` for a label image."""
+    from morphobricks_preprocessing.masks import FOLDER
+
     path = PurePosixPath(str(record["path"]))
-    if record["source"] == _FOLDER:
+    if record["source"] == FOLDER:
         return path.name
     return "/".join(path.parts[-3:])
 
