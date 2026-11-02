@@ -17,9 +17,9 @@ from cellpatcher.io import (
     list_supported_files,
     read_array,
     read_image,
-    validate_image_and_mask_folders,
     write_array,
 )
+from cellpatcher.file_runs import validate_image_and_mask_folders
 from cellpatcher.orchestration import run_patching_condition_repeat_tree
 from cellpatcher.statistics import PreprocessingUnavailableError
 from tests.helpers import (
@@ -77,11 +77,11 @@ def test_a_store_next_to_subfolders_is_a_mixed_folder(tmp_path):
 
 @needs_zarr
 def test_store_stems_match_tiff_masks(tmp_path):
-    # A real store: the mask's header is checked against the image's Y and X sizes
-    # (find_masks' mask_size_mismatch, refused for the mask type used).
+    # A real store pairs with a TIFF mask named after its stem, as the preprocessing run paired it.
     write_ngff(tmp_path / "images" / "a.ome.zarr", np.zeros((4, 4), dtype=np.uint16), "yx")
     write_array(tmp_path / "masks" / "a_mask.tif", np.zeros((4, 4), dtype=np.uint8))
-    selected = validate_image_and_mask_folders(tmp_path / "images", tmp_path / "masks")
+    run = preprocess(tmp_path / "images", masks=tmp_path / "masks")
+    selected = validate_image_and_mask_folders(tmp_path / "images", tmp_path / "masks", preprocessing_run=run)
     assert {k.name: v.name for k, v in selected.items()} == {"a.ome.zarr": "a_mask.tif"}
 
 

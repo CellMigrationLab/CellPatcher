@@ -4,9 +4,10 @@ import numpy as np
 
 from cellpatcher.cell_scan import scan_cell_patch_size
 from cellpatcher.config import CellPatcherConfig, GridConfig, RandomConfig
-from cellpatcher.io import read_array, validate_image_and_mask_folders, write_array
+from cellpatcher import validate_image_and_mask_folders
+from cellpatcher.io import read_array, write_array
 from cellpatcher.pipeline import run_patching
-from tests.helpers import make_synthetic_cell_image_and_labels
+from tests.helpers import make_synthetic_cell_image_and_labels, preprocess
 from tests.helpers import named
 
 
@@ -149,7 +150,8 @@ def test_e2e_folder_matching_to_cell_pipeline(tmp_path):
     write_array(img_path, image)
     write_array(mask_path, labels)
 
-    matched = validate_image_and_mask_folders(img_dir, mask_dir)
+    run = preprocess(img_dir, masks=mask_dir)
+    matched = validate_image_and_mask_folders(img_dir, mask_dir, preprocessing_run=run)
     assert len(matched) == 1
 
     image_arr = read_array(next(iter(matched.keys())))

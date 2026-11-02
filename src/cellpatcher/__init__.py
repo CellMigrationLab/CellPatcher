@@ -25,6 +25,7 @@ from cellpatcher.config import (
 )
 from cellpatcher.delivery import iter_exported_patches, iter_patch_arrays, load_exported_patch, patch_array
 from cellpatcher.errors import CellPatcherRefusal, LabelRangeError, SamplingExhaustedError
+from cellpatcher.file_runs import validate_image_and_mask_folders
 from cellpatcher.export import (
     PatchTableError,
     export_patches,
@@ -45,7 +46,6 @@ from cellpatcher.io import (
     list_supported_files,
     read_array,
     read_array_shape,
-    validate_image_and_mask_folders,
     write_array,
     run_patching_from_folders,
 )

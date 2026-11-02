@@ -954,39 +954,6 @@ def _refuse_header_problems(inventory, mask_type: str) -> None:
         raise ValueError(f"The {mask_type!r} masks cannot be used: {'; '.join(problems)}")
 
 
-def validate_image_and_mask_folders(
-    image_folder_path,
-    mask_folder_path,
-    *,
-    mask_type=None,
-    **removed_options,
-) -> dict[Path, Path]:
-    """Pair every image of a folder with exactly one mask, or raise listing every problem.
-
-    The pairing is the preprocessing brick's (:func:`pair_masks`, issue #45):
-    masks are TIFF files named ``<image name>_<mask type>.tif`` or
-    ``<mask type>/<image name>.tif`` in *mask_folder_path*. With several mask
-    types in the folder, *mask_type* says which to use.
-
-    The former matching options (``strategy``, ``mask_suffixes``,
-    ``case_sensitive``, ``ignore_unrequested_masks``) were removed in
-    v0.1.1 and are refused by name (:func:`refuse_removed_matching`).
-
-    Returns
-    -------
-    dict
-        Each image path mapped to its mask path.
-    """
-    refuse_removed_matching("validate_image_and_mask_folders", removed_options)
-    mask_folder = Path(mask_folder_path).expanduser()
-    if not mask_folder.is_dir():
-        raise ValueError(f"Folder does not exist or is not a directory: {mask_folder}")
-    image_files = discover_folder_images(image_folder_path, mask_folder_path=mask_folder)
-    if len(image_files) == 0:
-        raise ValueError("No supported image files found in image folder.")
-    return pair_masks(image_folder_path, image_files, mask_folder_path, mask_type=mask_type).masks
-
-
 def run_patching_from_folders(
     image_folder_path,
     *,

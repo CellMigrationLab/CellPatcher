@@ -26,7 +26,7 @@ from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING
 
 from cellpatcher.ids import object_set_from_mask_type, validate_object_set
-from cellpatcher.io import SINGLE_CONDITION_LABEL, ConditionRepeatFolder
+from cellpatcher.io import SINGLE_CONDITION_LABEL, ConditionRepeatFolder, refuse_removed_matching
 from cellpatcher.normalization import (
     CSV_SCOPES,
     check_image_type,
@@ -145,18 +145,17 @@ def refuse_file_run_settings(config: CellPatcherConfig, where: str) -> None:
         _refuse_without_run(where)
 
 
-def _refuse_without_run(where: str) -> None:
-    """Raise ``no_preprocessing_run``, with the preprocessing command."""
+def _refuse_without_run(where: str, setting: str = "common.preprocessing_run") -> None:
+    """Raise ``no_preprocessing_run`` (*setting* not set), with the preprocessing command."""
     from morphobricks_preprocessing.validation import error
 
     raise PreprocessingCheckError([
         error(
             "no_preprocessing_run",
-            f"{where} reads files only through a clean preprocessing run (v0.4), and "
-            "common.preprocessing_run is not set.",
+            f"{where} reads files only through a clean preprocessing run (v0.4), and {setting} is not set.",
             [],
             f"Run preprocessing on the experiment first: {PREPROCESSING_COMMAND}. Then set "
-            "common.preprocessing_run to its output folder (by default <experiment>_MorphoBricks_Preprocessing, "
+            f"{setting} to its output folder (by default <experiment>_MorphoBricks_Preprocessing, "
             "beside the experiment).",
         )
     ])
@@ -212,7 +211,7 @@ def open_file_run(
     if not fovs:
         raise ValueError(f"The preprocessing run in {inputs.output_folder} has no images.")
     layout = run_layout(fovs)
-    mask_type = _mask_type(config, inputs) if use_masks else None
+    mask_type = _mask_type(config.matching.mask_type, inputs, f"mode={config.mode!r}") if use_masks else None
     mask_axes = _DEFAULT_AXES
     if mask_type is not None:
         mask_axes = run_mask_layout([_record(inputs, fov, mask_type) for fov in fovs])
@@ -221,13 +220,12 @@ def open_file_run(
     return FileRun(inputs, layout, mask_type, mask_axes, statistics)
 
 
-def _mask_type(config: CellPatcherConfig, inputs: RunInputs) -> str:
-    """Return the mask type the run reads: ``matching.mask_type``, or the run's only type."""
+def _mask_type(wanted: str | None, inputs: RunInputs, reader: str) -> str:
+    """Return the mask type *reader* reads: *wanted* (``matching.mask_type``), or the run's only type."""
     types = inputs.mask_types()
-    wanted = config.matching.mask_type
     if not types:
         raise ValueError(
-            f"mode={config.mode!r} reads masks, but the preprocessing run in {inputs.output_folder} recorded none. "
+            f"{reader} reads masks, but the preprocessing run in {inputs.output_folder} recorded none. "
             f"Run preprocessing with the masks folder ({PREPROCESSING_COMMAND})."
         )
     if wanted is None and len(types) > 1:
@@ -386,3 +384,58 @@ def fov_metadata(run: FileRun, fov: Fov, config: CellPatcherConfig) -> dict:
         if config.mode == "cell" and config.common.object_set is None:
             meta["object_set"] = object_set_from_mask_type(run.mask_type)
     return meta
+
+
+def validate_image_and_mask_folders(
+    image_folder_path: str | os.PathLike,
+    mask_folder_path: str | os.PathLike,
+    *,
+    preprocessing_run: str | os.PathLike | None = None,
+    mask_type: str | None = None,
+    **removed_options: object,
+) -> dict[Path, Path]:
+    """Return the mask of every image of a clean preprocessing run, as the run paired them.
+
+    Since v0.2.0 (design v0.4 §6) CellPatcher pairs no file itself: the run is opened with
+    ``RunInputs.open`` with *image_folder_path* as the experiment root and *mask_folder_path* as
+    its masks folder (where they are now), so every image and mask is checked against the run.
+
+    Parameters
+    ----------
+    image_folder_path
+        The experiment root, where the preprocessed experiment is now.
+    mask_folder_path
+        Where the run's masks folder is now.
+    preprocessing_run
+        The run's output folder (``common.preprocessing_run`` of a file run).
+    mask_type
+        The mask type (``matching.mask_type``); None: the run's only type.
+    **removed_options
+        The matching options removed in v0.1.1, refused by name.
+
+    Returns
+    -------
+    dict
+        Each image's path mapped to its mask's path (a label image's is inside its OME-Zarr image).
+
+    Raises
+    ------
+    PreprocessingCheckError
+        ``no_preprocessing_run`` without *preprocessing_run*, or when ``RunInputs`` refuses the run.
+    ValueError
+        For a mask type the run did not record, several types without *mask_type*, or an image
+        the run recorded no mask of the type for.
+    """
+    from morphobricks_preprocessing.masks import FOLDER
+
+    refuse_removed_matching("validate_image_and_mask_folders", removed_options)
+    if preprocessing_run is None:
+        _refuse_without_run("validate_image_and_mask_folders", "preprocessing_run=")
+    inputs = open_run(preprocessing_run, experiment_root=image_folder_path, masks_root=mask_folder_path)
+    chosen = _mask_type(mask_type, inputs, "validate_image_and_mask_folders")
+    pairs = {}
+    for fov in inputs.fovs():
+        record = _record(inputs, fov, chosen)
+        root = inputs.masks_root if record["source"] == FOLDER else inputs.experiment_root
+        pairs[inputs.experiment_root / fov.relative_path] = root / str(record["path"])
+    return pairs
