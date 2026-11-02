@@ -58,7 +58,7 @@ def _git_url(url):
 def _installed_from(name):
     """The repository URL and git tag *name* was installed from (PEP 610 ``direct_url.json``).
 
-    A tag is not a version: preprocessing's v0.4.0rc1 tag still reports version 0.3.4, so
+    A tag is not a version: preprocessing's v0.4.0rc1 and v0.4.0rc2 tags still report version 0.3.4, so
     only a git install can show which tag it came from. Any other install (from a local
     folder, editable or not, an archive or an index) fails the test with the reason, never
     passes on a matching version number.
@@ -95,7 +95,7 @@ def test_the_installed_preprocessing_is_the_pinned_tag():
 class _Installed:
     """A distribution with the given ``direct_url.json`` text (None: no file)."""
 
-    version = "0.4.0rc1"
+    version = "0.4.0rc2"
 
     def __init__(self, direct_url):
         self._direct_url = direct_url

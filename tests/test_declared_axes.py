@@ -142,15 +142,20 @@ def test_lazy_delivery_refuses_an_in_memory_image_declared_swapped():
 
 def test_a_mask_file_whose_header_names_x_before_y_is_refused(tmp_path):
     # Declared as its header names it, but CellPatcher would still take its first dimension as Y.
-    # The preprocessing pairing refuses it first (mask_layout): masks are never transposed.
+    # Masks are never transposed. With preprocessing rc1 the run was written with no axes for this
+    # mask, and the file run refused that record; since rc2 the preprocessing run itself refuses
+    # the mask (and RunInputs.open an rc1 record: tests/test_unrecorded_files.py).
+    import morphobricks_preprocessing as mbp
+
     image, labels, _ = make_synthetic_cell_image_and_labels(shape=(32, 32))
     write_tiff(tmp_path / "exp" / "a.tif", image, "YX")
     (tmp_path / "masks").mkdir()
     tifffile.imwrite(tmp_path / "masks" / "a_cells.tif", labels.astype(np.uint16), metadata={"axes": "XY"})
-    # Since CP-2a the preprocessing run pairs it; rc1 records it without axes, and a file run refuses that.
-    config = file_run_config(_cell_config("YX", "YX"), tmp_path / "exp", masks=tmp_path / "masks")
-    with pytest.raises(ValueError, match=r"recorded no axes for the mask a_cells.tif: its header was not usable"):
-        run_patching_pipeline(str(tmp_path / "exp"), config=config, mask_folder_path=str(tmp_path / "masks"))
+    result = mbp.run_experiment(
+        tmp_path / "exp", mbp.AxisMapping("YX", "YX"), output_folder=tmp_path / "run", masks_folder=tmp_path / "masks"
+    )
+    assert not result.written
+    assert any("a_cells.tif: header axes XY: X is stored before Y" in str(issue) for issue in result.issues)
 
 
 def test_lazy_delivery_refuses_a_mask_file(tmp_path):
