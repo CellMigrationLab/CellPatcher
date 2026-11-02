@@ -194,3 +194,21 @@ def test_the_before_after_figure_has_a_patch_and_a_histogram_per_state(clean, mo
     assert len(titles) == 4 * len(pairs)
     assert titles[:4] == ["label 1, C0: without normalization", "intensities, without normalization",
                           "label 1, C0: normalized", "intensities, normalized"]
+
+
+def test_a_patch_without_label_is_numbered_its_id_never_cut(monkeypatch):
+    import matplotlib.pyplot as plt
+    from morphobricks_normalization import compute_plane_histogram
+
+    from cellpatcher.normalization_review import BeforeAfter
+    from cellpatcher.notebook_ui import draw_before_after
+
+    plane = np.arange(16, dtype=np.float32).reshape(4, 4)
+    histogram = compute_plane_histogram(plane, 8)
+    pair = BeforeAfter("fov/a/b/y0-4_x0-4", None, None, plane, plane, histogram, histogram)
+    figures = []
+    monkeypatch.setattr(plt, "show", lambda: figures.append(plt.gcf()))
+    draw_before_after((pair,))
+    titles = [axis.get_title() for axis in figures[0].axes]
+    assert titles[0] == "patch 1: without normalization"
+    assert not any("y0-4_x0-4" in title for title in titles)

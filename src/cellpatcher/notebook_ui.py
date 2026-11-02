@@ -428,8 +428,9 @@ def draw_before_after(pairs: tuple[BeforeAfter, ...]) -> None:
     if not pairs:
         return
     figure, axes = plt.subplots(len(pairs), 4, figsize=(10, 2.3 * len(pairs)), squeeze=False)
-    for row, pair in zip(axes, pairs, strict=True):
-        name = f"label {pair.label_id}" if pair.label_id is not None else pair.patch_id.rsplit("/", 1)[-1]
+    for number, (row, pair) in enumerate(zip(axes, pairs, strict=True), start=1):
+        # The patch_id is shown whole or not at all: an identity is never parsed (here, cut at a "/").
+        name = f"label {pair.label_id}" if pair.label_id is not None else f"patch {number}"
         channel = "" if pair.channel is None else f", C{pair.channel}"
         for column, (plane, histogram, state) in enumerate((
             (pair.raw, pair.raw_histogram, "without normalization"),
