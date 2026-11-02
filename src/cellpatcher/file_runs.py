@@ -44,11 +44,11 @@ from cellpatcher.run_open import _refuse_other_file, open_run, statistics_of
 from cellpatcher.run_reading import (
     iter_fov_planes,
     mask_file_name,
-    mask_layout,
     mask_record,
     read_fov,
     read_fov_mask,
     run_layout,
+    run_mask_layout,
 )
 from cellpatcher.run_session import keep_in_session
 from cellpatcher.statistics import (
@@ -86,7 +86,8 @@ class FileRun:
     mask_type
         The mask type read, or None without masks.
     mask_axes
-        The canonical layout of every mask's array (``"YX"`` without masks).
+        The canonical layout of every mask's array (``"YX"`` without masks;
+        :func:`cellpatcher.run_reading.run_mask_layout`).
     statistics
         The run's table for a CSV normalization scope, else None.
     """
@@ -201,8 +202,7 @@ def open_file_run(
         Without a preprocessing run, when ``RunInputs.open`` refuses it, or when a check of
         the normalization inputs fails.
     ValueError
-        For a setting a file run does not read, or masks that cannot be used (masks of
-        different layouts among them).
+        For a setting a file run does not read, or masks that cannot be used.
     """
     refuse_file_run_settings(config, where)
     check_config_identity(config)
@@ -214,25 +214,10 @@ def open_file_run(
     mask_type = _mask_type(config, inputs) if use_masks else None
     mask_axes = _DEFAULT_AXES
     if mask_type is not None:
-        mask_axes = _one_value({fov.relative_path: mask_layout(_record(inputs, fov, mask_type)) for fov in fovs},
-                               f"{mask_type!r} masks", "axes")
+        mask_axes = run_mask_layout([_record(inputs, fov, mask_type) for fov in fovs])
         _check_object_set(config, mask_type)
     statistics = _csv_statistics(config, inputs, layout)
     return FileRun(inputs, layout, mask_type, mask_axes, statistics)
-
-
-def _one_value(values: Mapping[str, str], what: str, name: str) -> str:
-    """Return the one value of *values*, or refuse naming an image of each value."""
-    found = {}
-    for path, value in values.items():
-        found.setdefault(value, path)
-    if len(found) == 1:
-        return next(iter(found))
-    examples = ", ".join(f"{path} ({value})" for value, path in sorted(found.items()))
-    raise ValueError(
-        f"The {what} of this preprocessing run have different {name}: {examples}. CellPatcher reads one "
-        "mask layout per run; run CellPatcher (and preprocessing) separately on the images of each layout."
-    )
 
 
 def _mask_type(config: CellPatcherConfig, inputs: RunInputs) -> str:
@@ -378,7 +363,7 @@ def _plane_sources(run: FileRun, fovs: Sequence[Fov], metadata: Sequence[dict], 
 
 def _read_mask(run: FileRun, fov: Fov) -> np.ndarray:
     """Read an image's mask of the run's type."""
-    return read_fov_mask(run.inputs, fov, _record(run.inputs, fov, run.mask_type))
+    return read_fov_mask(run.inputs, fov, _record(run.inputs, fov, run.mask_type), run.mask_axes)
 
 
 def fov_metadata(run: FileRun, fov: Fov, config: CellPatcherConfig) -> dict:

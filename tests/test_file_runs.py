@@ -199,3 +199,24 @@ def test_another_table_than_the_run_s_is_refused(tmp_path):
     with pytest.raises(PreprocessingCheckError) as refused:
         run_patching_condition_repeat_tree(run.experiment, config=config)
     assert [issue.code for issue in refused.value.issues] == ["not_the_run_output"]
+
+
+def test_masks_with_and_without_depth_share_the_run_s_layout(tmp_path):
+    # A three-plane image with a ZYX mask beside a one-plane image with a 2-D mask: the run's
+    # mask layout is ZYX, and the 2-D mask is its image's one plane (never a guessed plane).
+    from tests.helpers import file_run_config, write_tiff
+
+    root, masks = tmp_path / "exp", tmp_path / "masks"
+    labels = np.zeros((3, 16, 16), np.uint16)
+    for z in range(3):
+        labels[z, 2 + 3 * z:5 + 3 * z, 2:5] = z + 1
+    write_tiff(root / "ctrl" / "r1" / "a.tif", np.ones((3, 16, 16), np.uint16), "ZYX")
+    write_tiff(masks / "cells" / "ctrl" / "r1" / "a.tif", labels, "ZYX")
+    write_tiff(root / "ctrl" / "r1" / "b.tif", np.ones((16, 16), np.uint16), "YX")
+    write_tiff(masks / "cells" / "ctrl" / "r1" / "b.tif", labels[1], "YX")
+    config = CellPatcherConfig(mode="cell")
+    config.cell.patch_size, config.cell.exclude_border, config.common.z_policy = 6, False, "all"
+    file_run_config(config, root, "ZYX", masks=masks, missing_as_singleton=True)
+    (leaf,) = run_patching_condition_repeat_tree(root, mask_root_path=masks, config=config)
+    found = sorted((p.image_file, p.z0, p.label_id) for p in leaf.result.patches)
+    assert found == [("a.tif", 0, 1), ("a.tif", 1, 2), ("a.tif", 2, 3), ("b.tif", 0, 2)]

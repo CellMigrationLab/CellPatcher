@@ -128,11 +128,12 @@ def mask_layout(record: Mapping) -> str:
     return "".join(role for role in "TZ" if role in str(record["roles"])) + "YX"
 
 
-def read_fov_mask(inputs: RunInputs, fov: Fov, record: Mapping) -> np.ndarray:
-    """Read an image's recorded mask through ``RunInputs.read_mask``, in :func:`mask_layout`.
+def read_fov_mask(inputs: RunInputs, fov: Fov, record: Mapping, layout: str) -> np.ndarray:
+    """Read an image's recorded mask through ``RunInputs.read_mask``, in the run's mask *layout*.
 
     A stated shared 2-D mask is read once; a mask with depth slices or time points is read
-    plane by plane, the brick checking each plane's labels.
+    plane by plane, the brick checking each plane's labels. An axis of *layout* the mask does
+    not have is added with length 1 (one plane, shared by the image's planes along it).
 
     Raises
     ------
@@ -141,16 +142,17 @@ def read_fov_mask(inputs: RunInputs, fov: Fov, record: Mapping) -> np.ndarray:
     ValueError
         For a label outside 0 to the int32 limit (the brick's ``check_labels``).
     """
-    layout = mask_layout(record)
-    if layout == "YX":
-        return inputs.read_mask(fov, record["type"])
+    own = mask_layout(record)
     roles, shape = str(record["roles"]), list(record["shape"])
-    ts = range(shape[roles.index("T")]) if "T" in layout else [None]
-    zs = range(shape[roles.index("Z")]) if "Z" in layout else [None]
-    stack = np.stack([
-        np.stack([inputs.read_mask(fov, record["type"], z=z, t=t) for z in zs]) for t in ts
-    ])  # (T, Z, Y, X)
+    ts = range(shape[roles.index("T")]) if "T" in own else [None]
+    zs = range(shape[roles.index("Z")]) if "Z" in own else [None]
+    stack = np.stack([np.stack([inputs.read_mask(fov, record["type"], z=z, t=t) for z in zs]) for t in ts])
     return stack.reshape([size for axis, size in zip("TZYX", stack.shape) if axis in layout])
+
+
+def run_mask_layout(records: Sequence[Mapping]) -> str:
+    """Return the canonical layout of every mask array of a run: the T and Z any mask has, then ``YX``."""
+    return "".join(role for role in "TZ" if any(role in mask_layout(record) for record in records)) + "YX"
 
 
 def mask_file_name(record: Mapping) -> str:
