@@ -15,7 +15,7 @@ import numpy as np
 
 from cellpatcher.config import CellPatcherConfig
 from cellpatcher.io import SINGLE_TECHNICAL_REPEAT_LABEL, write_array
-from cellpatcher.orchestration import run_patching_condition_repeat_tree
+from tests.helpers import preprocessed_tree
 
 SHARED_COLUMNS = (
     "condition",
@@ -77,7 +77,7 @@ def _config(tmp_path: Path) -> CellPatcherConfig:
 
 
 def test_combined_tree_export_meets_the_shared_csv_contract(tmp_path):
-    run_patching_condition_repeat_tree(_tree(tmp_path), config=_config(tmp_path), combine_metadata=True)
+    preprocessed_tree(_tree(tmp_path), config=_config(tmp_path), combine_metadata=True)
     rows = _assert_contract(tmp_path / "out" / "patches.csv")
     wells = {row["technical_repeat"] for row in rows if row["condition"] == "treated"}
     assert wells == {"B02", "B03"}
@@ -87,7 +87,7 @@ def test_combined_tree_export_meets_the_shared_csv_contract(tmp_path):
 
 
 def test_per_leaf_tree_export_meets_the_shared_csv_contract(tmp_path):
-    run_patching_condition_repeat_tree(_tree(tmp_path), config=_config(tmp_path))
+    preprocessed_tree(_tree(tmp_path), config=_config(tmp_path))
     csvs = sorted((tmp_path / "out").rglob("patches.csv"))
     assert [p.parent.relative_to(tmp_path / "out").as_posix() for p in csvs] == [
         "control/2026_01_01",

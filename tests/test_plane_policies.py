@@ -7,9 +7,18 @@ import numpy as np
 import pytest
 
 from cellpatcher.config import CellPatcherConfig, CommonConfig, GridConfig
-from cellpatcher.orchestration import run_patching_pipeline
+from cellpatcher.orchestration import (
+    run_patching_condition_repeat_tree,
+    run_patching_pipeline,
+)
 from cellpatcher.pipeline import RUN_CONFIG_FILENAME, run_patching
-from tests.helpers import named, write_tiff
+from tests.helpers import (
+    file_run_config,
+    named,
+    preprocess,
+    preprocessed_folder,
+    write_tiff,
+)
 
 
 def _stack(shape=(3, 16, 16)):
@@ -217,11 +226,11 @@ def test_folder_run_exports_one_file_and_row_per_plane(tmp_path):
     # The header names the axes: a three-plane stack without them could be read as RGB.
     for name in ("a.tif", "b.tif"):
         write_tiff(tmp_path / "images" / name, _stack(), "ZYX")
-    config = _grid_config(z_policy="all")
+    config = _grid_config("YX", z_policy="all")  # a file run reads the roles the run recorded (CP-2a)
     config.export.enabled = True
     config.common.output_dir = str(tmp_path / "out")
 
-    result = run_patching_pipeline(tmp_path / "images", config=config)
+    result = preprocessed_folder(tmp_path / "images", config=config, axes="ZYX")
 
     assert len(result.exported_files) == 2 * 3 * 4
     with open(tmp_path / "out" / "patches.csv", newline="", encoding="utf-8") as f:
@@ -236,18 +245,17 @@ def test_folder_run_exports_one_file_and_row_per_plane(tmp_path):
     assert saved["common"]["z_policy"] == "all"
 
 
-def test_mask_axes_that_disagree_with_the_mask_header_are_refused(tmp_path):
-    # A ZYX mask (its ImageJ header names Z) declared TYX would have its depth slices read as
-    # time points: a guessed axis, refused naming both the declared and the header axes.
+def test_a_mask_whose_header_disagrees_with_its_image_has_no_clean_run(tmp_path):
+    # A ZYX mask (its ImageJ header names Z) for a TYX image would have its depth slices read
+    # as time points. Since CP-2a masks are read in the roles the preprocessing run recorded,
+    # and the run refuses this pair, so no file run reads it.
     image_folder, mask_folder = tmp_path / "exp", tmp_path / "masks"
     write_tiff(image_folder / "a.tif", np.random.default_rng(0).integers(0, 100, (3, 32, 32), dtype=np.uint16), "TYX")
     mask = np.zeros((3, 32, 32), dtype=np.uint16)
     mask[:, 5:15, 5:15] = 1
     write_tiff(mask_folder / "a_cells.tif", mask, "ZYX")
-    config = _cell_config(image_axes="TYX", mask_axes="TYX", t_policy="all")
-
-    with pytest.raises(ValueError, match=r"a_cells.tif: \[axes_contradict_header\].*header ZYX, confirmed TYX"):
-        run_patching_pipeline(str(image_folder), config=config, mask_folder_path=str(mask_folder))
+    with pytest.raises(AssertionError, match="does not have the depth slices and time points of its image"):
+        preprocess(image_folder, "TYX", masks=mask_folder)
 
 
 def test_mask_axes_that_agree_with_the_mask_header_are_accepted(tmp_path):
@@ -256,32 +264,32 @@ def test_mask_axes_that_agree_with_the_mask_header_are_accepted(tmp_path):
     mask = np.zeros((3, 32, 32), dtype=np.uint16)
     mask[:, 5:15, 5:15] = 1
     write_tiff(mask_folder / "a_cells.tif", mask, "TYX")
-    config = _cell_config(image_axes="TYX", mask_axes="TYX", t_policy="all")
+    config = _cell_config(image_axes="YX", mask_axes="YX", t_policy="all")
 
-    result = run_patching_pipeline(str(image_folder), config=config, mask_folder_path=str(mask_folder))
+    result = preprocessed_folder(image_folder, config=config, mask_folder_path=mask_folder, axes="TYX")
     assert [p.t for p in result.patches] == [0, 1, 2]
 
 
-def test_image_axes_that_disagree_with_the_image_header_are_refused(tmp_path):
+def test_a_file_run_refuses_declared_image_axes(tmp_path):
     # A ZYX image (its ImageJ header names Z) declared TYX would have its depth slices read as
-    # time points; declared CYX, as channels. Refused naming both the declared and the header axes.
+    # time points; declared CYX, as channels. Since CP-2a a file run declares nothing: it reads
+    # the roles the preprocessing run recorded and refuses the setting (migration message).
     write_tiff(tmp_path / "exp" / "a.tif", _stack(), "ZYX")
     for declared, policy in (("TYX", {"t_policy": "all"}), ("CYX", {})):
-        with pytest.raises(ValueError, match=rf"common.image_axes='{declared}'.*a.tif: \[axes_contradict_header\].*header ZYX, confirmed {declared}"):
-            run_patching_pipeline(str(tmp_path / "exp"), config=_grid_config(image_axes=declared, **policy))
+        config = file_run_config(_grid_config(image_axes=declared, **policy), tmp_path / "exp", "ZYX")
+        with pytest.raises(ValueError, match=rf"common.image_axes='{declared}': each image's \(and mask's\) axes"):
+            run_patching_pipeline(str(tmp_path / "exp"), config=config)
 
 
-def test_image_axes_are_checked_for_every_tree_leaf_before_any_leaf_runs(tmp_path):
-    from cellpatcher.orchestration import run_patching_condition_repeat_tree
-
+def test_a_run_mixing_stacks_and_single_planes_patches_both(tmp_path):
+    # One layout per run (CP-2a): Z is there because one image has three planes; the 2-D image
+    # is its one plane, z=0. Former code: both read with common.image_axes="ZYX".
     root = tmp_path / "raw"
-    write_tiff(root / "a_cond" / "r1" / "a.tif", _stack(), "TYX")
-    write_tiff(root / "b_cond" / "r1" / "b.tif", _stack(), "ZYX")  # a later leaf disagrees
-    config = _grid_config(image_axes="TYX", t_policy="all")
-    config.common.output_dir = str(tmp_path / "out")
-    with pytest.raises(ValueError, match=r"b.tif: \[axes_contradict_header\].*header ZYX, confirmed TYX"):
-        run_patching_condition_repeat_tree(str(root), config=config)
-    assert not (tmp_path / "out").exists()  # no leaf ran
+    write_tiff(root / "a_cond" / "r1" / "a.tif", _stack(), "ZYX")
+    write_tiff(root / "b_cond" / "r1" / "b.tif", _stack((1, 16, 16)), "ZYX")
+    config = file_run_config(_grid_config("YX", z_policy="all"), root, "ZYX", missing_as_singleton=True)
+    leaves = run_patching_condition_repeat_tree(str(root), config=config)
+    assert [sorted({p.z0 for p in leaf.result.patches}) for leaf in leaves] == [[0, 1, 2], [0]]
 
 
 def test_a_plain_stack_without_axis_metadata_keeps_its_declared_axes(tmp_path):
@@ -292,7 +300,8 @@ def test_a_plain_stack_without_axis_metadata_keeps_its_declared_axes(tmp_path):
     (tmp_path / "exp").mkdir()
     tifffile.imwrite(tmp_path / "exp" / "a.tif", _stack().astype(np.uint16), photometric="minisblack", metadata=None)
     assert tifffile.TiffFile(tmp_path / "exp" / "a.tif").series[0].axes == "IYX"
-    result = run_patching_pipeline(str(tmp_path / "exp"), config=_grid_config(image_axes="TYX", t_policy="all"))
+    config = file_run_config(_grid_config("YX", t_policy="all"), tmp_path / "exp", "TYX", stored="IYX")
+    result = run_patching_pipeline(str(tmp_path / "exp"), config=config)
     assert sorted({p.t for p in result.patches}) == [0, 1, 2]
 
 
@@ -300,7 +309,7 @@ def test_lazy_delivery_refuses_image_and_mask_files_whose_header_disagrees(tmp_p
     from cellpatcher.delivery import patch_array
 
     write_tiff(tmp_path / "exp" / "a.tif", _stack(), "TYX")
-    result = run_patching_pipeline(str(tmp_path / "exp"), config=_grid_config(image_axes="TYX", t_policy="all"))
+    result = preprocessed_folder(tmp_path / "exp", config=_grid_config("YX", t_policy="all"), axes="TYX")
     patch = result.patches[0]
     write_tiff(tmp_path / "z.tif", _stack(), "ZYX")
     config = _grid_config(image_axes="TYX", t_policy="all")

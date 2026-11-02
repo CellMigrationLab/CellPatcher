@@ -7,10 +7,10 @@ import pytest
 from cellpatcher.config import CellPatcherConfig, GridConfig
 from cellpatcher.io import write_array
 from cellpatcher.pipeline import RUN_CONFIG_FILENAME, run_patching
-from cellpatcher.orchestration import run_patching_pipeline
 from cellpatcher.types import PatchRegion
 from tests.helpers import make_synthetic_cell_image_and_labels
 from tests.helpers import named
+from tests.helpers import preprocessed_folder
 
 
 def test_to_dict_includes_height_and_width():
@@ -169,7 +169,7 @@ def test_run_patching_pipeline_stamps_image_and_mask_file_before_export(tmp_path
     cfg.export.image_format = "npy"
     cfg.common.output_dir = str(tmp_path / "out")
 
-    result = run_patching_pipeline(str(img_dir), mask_folder_path=str(mask_dir), config=cfg)
+    result = preprocessed_folder(str(img_dir), mask_folder_path=str(mask_dir), config=cfg)
     assert len(result.patches) > 0
     for patch in result.patches:
         assert patch.image_file == "sample001.tif"
@@ -190,7 +190,7 @@ def test_run_patching_pipeline_grid_mode_stamps_image_file_only(tmp_path):
     write_array(img_dir / "tile_source.tif", np.ones((16, 16), dtype=np.float32))
 
     cfg = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=8))
-    result = run_patching_pipeline(str(img_dir), config=cfg)
+    result = preprocessed_folder(str(img_dir), config=cfg)
     assert len(result.patches) > 0
     assert all(p.image_file == "tile_source.tif" for p in result.patches)
     assert all(p.mask_file is None for p in result.patches)

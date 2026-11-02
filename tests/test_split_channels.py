@@ -5,9 +5,9 @@ import pytest
 
 from cellpatcher.config import CellPatcherConfig, CommonConfig, ExtractionConfig, GridConfig
 from cellpatcher.io import write_array
-from cellpatcher.orchestration import load_config, run_patching_condition_repeat_tree, run_patching_pipeline
+from cellpatcher.orchestration import load_config
 from cellpatcher.pipeline import run_patching
-from tests.helpers import named, write_tiff
+from tests.helpers import named, preprocessed_folder, preprocessed_tree, write_tiff
 
 
 def _channel_image(n_channels=3, size=16, channels_last=False):
@@ -183,10 +183,10 @@ def test_a_folder_run_with_a_missing_channel_writes_nothing(tmp_path):
     folder.mkdir()
     for name in ("a.tif", "b.tif"):
         write_tiff(folder / name, _channel_image(n_channels=2), "CYX")
-    config = _grid_config(split_channels=[2])
+    config = _grid_config("YX", split_channels=[2])  # file runs read the run's roles (CP-2a)
     config.export.enabled, config.common.output_dir = True, str(tmp_path / "out")
     with pytest.raises(ValueError, match="has 2 channels"):
-        run_patching_pipeline(folder, config=config)
+        preprocessed_folder(folder, config=config, axes="CYX")
     assert not (tmp_path / "out" / "patches.csv").exists()
 
 
@@ -245,11 +245,11 @@ def test_split_channels_in_combined_tree_run(tmp_path):
     for condition in ("control", "treated"):
         write_tiff(image_root / condition / "img0.tif", _channel_image(n_channels=2), "CYX")
 
-    config = _grid_config()
+    config = _grid_config("YX")
     config.export.enabled = True
     config.export.image_format = "npy"
     config.common.output_dir = str(tmp_path / "out")
-    run_patching_condition_repeat_tree(image_root, config=config, combine_metadata=True)
+    preprocessed_tree(image_root, config=config, axes="CYX", combine_metadata=True)
 
     with (tmp_path / "out" / "patches.csv").open("r", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
@@ -265,11 +265,11 @@ def test_same_file_name_in_two_wells_gives_two_positions(tmp_path):
     for well in ("B02", "B03"):
         write_tiff(image_root / "control" / "2026_01_01" / well / "img0.tif", _channel_image(n_channels=2), "CYX")
 
-    config = _grid_config()
+    config = _grid_config("YX")
     config.export.enabled = True
     config.export.image_format = "npy"
     config.common.output_dir = str(tmp_path / "out")
-    run_patching_condition_repeat_tree(image_root, config=config, combine_metadata=True)
+    preprocessed_tree(image_root, config=config, axes="CYX", combine_metadata=True)
 
     with (tmp_path / "out" / "patches.csv").open("r", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))

@@ -7,13 +7,12 @@ import pytest
 from cellpatcher.config import CellConfig, CellPatcherConfig, CommonConfig, ExportConfig, ExtractionConfig, GridConfig
 from cellpatcher.export import save_metadata_csv
 from cellpatcher.extract import extract_patch
-from cellpatcher.io import write_array
-from cellpatcher.orchestration import run_patching_condition_repeat_tree
 from cellpatcher.pipeline import _padding, run_patching
 from cellpatcher.types import PatchRegion
 
 from tests.helpers import make_synthetic_cell_image_and_labels
-from tests.helpers import named
+from tests.helpers import named, write_tiff
+from tests.helpers import preprocessed_tree
 
 GEOMETRY_COLUMNS = [
     "image_height", "image_width", "pad_top", "pad_bottom", "pad_left", "pad_right", "resized", "output_axes",
@@ -161,14 +160,14 @@ def test_padding_matches_what_extraction_pads(pad_mode):
 
 def test_combined_tree_csv_records_each_image_size(tmp_path):
     for well, shape in (("A01", (32, 32)), ("A02", (32, 48))):
-        write_array(tmp_path / "raw" / "control" / "2024_01_01" / well / "img.tif", _stack(shape=shape))
+        write_tiff(tmp_path / "raw" / "control" / "2024_01_01" / well / "img.tif", _stack(shape=shape), "CYX")
     config = CellPatcherConfig(
         mode="grid",
-        common=CommonConfig(image_axes="CYX", output_dir=str(tmp_path / "out")),
+        common=CommonConfig(output_dir=str(tmp_path / "out")),
         grid=GridConfig(tile_size=16),
         export=ExportConfig(enabled=True),
     )
-    run_patching_condition_repeat_tree(str(tmp_path / "raw"), config=config, combine_metadata=True)
+    preprocessed_tree(str(tmp_path / "raw"), config=config, axes="CYX", combine_metadata=True)
 
     with (tmp_path / "out" / "patches.csv").open(newline="", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))

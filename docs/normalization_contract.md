@@ -60,8 +60,8 @@ brick's
 
 | Rule | Detail |
 |---|---|
-| Discovery | CellPatcher always discovers images with its own folder rules (`discover_condition_repeat_folders`), whether or not preprocessing was run. The manifest never decides which images are patched. |
-| Experiment root | The folder given to CellPatcher as image root must be the folder given to the preprocessing brick, so relative paths match. |
+| Discovery | Since v0.2.0 (CP-2a) folder and tree runs patch the preprocessing run's images (`RunInputs.fovs()`), with their FOV keys as the run recorded them; CellPatcher discovers nothing for them (design v0.4 §6). An image added after the run is not patched, and nothing says so yet: a known limitation, closed when CellPatcher calls the check for added images that preprocessing will give bricks (not in v0.4.0rc1). Before, CellPatcher discovered images with its own folder rules and the manifest never decided which were patched. |
+| Experiment root | The folder given to CellPatcher as image root is where the preprocessed experiment is now: the run is opened with it (`RunInputs.open(experiment_root=...)`, and the masks folder with `masks_root`), so an experiment moved or copied since the run is checked and read there. Relative paths are the run's. |
 | Image types | TIFF files (`.tif`, `.tiff`, any case) and, with the extra, OME-Zarr images: folders whose names end in `.zarr`, read from level 0 of their first image. A store with several images is an error, as in preprocessing. |
 | OME-Zarr copies | Copies written by the preprocessing brick (`<output>/ome_zarr/...`) are not read; CellPatcher reads the source images. |
 | `source_relative_path` | The image's path relative to the experiment root, with `/` separators, from its real location in the tree (`control/img.tif` for an image directly in `control/`; a linked image or folder keeps the link's path under the root, as the brick records it when it walks the tree). Never built from `ConditionRepeatFolder.relative_folder`, which inserts `single` for missing levels. |
@@ -132,19 +132,23 @@ Checks before any patch is normalized; every failure blocks the run:
 - the plane's exact finite minimum and maximum equal `pixel_min` and `pixel_max`, and its
   finite pixel count equals `valid_pixel_count`.
 
-An image CellPatcher found without any row in the CSV (excluded or skipped in preprocessing,
-or added later) is reported with all such images in one message.
+An image without any row in the CSV is reported with all such images in one message (in a
+file run every image is the run's, so this means a row the run did not write).
 
 **The run (since v0.2.0):** the table's folder is opened with the preprocessing brick's
 `RunInputs.open`, and any refusal stops the run (`preprocessing_run_refused`): no manifest,
 a manifest before v0.4, a table or design whose SHA-256 is not the manifest's, an image or
-mask of the run changed or missing (which includes an experiment moved since the run). The
+mask of the run changed or missing, where CellPatcher was given the experiment (since CP-2a
+a file run opens the run with its image root and masks folder; in-memory runs and
+`load_plane_statistics` without `experiment_root` open it where the run recorded it). The
 CSV and manifest must be the run's own files, unrenamed (`not_the_run_output`). Then:
 
-- each patched image's `manifest.source_fingerprint()` (size and modification time) equals its
-  manifest entry;
-- CellPatcher's image axes give the same role for every axis as the manifest's
-  `axis_mapping`;
+- a file run reads every image and mask through `RunInputs` (`read_plane`, `read_mask`), which
+  checks each file's fingerprint again on every read, in the roles the run recorded (before
+  CP-2a: the patched images' size, time and declared axes were checked with `check_sources`);
+- the run is opened once per CellPatcher call and kept for that call only
+  (`cellpatcher.run_session`): the next call checks every image and mask again, patched or
+  not (before CP-2a an opened run was cached for the session, keyed on the table and manifest);
 - the manifest's `image_type`, when it records one, equals `normalization.image_type`
   (otherwise `image_type_differs`, checked before any image is read). A run that recorded no
   image type leaves the choice to the configuration (normalization brick decision N34).

@@ -1,6 +1,9 @@
 """Declared axes against file headers: the preprocessing brick's axis check (design v0.4 §3).
 
-CellPatcher keeps no copy of the rule: the declared axes are checked as the
+Since CP-2a folder and tree runs declare no axes: they read each file in the roles the
+preprocessing run recorded, and refuse ``common.image_axes``/``mask_axes`` other than the
+default. Lazy delivery from a file path still declares them (until CP-2b), and CellPatcher
+keeps no copy of the rule: the declared axes are checked as the
 file's roles with the brick's ``review_axes`` (``check_mapping`` and
 ``header_axis_issue``). A
 declaration may name what a header leaves open and never contradict it. Since
@@ -20,7 +23,13 @@ from cellpatcher.config import CellPatcherConfig, GridConfig
 from cellpatcher.export import IMAGE_TABLE_FILENAME
 from cellpatcher.orchestration import run_patching_pipeline
 from cellpatcher.pipeline import run_patching
-from tests.helpers import make_synthetic_cell_image_and_labels, named, write_tiff
+from tests.helpers import (
+    file_run_config,
+    make_synthetic_cell_image_and_labels,
+    named,
+    preprocessed_folder,
+    write_tiff,
+)
 
 
 def _grid_config(image_axes, output_dir=None):
@@ -50,7 +59,7 @@ def test_the_shared_rule_is_the_preprocessing_brick_s(tmp_path, monkeypatch):
 
     monkeypatch.setattr(morphobricks_preprocessing, "review_axes", recording)
     write_tiff(tmp_path / "exp" / "a.tif", np.zeros((3, 16, 16), dtype=np.uint8), "ZYX")
-    run_patching_pipeline(str(tmp_path / "exp"), config=_grid_config("ZYX"))
+    cellpatcher.io.refuse_image_header_axes([tmp_path / "exp" / "a.tif"], "ZYX")  # as lazy delivery checks a path
     assert ("a.tif", "ZYX") in calls
 
 
@@ -61,33 +70,44 @@ def test_y_and_x_declared_swapped_are_refused_never_read_transposed(tmp_path):
     image = np.arange(3 * 16 * 24, dtype=np.uint16).reshape(3, 16, 24)  # Z, Y, X in the header
     write_tiff(tmp_path / "exp" / "a.tif", image, "ZYX")
     write_tiff(tmp_path / "exp" / "b.tif", image, "ZYX")
-    config = _grid_config("ZXY", tmp_path / "out")
-    config.common.z_policy = "select"
-    config.common.z_index = 1
+    paths = [tmp_path / "exp" / "a.tif", tmp_path / "exp" / "b.tif"]
     with pytest.raises(ValueError, match=r"common.image_axes='ZXY' does not fit the header of 2 image file\(s\): "
                                          r"a.tif: \[axes_yx_swapped\].* b.tif: \[axes_yx_swapped\]") as error_info:
-        run_patching_pipeline(str(tmp_path / "exp"), config=config)
+        cellpatcher.io.refuse_image_header_axes(paths, "ZXY")  # lazy delivery from a path
     assert "nothing is read transposed" in str(error_info.value)
+    # A file run (CP-2a) declares nothing: the declaration is refused, and the image is read
+    # in the roles the preprocessing run recorded, Y before X.
+    config = file_run_config(_grid_config("ZXY", tmp_path / "out"), tmp_path / "exp", "ZYX")
+    config.common.z_policy, config.common.z_index = "select", 1
+    with pytest.raises(ValueError, match=r"common.image_axes='ZXY': each image's \(and mask's\) axes are the roles"):
+        run_patching_pipeline(str(tmp_path / "exp"), config=config)
     assert not (tmp_path / "out").exists()
+    config.common.image_axes = "YX"
+    result = run_patching_pipeline(str(tmp_path / "exp"), config=config)
+    patch = result.patches[0]
+    assert np.array_equal(result.patch_arrays[0], image[1, patch.y0:patch.y1, patch.x0:patch.x1])
 
 
 def test_axes_as_named_are_recorded_as_not_transposed(tmp_path):
     write_tiff(tmp_path / "exp" / "a.tif", np.zeros((3, 16, 24), dtype=np.uint8), "ZYX")
-    config = _grid_config("ZYX", tmp_path / "out")
+    config = _grid_config("YX", tmp_path / "out")
     config.common.z_policy = "all"
-    run_patching_pipeline(str(tmp_path / "exp"), config=config)
+    preprocessed_folder(tmp_path / "exp", config=config, axes="ZYX")
     assert _image_rows(tmp_path / "out")["a.tif"]["image_read_transposed"] == "false"
 
 
 def test_a_mask_declared_swapped_is_refused(tmp_path):
-    # A mask is checked with the same rule as an image: a Y/X swap is refused.
+    # A mask is checked with the same rule as an image: a Y/X swap is refused (lazy delivery);
+    # a file run declares no mask axes at all since CP-2a.
     image, labels, _ = make_synthetic_cell_image_and_labels(shape=(96, 96))
     write_tiff(tmp_path / "exp" / "a.tif", image, "YX")
     write_tiff(tmp_path / "masks" / "a_cells.tif", np.ascontiguousarray(labels.T.astype(np.uint16)), "YX")
     with pytest.raises(ValueError, match=r"common.mask_axes='XY' does not fit the header of 1 mask file\(s\): "
                                          r"a_cells.tif: \[axes_yx_swapped\]"):
-        run_patching_pipeline(str(tmp_path / "exp"), config=_cell_config("YX", "XY"),
-                              mask_folder_path=str(tmp_path / "masks"))
+        cellpatcher.io.refuse_mask_header_axes([tmp_path / "masks" / "a_cells.tif"], "XY")
+    config = file_run_config(_cell_config("YX", "XY"), tmp_path / "exp", masks=tmp_path / "masks")
+    with pytest.raises(ValueError, match=r"common.mask_axes='XY': each image's \(and mask's\) axes"):
+        run_patching_pipeline(str(tmp_path / "exp"), config=config, mask_folder_path=str(tmp_path / "masks"))
 
 
 @pytest.mark.parametrize("mode", ["cell", "random"])
@@ -110,31 +130,10 @@ def test_a_mask_file_whose_header_names_x_before_y_is_refused(tmp_path):
     write_tiff(tmp_path / "exp" / "a.tif", image, "YX")
     (tmp_path / "masks").mkdir()
     tifffile.imwrite(tmp_path / "masks" / "a_cells.tif", labels.astype(np.uint16), metadata={"axes": "XY"})
-    with pytest.raises(ValueError, match=r"\[mask_layout\].*Masks are never transposed"):
-        run_patching_pipeline(str(tmp_path / "exp"), config=_cell_config("YX", "XY"),
-                              mask_folder_path=str(tmp_path / "masks"))
-
-
-def test_a_swap_the_preprocessing_run_did_not_declare_is_refused_with_its_statistics(tmp_path):
-    # With a CSV normalization scope, the preprocessing brick's check_sources compares
-    # common.image_axes with the roles the preprocessing run recorded for each file. A Y/X
-    # swap CellPatcher accepts against the header is refused there unless that run declared it
-    # too: the statistics were computed with the other roles (kept as is, owner decision of
-    # 31 October 2026).
-    from cellpatcher.orchestration import run_patching_condition_repeat_tree
-    from cellpatcher.statistics import PreprocessingCheckError
-    from tests.test_normalization import _config, _preprocess, _write_tiff
-
-    root = tmp_path / "experiment"
-    rng = np.random.default_rng(0)
-    for path in ("control/bio1/a.tif", "treated/bio1/b.tif"):
-        _write_tiff(root / path, rng.integers(0, 200, (2, 16, 16), dtype=np.uint8), "ZYX")
-    csv_path = _preprocess(root, tmp_path / "preprocessing", "ZYX")
-    with pytest.raises(PreprocessingCheckError) as error_info:
-        run_patching_condition_repeat_tree(root, config=_config(csv_path, image_axes="ZXY", scope="image"))
-    codes = {issue.code for issue in error_info.value.issues}
-    assert codes == {"axis_mapping_mismatch"}
-    assert "given ZXY, preprocessing ZYX" in str(error_info.value)
+    # Since CP-2a the preprocessing run pairs it; rc1 records it without axes, and a file run refuses that.
+    config = file_run_config(_cell_config("YX", "YX"), tmp_path / "exp", masks=tmp_path / "masks")
+    with pytest.raises(ValueError, match=r"recorded no axes for the mask a_cells.tif: its header was not usable"):
+        run_patching_pipeline(str(tmp_path / "exp"), config=config, mask_folder_path=str(tmp_path / "masks"))
 
 
 def test_lazy_delivery_refuses_a_mask_declared_swapped(tmp_path):
@@ -181,7 +180,7 @@ def test_an_in_memory_run_records_no_transposition(tmp_path):
 def test_other_disagreements_are_refused(tmp_path, header, declared, problem):
     write_tiff(tmp_path / "exp" / "a.tif", np.zeros((3, 16, 16), dtype=np.uint8), header)
     with pytest.raises(ValueError, match=rf"common.image_axes='{declared}'.*a.tif.*{problem}"):
-        run_patching_pipeline(str(tmp_path / "exp"), config=_grid_config(declared))
+        cellpatcher.io.refuse_image_header_axes([tmp_path / "exp" / "a.tif"], declared)  # lazy delivery
 
 
 def test_a_plain_stack_may_be_declared_with_its_channels_last(tmp_path):

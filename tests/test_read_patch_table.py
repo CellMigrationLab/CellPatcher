@@ -25,10 +25,9 @@ from cellpatcher.config import (
 )
 from cellpatcher.export import save_metadata_csv
 from cellpatcher.io import write_array
-from cellpatcher.orchestration import run_patching_condition_repeat_tree
 from cellpatcher.pipeline import RUN_CONFIG_FILENAME, run_patching
 from cellpatcher.types import PatchRegion
-from tests.helpers import make_synthetic_cell_image_and_labels, named
+from tests.helpers import make_synthetic_cell_image_and_labels, named, preprocessed_tree
 
 
 def _exported_cell_run(tmp_path):
@@ -67,7 +66,7 @@ def test_labels_stay_text_in_a_tree_run(tmp_path):
         write_array(root / relative, np.arange(256, dtype=np.uint16).reshape(16, 16))
     config = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=8), export=ExportConfig(enabled=True))
     config.common.output_dir = str(tmp_path / "out")
-    leaves = run_patching_condition_repeat_tree(root, config=config, combine_metadata=True)
+    leaves = preprocessed_tree(root, config=config, combine_metadata=True)
     patches, run_config = read_patch_table(tmp_path / "out" / "patches.csv")
     assert run_config is not None
     assert {(p.biological_repeat, p.technical_repeat, p.position_id) for p in patches} == {

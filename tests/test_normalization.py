@@ -18,7 +18,7 @@ from cellpatcher.config import CellPatcherConfig, GridConfig, NormalizationConfi
 from cellpatcher.orchestration import load_config, run_patching_condition_repeat_tree, run_patching_pipeline
 from cellpatcher.pipeline import RUN_CONFIG_FILENAME, run_patching
 from cellpatcher.statistics import PreprocessingCheckError
-from tests.helpers import named
+from tests.helpers import named, write_tiff as _write_tiff
 
 pytestmark = [
     pytest.mark.skipif(
@@ -35,13 +35,6 @@ NORMALIZATION_COLUMNS = [
 CHANNEL_COLUMNS = [
     "Normalization_Offset_C0", "Normalization_Scale_C0", "Normalization_Offset_C1", "Normalization_Scale_C1",
 ]
-
-
-def _write_tiff(path, data, axes):
-    import tifffile
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tifffile.imwrite(path, data, imagej=True, metadata={"axes": axes})
 
 
 def _confirmed_design(root, pairs=None):
@@ -83,6 +76,14 @@ def _config(csv_path, *, mode="grid", image_axes="ZCYX", scope="image", method="
         **normalization,
     )
     return config
+
+
+def _file(config):  # a file run reads through the preprocessing run that wrote the table (CP-2a)
+    config.common.image_axes, config.common.preprocessing_run = "YX", os.path.dirname(config.normalization.plane_histograms)
+    return config
+
+
+_tree = lambda root, config, **kwargs: run_patching_condition_repeat_tree(root, config=_file(config), **kwargs)
 
 
 def _read_csv(path):
@@ -130,7 +131,7 @@ def test_a_tree_of_links_matches_the_brick_statistics(experiment, tmp_path):
     (linked / "treated" / "bio1").symlink_to(stored / "treated" / "bio1", target_is_directory=True)
     csv_path = _preprocess(linked, tmp_path / "linked_preprocessing", "ZCYX")
 
-    results = run_patching_condition_repeat_tree(linked, config=_config(csv_path))
+    results = _tree(linked, _config(csv_path))
 
     patches = [patch for leaf in results for patch in leaf.result.patches]
     assert {patch.source_relative_path for patch in patches} == set(IMAGES)
@@ -197,7 +198,7 @@ def test_image_scope_pools_every_z_plane_of_the_image_per_channel(experiment, tm
     config = _config(csv_path, scope="image")
     config.export.enabled, config.common.output_dir = True, str(tmp_path / "out")
 
-    results = run_patching_condition_repeat_tree(root, config=config, combine_metadata=True)
+    results = _tree(root, config, combine_metadata=True)
 
     for leaf in results:
         for patch, array in zip(leaf.result.patches, leaf.result.patch_arrays):
@@ -240,7 +241,7 @@ def test_image_scope_pools_every_z_plane_of_the_image_per_channel(experiment, tm
 def test_biological_repeat_pools_the_repeat_across_conditions_per_channel(experiment):
     root, stacks, csv_path = experiment
     config = _config(csv_path, scope="biological_repeat", method="zscore")
-    results = run_patching_condition_repeat_tree(root, config=config)
+    results = _tree(root, config)
 
     patches = _patches_by_image(results)
     pooled = np.concatenate([stacks[m].transpose(1, 0, 2, 3).reshape(2, -1) for m in IMAGES], axis=1)
@@ -263,7 +264,7 @@ def test_per_time_point_gives_each_time_point_its_own_parameters(tmp_path):
     config = _config(csv_path, image_axes="TYX", per_time_point=True)
     config.common.t_policy = "all"
 
-    (leaf,) = run_patching_condition_repeat_tree(root, config=config)
+    (leaf,) = _tree(root, config)
     by_t = {patch.t: patch for patch in leaf.result.patches}
     assert (by_t[0].normalization_parameters.offset, by_t[1].normalization_parameters.offset) == ((0.0,), (100.0,))
     assert by_t[1].normalization_group == "control/a.tif::t=1"
@@ -288,7 +289,7 @@ def test_split_channels_keep_their_own_parameters(experiment):
     root, _, csv_path = experiment
     config = _config(csv_path)
     config.extraction.split_channels = True
-    results = run_patching_condition_repeat_tree(root, config=config)
+    results = _tree(root, config)
     patches = [p for leaf in results for p in leaf.result.patches if p.source_relative_path == "control/bio1/a.tif"]
     offsets = {(p.c, p.normalization_parameters.channels, p.normalization_parameters.offset) for p in patches}
     assert len(offsets) == 2 and all(channels == (c,) and len(offset) == 1 for c, channels, offset in offsets)
@@ -397,14 +398,14 @@ def test_keep_and_projections_are_refused_under_normalization(experiment):
         config = _config(csv_path)
         config.common.z_policy = policy
         with pytest.raises(ValueError, match="Normalization needs one plane per patch"):
-            run_patching_condition_repeat_tree(root, config=config)
+            _tree(root, config)
 
 
 def test_normalization_off_leaves_arrays_and_columns_unchanged(experiment):
     root, _, csv_path = experiment
     config = _config(csv_path)
     config.normalization.enabled = False
-    results = run_patching_condition_repeat_tree(root, config=config)
+    results = _tree(root, config)
     assert results[0].result.patch_arrays[0].dtype == np.uint8
     columns = [*NORMALIZATION_COLUMNS, "normalization_parameters"]
     assert {getattr(p, column) for leaf in results for p in leaf.result.patches for column in columns} == {None}
@@ -415,14 +416,13 @@ def test_normalization_off_leaves_arrays_and_columns_unchanged(experiment):
 # ---------------------------------------------------------------------------
 
 
-def test_images_without_rows_are_reported_together(experiment):
+def test_images_added_after_the_run_are_not_part_of_it(experiment):
+    # CP-2a: a file run patches the run's images (RunInputs.fovs), with no discover_experiment (design v0.4
+    # §6), so an image added since is not seen. Former code: found and refused (images_without_rows).
     root, stacks, csv_path = experiment
     _write_tiff(root / "control" / "bio1" / "new.tif", stacks["control/bio1/a.tif"], "ZCYX")
-    _write_tiff(root / "treated" / "bio1" / "later.tif", stacks["control/bio1/a.tif"], "ZCYX")
-    with pytest.raises(PreprocessingCheckError) as error_info:
-        run_patching_condition_repeat_tree(root, config=_config(csv_path))
-    (issue,) = error_info.value.issues
-    assert issue.paths == ("control/bio1/new.tif", "treated/bio1/later.tif")
+    patched = {patch.source_relative_path for leaf in _tree(root, _config(csv_path)) for patch in leaf.result.patches}
+    assert patched == set(IMAGES)
 
 
 def test_a_changed_image_is_detected_by_its_fingerprint_and_by_its_pixels(experiment):
@@ -433,12 +433,12 @@ def test_a_changed_image_is_detected_by_its_fingerprint_and_by_its_pixels(experi
     stat = path.stat()
     _write_tiff(path, changed, "ZCYX")
     with pytest.raises(PreprocessingCheckError, match="changed or missing since the run: treated/bio1/c.tif"):
-        run_patching_condition_repeat_tree(root, config=_config(csv_path))
+        _tree(root, _config(csv_path))
 
     # Same size and time as the run recorded, but other pixel values: check_planes.
     os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns))
     with pytest.raises(PreprocessingCheckError, match="the images changed after the preprocessing run"):
-        run_patching_condition_repeat_tree(root, config=_config(csv_path))
+        _tree(root, _config(csv_path))
 
 
 def test_in_memory_runs_need_source_relative_path_for_csv_scopes(experiment):
@@ -472,7 +472,7 @@ def test_warnings_explain_the_scope(experiment):
     def messages(config):
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            run_patching_condition_repeat_tree(root, config=config)
+            _tree(root, config)
         return " ".join(str(w.message) for w in caught)
 
     assert "background" in messages(_config(csv_path, scope="image"))
@@ -492,7 +492,7 @@ def test_a_flat_folder_run_normalizes_against_its_own_preprocessing(tmp_path):
     _write_tiff(folder / "a.tif", image, "YX")
     csv_path = _preprocess(folder, tmp_path / "preprocessing", "YX")
 
-    result = run_patching_pipeline(folder, config=_config(csv_path, image_axes="YX"))
+    result = run_patching_pipeline(folder, config=_file(_config(csv_path, image_axes="YX")))
     found = {
         (p.source_relative_path, p.normalization_parameters.offset, p.normalization_parameters.scale)
         for p in result.patches
@@ -514,7 +514,7 @@ def test_a_table_with_the_robust_histogram_range_normalizes(tmp_path):
     )
 
     config = _config(robust, image_axes="YX", method="percentile")
-    result = run_patching_pipeline(folder, config=config)  # the checks of every plane pass
+    result = run_patching_pipeline(folder, config=_file(config))  # the checks of every plane pass
     parameters = {p.normalization_parameters for p in result.patches}
     assert len(parameters) == 1
     (only,) = parameters
@@ -525,7 +525,7 @@ def test_a_table_with_the_robust_histogram_range_normalizes(tmp_path):
     # With the default range the same image gives no intensity spread to normalize by.
     minmax = _preprocess(folder, tmp_path / "minmax", "YX")
     with pytest.raises(ValueError, match="zero intensity spread"):
-        run_patching_pipeline(folder, config=_config(minmax, image_axes="YX", method="percentile"))
+        run_patching_pipeline(folder, config=_file(_config(minmax, image_axes="YX", method="percentile")))
 
 
 def test_clip_comes_after_normalizing_and_before_resizing():
@@ -556,7 +556,7 @@ def test_split_channel_rows_fill_only_their_own_channel_pair(experiment, tmp_pat
     config = _config(csv_path)
     config.extraction.split_channels = True
     config.export.enabled, config.common.output_dir = True, str(tmp_path / "out")
-    run_patching_condition_repeat_tree(root, config=config, combine_metadata=True)
+    _tree(root, config, combine_metadata=True)
 
     header, rows = _read_csv(tmp_path / "out" / "patches.csv")
     assert header[header.index("normalization_exact") + 1 :][:4] == CHANNEL_COLUMNS
@@ -573,7 +573,7 @@ def test_a_selected_channel_row_fills_only_its_channel_pair(experiment, tmp_path
     config = _config(csv_path)
     config.extraction.split_channels = [1]
     config.export.enabled, config.common.output_dir = True, str(tmp_path / "out")
-    run_patching_condition_repeat_tree(root, config=config, combine_metadata=True)
+    _tree(root, config, combine_metadata=True)
 
     header, rows = _read_csv(tmp_path / "out" / "patches.csv")
     assert rows and {row["c"] for row in rows} == {"1"}
@@ -596,7 +596,7 @@ def test_the_brick_gives_the_parameters_and_arrays_of_the_earlier_code(experimen
     config = _config(
         csv_path, scope="biological_repeat", method="percentile", percentile=(2.0, 98.0), clip=(0.0, 1.0)
     )
-    results = run_patching_condition_repeat_tree(root, config=config)
+    results = _tree(root, config)
     records = load_plane_statistics(csv_path).records
     for leaf in results:
         for patch, array in zip(leaf.result.patches, leaf.result.patch_arrays):
@@ -669,7 +669,7 @@ def test_run_config_records_the_brick_settings_and_the_design(experiment, tmp_pa
     for scope in ("image", "biological_repeat"):
         config = _config(csv_path, scope=scope, pooling="conditions")
         config.export.enabled, config.common.output_dir = True, str(tmp_path / scope)
-        run_patching_condition_repeat_tree(root, config=config, combine_metadata=True)
+        _tree(root, config, combine_metadata=True)
         saved = json.loads((tmp_path / scope / RUN_CONFIG_FILENAME).read_text(encoding="utf-8"))
         assert saved["normalization_settings"]["scope"] == scope
         inputs = saved["normalization_inputs"]
@@ -684,7 +684,7 @@ def test_run_config_records_the_brick_settings_and_the_design(experiment, tmp_pa
 
 def test_the_old_offset_and_scale_attributes_are_deprecated(experiment):
     root, _, csv_path = experiment
-    (leaf, *_) = run_patching_condition_repeat_tree(root, config=_config(csv_path))
+    (leaf, *_) = _tree(root, _config(csv_path))
     patch = leaf.result.patches[0]
     with pytest.warns(DeprecationWarning, match="normalization_parameters"):
         offset = patch.normalization_offset
@@ -712,12 +712,12 @@ def _unpaired_experiment(tmp_path, pairs=None, design="confirmed"):
 def test_the_design_pairs_repeats_with_different_names(tmp_path):
     root, images, csv_path = _unpaired_experiment(tmp_path)
     config = _config(csv_path, image_axes="YX", scope="biological_repeat")
-    patches = _patches_by_image(run_patching_condition_repeat_tree(root, config=config))
+    patches = _patches_by_image(_tree(root, config))
     assert {p.normalization_group for p in patches.values()} == {"rep_a", "rep_b"}  # unpaired: two groups
 
     root, images, csv_path = _unpaired_experiment(tmp_path / "paired", pairs={("treated", "rep_b"): "rep_a"})
     config = _config(csv_path, image_axes="YX", scope="biological_repeat")
-    patches = _patches_by_image(run_patching_condition_repeat_tree(root, config=config))
+    patches = _patches_by_image(_tree(root, config))
     every = np.concatenate([image.ravel() for image in images.values()])
     assert {p.normalization_group for p in patches.values()} == {"rep_a"}
     assert {p.normalization_parameters.offset for p in patches.values()} == {(float(every.min()),)}
@@ -735,7 +735,7 @@ def test_pooling_by_conditions_weighs_each_condition_equally(tmp_path):
     def offsets(pooling):
         config = _config(csv_path, image_axes="YX", scope="biological_repeat", method="zscore", pooling=pooling)
         config.grid.tile_size = 4
-        patches = _patches_by_image(run_patching_condition_repeat_tree(root, config=config))
+        patches = _patches_by_image(_tree(root, config))
         return patches["control/rep1/a.tif"].normalization_parameters.offset[0]
 
     by_pixels = np.concatenate([small.ravel(), large.ravel()]).astype(np.float64).mean()
@@ -754,7 +754,7 @@ def test_a_missing_or_unconfirmed_design_stops_the_run_before_any_image_is_read(
     monkeypatch.setattr(cellpatcher.io, "read_image", no_reading)
     config = _config(csv_path, image_axes="YX", scope="biological_repeat")
     with pytest.raises(PreprocessingCheckError) as missing:
-        run_patching_condition_repeat_tree(root, config=config)
+        _tree(root, config)
     assert [issue.code for issue in missing.value.issues] == ["missing_experiment_design"]
     assert "step 1 of the preprocessing brick" in str(missing.value)
 
@@ -765,7 +765,7 @@ def test_a_missing_or_unconfirmed_design_stops_the_run_before_any_image_is_read(
     mbp.write_experiment_design(unconfirmed, tmp_path / "unconfirmed.csv")
     config.normalization.experiment_design = str(tmp_path / "unconfirmed.csv")
     with pytest.raises(PreprocessingCheckError) as elsewhere:
-        run_patching_condition_repeat_tree(root, config=config)
+        _tree(root, config)
     assert [issue.code for issue in elsewhere.value.issues] == ["not_the_run_output"]
 
 
@@ -778,7 +778,7 @@ def test_a_design_changed_after_preprocessing_is_refused(tmp_path):
     mbp.write_experiment_design(changed, design_path)
     config = _config(csv_path, image_axes="YX", scope="biological_repeat")
     with pytest.raises(PreprocessingCheckError, match="design experiment_design.csv is not the one the run wrote") as caught:
-        run_patching_condition_repeat_tree(root, config=config)
+        _tree(root, config)
     assert [issue.code for issue in caught.value.issues] == ["preprocessing_run_refused"]
 
 
@@ -811,7 +811,7 @@ def test_the_design_is_read_with_the_shared_strict_reader(tmp_path, edit, match)
     root, csv_path = _design_edited(tmp_path, edit)
     config = _config(csv_path, image_axes="YX", scope="biological_repeat")
     with pytest.raises(PreprocessingCheckError, match=match) as caught:
-        run_patching_condition_repeat_tree(root, config=config)
+        _tree(root, config)
     assert [issue.code for issue in caught.value.issues] == ["unreadable_experiment_design"]
 
 
@@ -828,14 +828,14 @@ def test_the_design_reader_is_the_preprocessing_brick_s(tmp_path, monkeypatch):
     monkeypatch.setattr(design_module, "read_confirmed_design", recording)
     root, _, csv_path = _unpaired_experiment(tmp_path)
     manifest = json.loads((csv_path.parent / "run_manifest.json").read_text(encoding="utf-8"))
-    run_patching_condition_repeat_tree(root, config=_config(csv_path, image_axes="YX", scope="biological_repeat"))
+    _tree(root, _config(csv_path, image_axes="YX", scope="biological_repeat"))
     assert calls and set(calls) == {manifest["experiment_design_sha256"]}
 
 
 def test_a_run_without_a_design_is_refused_at_the_repeat_scope(tmp_path):
     root, _, csv_path = _unpaired_experiment(tmp_path, design=None)
     with pytest.raises(PreprocessingCheckError) as caught:
-        run_patching_condition_repeat_tree(root, config=_config(csv_path, image_axes="YX", scope="biological_repeat"))
+        _tree(root, _config(csv_path, image_axes="YX", scope="biological_repeat"))
     (issue,) = caught.value.issues
     assert issue.code == "missing_experiment_design"
     assert "the preprocessing run recorded no design" in issue.message
@@ -849,7 +849,7 @@ def test_repeat_groups_missing_a_condition_are_reported(tmp_path):
     csv_path = _preprocess(root, tmp_path / "incomplete_out", "YX")
     config = _config(csv_path, image_axes="YX", scope="biological_repeat")
     with pytest.warns(UserWarning, match="do not have images from every condition"):
-        run_patching_condition_repeat_tree(root, config=config)
+        _tree(root, config)
 
 
 def test_raw_patches_of_a_removed_scope_still_normalize_on_load(experiment, tmp_path):
@@ -859,7 +859,7 @@ def test_raw_patches_of_a_removed_scope_still_normalize_on_load(experiment, tmp_
     config = _config(csv_path)
     config.export.enabled, config.common.output_dir = True, str(tmp_path / "out")
     config.normalization.export_values = "raw"
-    results = run_patching_condition_repeat_tree(root, config=config, combine_metadata=True)
+    results = _tree(root, config, combine_metadata=True)
     delivered = {p.patch_id: a for leaf in results for p, a in zip(leaf.result.patches, leaf.result.patch_arrays)}
 
     # The same files as a run at the removed condition scope would have left them.
@@ -886,8 +886,8 @@ def test_csv_scopes_refuse_a_table_without_its_manifest(experiment):
     # Issue #46 warned and went on without run_manifest.json; CP-1 reads the run through
     # RunInputs, which needs it, so the table, size/time and axis checks always run.
     root, _, csv_path = experiment
-    with_manifest = _messages(lambda: run_patching_condition_repeat_tree(
-        root, config=_config(csv_path, scope="biological_repeat")
+    with_manifest = _messages(lambda: _tree(
+        root, _config(csv_path, scope="biological_repeat")
     ))
     assert "run_manifest.json" not in with_manifest
     assert "experiment_design_sha256" not in with_manifest
@@ -898,7 +898,7 @@ def test_csv_scopes_refuse_a_table_without_its_manifest(experiment):
         (alone / name).write_bytes((csv_path.parent / name).read_bytes())
     for scope in ("image", "biological_repeat"):
         with pytest.raises(PreprocessingCheckError, match="holds no run_manifest.json") as caught:
-            run_patching_condition_repeat_tree(root, config=_config(alone / csv_path.name, scope=scope))
+            _tree(root, _config(alone / csv_path.name, scope=scope))
         assert [issue.code for issue in caught.value.issues] == ["preprocessing_run_refused"]
 
 
@@ -911,7 +911,7 @@ def test_a_run_that_recorded_no_design_is_refused_at_the_repeat_scope(experiment
     manifest["experiment_design_sha256"] = None
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
     with pytest.raises(PreprocessingCheckError) as caught:
-        run_patching_condition_repeat_tree(root, config=_config(csv_path, scope="biological_repeat"))
+        _tree(root, _config(csv_path, scope="biological_repeat"))
     assert [issue.code for issue in caught.value.issues] == ["missing_experiment_design"]
 
 

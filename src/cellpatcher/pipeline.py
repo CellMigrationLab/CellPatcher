@@ -23,12 +23,8 @@ from cellpatcher.ids import (
     resolve_object_set,
     resolve_position_id,
 )
-from cellpatcher.io import (
-    SINGLE_BIOLOGICAL_REPEAT_LABEL,
-    SINGLE_CONDITION_LABEL,
-    SINGLE_TECHNICAL_REPEAT_LABEL,
-    refuse_transposed_mask_axes,
-)
+from cellpatcher.io import SINGLE_BIOLOGICAL_REPEAT_LABEL, SINGLE_CONDITION_LABEL, SINGLE_TECHNICAL_REPEAT_LABEL
+from cellpatcher.io import refuse_transposed_mask_axes
 from cellpatcher.masking import apply_label_masks_to_patches
 from cellpatcher.delivery import raw_export_array
 from cellpatcher.normalization import (
@@ -40,6 +36,7 @@ from cellpatcher.normalization import (
     split_channel_normalization,
     validate_normalization,
 )
+from cellpatcher.run_session import one_session
 from cellpatcher.statistics import _preprocessing
 from cellpatcher.planes import iter_image_planes, plane_choices, splits_planes
 from cellpatcher.resize import normalize_output_size, resize_patches
@@ -869,6 +866,7 @@ def _refuse_masking_computed_labels(config: CellPatcherConfig, masks) -> None:
             raise ValueError(refusal)
 
 
+@one_session  # the preprocessing run is opened once per call (cellpatcher.run_session)
 def run_patching(images=None, masks=None, config=None, image_metadata=None, fraction_masks=None) -> PatchingResult:
     """Generate patch regions (and optionally extract arrays) from in-memory images.
 

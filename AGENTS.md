@@ -176,7 +176,22 @@ environment.yaml
 
 CellPatcher-specific conventions:
 
-* `image_axes`/`mask_axes` are explicit and axis-aware (see `axes.py`).
+* **File runs read through a clean preprocessing run** (v0.2.0, CP-2a; design
+  v0.4 §6): `run_patching_pipeline`, `run_patching_condition_repeat_tree` and
+  `run_patching_from_folders` need `common.preprocessing_run` (else
+  `no_preprocessing_run` with the preprocessing command). `cellpatcher.file_runs`
+  opens it with `RunInputs.open` with the image folder/root and masks folder
+  given (a moved or copied experiment is checked and read where it is now),
+  patches the run's FOVs with their recorded keys, and reads images and masks
+  with `RunInputs.read_plane`/`read_mask` (`cellpatcher.run_reading`) in one
+  canonical layout per run (T, Z, C, then Y, X). No CellPatcher-side axis,
+  pairing or calibration logic is used for them; `common.image_axes`/`mask_axes`
+  other than `"YX"`, `mask_source="ngff_labels"`, `mask_label_name` and labels
+  other than `"single"` are refused with a migration message (CP-2b removes
+  them for file runs). The run is opened once per call and kept for that call
+  only (`cellpatcher.run_session`).
+* `image_axes`/`mask_axes` are explicit and axis-aware (see `axes.py`) for
+  in-memory arrays and lazy delivery from a path.
   Image/mask pairing is the preprocessing brick's `find_masks`, called by
   `io.pair_masks` (issue #45, owner decision 2026-10-30): TIFF masks named
   `<image>_<type>.tif` or `<type>/<image>.tif`; `matching.mask_type` picks
@@ -229,7 +244,15 @@ in notebooks where practical.
 
 ### Inputs this repo consumes
 
-CellPatcher reads image files, and (for `cell` mode) matching label/mask
+Since v0.2.0 (CP-2a) folder and tree runs read files only through a clean
+preprocessing run (`common.preprocessing_run`, opened with `RunInputs`; see §4 and
+`docs/configuration_reference.md`, "File runs read through the preprocessing
+run"): the images, their labels and `position_id`, their roles and their masks
+are the run's. A folder mask and a label image of one type for one image are
+refused by the preprocessing run (`duplicate_mask`, rc1). The rest of this
+paragraph describes discovery and pairing as `validate_image_and_mask_folders`
+and lazy delivery from paths still do them (until CP-2b), and as file runs did
+before v0.2.0. CellPatcher reads image files, and (for `cell` mode) matching label/mask
 files, directly from user-provided folders. Images are found with the
 preprocessing brick's `discover_experiment` (`io.discover_images`; owner
 decision of 2026-10-30, issue #45): TIFF files and OME-Zarr images. PNG, JPEG,
@@ -263,11 +286,10 @@ guessed, and `common.mask_axes` with a `C` is refused for mask-folder masks
 
 Two ways to point CellPatcher at input data:
 
-- `run_patching_pipeline(image_folder_path, ...)` — a single flat folder of
-  images (optionally with a matching mask folder). `condition`/
-  `biological_repeat` must be set explicitly via
-  `CellPatcherConfig.common.condition`/`.biological_repeat` when using this
-  entry point; they are not parsed from the folder path.
+- `run_patching_pipeline(image_folder_path, ...)` — the images of a
+  preprocessing run of one condition and biological repeat (optionally with
+  its masks folder). Since v0.2.0 their labels are the run's; before, they
+  were set with `CellPatcherConfig.common.condition`/`.biological_repeat`.
 - `run_patching_condition_repeat_tree(image_root_path, ...)` — the
   `<condition>/<biological_repeat_YYYY_MM_DD>[/<technical_repeat>]/` layout
   from §6, walked

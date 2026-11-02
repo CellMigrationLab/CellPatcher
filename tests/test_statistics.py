@@ -430,6 +430,7 @@ def test_cellpatcher_patches_link_to_the_preprocessing_rows(tmp_path):
     statistics = load_plane_statistics(output / mbn.OUTPUT_FILENAME)
 
     config = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=8))
+    config.common.preprocessing_run = str(output)  # a file run reads through the run (CP-2a)
     patches = [patch for leaf in run_patching_condition_repeat_tree(root, config=config) for patch in leaf.result.patches]
     paths = {patch.source_relative_path for patch in patches}
     assert paths == {"0012/img.tif", "treated/001/wellA/field.tif", "treated/001/wellB/field.tif"}

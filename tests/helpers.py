@@ -93,3 +93,63 @@ def write_ngff_labels(path, labels, axes="zyx"):
         label_group.attrs.update({"image-label": {"version": "0.4"}})
     zarr.open_group(str(path / "labels"), mode="a", **options).attrs.update({"labels": list(labels)})
     return path
+
+
+def preprocess(root, axes="YX", *, masks=None, output=None, stored=None, **options):
+    """Run the preprocessing brick on the experiment *root* and return its output folder.
+
+    Folder and tree runs read files only through a clean preprocessing run
+    (design v0.4 §6, CP-2a). *axes* is the roles of the images' axes, as
+    ``morphobricks-preprocessing run --axes`` takes them (*stored*: the
+    file's own axes when they differ, e.g. ``"IYX"`` for a plain stack);
+    *masks* the masks folder. The output goes beside *root* unless *output* is given.
+    """
+    from pathlib import Path
+
+    import morphobricks_preprocessing as mbp
+
+    root = Path(root)
+    output = Path(output) if output is not None else root.parent / f"{root.name}_preprocessing"
+    result = mbp.run_experiment(
+        root,
+        mbp.AxisMapping(stored or axes, axes),
+        output_folder=output,
+        masks_folder=masks,
+        **options,  # design, image_type, mask_axes, missing_as_singleton, ...
+    )
+    if not result.written:
+        raise AssertionError("preprocessing did not run: " + "; ".join(map(str, result.issues)))
+    return output
+
+
+def file_run_config(config, root, axes="YX", **preprocessing):
+    """Preprocess *root* (:func:`preprocess`) and set ``config.common.preprocessing_run``; return *config*."""
+    config.common.preprocessing_run = str(preprocess(root, axes, **preprocessing))
+    return config
+
+
+def preprocessed_tree(root, *, config, mask_root_path=None, axes="YX", **kwargs):
+    """Preprocess *root* (with its masks folder), then run the tree run through that run (CP-2a)."""
+    from cellpatcher.orchestration import run_patching_condition_repeat_tree
+
+    file_run_config(config, root, axes, masks=mask_root_path)
+    return run_patching_condition_repeat_tree(root, config=config, mask_root_path=mask_root_path, **kwargs)
+
+
+def preprocessed_folder(folder, *, config, mask_folder_path=None, axes="YX", **kwargs):
+    """Preprocess *folder* (with its masks folder), then run the folder run through that run (CP-2a)."""
+    from cellpatcher.orchestration import run_patching_pipeline
+
+    file_run_config(config, folder, axes, masks=mask_folder_path)
+    return run_patching_pipeline(folder, config=config, mask_folder_path=mask_folder_path, **kwargs)
+
+
+def as_file_run(config, run=None):
+    """A copy of *config* for a file run through *run* (default: the run of its table), axes left to it (CP-2a)."""
+    import copy
+    import os
+
+    config = copy.deepcopy(config)
+    config.common.image_axes = config.common.mask_axes = "YX"
+    config.common.preprocessing_run = str(run or os.path.dirname(config.normalization.plane_histograms))
+    return config

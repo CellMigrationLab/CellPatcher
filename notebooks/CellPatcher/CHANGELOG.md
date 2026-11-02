@@ -4,6 +4,34 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased] - File runs read through the preprocessing run (CP-2a)
+
+### Changed
+- **Breaking.** `run_patching_pipeline`, `run_patching_condition_repeat_tree` and
+  `run_patching_from_folders` read files only through a clean preprocessing run (v0.4):
+  `common.preprocessing_run`, its output folder, is required in every mode, normalization on or
+  off (`no_preprocessing_run`, with the preprocessing command). The images patched are the
+  run's, with their labels and `position_id` as it recorded them; images and masks are read
+  with `RunInputs.read_plane`/`read_mask` in the roles it recorded, in one canonical layout per
+  run (T, Z, C, then Y, X), recorded in `run_config.json` as `common.image_axes`/`mask_axes`.
+  An image added to the experiment after the run is not patched, and nothing says so yet (known
+  limitation, closed when CellPatcher calls the preprocessing check for added images, which is
+  not in v0.4.0rc1).
+- The run is opened with the image folder/root and the masks folder given, so an experiment
+  moved or copied since its run (times kept) is checked and read where it is now. A mask
+  changed in a copy is refused (before, only the original was checked).
+- For file runs, `common.image_axes`/`mask_axes` other than `"YX"`, `mask_source="ngff_labels"`,
+  `mask_label_name`, and `condition`/`biological_repeat`/`technical_repeat` other than
+  `"single"` are refused with a migration message. `matching.mask_type` chooses among the run's
+  mask types (a label image's type is its name); `random` mode reads masks when a masks folder
+  or `matching.mask_type` is given. `run_patching_pipeline` patches a run of one condition and
+  biological repeat.
+- The statistics cache is gone: a run is opened once per CellPatcher call and kept for that
+  call only, so a mask or an unpatched image changed between two calls is refused.
+- `load_plane_statistics`, `recorded_image_type` and `cached_statistics` take
+  `experiment_root=`/`masks_root=`; they and `open_run` moved to `cellpatcher.run_open`
+  (still importable from `cellpatcher.statistics`).
+
 ## [Unreleased] - The preprocessing run is read through RunInputs (CP-1, preprocessing v0.4.0rc1)
 
 ### Changed
