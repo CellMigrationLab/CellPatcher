@@ -16,6 +16,8 @@ import ast
 import json
 import os
 import re
+import shutil
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -249,12 +251,13 @@ def test_notebook_cells_run(capsys, name):
     assert "Local Jupyter: Python" in capsys.readouterr().out
 
 
-def _run_in_a_kernel(name, folder, after=None):
+def _run_in_a_kernel(name, after=None):
     """Run a notebook as Jupyter runs it: a fresh kernel in its folder; *after* adds cells after some.
 
-    On POSIX the kernel talks over IPC sockets in *folder*: with TCP, another process on the
-    machine (another test run) can take a port between its choice and its use, and the cell
-    then waits for its timeout.
+    On POSIX the kernel talks over IPC sockets in a short temporary folder: with TCP, another
+    process on the machine (another test run) can take a port between its choice and its use,
+    and the cell then waits for its timeout. The folder is not pytest's ``tmp_path``, whose path
+    can exceed a Unix socket path's limit (104 bytes on macOS).
     """
     pytest.importorskip("ipywidgets", reason="the notebook extra installs ipywidgets")
     pytest.importorskip("matplotlib", reason="the notebook extra installs matplotlib")
@@ -276,8 +279,10 @@ def _run_in_a_kernel(name, folder, after=None):
     from jupyter_client.manager import KernelManager
 
     manager = KernelManager(kernel_name="python3")
-    if os.name == "posix":
-        manager.transport, manager.ip = "ipc", str(folder / "kernel")
+    sockets = tempfile.mkdtemp(prefix="cpk-") if os.name == "posix" else None
+    if sockets is not None:
+        manager.transport, manager.ip = "ipc", os.path.join(sockets, "k")
+        assert len(manager.ip) < 80, manager.ip  # room for "-<port>" within the socket path limit
     client = nbclient.NotebookClient(
         notebook, km=manager, timeout=300, kernel_name="python3", resources={"metadata": {"path": str(path.parent)}}
     )
@@ -286,6 +291,8 @@ def _run_in_a_kernel(name, folder, after=None):
     finally:  # nbclient shuts down only the kernels of managers it made itself
         if manager.has_kernel:
             manager.shutdown_kernel(now=True)
+        if sockets is not None:
+            shutil.rmtree(sockets, ignore_errors=True)
     code = [cell for cell in notebook.cells if cell.cell_type == "code"]
     outputs = [output for cell in code for output in cell.outputs]
     assert not [output for output in outputs if output.output_type == "error"]
@@ -300,8 +307,8 @@ def _run_in_a_kernel(name, folder, after=None):
     return notebook
 
 
-def test_notebook_runs_in_a_kernel(tmp_path):
-    _run_in_a_kernel("CellPatcher", tmp_path)
+def test_notebook_runs_in_a_kernel():
+    _run_in_a_kernel("CellPatcher")
 
 
 @pytest.fixture
@@ -329,7 +336,7 @@ def test_examples_notebook_runs_every_example_in_a_kernel(clean, tmp_path):
             "assert preview.result.patches and all(patch.mode == "
             f"{mode!r} for patch in preview.result.patches)"
         )
-    _run_in_a_kernel("CellPatcher_Strategy_Examples", tmp_path, after)
+    _run_in_a_kernel("CellPatcher_Strategy_Examples", after)
 
 
 def test_torch_notebook_loads_an_export_in_a_kernel(clean, tmp_path):
@@ -346,7 +353,7 @@ def test_torch_notebook_loads_an_export_in_a_kernel(clean, tmp_path):
         "assert batch is not None, notebook.message.value\n"
         "assert tuple(batch.images.shape)[0] == 8 and batch.n_patches == 16, batch"
     )
-    _run_in_a_kernel("CellPatcher_Pytorch", tmp_path, {"notebook.patches_step()": load})
+    _run_in_a_kernel("CellPatcher_Pytorch", {"notebook.patches_step()": load})
 
 
 @EVERY

@@ -39,6 +39,9 @@ setup(
     extras_require={
         "test": [
             "pytest",
+            # tests/test_installers.py pip-installs the installer's layouts (a venv made
+            # without pip, such as uv's, has none).
+            "pip",
             # tools/check.py and tests/test_code_rules.py: the code standards (design v0.4
             # §9). Pinned, because the baseline of existing findings is Ruff's at this version.
             "ruff==0.17.3",
