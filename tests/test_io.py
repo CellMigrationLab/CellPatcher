@@ -1,14 +1,13 @@
-import re
 
 import numpy as np
 import pytest
 
+from cellpatcher.file_runs import validate_image_and_mask_folders
 from cellpatcher.io import (
     list_supported_files,
     read_array,
     write_array,
 )
-from cellpatcher.file_runs import validate_image_and_mask_folders
 from tests.helpers import file_run_config, preprocess, write_tiff
 
 

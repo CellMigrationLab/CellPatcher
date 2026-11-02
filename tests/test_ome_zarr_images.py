@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 
 from cellpatcher.config import CellPatcherConfig, GridConfig
+from cellpatcher.file_runs import validate_image_and_mask_folders
 from cellpatcher.io import (
     conform_axes,
     discover_condition_repeat_folders,
@@ -19,7 +20,6 @@ from cellpatcher.io import (
     read_image,
     write_array,
 )
-from cellpatcher.file_runs import validate_image_and_mask_folders
 from cellpatcher.orchestration import run_patching_condition_repeat_tree
 from cellpatcher.statistics import PreprocessingUnavailableError
 from tests.helpers import (

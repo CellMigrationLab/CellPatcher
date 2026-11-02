@@ -26,7 +26,11 @@ from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING
 
 from cellpatcher.ids import object_set_from_mask_type, validate_object_set
-from cellpatcher.io import SINGLE_CONDITION_LABEL, ConditionRepeatFolder, refuse_removed_matching
+from cellpatcher.io import (
+    SINGLE_CONDITION_LABEL,
+    ConditionRepeatFolder,
+    refuse_removed_matching,
+)
 from cellpatcher.normalization import (
     CSV_SCOPES,
     check_image_type,

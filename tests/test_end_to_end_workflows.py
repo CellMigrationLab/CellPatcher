@@ -2,13 +2,12 @@ import csv
 
 import numpy as np
 
+from cellpatcher import validate_image_and_mask_folders
 from cellpatcher.cell_scan import scan_cell_patch_size
 from cellpatcher.config import CellPatcherConfig, GridConfig, RandomConfig
-from cellpatcher import validate_image_and_mask_folders
 from cellpatcher.io import read_array, write_array
 from cellpatcher.pipeline import run_patching
-from tests.helpers import make_synthetic_cell_image_and_labels, preprocess
-from tests.helpers import named
+from tests.helpers import make_synthetic_cell_image_and_labels, named, preprocess
 
 
 def test_e2e_cell_scan_mask_resize_export(tmp_path):
