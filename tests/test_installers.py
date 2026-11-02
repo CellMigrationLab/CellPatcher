@@ -131,11 +131,15 @@ def test_post_install_installs_the_package_with_its_dependencies_and_the_zarr_ex
     # CellPatcher's change to a template file (docs/developer_notes.md): the template installs the
     # app's package with --no-deps, but CellPatcher's dependencies (the MorphoBricks bricks, from
     # GitHub) are in setup.py, not in requirements.txt, and the app reads OME-Zarr (zarr extra).
+    # The template's --no-build-isolation is dropped too: with dependencies, pip would build the
+    # bricks from source in the app's environment, which has no hatchling (their build backend),
+    # and the installation would fail.
     text = (ROOT / "app" / "bash_bat_scripts" / script).read_text(encoding="utf-8")
     installs = [line for line in text.splitlines() if "pip install" in line and "PROJECT_ROOT" in line
-                and "requirements" not in line.lower()]
+                and "requirements" not in line.lower() and not line.lstrip().startswith(("#", "REM"))]
     assert len(installs) == 1, installs
     assert "--no-deps" not in installs[0]
+    assert "--no-build-isolation" not in installs[0]
     assert ("${PROJECT_ROOT}[zarr]" if script.endswith(".sh") else "%PROJECT_ROOT%[zarr]") in installs[0]
 
 

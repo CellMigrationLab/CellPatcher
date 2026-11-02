@@ -87,10 +87,12 @@ REM External Python code is optional in LabConstrictor projects. If setup.py is
 REM bundled, install it without a temporary build environment and verify that
 REM the generated import package is usable. Otherwise continue without it.
 IF EXIST "%PROJECT_ROOT%\setup.py" (
-    echo Found setup.py, installing CellPatcher package locally without build isolation. >> "%LOG_FILE%"
+    echo Found setup.py, installing CellPatcher package locally with its dependencies and the zarr extra. >> "%LOG_FILE%"
     REM CellPatcher: with the "zarr" extra for OME-Zarr images and with its dependencies, which are not in
     REM requirements.txt: the MorphoBricks bricks are fetched from GitHub with the git bundled in environment.yaml.
-    "%PYTHON_EXE%" -m pip install --no-build-isolation "%PROJECT_ROOT%[zarr]" >> "%LOG_FILE%" 2>&1
+    REM With build isolation (no --no-build-isolation): pip builds the bricks from source with their own build
+    REM backend (hatchling), which this environment does not have (docs/developer_notes.md, "LabConstrictor template").
+    "%PYTHON_EXE%" -m pip install "%PROJECT_ROOT%[zarr]" >> "%LOG_FILE%" 2>&1
     IF ERRORLEVEL 1 (
         SET "FAILURE_MESSAGE=CellPatcher package installation failed."
         GOTO :fail

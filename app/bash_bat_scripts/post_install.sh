@@ -63,10 +63,12 @@ fi
 # External Python code is optional. Verify the generated package only when the
 # constructor bundled setup.py and src/.
 if [ -f "$PROJECT_ROOT/setup.py" ]; then
-    echo "Found setup.py, installing CellPatcher package locally without build isolation" >> "$LOG_FILE"
+    echo "Found setup.py, installing CellPatcher package locally with its dependencies and the zarr extra" >> "$LOG_FILE"
     # CellPatcher: with the "zarr" extra (OME-Zarr images) and with its dependencies, which are not in
     # requirements.txt: the MorphoBricks bricks are fetched from GitHub with the git bundled in environment.yaml.
-    "$PYTHON_EXE" -m pip install --no-build-isolation "${PROJECT_ROOT}[zarr]" >> "$LOG_FILE" 2>&1
+    # With build isolation (no --no-build-isolation): pip builds the bricks from source with their own build
+    # backend (hatchling), which this environment does not have (docs/developer_notes.md, "LabConstrictor template").
+    "$PYTHON_EXE" -m pip install "${PROJECT_ROOT}[zarr]" >> "$LOG_FILE" 2>&1
     # Tools first, only for an app whose package ships a <package>_lc_tools module: the app package may import labconstrictor_tools
     # at module level, so labconstrictor-tools must be installed BEFORE the import check below. A failed install is only a WARNING
     # (it never fails the installation by itself). LC_TOOLS_SPEC can point to another source (wheel, git URL, mirror).
