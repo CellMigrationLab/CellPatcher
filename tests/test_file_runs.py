@@ -299,7 +299,7 @@ def test_a_manifest_changed_while_the_run_is_opened_is_refused(tmp_path, monkeyp
 def test_a_manifest_changed_during_the_run_is_refused_before_run_config_is_written(tmp_path, monkeypatch):
     # run_config.json records the manifest's SHA-256 taken at the open; a manifest rewritten
     # after it (preprocessing run again on the same folder) would make it name another run.
-    import cellpatcher.file_runs as file_runs
+    from cellpatcher import file_runs
 
     run = _clean_run(tmp_path, axes="YX", shape=(16, 20), mask_types=("Cells",))
     original = file_runs.run_layout
