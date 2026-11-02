@@ -13,8 +13,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   tree run the array `layout` (`image`, `mask`) built from the run's recorded roles. A folder
   or tree run no longer records `common.image_axes`, `mask_axes` or its labels there (they are
   the run's, not settings), so its `run_config.json` loads back as a config a file run accepts.
-  `load_config` and the exported-patch readers refuse any version but 1 (no version: written
-  before v0.2.0, or a plain config file) and 2.
+  `load_config`, `read_patch_table` and the exported-patch readers refuse any version but 1 (no
+  version: written before v0.2.0, or a plain config file) and 2.
 - `validate_image_and_mask_folders(image_folder, mask_folder, *, preprocessing_run=, mask_type=)`
   returns the pairing the preprocessing run recorded (opened where the folders are now); it
   pairs nothing itself, and refuses without a run (`no_preprocessing_run`). It moved to
