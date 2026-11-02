@@ -146,3 +146,24 @@ def test_the_asked_for_scale_policy_rescaling_is_shown_and_recorded(tmp_path):
     assert kept.split() == ["1.0", "1000.0"]  # scale_policy='none': unscaled, nothing to record
     assert "ScalePolicyDeprecationWarning" in result.stderr
     assert "divided an integer patch by its dtype maximum (65535)" in result.stderr
+
+
+def test_the_live_dataset_records_channel_repeat_and_keeps_any_channel_count(torch_dataset):
+    # CP-4 review: PatchTorchDataset records the repetition per item like the exported dataset, and
+    # the default "keep" passes 1, 2 and 4 channels through with their values and no rescale.
+    from cellpatcher.types import PatchRegion
+
+    PatchTensorConfig, PatchTorchDataset = torch_dataset.PatchTensorConfig, torch_dataset.PatchTorchDataset
+    patch = PatchRegion(patch_id="p", image_id="image_0000", y0=0, y1=4, x0=0, x1=4)
+    for channels in (1, 2, 4):
+        image = np.full((channels, 8, 8), 1000, dtype=np.uint16)
+        item = PatchTorchDataset(image, [patch], image_axes="CYX",
+                                 tensor_config=PatchTensorConfig(scale_policy="none"))[0]
+        tensor = np.asarray(item["image"])
+        assert tensor.shape == (channels, 4, 4) and set(tensor.ravel().tolist()) == {1000.0}
+        assert (item["scale_divisor"], item["channel_repeat"]) == (1.0, 1)
+
+    rgb = PatchTensorConfig(channel_policy="repeat_to_rgb", scale_policy="none")
+    for shape, axes, repeat in (((8, 8), "YX", 3), ((1, 8, 8), "CYX", 3), ((3, 8, 8), "CYX", 1)):
+        item = PatchTorchDataset(np.ones(shape, dtype=np.uint16), [patch], image_axes=axes, tensor_config=rgb)[0]
+        assert np.asarray(item["image"]).shape == (3, 4, 4) and item["channel_repeat"] == repeat

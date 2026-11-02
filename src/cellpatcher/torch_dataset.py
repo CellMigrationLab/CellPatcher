@@ -173,16 +173,16 @@ def patch_array_to_tensor(array, *, axes, config=None):
         raise ValueError("patch_array_to_tensor expects a 2D spatial patch with optional channel axis.")
 
     channels = int(chw.shape[0])
-    if cfg.channel_policy == "repeat_to_rgb":
-        # Grayscale (1-channel) is broadcast to 3 channels for models that
-        # expect RGB input; already-3-channel data passes through unchanged.
-        if channels == 1:
-            chw = np.repeat(chw, 3, axis=0)
-        elif channels != 3:
-            raise ValueError(
-                f"channel_policy='repeat_to_rgb' requires 1 or 3 channels, got {channels}. "
-                "Use channel_policy='keep' for other channel counts."
-            )
+    if cfg.channel_policy == "repeat_to_rgb" and channels not in (1, 3):
+        raise ValueError(
+            f"channel_policy='repeat_to_rgb' requires 1 or 3 channels, got {channels}. "
+            "Use channel_policy='keep' for other channel counts."
+        )
+    # Grayscale (1-channel) is repeated to 3 channels for models that expect RGB input only
+    # when asked; the same function gives each dataset item its ``channel_repeat``.
+    repeats = channel_repeat(arr, axes=ax, config=cfg)
+    if repeats != 1:
+        chw = np.repeat(chw, repeats, axis=0)
 
     if cfg.dtype_policy == "float32":
         chw = chw.astype(np.float32, copy=False)
