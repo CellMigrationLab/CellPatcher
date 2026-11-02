@@ -801,7 +801,9 @@ def _declared_axes_problem(meta: TiffMetadata, declared: str) -> str | None:
     return " ".join(f"{meta.relative_path}: [{issue.code}] {issue.message} {issue.action}" for issue in issues)
 
 
-def refuse_header_axes(paths, declared_axes, *, setting: str, what: str) -> set:
+def refuse_header_axes(
+    paths: Iterable[str | os.PathLike], declared_axes: str, *, setting: str, what: str
+) -> set[str | os.PathLike]:
     """Refuse *declared_axes* (the setting named *setting*) that do not fit the header axes of *paths*.
 
     Every file is checked before any is read; all disagreements are listed in
@@ -824,7 +826,7 @@ def refuse_header_axes(paths, declared_axes, *, setting: str, what: str) -> set:
     return set()
 
 
-def refuse_image_header_axes(image_paths, image_axes) -> set:
+def refuse_image_header_axes(image_paths: Iterable[str | os.PathLike], image_axes: str) -> set[str | os.PathLike]:
     """Refuse ``common.image_axes`` that do not fit an image file's own header axes.
 
     A TIFF image is read in its stored order and then interpreted with

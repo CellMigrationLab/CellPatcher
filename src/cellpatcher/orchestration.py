@@ -370,7 +370,7 @@ def _mask_loaders(experiment_root, mask_folder_path, image_files, config, pairin
     return loaders, [selected[image].name for image in image_files], pairing.mask_type
 
 
-def _warn_transposed(paths) -> None:
+def _warn_transposed(paths: set[str | Path]) -> None:
     """Warn that the images in *paths* are read with their header's Y and X swapped, as declared.
 
     Since preprocessing v0.4 a swap is refused (:func:`cellpatcher.io.header_axes_disagreement`),
