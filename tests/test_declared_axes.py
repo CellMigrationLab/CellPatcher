@@ -140,6 +140,33 @@ def test_lazy_delivery_refuses_an_in_memory_image_declared_swapped():
         patch_array(patch, image, config)
 
 
+@pytest.mark.parametrize(("image_axes", "mask_axes", "refused"), [("YX", "XY", "mask"), ("XY", "YX", "image"),
+                                                                ("XY", "XY", "image")])
+def test_the_object_scan_refuses_in_memory_arrays_with_x_before_y(image_axes, mask_axes, refused):
+    # Before (CP-3 review), scan_cell_patch_size accepted mask_axes='XY' on a square image and
+    # gave the transposed mask's sizes: an object 3 rows high and 7 columns wide, declared 'XY'
+    # (so 7 high, 3 wide), was reported as bbox_height 3, bbox_width 7. Refused, as run_patching does.
+    from cellpatcher import scan_cell_patch_size
+    from cellpatcher.cell_scan import scan_cell_objects
+
+    labels = np.zeros((16, 16), dtype=np.int32)
+    labels[2:5, 3:10] = 1
+    match = rf"common.{refused}_axes='XY' puts X before Y"
+    with pytest.raises(ValueError, match=match):
+        scan_cell_patch_size([(16, 16)], [labels], image_axes=image_axes, mask_axes=mask_axes)
+    with pytest.raises(ValueError, match=match):
+        scan_cell_objects(image_shape=(16, 16), labels=labels, image_axes=image_axes, mask_axes=mask_axes)
+    (record,) = scan_cell_objects(image_shape=(16, 16), labels=labels)
+    assert (record.bbox_height, record.bbox_width) == (3, 7)
+
+
+def test_the_cell_strategy_refuses_mask_axes_with_x_before_y():
+    from cellpatcher.strategies import CellSegmentationStrategy
+
+    with pytest.raises(ValueError, match=r"common.mask_axes='ZXY' puts X before Y"):
+        CellSegmentationStrategy(mask_axes="ZXY")
+
+
 def test_a_mask_file_whose_header_names_x_before_y_is_refused(tmp_path):
     # Declared as its header names it, but CellPatcher would still take its first dimension as Y.
     # Masks are never transposed. With preprocessing rc1 the run was written with no axes for this

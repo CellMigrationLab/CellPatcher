@@ -3,7 +3,7 @@ from collections import deque
 
 import numpy as np
 
-from cellpatcher.axes import axis_index, normalize_axes
+from cellpatcher.axes import axis_index, normalize_axes, refuse_transposed_mask_axes
 from cellpatcher.config import CellConfig
 from cellpatcher.errors import LabelRangeError
 from cellpatcher.strategies.base import BasePatchStrategy, _spatial_shape_from_axes
@@ -18,6 +18,7 @@ class CellSegmentationStrategy(BasePatchStrategy):
 
     def __init__(self, config: CellConfig | None = None, mask_axes: str = "YX") -> None:
         self.config = config if config is not None else CellConfig()
+        refuse_transposed_mask_axes(mask_axes)  # a label plane is taken as Y, X in its stored order
         self.mask_axes = normalize_axes(mask_axes)
 
     @staticmethod
