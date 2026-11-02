@@ -416,13 +416,13 @@ def test_normalization_off_leaves_arrays_and_columns_unchanged(experiment):
 # ---------------------------------------------------------------------------
 
 
-def test_images_added_after_the_run_are_not_part_of_it(experiment):
-    # CP-2a: a file run patches the run's images (RunInputs.fovs), with no discover_experiment (design v0.4
-    # §6), so an image added since is not seen. Former code: found and refused (images_without_rows).
+def test_images_added_after_the_run_are_refused(experiment):
+    # With preprocessing rc1 an image added since the run was left out without a word (CP-2a); since rc2
+    # RunInputs.open refuses it (tests/test_unrecorded_files.py).
     root, stacks, csv_path = experiment
     _write_tiff(root / "control" / "bio1" / "new.tif", stacks["control/bio1/a.tif"], "ZCYX")
-    patched = {patch.source_relative_path for leaf in _tree(root, _config(csv_path)) for patch in leaf.result.patches}
-    assert patched == set(IMAGES)
+    with pytest.raises(PreprocessingCheckError, match=r"control/bio1/new.tif\) that the preprocessing run did not"):
+        _tree(root, _config(csv_path))
 
 
 def test_a_changed_image_is_detected_by_its_fingerprint_and_by_its_pixels(experiment):

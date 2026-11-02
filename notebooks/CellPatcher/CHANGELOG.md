@@ -4,6 +4,23 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.2.0rc1] - Preprocessing v0.4.0rc2, unrecorded files refused, the v0.2 notebook (CP-3)
+
+### Changed
+- CellPatcher requires `morphobricks-preprocessing` `v0.4.0rc2` (core and `zarr` extra; was
+  `v0.4.0rc1`). Its normalization pin is unchanged (`v0.3.2`).
+- **Files the preprocessing run did not record are refused, never left out.** Since rc2
+  `RunInputs.open` refuses an experiment holding images or masks the run did not record (for
+  example added after the run); CellPatcher reports it as `unrecorded_files`, naming the files.
+  This closes the CP-2a known limitation (an added image was not patched and nothing said so).
+  Run preprocessing again on the experiment as it is, or exclude the images there.
+- A run with OME-Zarr images opened without the zarr package is refused (`zarr_extra_missing`,
+  naming `cellpatcher[zarr]`): their label images cannot be checked, and none is skipped.
+- A mask whose header puts X before Y is refused by the preprocessing run itself (rc2), and a
+  run written by rc1 that recorded such a mask without axes is refused when it is opened
+  (`preprocessing_run_refused`). CellPatcher's own refusal of such a record stays as a safety
+  net.
+
 ## [Unreleased] - File-run removals and run_config.json version 2 (CP-2b)
 
 ### Changed
@@ -81,9 +98,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   with `RunInputs.read_plane`/`read_mask` in the roles it recorded, in one canonical layout per
   run (T, Z, C, then Y, X), recorded in `run_config.json` as `common.image_axes`/`mask_axes`
   (in its `preprocessing.layout` since CP-2b).
-  An image added to the experiment after the run is not patched, and nothing says so yet (known
-  limitation, closed when CellPatcher calls the preprocessing check for added images, which is
-  not in v0.4.0rc1).
+  (An image added to the experiment after the run was then not patched, and nothing said so; since
+  preprocessing v0.4.0rc2 it is refused: see v0.2.0rc1 above.)
 - The run is opened with the image folder/root and the masks folder given, so an experiment
   moved or copied since its run (times kept) is checked and read where it is now. A mask
   changed in a copy is refused (before, only the original was checked).
