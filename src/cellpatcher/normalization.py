@@ -44,13 +44,13 @@ from morphobricks_normalization.records import SINGLE
 
 from cellpatcher.axes import normalize_axes
 from cellpatcher.masking import _label_to_2d
+from cellpatcher.run_open import _refuse_other_file
 from cellpatcher.run_session import session_statistics
 from cellpatcher.statistics import (
     PlaneStatistics,
     PreprocessingCheckError,
     SourcePlane,
     _preprocessing,
-    _refuse_other_file,
     check_images,
     check_planes,
     load_plane_statistics,

@@ -31,17 +31,15 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from cellpatcher import run_open as _run_open
 from cellpatcher.axes import normalize_axes
 from cellpatcher.io import SINGLE_CONDITION_LABEL as SINGLE_LABEL
 
 # Opening the run moved to cellpatcher.run_open (CP-2a); re-exported here.
-from cellpatcher.run_open import (  # noqa: F401
-    _refuse_other_file,
-    load_plane_statistics,
-    open_run,
-    recorded_image_type,
-    statistics_of,
-)
+load_plane_statistics = _run_open.load_plane_statistics
+open_run = _run_open.open_run
+recorded_image_type = _run_open.recorded_image_type
+statistics_of = _run_open.statistics_of
 
 if TYPE_CHECKING:
     from morphobricks_normalization import PlaneRecord
