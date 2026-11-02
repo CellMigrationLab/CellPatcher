@@ -14,12 +14,12 @@ import pytest
 from cellpatcher.config import CellPatcherConfig, CommonConfig, ExportConfig, GridConfig, NormalizationConfig
 from cellpatcher.export import IMAGE_TABLE_FILENAME, export_patches
 from cellpatcher.io import write_array
-from cellpatcher.orchestration import run_patching_condition_repeat_tree, run_patching_pipeline
 from cellpatcher.pipeline import run_patching
 from cellpatcher.types import IMAGE_TABLE_COLUMNS, ImageRecord, PatchRegion
 
 from tests.helpers import make_synthetic_cell_image_and_labels
 from tests.helpers import named
+from tests.helpers import preprocessed_folder, preprocessed_tree
 
 # image_id tells images apart in an in-memory run, which has no file names.
 IDENTITY = ("condition", "biological_repeat", "technical_repeat", "image_id", "image_file")
@@ -78,8 +78,8 @@ def _cell_config(output_dir, **common):
 
 def test_folder_run_lists_images_with_and_without_patches(tmp_path):
     images, masks = _cell_folders(tmp_path)
-    config = _cell_config(tmp_path / "out", condition="treated", biological_repeat="2026_01_01")
-    result = run_patching_pipeline(images, mask_folder_path=masks, config=config)
+    config = _cell_config(tmp_path / "out")  # a file run's labels are the preprocessing run's (CP-2a)
+    result = preprocessed_folder(images, mask_folder_path=masks, config=config)
 
     out = tmp_path / "out"
     assert result.image_table_file == str(out / IMAGE_TABLE_FILENAME)
@@ -89,7 +89,7 @@ def test_folder_run_lists_images_with_and_without_patches(tmp_path):
     by_file = {row["image_file"]: row for row in image_rows}
 
     assert by_file["a.tif"] == {
-        "condition": "treated", "biological_repeat": "2026_01_01", "technical_repeat": "single",
+        "condition": "single", "biological_repeat": "single", "technical_repeat": "single",
         "image_id": "image_0000", "image_file": "a.tif", "mask_file": "a_mask.tif",
         "source_relative_path": "a.tif", "image_height": "96", "image_width": "128",
         "n_patches": "4", "status": "processed", "reason": "",
@@ -108,7 +108,7 @@ def test_folder_run_lists_images_with_and_without_patches(tmp_path):
 
 def test_every_exported_patch_file_belongs_to_a_listed_image(tmp_path):
     images, masks = _cell_folders(tmp_path)
-    run_patching_pipeline(images, mask_folder_path=masks, config=_cell_config(tmp_path / "out"))
+    preprocessed_folder(images, mask_folder_path=masks, config=_cell_config(tmp_path / "out"))
     patch_rows, image_rows = _assert_tables_join(tmp_path / "out")
     listed = {row["image_file"] for row in image_rows}
     for row in patch_rows:
@@ -118,7 +118,7 @@ def test_every_exported_patch_file_belongs_to_a_listed_image(tmp_path):
 
 def test_a_run_where_no_image_gives_a_patch_still_lists_every_image(tmp_path):
     images, masks = _cell_folders(tmp_path, empty=("a", "b", "c"))
-    result = run_patching_pipeline(images, mask_folder_path=masks, config=_cell_config(tmp_path / "out"))
+    result = preprocessed_folder(images, mask_folder_path=masks, config=_cell_config(tmp_path / "out"))
 
     assert result.patches == []
     patch_rows, image_rows = _assert_tables_join(tmp_path / "out")
@@ -318,7 +318,7 @@ def _summary(rows):
 
 def test_tree_run_writes_a_table_in_every_leaf_folder(tmp_path):
     raw, masks = _tree(tmp_path)
-    results = run_patching_condition_repeat_tree(raw, mask_root_path=masks, config=_cell_config(tmp_path / "out"))
+    results = preprocessed_tree(raw, mask_root_path=masks, config=_cell_config(tmp_path / "out"))
 
     rows = []
     for leaf in results:
@@ -330,7 +330,7 @@ def test_tree_run_writes_a_table_in_every_leaf_folder(tmp_path):
 
 def test_combined_tree_run_writes_one_table_for_every_image(tmp_path):
     raw, masks = _tree(tmp_path)
-    results = run_patching_condition_repeat_tree(
+    results = preprocessed_tree(
         raw, mask_root_path=masks, config=_cell_config(tmp_path / "out"), combine_metadata=True
     )
 

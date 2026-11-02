@@ -8,6 +8,7 @@ paths) and the torch datasets; the arrays must agree.
 import copy
 import importlib.util
 import json
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -49,7 +50,9 @@ def experiment(tmp_path_factory):
         labels[0, 3:9, 3:11] = 1
         labels[1, 12:20, 10:17] = 2 + index
         _write_tiff(masks / "cells" / path, labels, "ZYX")  # preprocessing layout: <mask type>/<image path>
-    result = mbp.run_experiment(root, mbp.AxisMapping("ZCYX", "ZCYX"), output_folder=base / "preprocessing")
+    result = mbp.run_experiment(
+        root, mbp.AxisMapping("ZCYX", "ZCYX"), output_folder=base / "preprocessing", masks_folder=masks
+    )
     assert result.written
     return root, masks, result.csv_path
 
@@ -96,6 +99,11 @@ CONFIGS = {
 
 
 def _run(root, masks, config, **options):
+    # A file run reads through the preprocessing run, in the roles it recorded (CP-2a); the
+    # axes stay set for the lazy delivery from paths and arrays below.
+    config = copy.deepcopy(config)
+    config.common.image_axes = config.common.mask_axes = "YX"
+    config.common.preprocessing_run = str(Path(config.normalization.plane_histograms).parent)
     return run_patching_condition_repeat_tree(
         root, config=config, mask_root_path=masks if config.mode == "cell" else None, **options
     )

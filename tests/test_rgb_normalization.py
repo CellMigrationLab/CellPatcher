@@ -16,6 +16,7 @@ from cellpatcher.delivery import iter_exported_patches, iter_patch_arrays
 from cellpatcher.orchestration import load_config, run_patching_condition_repeat_tree, run_patching_pipeline
 from cellpatcher.pipeline import RUN_CONFIG_FILENAME, run_patching
 from cellpatcher.statistics import PreprocessingCheckError, recorded_image_type
+from tests.helpers import as_file_run
 
 pytestmark = [
     pytest.mark.skipif(
@@ -195,7 +196,7 @@ def test_image_scope_pools_r_g_and_b_of_the_whole_image(tmp_path):
         _write_tiff(folder / f"img{index}.tif", image)
     csv_path = _preprocess(folder, tmp_path / "preprocessing")
 
-    result = run_patching_pipeline(folder, config=_config(csv_path, scope="image"))
+    result = run_patching_pipeline(folder, config=as_file_run(_config(csv_path, scope="image")))
 
     by_image = {}
     for patch, array in zip(result.patches, result.patch_arrays):
@@ -219,7 +220,7 @@ def test_biological_repeat_scope_pools_rgb_across_conditions(tmp_path):
         _write_tiff(root / path, image)
     csv_path = _preprocess(root, tmp_path / "preprocessing")
 
-    results = run_patching_condition_repeat_tree(root, config=_config(csv_path, scope="biological_repeat"))
+    results = run_patching_condition_repeat_tree(root, config=as_file_run(_config(csv_path, scope="biological_repeat")))
 
     pooled = np.concatenate([image.ravel() for image in images.values()])
     low, high = np.percentile(pooled, (1.0, 99.8))
@@ -237,12 +238,12 @@ def test_the_manifest_image_type_must_match_the_configuration(tmp_path):
     fluorescence = _config(rgb_csv, scope="image")
     fluorescence.normalization.image_type = "fluorescence"
     with pytest.raises(PreprocessingCheckError, match="confirmed for 'rgb' images") as raised:
-        run_patching_pipeline(folder, config=fluorescence)
+        run_patching_pipeline(folder, config=as_file_run(fluorescence))
     assert raised.value.issues[0].code == "image_type_differs"
 
     fluorescence_csv = _preprocess(folder, tmp_path / "fluorescence", image_type="fluorescence")
     with pytest.raises(PreprocessingCheckError, match="confirmed for 'fluorescence' images"):
-        run_patching_pipeline(folder, config=_config(fluorescence_csv, scope="image"))
+        run_patching_pipeline(folder, config=as_file_run(_config(fluorescence_csv, scope="image")))
 
 
 def test_recorded_image_type_is_read_through_run_inputs(tmp_path):
@@ -270,5 +271,5 @@ def test_without_an_image_type_in_the_manifest_the_configuration_decides(tmp_pat
     _write_tiff(folder / "img0.tif", _rgb_images(1)[0])
     csv_path = _preprocess(folder, tmp_path / "preprocessing", image_type=None)
 
-    result = run_patching_pipeline(folder, config=_config(csv_path, scope="image"))
+    result = run_patching_pipeline(folder, config=as_file_run(_config(csv_path, scope="image")))
     assert {patch.normalization_parameters.method for patch in result.patches} == {"rgb percentile 1-99.8"}

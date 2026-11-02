@@ -27,12 +27,17 @@ from cellpatcher.orchestration import (
     ConditionRepeatResult,
     apply_overrides,
     load_config,
-    run_patching_condition_repeat_tree,
-    run_patching_pipeline,
 )
 from cellpatcher.pipeline import RUN_CONFIG_FILENAME, run_patching
 from cellpatcher.types import PatchRegion
 from tests.helpers import named
+from tests.helpers import preprocessed_tree as _tree
+
+
+def _run(config):
+    """Patch one in-memory image named a.tif (config labels apply to in-memory runs; file runs
+    take their labels from the preprocessing run since CP-2a)."""
+    return run_patching(images=[np.ones((16, 16), np.float32)], config=config, image_metadata=[{"image_file": "a.tif"}])
 
 
 def _write_image(path, shape=(16, 16)):
@@ -69,14 +74,13 @@ def _build_tree(root):
 
 
 def test_pipeline_csv_has_biological_repeat_column_and_no_repeat_column(tmp_path):
-    _write_image(tmp_path / "images" / "a.tif")
     cfg = _export_config(tmp_path / "out")
     cfg.common.condition = "treated"
     cfg.common.biological_repeat = "2026_01_01"
 
     with warnings.catch_warnings(record=True) as records:
         warnings.simplefilter("always")
-        run_patching_pipeline(str(tmp_path / "images"), config=cfg)
+        _run(cfg)
     assert _deprecations(records) == []
 
     header, rows = _read_csv(tmp_path / "out" / "patches.csv")
@@ -96,7 +100,7 @@ def test_tree_per_leaf_csvs_have_biological_repeat_column(tmp_path):
 
     with warnings.catch_warnings(record=True) as records:
         warnings.simplefilter("always")
-        results = run_patching_condition_repeat_tree(str(tmp_path / "images"), config=cfg)
+        results = _tree(tmp_path / "images", config=cfg)
     assert _deprecations(records) == []
 
     assert {(r.condition, r.biological_repeat) for r in results} == {
@@ -116,7 +120,7 @@ def test_tree_combined_csv_has_biological_repeat_column(tmp_path):
     _build_tree(tmp_path / "images")
     cfg = _export_config(tmp_path / "out")
 
-    run_patching_condition_repeat_tree(str(tmp_path / "images"), config=cfg, combine_metadata=True)
+    _tree(tmp_path / "images", config=cfg, combine_metadata=True)
 
     header, rows = _read_csv(tmp_path / "out" / "patches.csv")
     assert "biological_repeat" in header and "repeat" not in header
@@ -134,7 +138,7 @@ def test_tree_flat_root_is_single_condition_and_single_biological_repeat(tmp_pat
     _write_image(tmp_path / "images" / "a.tif")
     cfg = _export_config(tmp_path / "out")
 
-    run_patching_condition_repeat_tree(str(tmp_path / "images"), config=cfg, combine_metadata=True)
+    _tree(tmp_path / "images", config=cfg, combine_metadata=True)
 
     _, rows = _read_csv(tmp_path / "out" / "patches.csv")
     assert [(row["condition"], row["biological_repeat"]) for row in rows] == [("single", "single")]
@@ -154,12 +158,10 @@ def test_single_label_constants():
 
 
 def test_config_repeat_attribute_warns_once_and_gives_identical_output(tmp_path):
-    _write_image(tmp_path / "images" / "a.tif")
-
     new_cfg = _export_config(tmp_path / "new")
     new_cfg.common.condition = "treated"
     new_cfg.common.biological_repeat = "2026_01_01"
-    run_patching_pipeline(str(tmp_path / "images"), config=new_cfg)
+    _run(new_cfg)
 
     old_cfg = _export_config(tmp_path / "old")
     old_cfg.common.condition = "treated"
@@ -169,7 +171,7 @@ def test_config_repeat_attribute_warns_once_and_gives_identical_output(tmp_path)
 
     with warnings.catch_warnings(record=True) as run_records:
         warnings.simplefilter("always")
-        run_patching_pipeline(str(tmp_path / "images"), config=old_cfg)
+        _run(old_cfg)
     assert _deprecations(run_records) == []
 
     assert (tmp_path / "old" / "patches.csv").read_text() == (tmp_path / "new" / "patches.csv").read_text()
@@ -209,18 +211,9 @@ def test_apply_overrides_repeat_key_warns_once():
 
 
 def test_pipeline_overrides_repeat_key_gives_identical_csv(tmp_path):
-    _write_image(tmp_path / "images" / "a.tif")
-    run_patching_pipeline(
-        str(tmp_path / "images"),
-        config=_export_config(tmp_path / "new"),
-        overrides={"common.biological_repeat": "2026_01_01"},
-    )
+    _run(apply_overrides(_export_config(tmp_path / "new"), {"common.biological_repeat": "2026_01_01"}))
     with pytest.warns(DeprecationWarning) as records:
-        run_patching_pipeline(
-            str(tmp_path / "images"),
-            config=_export_config(tmp_path / "old"),
-            overrides={"common.repeat": "2026_01_01"},
-        )
+        _run(apply_overrides(_export_config(tmp_path / "old"), {"common.repeat": "2026_01_01"}))
     assert len(_deprecations(records)) == 1
     assert (tmp_path / "old" / "patches.csv").read_text() == (tmp_path / "new" / "patches.csv").read_text()
 
@@ -269,7 +262,7 @@ def test_discovery_and_tree_results_expose_deprecated_repeat_alias(tmp_path):
         assert leaves[0].repeat == leaves[0].biological_repeat
     assert len(_deprecations(records)) == 1
 
-    results = run_patching_condition_repeat_tree(str(tmp_path / "images"), config=CellPatcherConfig(mode="whole_fov"))
+    results = _tree(tmp_path / "images", config=CellPatcherConfig(mode="whole_fov"))
     assert isinstance(results[0], ConditionRepeatResult)
     with pytest.warns(DeprecationWarning, match="ConditionRepeatResult.repeat") as records:
         assert results[0].repeat == results[0].biological_repeat

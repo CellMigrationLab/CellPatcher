@@ -1,10 +1,12 @@
 """Folder runs that split planes read one plane at a time (docs/normalization_contract.md §3).
 
-With the ``preprocessing`` extra, only the chosen planes of a TIFF or
-OME-Zarr image are decoded, with the preprocessing brick's ``read_plane``;
-the patches equal those of ``run_patching`` on the whole arrays.
+Since CP-2a a file run reads each image through the preprocessing run with
+``RunInputs.read_plane``, one ``(z, t)`` plane (every channel) per call: with
+plane policies only the chosen planes are read, and the patches equal those of
+``run_patching`` on the whole arrays.
 """
 
+import copy
 import importlib.util
 
 import numpy as np
@@ -13,7 +15,7 @@ import pytest
 from cellpatcher.config import CellPatcherConfig, GridConfig
 from cellpatcher.orchestration import run_patching_pipeline
 from cellpatcher.pipeline import run_patching
-from tests.helpers import write_ngff
+from tests.helpers import file_run_config, write_ngff
 
 needs_preprocessing = pytest.mark.skipif(
     importlib.util.find_spec("morphobricks_preprocessing") is None, reason="needs morphobricks-preprocessing (a core dependency)"
@@ -36,6 +38,7 @@ def _write_tiff(path, data, axes):
 
 
 def _config(image_axes, mode="grid", **common):
+    """An in-memory config in *image_axes*, the layout a file run reads the same images in."""
     config = CellPatcherConfig(mode=mode, grid=GridConfig(tile_size=8))
     config.common.image_axes = image_axes
     config.common.extract_arrays = True
@@ -52,19 +55,26 @@ def _same_result(folder_result, memory_result):
         np.testing.assert_array_equal(folder_array, memory_array)
 
 
+def _folder(folder, config, axes):
+    """Preprocess *folder*, then run the folder run with the file-run form of *config* (CP-2a)."""
+    file_config = copy.deepcopy(config)
+    file_config.common.image_axes = "YX"
+    return run_patching_pipeline(folder, config=file_run_config(file_config, folder, axes))
+
+
 @pytest.fixture
 def read_planes(monkeypatch):
-    """Record every plane the preprocessing reader decodes, as ``(z, c, t)``."""
-    import morphobricks_preprocessing as mbp
+    """Record every plane a file run reads through ``RunInputs.read_plane``, as ``(z, t)``."""
+    from morphobricks_preprocessing.run_inputs import RunInputs
 
     calls = []
-    original = mbp.read_plane
+    original = RunInputs.read_plane
 
-    def spy(path, mapping, *, z=None, c=None, t=None, **kwargs):
-        calls.append((z, c, t))
-        return original(path, mapping, z=z, c=c, t=t, **kwargs)
+    def spy(self, fov, z=0, t=0, **kwargs):
+        calls.append((z, t))
+        return original(self, fov, z, t, **kwargs)
 
-    monkeypatch.setattr(mbp, "read_plane", spy)
+    monkeypatch.setattr(RunInputs, "read_plane", spy)
     return calls
 
 
@@ -73,89 +83,76 @@ def read_planes(monkeypatch):
 def test_tiff_planes_equal_the_in_memory_run(tmp_path, read_planes, policies):
     stacks = [_stack((3, 2, 16, 16), seed) for seed in range(2)]  # Z, C, Y, X
     for name, stack in zip(("a.tif", "b.tif"), stacks):
-        _write_tiff(tmp_path / name, stack, "ZCYX")
+        _write_tiff(tmp_path / "exp" / name, stack, "ZCYX")
     config = _config("ZCYX", **policies)
 
-    folder = run_patching_pipeline(tmp_path, config=config)
+    folder = _folder(tmp_path / "exp", config, "ZCYX")
     memory = run_patching(images=stacks, config=config, image_metadata=[{"image_file": n} for n in ("a.tif", "b.tif")])
     _same_result(folder, memory)
-    # Only the chosen planes were decoded, one channel at a time.
+    # Only the chosen planes were read, every channel at once.
     planes = 3 if policies["z_policy"] == "all" else 1
-    assert len(read_planes) == 2 * planes * 2
+    assert len(read_planes) == 2 * planes
 
 
 @needs_preprocessing
 def test_t_and_z_split_from_a_tiff_with_a_kept_channel(tmp_path, read_planes):
     stack = _stack((2, 3, 2, 8, 8))  # T, Z, C, Y, X
-    _write_tiff(tmp_path / "a.tif", stack, "TZCYX")
+    _write_tiff(tmp_path / "exp" / "a.tif", stack, "TZCYX")
     config = _config("TZCYX", z_policy="all", t_policy="first")
 
-    folder = run_patching_pipeline(tmp_path, config=config)
+    folder = _folder(tmp_path / "exp", config, "TZCYX")
     _same_result(folder, run_patching(images=stack, config=config, image_metadata=[{"image_file": "a.tif"}]))
-    assert sorted(read_planes) == [(z, c, 0) for z in range(3) for c in range(2)]
+    assert sorted(read_planes) == [(z, 0) for z in range(3)]
 
 
 @needs_preprocessing
 def test_random_planes_match_between_folder_and_memory_runs(tmp_path, read_planes):
     stacks = [_stack((2, 32, 32), seed) for seed in range(3)]
     for index, stack in enumerate(stacks):
-        _write_tiff(tmp_path / f"{index}.tif", stack, "ZYX")
+        _write_tiff(tmp_path / "exp" / f"{index}.tif", stack, "ZYX")
     config = _config("ZYX", mode="random", z_policy="all")
     config.random.patch_size, config.random.n_patches = 4, 2
 
-    folder = run_patching_pipeline(tmp_path, config=config)
+    folder = _folder(tmp_path / "exp", config, "ZYX")
     memory = run_patching(images=stacks, config=config, image_metadata=[{"image_file": f"{i}.tif"} for i in range(3)])
     _same_result(folder, memory)
 
 
 @needs_preprocessing
-def test_keep_and_projections_read_whole_images(tmp_path, read_planes):
+def test_keep_and_projections_read_every_plane(tmp_path, read_planes):
     stack = _stack((3, 16, 16))
-    _write_tiff(tmp_path / "a.tif", stack, "ZYX")
+    _write_tiff(tmp_path / "exp" / "a.tif", stack, "ZYX")
     for policy in ("keep", "max"):
         config = _config("ZYX", z_policy=policy)
         _same_result(
-            run_patching_pipeline(tmp_path, config=config),
+            _folder(tmp_path / "exp", config, "ZYX"),
             run_patching(images=stack, config=config, image_metadata=[{"image_file": "a.tif"}]),
         )
-    assert read_planes == []
+    assert read_planes == [(z, 0) for z in range(3)] * 2
 
 
 @needs_preprocessing
 def test_a_plane_over_the_memory_limit_is_an_error(tmp_path, monkeypatch):
     import morphobricks_preprocessing as mbp
+    from morphobricks_preprocessing.run_inputs import RunInputs
 
     def too_large(*args, **kwargs):
         raise mbp.PlaneMemoryError("Reading one plane of a.tif whole needs about 2 GiB of working memory.")
 
-    _write_tiff(tmp_path / "a.tif", _stack((3, 16, 16)), "ZYX")
-    monkeypatch.setattr(mbp, "read_plane", too_large)
+    _write_tiff(tmp_path / "exp" / "a.tif", _stack((3, 16, 16)), "ZYX")
+    config = file_run_config(_config("YX", z_policy="all"), tmp_path / "exp", "ZYX")
+    monkeypatch.setattr(RunInputs, "read_plane", too_large)
     with pytest.raises(ValueError, match="needs each plane whole in memory.*2 GiB"):
-        run_patching_pipeline(tmp_path, config=_config("ZYX", z_policy="all"))
-
-
-def test_without_the_plane_reader_planes_come_from_the_whole_image(tmp_path, monkeypatch):
-    # preprocessing is a core dependency (its header axes are checked before any read); only
-    # its plane-by-plane reader is taken away here.
-    import cellpatcher.planes
-
-    monkeypatch.setattr(cellpatcher.planes, "_plane_reader", lambda path, common: None)
-    stack = _stack((3, 16, 16))
-    _write_tiff(tmp_path / "a.tif", stack, "ZYX")
-    config = _config("ZYX", z_policy="all")
-    _same_result(
-        run_patching_pipeline(tmp_path, config=config),
-        run_patching(images=stack, config=config, image_metadata=[{"image_file": "a.tif"}]),
-    )
+        run_patching_pipeline(tmp_path / "exp", config=config)
 
 
 @needs_zarr
-def test_ome_zarr_planes_are_read_in_the_configured_axis_order(tmp_path, read_planes):
-    data = _stack((2, 3, 16, 16))  # stored C, Z, Y, X
-    write_ngff(tmp_path / "a.ome.zarr", data, "czyx")
+def test_ome_zarr_planes_are_read_in_the_canonical_axis_order(tmp_path, read_planes):
+    data = _stack((2, 3, 16, 16))  # stored C, Z, Y, X; read Z, C, Y, X by role (CP-2a)
+    write_ngff(tmp_path / "exp" / "a.ome.zarr", data, "czyx")
     config = _config("ZCYX", z_policy="all")
 
-    folder = run_patching_pipeline(tmp_path, config=config)
+    folder = _folder(tmp_path / "exp", config, "CZYX")
     as_zcyx = np.transpose(data, (1, 0, 2, 3))
     _same_result(folder, run_patching(images=as_zcyx, config=config, image_metadata=[{"image_file": "a.ome.zarr"}]))
-    assert len(read_planes) == 3 * 2
+    assert len(read_planes) == 3

@@ -14,9 +14,10 @@ import pytest
 from cellpatcher.config import CellPatcherConfig, CommonConfig, ExtractionConfig, GridConfig
 from cellpatcher.ids import DEFAULT_OBJECT_SET
 from cellpatcher.io import write_array
-from cellpatcher.orchestration import run_patching_condition_repeat_tree, run_patching_pipeline
+from cellpatcher.orchestration import run_patching_pipeline
 from cellpatcher.pipeline import RUN_CONFIG_FILENAME, run_patching
-from tests.helpers import write_ngff, write_ngff_labels
+from tests.helpers import preprocess, write_ngff, write_ngff_labels
+from tests.helpers import preprocessed_folder as _folder, preprocessed_tree as _tree
 
 needs_preprocessing = pytest.mark.skipif(
     importlib.util.find_spec("morphobricks_preprocessing") is None, reason="needs morphobricks-preprocessing (a core dependency)"
@@ -69,7 +70,7 @@ def _ids_of(result, image_file):
 def test_same_file_alone_in_ten_files_and_after_an_earlier_file_has_the_same_patch_ids(tmp_path):
     alone, alone_masks = tmp_path / "alone" / "images", tmp_path / "alone" / "masks"
     _write_pair(alone, alone_masks, "m_target", 7)
-    alone_result = run_patching_pipeline(alone, mask_folder_path=alone_masks, config=_cell_config())
+    alone_result = _folder(alone, mask_folder_path=alone_masks, config=_cell_config())
     expected = _ids_of(alone_result, "m_target.tif")
     assert expected == ["single/single/single/m_target/cells/label10", "single/single/single/m_target/cells/label47"]
 
@@ -77,12 +78,12 @@ def test_same_file_alone_in_ten_files_and_after_an_earlier_file_has_the_same_pat
     for index in range(9):
         _write_pair(ten, ten_masks, f"n{index}", index)
     _write_pair(ten, ten_masks, "m_target", 7)
-    result = run_patching_pipeline(ten, mask_folder_path=ten_masks, config=_cell_config())
+    result = _folder(ten, mask_folder_path=ten_masks, config=_cell_config())
     assert _ids_of(result, "m_target.tif") == expected
 
     # A file that sorts first shifts every image_id, but no patch_id.
     _write_pair(ten, ten_masks, "a_first", 11)
-    shifted = run_patching_pipeline(ten, mask_folder_path=ten_masks, config=_cell_config())
+    shifted = _folder(ten, mask_folder_path=ten_masks, config=_cell_config())
     target_image_ids = {p.image_id for p in shifted.patches if p.image_file == "m_target.tif"}
     assert target_image_ids != {p.image_id for p in result.patches if p.image_file == "m_target.tif"}
     assert _ids_of(shifted, "m_target.tif") == expected
@@ -93,10 +94,10 @@ def test_same_file_alone_in_ten_files_and_after_an_earlier_file_has_the_same_pat
 def test_grid_ids_do_not_depend_on_the_other_files(tmp_path):
     config = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=16))
     write_array(tmp_path / "one" / "img.tif", _image(1))
-    alone = run_patching_pipeline(tmp_path / "one", config=config)
+    alone = _folder(tmp_path / "one", config=config)
     for name, seed in (("aaa.tif", 2), ("img.tif", 1), ("zzz.tif", 3)):
         write_array(tmp_path / "three" / name, _image(seed))
-    three = run_patching_pipeline(tmp_path / "three", config=config)
+    three = _folder(tmp_path / "three", config=config)
     assert _ids_of(three, "img.tif") == _ids_of(alone, "img.tif") == [
         f"single/single/single/img/grid-y{y}-x{x}-h16-w16" for y in (0, 16) for x in (0, 16)
     ]
@@ -106,7 +107,7 @@ def test_two_wells_with_the_same_file_names_get_unique_ids_in_a_tree_run(tmp_pat
     images, masks = tmp_path / "images", tmp_path / "masks"
     for well in ("B02", "B03"):
         _write_pair(images / "control" / "2026_01_01" / well, masks / "control" / "2026_01_01" / well, "img", 1)
-    leaves = run_patching_condition_repeat_tree(
+    leaves = _tree(
         images, mask_root_path=masks, config=_cell_config(tmp_path / "out"), combine_metadata=True
     )
 
@@ -128,7 +129,7 @@ def test_a_rerun_writes_a_byte_identical_patches_csv(tmp_path):
     for index in range(3):
         _write_pair(images, masks, f"img{index}", index)
     for out in ("first", "second"):
-        run_patching_pipeline(images, mask_folder_path=masks, config=_cell_config(tmp_path / out))
+        _folder(images, mask_folder_path=masks, config=_cell_config(tmp_path / out))
     for table in ("patches.csv", "images.csv"):
         assert (tmp_path / "first" / table).read_bytes() == (tmp_path / "second" / table).read_bytes()
 
@@ -195,9 +196,9 @@ def test_whole_fov_and_supplied_position_id():
 
 
 def test_folder_runs_fill_position_id_without_split_channels(tmp_path):
-    write_array(tmp_path / "img.ome.tif", _image(0))
-    config = CellPatcherConfig(mode="whole_fov", common=CommonConfig(condition="treated", biological_repeat="r1"))
-    result = run_patching_pipeline(tmp_path, config=config)
+    # Since CP-2a the labels and position_id are those the preprocessing run recorded.
+    write_array(tmp_path / "exp" / "treated" / "r1" / "img.ome.tif", _image(0))
+    result = _folder(tmp_path / "exp", config=CellPatcherConfig(mode="whole_fov"))
     # D85: the image name without its whole extension (preprocessing's rule: .ome.tif -> img).
     assert [patch.position_id for patch in result.patches] == ["img"]
     assert [record.position_id for record in result.image_records] == ["img"]
@@ -231,19 +232,19 @@ def _rectangles(result, image_file):
 
 def test_random_rectangles_do_not_depend_on_the_place_in_the_run(tmp_path):
     write_array(tmp_path / "alone" / "m_target.tif", _image(7))
-    alone = _rectangles(run_patching_pipeline(tmp_path / "alone", config=_random_config()), "m_target.tif")
+    alone = _rectangles(_folder(tmp_path / "alone", config=_random_config()), "m_target.tif")
     assert len(alone) == 5
 
     ten = tmp_path / "ten"
     for index in range(9):
         write_array(ten / f"n{index}.tif", _image(index))
     write_array(ten / "m_target.tif", _image(7))
-    assert _rectangles(run_patching_pipeline(ten, config=_random_config()), "m_target.tif") == alone
+    assert _rectangles(_folder(ten, config=_random_config()), "m_target.tif") == alone
     write_array(ten / "a_first.tif", _image(11))
-    assert _rectangles(run_patching_pipeline(ten, config=_random_config()), "m_target.tif") == alone
+    assert _rectangles(_folder(ten, config=_random_config()), "m_target.tif") == alone
 
     # Another seed draws other rectangles; so does another position.
-    reseeded = run_patching_pipeline(tmp_path / "alone", config=_random_config(seed=1))
+    reseeded = _folder(tmp_path / "alone", config=_random_config(seed=1))
     assert _rectangles(reseeded, "m_target.tif") != alone
     other = run_patching(images=_image(7), config=_random_config(), image_metadata=[{"image_file": "other.tif"}])
     assert [(p.y0, p.x0) for p in other.patches] != [(y0, x0) for _, y0, x0 in alone]
@@ -281,7 +282,7 @@ def test_object_set_precedence(tmp_path):
     write_array(images / "img.tif", _image(0))
     # Every paired mask has a type (issue #45: the preprocessing pairing), and it is the object set.
     write_array(masks / "img_cells.tif", _labels(0))
-    result = run_patching_pipeline(images, mask_folder_path=masks, config=_cell_config())
+    result = _folder(images, mask_folder_path=masks, config=_cell_config())
     assert {patch.object_set for patch in result.patches} == {"cells"}
 
     # Without a name of its own (in memory), a mask is the default object set.
@@ -290,7 +291,7 @@ def test_object_set_precedence(tmp_path):
 
     config = _cell_config()
     config.common.object_set = "cytoplasm"
-    result = run_patching_pipeline(images, mask_folder_path=masks, config=config)
+    result = _folder(images, mask_folder_path=masks, config=config)
     assert {patch.object_set for patch in result.patches} == {"cytoplasm"}
 
     # In memory, image_metadata wins over the config; other modes have none.
@@ -311,13 +312,13 @@ def test_object_set_must_be_one_safe_level(value):
 
 @needs_zarr
 def test_object_set_is_the_ngff_label_name(tmp_path):
-    path = write_ngff(tmp_path / "control" / "a.ome.zarr", np.ones((16, 16), dtype=np.uint16), "yx")
+    path = write_ngff(tmp_path / "exp" / "control" / "a.ome.zarr", np.ones((16, 16), dtype=np.uint16), "yx")
     labels = np.zeros((16, 16), dtype=np.uint16)
     labels[3:7, 3:7] = 9
     write_ngff_labels(path, {"nuclei": labels}, "yx")
     config = _cell_config()
-    config.common.mask_source = "ngff_labels"
-    (leaf,) = run_patching_condition_repeat_tree(tmp_path, config=config)
+    config.matching.mask_type = None  # the run's only type, the label image's name
+    (leaf,) = _tree(tmp_path / "exp", config=config)
     assert [patch.patch_id for patch in leaf.result.patches] == ["control/single/single/a/nuclei/label9"]
 
 
@@ -336,40 +337,40 @@ def test_the_connected_components_opt_in_is_recorded_in_run_config(tmp_path):
     assert saved["cell"]["binary_mask_policy"] == "connected_components"
 
 
-@pytest.mark.parametrize("z_policy", ["keep", "max"])
-def test_a_multi_series_tiff_read_whole_is_refused(tmp_path, z_policy):
+def test_a_multi_series_tiff_never_reaches_a_file_run(tmp_path):
+    # File runs read only a clean preprocessing run's images (CP-2a), and the run refuses a
+    # file of several series. Former code: CellPatcher's own reader refused it.
     import tifffile
 
     path = tmp_path / "images" / "plate.tif"
     path.parent.mkdir()
     tifffile.imwrite(path, np.zeros((2, 16, 16), dtype=np.uint16))
     tifffile.imwrite(path, np.ones((2, 16, 16), dtype=np.uint16), append=True)
-    config = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=8))
-    config.common.image_axes, config.common.z_policy = "ZYX", z_policy
-    with pytest.raises(ValueError, match="plate.tif holds 2 image series"):
-        run_patching_pipeline(path.parent, config=config)
+    with pytest.raises(AssertionError, match="series"):
+        preprocess(path.parent, "ZYX")
 
 
 @needs_preprocessing
 def test_a_multi_series_tiff_is_refused_when_reading_planes(tmp_path):
+    # Lazy delivery from a path still reads planes with planes.read_file_plane (until CP-2b).
     import tifffile
+
+    from cellpatcher.planes import PlaneChoice, read_file_plane
 
     path = tmp_path / "plate.tif"
     tifffile.imwrite(path, np.zeros((2, 16, 16), dtype=np.uint16))
     tifffile.imwrite(path, np.ones((2, 16, 16), dtype=np.uint16), append=True)
-    config = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=8))
-    config.common.image_axes, config.common.z_policy = "ZYX", "all"
     with pytest.raises(ValueError, match="plate.tif holds 2 images"):
-        run_patching_pipeline(tmp_path, config=config)
+        read_file_plane(path, "ZYX", PlaneChoice(t=None, z=0, suffix=""), CommonConfig(image_axes="ZYX", z_policy="all"))
 
 
 @needs_zarr
 def test_a_store_with_several_images_is_refused_when_reading_planes(tmp_path):
-    write_ngff(tmp_path / "plate.ome.zarr", np.zeros((2, 16, 16), dtype=np.uint16), "zyx", images=2)
-    config = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=8))
-    config.common.image_axes, config.common.z_policy = "ZYX", "all"
+    from cellpatcher.planes import PlaneChoice, read_file_plane
+
+    path = write_ngff(tmp_path / "plate.ome.zarr", np.zeros((2, 16, 16), dtype=np.uint16), "zyx", images=2)
     with pytest.raises(ValueError, match="plate.ome.zarr holds 2 images"):
-        run_patching_pipeline(tmp_path, config=config)
+        read_file_plane(path, "ZYX", PlaneChoice(t=None, z=0, suffix=""), CommonConfig(image_axes="ZYX", z_policy="all"))
 
 
 def test_positions_differing_only_in_case_are_refused_in_one_repeat():
@@ -408,14 +409,13 @@ def test_a_duplicate_position_is_refused_whatever_tokens_its_patches_get():
                      image_metadata=[{"position_id": "img"}, {"position_id": "img"}])
 
 
-def test_a_duplicate_position_is_refused_in_a_folder_run(tmp_path):
-    """The lazily read folder route (one source at a time) checks it too, before the image's planes."""
-    write_array(tmp_path / "Img.tif", _image(0))
-    write_array(tmp_path / "img.tiff", _image(1))
-    config = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=8))
-    config.common.z_policy = "all"
-    with pytest.raises(ValueError, match=r"\[duplicate_position_id\].*Img.tif, img.tiff"):
-        run_patching_pipeline(tmp_path, config=config)
+def test_a_duplicate_position_never_reaches_a_file_run(tmp_path):
+    """File runs take each FOV key from a clean preprocessing run (CP-2a), whose discovery
+    refuses Img.tif and img.tiff before CellPatcher reads anything (D85)."""
+    write_array(tmp_path / "images" / "Img.tif", _image(0))
+    write_array(tmp_path / "images" / "img.tiff", _image(1))
+    with pytest.raises(AssertionError, match=r"same name apart from the file extension or upper/lower case"):
+        preprocess(tmp_path / "images")
 
 
 def test_names_differing_only_in_case_clash_in_the_run():
@@ -546,115 +546,47 @@ def test_config_fov_labels_must_be_text(field):
 @pytest.mark.parametrize("split", [False, True])
 def test_a_folder_run_refuses_config_identity_before_reading(tmp_path, monkeypatch, field, split):
     """Re-audit of #41: an invalid config label (also from a reloaded JSON config) is refused
-    before any image or mask is listed or read, on the eager and the plane-split routes."""
-    from cellpatcher import orchestration
+    before the preprocessing run is opened or any file read, on the eager and the plane-split
+    routes. Since CP-2a a file run takes its labels from the run and refuses any it is given."""
+    from cellpatcher import file_runs
     from cellpatcher.orchestration import load_config, save_config_for_mode
 
     def no_read(*args, **kwargs):
         raise AssertionError("a file was read before the identity refusal")
 
-    images, masks = tmp_path / "images", tmp_path / "masks"
-    write_array(images / "img.tif", _image(0))
-    write_array(masks / "img.tif", _labels(0))
-    monkeypatch.setattr(orchestration, "read_image", no_read)
-    monkeypatch.setattr(orchestration, "list_supported_files", no_read)
-    monkeypatch.setattr(orchestration, "_mask_loaders", no_read)
+    monkeypatch.setattr(file_runs, "open_run", no_read)
     path = save_config_for_mode("cell", tmp_path / "config.json")
     data = json.loads(path.read_text())
     data["common"][field] = 7
+    data["common"]["preprocessing_run"] = str(tmp_path / "run")
     if split:
         data["common"]["z_policy"] = "all"
     path.write_text(json.dumps(data))
-    with pytest.raises(ValueError, match=f"{field} must be"):
-        run_patching_pipeline(images, mask_folder_path=masks, config=load_config(path))
+    refusal = "object_set must be" if field == "object_set" else f"common.{field}=7: each image's labels are its folders"
+    with pytest.raises(ValueError, match=refusal):
+        run_patching_pipeline(tmp_path / "images", mask_folder_path=tmp_path / "masks", config=load_config(path))
 
 
 @pytest.mark.parametrize("planes", ["keep", "all"])
-def test_colliding_positions_are_refused_before_any_read(tmp_path, monkeypatch, planes):
-    """Re-audit of #41: Img.tif and img.tiff collide (D85); the refusal comes from the names,
-    before any image or mask is read, on the eager and the plane-split routes."""
-    from cellpatcher import orchestration
-
-    def no_read(*args, **kwargs):
-        raise AssertionError("a file was read before the identity refusal")
-
-    images, masks = tmp_path / "images", tmp_path / "masks"
-    for name in ("Img.tif", "img.tiff"):
-        write_array(images / name, _image(0))
-        write_array(masks / name, _labels(0))
-    monkeypatch.setattr(orchestration, "read_image", no_read)
-    monkeypatch.setattr(orchestration, "_mask_loaders", no_read)
-    config = _cell_config()
-    config.common.z_policy = planes
-    with pytest.raises(ValueError, match=r"\[duplicate_position_id\].*Img.tif, img.tiff"):
-        run_patching_pipeline(images, mask_folder_path=masks, config=config)
-
-
-def test_a_tree_refuses_a_later_leaf_before_reading_any_leaf(tmp_path, monkeypatch):
-    """Every leaf's identity is checked before the first leaf is read."""
-    from cellpatcher import orchestration
-
-    def no_read(*args, **kwargs):
-        raise AssertionError("a leaf was read before the identity refusal")
-
-    write_array(tmp_path / "ctrl" / "r1" / "a.tif", _image(0))
-    for name in ("Img.tif", "img.tiff"):
-        write_array(tmp_path / "ctrl" / "r2" / name, _image(1))
-    monkeypatch.setattr(orchestration, "read_image", no_read)
-    monkeypatch.setattr(orchestration, "_run_folder_patching", no_read)
-    config = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=8))
-    with pytest.raises(ValueError, match=r"\[duplicate_position_id\].*ctrl/r2/Img.tif, ctrl/r2/img.tiff"):
-        run_patching_condition_repeat_tree(tmp_path, config=config)
-
-
-def _refuse_mask_object_set(monkeypatch):
-    """Make every derived mask object set invalid, and every image or mask read fail loudly.
-
-    A mask type always gives a valid name today (object_set_from_mask_type
-    replaces other characters), so the refusal is forced to show *when* it is checked.
-    """
-    from cellpatcher import orchestration
+def test_a_mask_type_object_set_is_refused_before_any_read(tmp_path, monkeypatch, planes):
+    """Issue #42: the object set from the run's mask type is checked before any image or mask
+    is read. A mask type always gives a valid name today (object_set_from_mask_type replaces
+    other characters), so the refusal is forced to show *when* it is checked."""
+    from cellpatcher import file_runs
 
     def no_read(*args, **kwargs):
         raise AssertionError("a file was read before the object_set refusal")
 
-    monkeypatch.setattr(orchestration, "object_set_from_mask_type", lambda mask_type: "bad/name")
-    monkeypatch.setattr(orchestration, "read_image", no_read)
-    monkeypatch.setattr(orchestration, "_read_mask_file", no_read)
-
-
-@pytest.mark.parametrize("planes", ["keep", "all"])
-def test_a_mask_named_object_set_is_refused_before_any_read(tmp_path, monkeypatch, planes):
-    """Issue #42: the object set from a matched mask's name is checked from the names alone."""
     images, masks = tmp_path / "images", tmp_path / "masks"
     write_array(images / "img.tif", _image(0))
     write_array(masks / "img_cells.tif", _labels(0))
-    _refuse_mask_object_set(monkeypatch)
+    monkeypatch.setattr(file_runs, "object_set_from_mask_type", lambda mask_type: "bad/name")
+    monkeypatch.setattr(file_runs, "read_fov", no_read)
+    monkeypatch.setattr(file_runs, "read_fov_mask", no_read)
     config = _cell_config()
     config.common.z_policy = planes
-    with pytest.raises(ValueError, match="object set from mask 'img_cells.tif'"):
-        run_patching_pipeline(images, mask_folder_path=masks, config=config)
-
-
-def test_a_tree_refuses_a_later_leaf_mask_object_set_before_reading_any_leaf(tmp_path, monkeypatch):
-    """Issue #42: a later leaf's mask-derived object set is refused before the first leaf is read."""
-    images, masks = tmp_path / "images", tmp_path / "masks"
-    for leaf in ("r1", "r2"):
-        write_array(images / "ctrl" / leaf / "img.tif", _image(0))
-        write_array(masks / "ctrl" / leaf / "img_cells.tif", _labels(0))
-    from cellpatcher import orchestration
-
-    real = orchestration.object_set_from_mask_type
-    _refuse_mask_object_set(monkeypatch)
-    calls = []
-
-    def bad_in_second_leaf(mask_type):
-        calls.append(mask_type)
-        return "bad/name" if len(calls) > 1 else real(mask_type)
-
-    monkeypatch.setattr(orchestration, "object_set_from_mask_type", bad_in_second_leaf)
-    with pytest.raises(ValueError, match="object set from mask 'img_cells.tif'"):
-        run_patching_condition_repeat_tree(images, config=_cell_config(), mask_root_path=masks)
+    with pytest.raises(ValueError, match="object set from mask type 'cells'"):
+        _folder(images, mask_folder_path=masks, config=config)
 
 
 @pytest.mark.parametrize("value", ["NA", "nan", "None", "NULL", "<NA>", " ctrl", "ctrl "])

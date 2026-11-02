@@ -154,12 +154,12 @@ def test_a_clean_run_normalizes_a_tree_run_through_run_inputs(tmp_path):
 
     run = make_clean_run(tmp_path / "clean", design=True)
     config = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=8))
-    config.common.image_axes = "CYX"
     config.normalization = NormalizationConfig(
         enabled=True, plane_histograms=str(run.output / "plane_histograms.csv"), scope="biological_repeat",
     )
     statistics = load_plane_statistics(config.normalization.plane_histograms)
     assert statistics.manifest.manifest_version == "2"
+    config.common.preprocessing_run = str(run.output)  # a file run reads through the run (CP-2a)
     results = run_patching_condition_repeat_tree(run.experiment, config=config)
     patches = [patch for leaf in results for patch in leaf.result.patches]
     assert patches

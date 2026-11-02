@@ -19,22 +19,22 @@ MASK_SOURCES = ("tiff_tree", "ngff_labels")
 @accept_deprecated_repeat
 @dataclass
 class CommonConfig:
+    # The axes of in-memory arrays given to run_patching (canonical, Y before X). File runs
+    # read each image and mask in the roles the preprocessing run recorded and refuse other
+    # values than "YX" (CP-2a; removed for them in CP-2b).
     image_axes: str = "YX"
     mask_axes: str = "YX"
     output_dir: str | None = None
     extract_arrays: bool = False
-    # Stamped onto every PatchRegion/metadata-CSV row for this run. These are
-    # the MorphoBricks shared-CSV-contract `condition`/`biological_repeat`/
-    # `technical_repeat` columns (see AGENTS.md §5). A label that is not
-    # given is "single", as for a missing folder level; None is stamped as
-    # "single" too. run_patching()/run_patching_pipeline() never infer them
-    # from paths; set them explicitly, or use
-    # orchestration.run_patching_condition_repeat_tree to derive them per
-    # leaf from a <condition>/<biological_repeat>[/<technical_repeat>]/
-    # folder tree. technical_repeat is the well/dish/coverslip within the
-    # biological repeat; per-image image_metadata["technical_repeat"]
-    # overrides it. `repeat` stays accepted as a deprecated alias of
-    # biological_repeat (DeprecationWarning).
+    # The output folder of the clean preprocessing run (v0.4) a folder or tree run reads its
+    # images, masks and labels through (RunInputs, design v0.4 §6); required for file runs.
+    preprocessing_run: str | None = None
+    # The MorphoBricks shared-CSV-contract `condition`/`biological_repeat`/`technical_repeat`
+    # columns (AGENTS.md §5) of in-memory run_patching; a label not given (or None) is
+    # "single", as for a missing folder level. Folder and tree runs take each image's labels
+    # from the preprocessing run and refuse other values. technical_repeat is the well/dish/
+    # coverslip; per-image image_metadata["technical_repeat"] overrides it. `repeat` stays
+    # accepted as a deprecated alias of biological_repeat (DeprecationWarning).
     condition: str | None = SINGLE_CONDITION_LABEL
     biological_repeat: str | None = SINGLE_BIOLOGICAL_REPEAT_LABEL
     technical_repeat: str | None = SINGLE_TECHNICAL_REPEAT_LABEL
@@ -48,18 +48,16 @@ class CommonConfig:
     z_index: int | None = None
     t_policy: str = "keep"
     t_index: int | None = None
-    # Where folder and tree runs read masks (docs/normalization_contract.md
-    # §4): "tiff_tree", a mask folder (tree) mirroring the images and matched
-    # by file name with `matching`; or "ngff_labels", the label image named
-    # mask_label_name in each OME-Zarr image's own labels group (the name may
-    # be left None when every image has exactly one).
+    # Where folder and tree runs read masks before CP-2a. They now read the masks the
+    # preprocessing run paired (choose the type with matching.mask_type) and refuse other
+    # values than these defaults.
     mask_source: str = "tiff_tree"
     mask_label_name: str | None = None
     # The object set of cell-mode patches (the `object_set` column and a
     # level of patch_id, cellpatcher.ids). None: folder and tree runs name it
-    # after the mask (its OME-NGFF label name, or its file name's suffix after
-    # the image's stem), and "mask" when the mask gives no name (in-memory
-    # run_patching, or a mask named like its image). Set it to name it
+    # after the mask type the preprocessing run recorded (a folder name, or an
+    # OME-NGFF label name), and "mask" when the mask gives no name (in-memory
+    # run_patching). Set it to name it
     # explicitly; image_metadata["object_set"] overrides it per image.
     object_set: str | None = None
 

@@ -22,7 +22,13 @@ from cellpatcher.io import (
 )
 from cellpatcher.orchestration import run_patching_condition_repeat_tree
 from cellpatcher.statistics import PreprocessingUnavailableError
-from tests.helpers import write_ngff, write_ngff_labels
+from tests.helpers import (
+    preprocess,
+    preprocessed_folder,
+    preprocessed_tree,
+    write_ngff,
+    write_ngff_labels,
+)
 
 needs_zarr = pytest.mark.skipif(
     importlib.util.find_spec("morphobricks_preprocessing") is None or importlib.util.find_spec("zarr") is None,
@@ -148,7 +154,7 @@ def test_tree_run_patches_ome_zarr_and_tiff_images_alike(tmp_path):
     config = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=8))
     config.common.extract_arrays = True
 
-    (leaf,) = run_patching_condition_repeat_tree(root, config=config)
+    (leaf,) = preprocessed_tree(root, config=config)
     by_file = {}
     for patch, array in zip(leaf.result.patches, leaf.result.patch_arrays):
         by_file.setdefault(patch.image_file, []).append(array)
@@ -169,7 +175,7 @@ def test_cell_mode_matches_tiff_masks_to_stores(tmp_path):
     config = CellPatcherConfig(mode="cell")
     config.cell.patch_size = 8
 
-    (leaf,) = run_patching_condition_repeat_tree(images, config=config, mask_root_path=masks)
+    (leaf,) = preprocessed_tree(images, config=config, mask_root_path=masks)
     assert [(p.image_file, p.mask_file, p.label_id) for p in leaf.result.patches] == [
         ("a.ome.zarr", "a_mask.tif", 1)
     ]
@@ -177,18 +183,16 @@ def test_cell_mode_matches_tiff_masks_to_stores(tmp_path):
 
 @needs_zarr
 @pytest.mark.parametrize("label_name, mask_type, outcome", [
-    ("cells", None, "a_mask.tif"),
+    ("cells", None, r"recorded 2 mask types \(cells, mask\); set matching.mask_type"),
     ("cells", "mask", "a_mask.tif"),
-    ("cells", "cells", "No mask of type 'cells' pairs.*mask_source='ngff_labels'"),
-    ("mask", None, r"\[duplicate_mask\]"),
+    ("cells", "cells", "a.ome.zarr/labels/cells"),
+    ("mask", None, "duplicate"),
 ])
 def test_tiff_masks_are_paired_beside_the_stores_own_label_images(tmp_path, label_name, mask_type, outcome):
-    # Since preprocessing v0.4, find_masks pairs an OME-Zarr image's own label images too
-    # (design v0.4 §2). A mask folder run reads only the folder's files: a label image is not
-    # a mask type of the folder (before this fix: "the mask folder holds 2 mask types"), and
-    # choosing it is refused instead of looking for the label inside the mask folder. A
-    # label image and a folder mask of the same type for one image are preprocessing's
-    # duplicate_mask.
+    # Since CP-2a a file run reads the masks the preprocessing run paired: a store's own label
+    # images (their type is their name) beside the masks folder's files. A label image and a
+    # folder mask of the same type for one image are refused by preprocessing (duplicate_mask,
+    # rc1), so no clean run has them.
     images, masks = tmp_path / "images", tmp_path / "masks"
     labels = np.zeros((16, 16), dtype=np.uint16)
     labels[4:9, 4:9] = 1
@@ -198,19 +202,27 @@ def test_tiff_masks_are_paired_beside_the_stores_own_label_images(tmp_path, labe
     config = CellPatcherConfig(mode="cell")
     config.cell.patch_size = 8
     config.matching.mask_type = mask_type
-    if outcome.endswith(".tif"):
-        (leaf,) = run_patching_condition_repeat_tree(images, config=config, mask_root_path=masks)
+    if outcome == "duplicate":
+        with pytest.raises(AssertionError, match="two masks of the same type \\(for example a file in the masks folder and a label image"):
+            preprocess(images, masks=masks)
+    elif outcome.startswith("a"):
+        (leaf,) = preprocessed_tree(images, config=config, mask_root_path=masks)
         assert [(p.mask_file, p.label_id) for p in leaf.result.patches] == [(outcome, 1)]
     else:
         with pytest.raises(ValueError, match=outcome):
-            run_patching_condition_repeat_tree(images, config=config, mask_root_path=masks)
+            preprocessed_tree(images, config=config, mask_root_path=masks)
 
 
 @needs_zarr
 def test_ome_zarr_planes_link_to_preprocessing_rows(tmp_path):
     import morphobricks_preprocessing as mbp
 
-    from cellpatcher.statistics import SourcePlane, check_images, check_planes, load_plane_statistics
+    from cellpatcher.statistics import (
+        SourcePlane,
+        check_images,
+        check_planes,
+        load_plane_statistics,
+    )
 
     root = tmp_path / "experiment"
     data = np.random.default_rng(0).integers(0, 255, (2, 3, 16, 16), dtype=np.uint8)
@@ -220,7 +232,7 @@ def test_ome_zarr_planes_link_to_preprocessing_rows(tmp_path):
     statistics = load_plane_statistics(result.csv_path)
 
     config = CellPatcherConfig(mode="whole_fov")
-    config.common.image_axes, config.common.z_policy = "CZYX", "all"
+    config.common.z_policy, config.common.preprocessing_run = "all", str(tmp_path / "pre")
     config.extraction.split_channels = True
     (leaf,) = run_patching_condition_repeat_tree(root, config=config)
     patches = leaf.result.patches
@@ -240,14 +252,11 @@ def test_ome_zarr_planes_link_to_preprocessing_rows(tmp_path):
 
 @needs_zarr
 def test_an_ome_zarr_image_is_matched_by_role_not_by_header_position(tmp_path):
-    # OME-Zarr axes are put into common.image_axes by role (conform_axes), so its stored order
-    # (ZCYX with Z of length 1) is not compared position by position with the declared CYX.
-    from cellpatcher.orchestration import run_patching_pipeline
-
+    # Read in the roles the preprocessing run recorded (CP-2a), in canonical order: its stored
+    # ZCYX with Z of length 1 gives CYX patches.
     data = np.arange(2 * 16 * 16, dtype=np.uint16).reshape(1, 2, 16, 16)
     write_ngff(tmp_path / "exp" / "a.zarr", data, axes="zcyx")
     config = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=8))
-    config.common.image_axes = "CYX"
     config.common.extract_arrays = True
-    result = run_patching_pipeline(str(tmp_path / "exp"), config=config)
+    result = preprocessed_folder(tmp_path / "exp", config=config, axes="ZCYX")
     assert result.patch_arrays[0].shape == (2, 8, 8)

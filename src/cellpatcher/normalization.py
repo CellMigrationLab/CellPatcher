@@ -44,6 +44,7 @@ from morphobricks_normalization.records import SINGLE
 
 from cellpatcher.axes import normalize_axes
 from cellpatcher.masking import _label_to_2d
+from cellpatcher.run_session import session_statistics
 from cellpatcher.statistics import (
     PlaneStatistics,
     PreprocessingCheckError,
@@ -64,7 +65,6 @@ if TYPE_CHECKING:
     from cellpatcher.config import CellPatcherConfig, NormalizationConfig
 
 CSV_SCOPES = ("biological_repeat", "image")
-_STATISTICS_CACHE: dict[tuple, PlaneStatistics] = {}
 
 
 class NormalizationWarning(UserWarning):
@@ -117,31 +117,27 @@ def validate_normalization(config) -> None:
 
 
 def cached_statistics(
-    plane_histograms: str | os.PathLike, manifest: str | os.PathLike | None = None
+    plane_histograms: str | os.PathLike,
+    manifest: str | os.PathLike | None = None,
+    *,
+    experiment_root: str | os.PathLike | None = None,
+    masks_root: str | os.PathLike | None = None,
 ) -> PlaneStatistics:
-    """:func:`~cellpatcher.statistics.load_plane_statistics`, once per unchanged table and manifest.
+    """:func:`~cellpatcher.statistics.load_plane_statistics`, opened once per CellPatcher call.
 
-    A tree run normalizes every leaf with the same, possibly large, table; the
-    key is the path, size and modification time of the table and the manifest.
+    Within one call (:mod:`cellpatcher.run_session`: a tree run normalizes every leaf with
+    the same, possibly large, table) the run is opened once; outside a call, or in the next
+    one, it is opened again, so ``RunInputs.open`` checks every image and mask of the run each
+    time. Nothing is reused across calls.
     """
     csv_path = Path(plane_histograms).expanduser()
-    if not csv_path.is_file():
-        return load_plane_statistics(csv_path, manifest)  # raises the plain-language error
-    key = (*_file_key(csv_path), *_file_key(csv_path.parent / _preprocessing().MANIFEST_FILENAME), str(manifest))
-    if key not in _STATISTICS_CACHE:
-        if len(_STATISTICS_CACHE) >= 4:
-            _STATISTICS_CACHE.pop(next(iter(_STATISTICS_CACHE)))
-        _STATISTICS_CACHE[key] = load_plane_statistics(csv_path, manifest)
-    return _STATISTICS_CACHE[key]
-
-
-def _file_key(path: Path) -> tuple[str, int | None, int | None]:
-    """Return a file's resolved path, size and modification time (None, None when missing)."""
-    resolved = path.resolve()
-    if not resolved.is_file():
-        return str(resolved), None, None
-    stat = resolved.stat()
-    return str(resolved), stat.st_size, stat.st_mtime_ns
+    statistics = session_statistics(
+        csv_path,
+        lambda: load_plane_statistics(csv_path, manifest, experiment_root=experiment_root, masks_root=masks_root),
+    )
+    if manifest is not None:
+        _refuse_other_file("normalization.manifest", Path(manifest).expanduser(), statistics.manifest_path)
+    return statistics
 
 
 def experiment_design_path(settings: NormalizationConfig) -> Path:

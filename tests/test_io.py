@@ -9,7 +9,7 @@ from cellpatcher.io import (
     validate_image_and_mask_folders,
     write_array,
 )
-from tests.helpers import write_tiff
+from tests.helpers import file_run_config, write_tiff
 
 
 def test_list_supported_files_sorted_and_filtered(tmp_path):
@@ -124,7 +124,7 @@ def test_run_patching_from_folders_grid_mode(tmp_path):
     img_dir.mkdir()
     write_array(img_dir / "a.tif", np.arange(64).reshape(8, 8))
 
-    config = CellPatcherConfig(mode="grid")
+    config = file_run_config(CellPatcherConfig(mode="grid"), img_dir)
     config.grid.tile_size = 4
 
     result = run_patching_from_folders(img_dir, config=config)
@@ -144,7 +144,7 @@ def test_run_patching_from_folders_cell_mode(tmp_path):
     write_array(img_dir / "sample.tif", image)
     write_array(mask_dir / "sample_mask.tif", labels)
 
-    config = CellPatcherConfig(mode="cell")
+    config = file_run_config(CellPatcherConfig(mode="cell"), img_dir, masks=mask_dir)
     config.cell.patch_size = 8
 
     result = run_patching_from_folders(img_dir, mask_folder_path=mask_dir, config=config)
@@ -156,8 +156,9 @@ def test_run_patching_from_folders_cell_requires_mask_folder(tmp_path):
     img_dir.mkdir()
     write_array(img_dir / "a.tif", np.zeros((8, 8), dtype=np.float32))
 
-    with pytest.raises(ValueError, match="mask_folder_path"):
-        run_patching_from_folders(img_dir, config=CellPatcherConfig(mode="cell"))
+    config = file_run_config(CellPatcherConfig(mode="cell"), img_dir)  # a run without masks
+    with pytest.raises(ValueError, match="mode='cell' reads masks, but the preprocessing run .* recorded none"):
+        run_patching_from_folders(img_dir, config=config)
 
 from cellpatcher.orchestration import (
     load_config,
@@ -172,7 +173,7 @@ def test_run_patching_pipeline_alias_grid_mode(tmp_path):
     img_dir.mkdir()
     write_array(img_dir / "a.tif", np.arange(64).reshape(8, 8))
 
-    config = CellPatcherConfig(mode="grid")
+    config = file_run_config(CellPatcherConfig(mode="grid"), img_dir)
     config.grid.tile_size = 4
     result = run_patching_pipeline(img_dir, config=config)
     assert len(result.patches) == 4
@@ -219,7 +220,7 @@ def test_run_patching_pipeline_random_mode_with_optional_mask(tmp_path):
     write_array(img_dir / "a.tif", img)
     write_array(mask_dir / "a_mask.tif", mask)
 
-    config = CellPatcherConfig(mode="random")
+    config = file_run_config(CellPatcherConfig(mode="random"), img_dir, masks=mask_dir)
     config.random.patch_size = 4
     config.random.n_patches = 5
     config.random.seed = 0
@@ -233,7 +234,7 @@ def test_run_patching_pipeline_random_mode_without_mask(tmp_path):
     img_dir.mkdir()
     write_array(img_dir / "a.tif", np.zeros((32, 32), dtype=np.float32))
 
-    config = CellPatcherConfig(mode="random")
+    config = file_run_config(CellPatcherConfig(mode="random"), img_dir)
     config.random.patch_size = 4
     config.random.n_patches = 3
     result = run_patching_pipeline(img_dir, config=config)
@@ -273,6 +274,7 @@ def test_load_config_is_usable_for_patching(tmp_path):
     # Switch to grid so no mask folder is needed
     loaded.mode = "grid"
     loaded.grid.tile_size = 4
+    file_run_config(loaded, img_dir)
 
     result = run_patching_pipeline(img_dir, config=loaded)
     assert len(result.patches) == 4
@@ -391,11 +393,7 @@ def test_images_in_formats_other_than_tiff_and_ome_zarr_are_refused_by_name(tmp_
     write_array(img_dir / name, np.zeros((4, 4), np.uint8))
     refusal = rf"1 image\(s\) in a format CellPatcher no longer reads: {name}\..*TIFF files .* OME-Zarr"
     with pytest.raises(ValueError, match=refusal):
-        validate_image_and_mask_folders(img_dir, mask_dir)
-    config = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=4))
-    with pytest.raises(ValueError, match=refusal):
-        run_patching_pipeline(img_dir, config=config)
-
+        validate_image_and_mask_folders(img_dir, mask_dir)  # file runs read the preprocessing run's images (CP-2a)
 
 
 @pytest.mark.parametrize("name", ["b.czi", "b.nd2", "b.lif", "b.LSM", "b.webp"])
@@ -407,10 +405,7 @@ def test_microscope_and_other_image_formats_are_refused_by_name_not_skipped(tmp_
     (img_dir / name).write_bytes(b"not decoded")
     refusal = rf"1 image\(s\) in a format CellPatcher no longer reads: {name}\..*Convert them to TIFF or OME-Zarr"
     with pytest.raises(ValueError, match=refusal):
-        validate_image_and_mask_folders(img_dir, mask_dir)
-    config = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=4))
-    with pytest.raises(ValueError, match=refusal):
-        run_patching_pipeline(img_dir, config=config)
+        validate_image_and_mask_folders(img_dir, mask_dir)  # file runs read the preprocessing run's images (CP-2a)
     (img_dir / name).unlink()
     (img_dir / "notes.txt").write_text("not an image")  # other files stay ignored
     assert validate_image_and_mask_folders(img_dir, mask_dir)
@@ -421,16 +416,13 @@ def test_a_folder_run_refuses_images_beside_subfolders(tmp_path):
     # patched a.tif and ignored the subfolder.
     img_dir, mask_dir = _folders(tmp_path, ["a.tif", "more/b.tif"], ["a_cells.tif"])
     with pytest.raises(ValueError, match=r"\[tiff_outside_leaf\].*\(a.tif\)"):
-        validate_image_and_mask_folders(img_dir, mask_dir)
-    config = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=4))
-    with pytest.raises(ValueError, match=r"\[tiff_outside_leaf\].*\(a.tif\)"):
-        run_patching_pipeline(img_dir, config=config)
+        validate_image_and_mask_folders(img_dir, mask_dir)  # file runs read the preprocessing run's images (CP-2a)
 
 
 def test_a_folder_run_refuses_a_folder_of_image_subfolders(tmp_path):
     img_dir, _ = _folders(tmp_path, ["ctrl/a.tif", "treated/b.tif"], [])
-    config = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=4))
-    with pytest.raises(ValueError, match=r"holds its images in subfolders \(ctrl, treated\).*run_patching_condition_repeat_tree"):
+    config = file_run_config(CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=4)), img_dir)
+    with pytest.raises(ValueError, match=r"run has 2 conditions or biological repeats.*run_patching_condition_repeat_tree"):
         run_patching_pipeline(img_dir, config=config)
 
 
@@ -583,7 +575,8 @@ def test_a_refused_multi_axis_mask_says_how_to_save_it(tmp_path, axes):
 def test_mask_axes_cannot_read_a_named_z_stack_as_label_channels(tmp_path, mask_axes):
     # A mask whose header names a Z axis passes find_masks. common.mask_axes with a C axis
     # used to override that header and read the Z slices as label channels (with
-    # cell.mask_channel); a C axis is now refused for mask files (owner decision 2026-10-30).
+    # cell.mask_channel). Since CP-2a file runs read masks in the roles the preprocessing run
+    # recorded, and refuse any common.mask_axes but the default with a migration message.
     from cellpatcher import CellPatcherConfig
 
     img_dir, mask_dir = _folders(tmp_path, ["a.tif"], [])
@@ -595,6 +588,5 @@ def test_mask_axes_cannot_read_a_named_z_stack_as_label_channels(tmp_path, mask_
     config.common.mask_axes = mask_axes
     config.cell.mask_channel = 0
     config.cell.exclude_border = False
-    with pytest.raises(ValueError, match=r"common\.mask_axes=.*channel \(C\) axis") as refused:
+    with pytest.raises(ValueError, match=rf"common\.mask_axes='{mask_axes}': each image's \(and mask's\) axes are the roles"):
         run_patching_pipeline(img_dir, config=config, mask_folder_path=mask_dir)
-    assert re.search(_MASK_CHANNEL_ADVICE, str(refused.value))

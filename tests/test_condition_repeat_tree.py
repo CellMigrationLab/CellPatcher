@@ -14,8 +14,8 @@ from cellpatcher.io import (
 )
 from cellpatcher.orchestration import load_config, run_patching_condition_repeat_tree
 from cellpatcher.pipeline import RUN_CONFIG_FILENAME, run_patching
-from tests.helpers import make_synthetic_cell_image_and_labels
-from tests.helpers import named
+from tests.helpers import make_synthetic_cell_image_and_labels, named
+from tests.helpers import preprocessed_tree as _tree
 
 
 def _write_image(path, shape=(16, 16)):
@@ -161,7 +161,7 @@ def test_tree_whole_fov_stamps_condition_repeat_and_mirrors_output(tmp_path):
     cfg.export.image_format = "npy"
     cfg.common.output_dir = str(tmp_path / "out")
 
-    results = run_patching_condition_repeat_tree(image_root, config=cfg)
+    results = _tree(image_root, config=cfg)
     assert len(results) == 2
 
     by_condition = {r.condition: r for r in results}
@@ -191,7 +191,7 @@ def test_tree_flat_root_stamps_single_condition_and_repeat(tmp_path):
     cfg.export.image_format = "npy"
     cfg.common.output_dir = str(tmp_path / "out")
 
-    results = run_patching_condition_repeat_tree(image_root, config=cfg)
+    results = _tree(image_root, config=cfg)
     assert len(results) == 1
     patch = results[0].result.patches[0]
     assert (patch.condition, patch.biological_repeat) == (SINGLE_CONDITION_LABEL, SINGLE_BIOLOGICAL_REPEAT_LABEL)
@@ -212,7 +212,7 @@ def test_tree_cell_mode_explicit_and_single_repeat_with_mirrored_masks(tmp_path)
     cfg.cell.patch_size = 24
     cfg.cell.exclude_border = True
 
-    results = run_patching_condition_repeat_tree(image_root, config=cfg, mask_root_path=mask_root)
+    results = _tree(image_root, config=cfg, mask_root_path=mask_root)
     assert len(results) == 2
     for r in results:
         assert len(r.result.patches) > 0
@@ -238,12 +238,12 @@ def test_tree_cell_mode_mask_folder_with_several_masks_per_image(tmp_path):
     cfg = CellPatcherConfig(mode="cell")
     cfg.cell.patch_size = 24
     with pytest.raises(ValueError, match="4 mask types .cells, mito, nuclei, nucleoli.; set matching.mask_type"):
-        run_patching_condition_repeat_tree(image_root, config=cfg, mask_root_path=mask_root)
+        _tree(image_root, config=cfg, mask_root_path=mask_root)
 
     cfg.matching.mask_type = "cells"
     cfg.export.enabled = True
     cfg.common.output_dir = str(tmp_path / "out")
-    results = run_patching_condition_repeat_tree(image_root, config=cfg, mask_root_path=mask_root)
+    results = _tree(image_root, config=cfg, mask_root_path=mask_root)
     assert len(results) == 2
     assert {patch.mask_file for r in results for patch in r.result.patches} == {"img_cells.tif"}
     assert {patch.object_set for r in results for patch in r.result.patches} == {"cells"}
@@ -262,8 +262,8 @@ def test_tree_cell_mode_missing_mask_folder_raises_per_leaf(tmp_path):
     mask_root.mkdir(parents=True)
 
     cfg = CellPatcherConfig(mode="cell")
-    with pytest.raises(ValueError, match="No mask in .* pairs with an image"):
-        run_patching_condition_repeat_tree(image_root, config=cfg, mask_root_path=mask_root)
+    with pytest.raises(ValueError, match="reads masks, but the preprocessing run .* recorded none"):
+        _tree(image_root, config=cfg, mask_root_path=mask_root)
 
 
 def test_tree_grid_mode_ignores_mask_root_path(tmp_path):
@@ -274,7 +274,7 @@ def test_tree_grid_mode_ignores_mask_root_path(tmp_path):
     mask_root.mkdir(parents=True)
 
     cfg = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=8))
-    results = run_patching_condition_repeat_tree(image_root, config=cfg, mask_root_path=mask_root)
+    results = _tree(image_root, config=cfg, mask_root_path=mask_root)
     assert len(results) == 1
     assert len(results[0].result.patches) > 0
 
@@ -294,23 +294,15 @@ def test_tree_random_mode_mask_root_needs_a_mask_for_every_image(tmp_path):
     cfg = CellPatcherConfig(mode="random")
     cfg.random.n_patches = 3
     cfg.random.patch_size = 8
-    with pytest.raises(ValueError, match="Images with no 'mask' mask: control/img.tif"):
-        run_patching_condition_repeat_tree(image_root, config=cfg, mask_root_path=mask_root)
+    with pytest.raises(ValueError, match="recorded no 'mask' mask for control/img.tif; every image needs one"):
+        _tree(image_root, config=cfg, mask_root_path=mask_root)
 
     write_array(mask_root / "control" / "img_mask.tif", np.ones((64, 64), dtype=np.uint8))
-    results = run_patching_condition_repeat_tree(image_root, config=cfg, mask_root_path=mask_root)
+    results = _tree(image_root, config=cfg, mask_root_path=mask_root)
     assert {r.condition: len(r.result.patches) for r in results} == {"control": 3, "treated": 3}
 
-    results = run_patching_condition_repeat_tree(image_root, config=cfg)
+    results = _tree(image_root, config=cfg)
     assert {r.condition: len(r.result.patches) for r in results} == {"control": 3, "treated": 3}
-
-
-def test_tree_no_condition_folders_raises(tmp_path):
-    root = tmp_path / "raw_data"
-    root.mkdir()
-    cfg = CellPatcherConfig(mode="whole_fov")
-    with pytest.raises(ValueError, match="No condition subfolders"):
-        run_patching_condition_repeat_tree(root, config=cfg)
 
 
 def test_tree_aggregated_patch_counts_match_per_leaf_csv_rows(tmp_path):
@@ -324,7 +316,7 @@ def test_tree_aggregated_patch_counts_match_per_leaf_csv_rows(tmp_path):
     cfg.export.image_format = "npy"
     cfg.common.output_dir = str(tmp_path / "out")
 
-    results = run_patching_condition_repeat_tree(image_root, config=cfg)
+    results = _tree(image_root, config=cfg)
     assert len(results) == 3
     for r in results:
         csv_path = tmp_path / "out" / r.condition / r.biological_repeat / "patches.csv"
@@ -350,7 +342,7 @@ def test_tree_combine_metadata_writes_single_csv_and_config_at_output_root(tmp_p
     _write_image(image_root / "control" / "c.tif")
     out = tmp_path / "out"
 
-    results = run_patching_condition_repeat_tree(image_root, config=_combined_tree_config(tmp_path), combine_metadata=True)
+    results = _tree(image_root, config=_combined_tree_config(tmp_path), combine_metadata=True)
 
     assert (out / "patches.csv").exists()
     assert (out / RUN_CONFIG_FILENAME).exists()
@@ -389,7 +381,7 @@ def test_tree_progress_callback_reports_each_leaf_then_completion(tmp_path):
     _write_image(image_root / "b" / "y.tif")
     calls = []
 
-    run_patching_condition_repeat_tree(
+    _tree(
         image_root,
         config=CellPatcherConfig(mode="whole_fov"),
         progress_callback=lambda done, total, leaf: calls.append((done, total, leaf.condition if leaf else None)),
@@ -459,7 +451,7 @@ def test_tree_stamps_technical_repeat_and_mirrors_it_in_the_output(tmp_path):
     cfg.export.image_format = "npy"
     cfg.common.output_dir = str(tmp_path / "out")
 
-    results = run_patching_condition_repeat_tree(image_root, config=cfg)
+    results = _tree(image_root, config=cfg)
     stamped = {
         (r.condition, r.biological_repeat, r.technical_repeat): {p.technical_repeat for p in r.result.patches}
         for r in results
@@ -484,7 +476,7 @@ def test_tree_combined_csv_keeps_technical_repeats_apart(tmp_path):
     _write_image(image_root / "control" / "c.tif")
     out = tmp_path / "out"
 
-    results = run_patching_condition_repeat_tree(
+    results = _tree(
         image_root, config=_combined_tree_config(tmp_path), combine_metadata=True
     )
     with (out / "patches.csv").open("r", encoding="utf-8") as f:
@@ -514,7 +506,7 @@ def test_tree_cell_mode_finds_masks_in_mirrored_technical_repeat_folders(tmp_pat
 
     cfg = CellPatcherConfig(mode="cell")
     cfg.cell.patch_size = 16
-    results = run_patching_condition_repeat_tree(image_root, config=cfg, mask_root_path=mask_root)
+    results = _tree(image_root, config=cfg, mask_root_path=mask_root)
     assert [r.technical_repeat for r in results] == ["B02", "B03"]
     for r in results:
         assert r.result.patches
@@ -563,7 +555,7 @@ def test_tree_runs_wells_inside_a_biological_repeat_folder_named_single(tmp_path
     _write_image(image_root / "ctrl" / "single" / "wellA" / "img1.tif")
     _write_image(image_root / "ctrl" / "single" / "wellB" / "img2.tif")
 
-    results = run_patching_condition_repeat_tree(image_root, config=CellPatcherConfig(mode="whole_fov"))
+    results = _tree(image_root, config=CellPatcherConfig(mode="whole_fov"))
     stamped = {
         (r.condition, r.biological_repeat, r.technical_repeat): {p.image_file for p in r.result.patches}
         for r in results
@@ -624,8 +616,6 @@ def test_a_tree_refuses_images_in_formats_no_longer_read(tmp_path, name):
     write_array(root / "control" / "r1" / name, np.ones((16, 16), np.uint8))
     with pytest.raises(ValueError, match=rf"in a format CellPatcher no longer reads: control/r1/{name}\."):
         discover_condition_repeat_folders(root)
-    with pytest.raises(ValueError, match=rf"no longer reads: control/r1/{name}\."):
-        run_patching_condition_repeat_tree(root, config=CellPatcherConfig(mode="whole_fov"))
 
 
 def test_a_png_beside_condition_folders_is_refused_by_name(tmp_path):

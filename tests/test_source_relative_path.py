@@ -11,10 +11,11 @@ import pytest
 
 from cellpatcher.config import CellPatcherConfig, GridConfig
 from cellpatcher.io import write_array
-from cellpatcher.orchestration import run_patching_condition_repeat_tree, run_patching_pipeline
 from cellpatcher.pipeline import run_patching
 from cellpatcher.types import PatchRegion
-from tests.helpers import named
+from tests.helpers import named, preprocess, write_tiff
+from tests.helpers import preprocessed_folder as run_folder
+from tests.helpers import preprocessed_tree as run_tree
 
 # patches.csv header before source_relative_path was added; existing columns
 # must keep these names and this order.
@@ -53,7 +54,7 @@ def test_field_is_appended_after_all_existing_fields():
 
 def test_csv_appends_the_column_and_keeps_earlier_columns(tmp_path):
     _write_image(tmp_path / "images" / "a.tif")
-    run_patching_pipeline(tmp_path / "images", config=_grid_config(tmp_path / "out"))
+    run_folder(tmp_path / "images", config=_grid_config(tmp_path / "out"))
 
     header, rows = _read_csv(tmp_path / "out" / "patches.csv")
     assert header[: len(_EARLIER_HEADER) + 1] == [*_EARLIER_HEADER, "source_relative_path"]
@@ -64,7 +65,7 @@ def test_flat_folder_run_uses_the_file_name(tmp_path):
     _write_image(tmp_path / "images" / "b.tif")
     _write_image(tmp_path / "images" / "a.tif")
 
-    result = run_patching_pipeline(tmp_path / "images", config=_grid_config())
+    result = run_folder(tmp_path / "images", config=_grid_config())
     assert {patch.source_relative_path for patch in result.patches} == {"a.tif", "b.tif"}
     for patch in result.patches:
         assert patch.source_relative_path == patch.image_file
@@ -77,7 +78,7 @@ def test_tree_run_uses_the_real_location_not_the_output_folder(tmp_path):
     _write_image(root / "treated" / "2026_01_02" / "B02" / "field.tif")
     _write_image(root / "treated" / "2026_01_02" / "B03" / "field.tif")
 
-    results = run_patching_condition_repeat_tree(root, config=_grid_config())
+    results = run_tree(root, config=_grid_config())
 
     by_folder = {
         leaf.relative_folder: {patch.source_relative_path for patch in leaf.result.patches}
@@ -97,7 +98,7 @@ def test_flat_root_tree_run_uses_the_file_name(tmp_path):
     root = tmp_path / "experiment"
     _write_image(root / "a.tif")
 
-    results = run_patching_condition_repeat_tree(root, config=_grid_config())
+    results = run_tree(root, config=_grid_config())
     assert {patch.source_relative_path for patch in results[0].result.patches} == {"a.tif"}
 
 
@@ -106,7 +107,7 @@ def test_combined_tree_csv_records_the_column(tmp_path):
     _write_image(root / "control" / "img.tif")
     _write_image(root / "treated" / "2026_01_01" / "img.tif")
 
-    run_patching_condition_repeat_tree(root, config=_grid_config(tmp_path / "out"), combine_metadata=True)
+    run_tree(root, config=_grid_config(tmp_path / "out"), combine_metadata=True)
 
     _, rows = _read_csv(tmp_path / "out" / "patches.csv")
     assert {row["source_relative_path"] for row in rows} == {"control/img.tif", "treated/2026_01_01/img.tif"}
@@ -129,12 +130,11 @@ def test_run_patching_without_metadata_leaves_it_empty():
 
 def test_split_channel_patches_keep_it(tmp_path):
     root = tmp_path / "experiment"
-    write_array(root / "control" / "rgb.tif", np.ones((2, 16, 16), dtype=np.float32))
+    write_tiff(root / "control" / "rgb.tif", np.ones((2, 16, 16), dtype=np.float32), "CYX")
     config = _grid_config()
-    config.common.image_axes = "CYX"
     config.extraction.split_channels = True
 
-    results = run_patching_condition_repeat_tree(root, config=config)
+    results = run_tree(root, config=config, axes="CYX")
     patches = results[0].result.patches
     assert {patch.c for patch in patches} == {0, 1}
     assert {patch.source_relative_path for patch in patches} == {"control/rgb.tif"}
@@ -161,7 +161,7 @@ def test_tree_of_links_records_the_path_under_the_root(tmp_path):
     # is the path the preprocessing brick records for the same tree.
     root = _linked_tree(tmp_path)
 
-    results = run_patching_condition_repeat_tree(root, config=_grid_config(tmp_path / "out"), combine_metadata=True)
+    results = run_tree(root, config=_grid_config(tmp_path / "out"), combine_metadata=True)
 
     by_leaf = {
         leaf.relative_folder: sorted({patch.source_relative_path for patch in leaf.result.patches})
@@ -180,21 +180,19 @@ def test_tree_of_links_records_the_path_under_the_root(tmp_path):
     # The pixels are the linked files' own.
     config = _grid_config()
     config.common.extract_arrays = True
-    for leaf in run_patching_condition_repeat_tree(root, config=config):
+    for leaf in run_tree(root, config=config):
         for patch, array in zip(leaf.result.patches, leaf.result.patch_arrays):
             assert np.all(array == {"a.tif": 1.0, "b.tif": 2.0, "c.tif": 3.0}[patch.image_file])
 
 
 def test_folder_of_links_uses_the_file_names(tmp_path):
     root = _linked_tree(tmp_path)
-    result = run_patching_pipeline(root / "control" / "2026_01_01", config=_grid_config())
+    result = run_folder(root / "control" / "2026_01_01", config=_grid_config())
     assert {patch.source_relative_path for patch in result.patches} == {"a.tif", "b.tif"}
 
 
 def test_a_broken_image_link_is_refused_not_skipped(tmp_path):
     root = _linked_tree(tmp_path)
     (root / "control" / "2026_01_01" / "lost.tif").symlink_to(tmp_path / "store" / "missing.tif")
-    with pytest.raises(ValueError, match="lost.tif"):
-        run_patching_condition_repeat_tree(root, config=_grid_config())
-    with pytest.raises(ValueError, match="lost.tif"):
-        run_patching_pipeline(root / "control" / "2026_01_01", config=_grid_config())
+    with pytest.raises(AssertionError, match="lost.tif"):  # the preprocessing run refuses it (CP-2a)
+        preprocess(root)
