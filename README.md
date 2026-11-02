@@ -4,13 +4,19 @@ CellPatcher helps you turn microscopy images into reproducible patch datasets wi
 
 ## Start here
 
-- **Normal user / manual workflow:** open `notebooks/CellPatcher/CellPatcher.ipynb`.
+Since v0.2.0 CellPatcher reads image and mask files only through a run of the
+[MorphoBricks preprocessing brick](https://github.com/CellMigrationLab/morphobricks-preprocessing)
+(v0.4): run its notebook (or its `check`, `design` and `run` commands) on your experiment first,
+then point CellPatcher to the run's output folder. What changed, with the migration notes for the
+other bricks, is in the [CHANGELOG](notebooks/CellPatcher/CHANGELOG.md) (v0.2.0rc1).
+
+- **Normal user / manual workflow:** open `notebooks/CellPatcher/CellPatcher.ipynb` and give it the preprocessing run's output folder.
 - **Python learner:** open `notebooks/CellPatcher_Strategy_Examples/CellPatcher_Strategy_Examples.ipynb`.
 - **API copy-paste examples:** read `docs/api_examples.md`.
 - **Multidimensional C/Z/T data:** read `docs/preprocessing.md`.
 - **Normalizing intensities** with the MorphoBricks preprocessing statistics: read `docs/normalization.md`.
 
-- Pairs image files with mask/label files using the MorphoBricks preprocessing brick's pairing (`<image>_<mask type>.tif` or `<mask type>/<image>.tif`), so every brick pairs the same files.
+- Reads every image and mask of a folder or tree run through the preprocessing run (`RunInputs`): its images, their FOV keys, the axis roles and the image/mask pairing it recorded, so every brick reads the same files the same way. Files the run did not record are refused, never left out.
 - Generates patch regions (`PatchRegion`) for `cell`, `random`, `grid`, and `whole_fov` modes.
 - Optionally filters regions, extracts arrays, resizes outputs, and exports patch files.
 - Optionally clears pixels outside the selected segmented object in cell mode (`apply_mask=True`).
@@ -20,7 +26,7 @@ CellPatcher helps you turn microscopy images into reproducible patch datasets wi
   `image_metadata=[{"position_id": ...}]` (or an `image_file`); unnamed images are refused.
 - Cell-mode masks are instance labels used as given; boolean masks are refused unless you opt in to
   connected-component labelling (`CellConfig.binary_mask_policy="connected_components"`).
-- Reads TIFF and OME-Zarr images, found with the preprocessing brick's discovery (PNG, JPEG, BMP, GIF, NumPy and microscope formats such as CZI, ND2 or LIF are refused by name), patches Z-stacks and time series plane by plane, and optionally normalizes
+- Reads TIFF and OME-Zarr images (those the preprocessing run accepted), patches Z-stacks and time series plane by plane, and optionally normalizes
   patches with the MorphoBricks preprocessing statistics (`config.normalization`, see `docs/normalization.md`).
 
 ## Patching modes at a glance
@@ -57,7 +63,7 @@ All four modes use the same orchestration function: `run_patching`. The notebook
 
 ## Quick start: notebooks
 
-- **Recommended:** `notebooks/CellPatcher/CellPatcher.ipynb` (app-style workflow and preferred manual testing path)
+- **Recommended:** `notebooks/CellPatcher/CellPatcher.ipynb` (app-style workflow and preferred manual testing path). Its four steps: the preprocessing run (and, only if the experiment was moved, where it is now), the settings, a preview of one image, and the export. It runs in JupyterLab and in Google Colab, where its first cell mounts Google Drive and installs CellPatcher's release tag.
 - **API learning examples:** `notebooks/CellPatcher_Strategy_Examples/CellPatcher_Strategy_Examples.ipynb`
 
 Open the notebook in Colab:
@@ -91,31 +97,24 @@ Open the notebook in Colab:
 
 - From the repository root, install the package: `python -m pip install -e .`
 - Add extras as needed:
-  - tests: `python -m pip install -e .[test]`
+  - tests: `python -m pip install -e .[test]` (with Ruff and the notebook-runner packages; add `notebook` for the notebook's tests)
   - notebooks: `python -m pip install -e .[notebook]`
   - optional Torch adapter: `python -m pip install -e .[torch]`
   - OME-Zarr images: `python -m pip install -e .[zarr]` (the MorphoBricks preprocessing and
     normalization bricks, used for discovery, pairing and normalization, are core dependencies)
 - `requirements.txt` remains a pinned notebook/tooling environment snapshot.
+- Before a pull request: `python tools/check.py` (pytest, Ruff and the MorphoBricks code rules
+  against their shrink-only baseline, `tools/code_rules_baseline.json`); `--rules` runs only the
+  code rules and Ruff.
 
-**Google Colab (private repo):**
+**A release, anywhere (Google Colab included):**
 
-While the repository is private, install from GitHub using a personal access token stored as a Colab Secret (`GITHUB_TOKEN`):
-
-```python
-import subprocess, sys
-from urllib.parse import quote
-from google.colab import userdata
-
-token = userdata.get("GITHUB_TOKEN")
-encoded = quote(token, safe="")
-subprocess.run([
-    sys.executable, "-m", "pip", "install", "-q",
-    f"cellpatcher[zarr] @ git+https://x-access-token:{encoded}@github.com/CellMigrationLab/CellPatcher.git",
-], check=True)
+```bash
+pip install "cellpatcher[notebook,zarr] @ git+https://github.com/CellMigrationLab/CellPatcher.git@v0.2.0rc1"
 ```
 
-The notebooks `CellPatcher.ipynb` contain a ready-to-run version of this install cell — run it first when opening in Colab.
+The notebook's first cell does this on Colab (pinned to its `RELEASE_TAG`), mounts Google Drive and
+enables the widgets; keep the preprocessing run, the experiment and the output folder on Drive.
 
 ## Optional preprocessing for multidimensional data
 

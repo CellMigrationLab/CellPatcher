@@ -6,6 +6,10 @@
 §13; **[D8]** (patches without intensity spread) was decided with Milestone 5. The exact rules are
 fixed in the [normalization contract](normalization_contract.md) (Milestone 0); where this
 plan and the contract differ in detail, the contract applies.
+**Since v0.2.0** (MorphoBricks design v0.4, CP-1 to CP-3; see §11 "CellPatcher v0.2.0"): CellPatcher
+reads every file through the preprocessing run's `RunInputs`; where this brief describes
+CellPatcher discovering, pairing or reading files itself, or settings such as
+`common.mask_source`, that is superseded.
 **Scope:** use the outputs of the MorphoBricks preprocessing brick
 ([morphobricks-preprocessing](https://github.com/CellMigrationLab/morphobricks-preprocessing))
 to normalize patches at a chosen scope with a chosen method; read TIFF and OME-Zarr images
@@ -367,8 +371,10 @@ A new `NormalizationConfig` in `CellPatcherConfig`; names fixed in Milestone 0 (
 
 The delivery modes of §7 reuse the existing switches: `export.enabled` for files (with
 `export_values` choosing normalized or raw), `common.extract_arrays` for eager arrays, and a
-lazy iterator in the API. Mask sources are set with `common.mask_source` (`"tiff_tree"`, the
-default, or `"ngff_labels"`) and `common.mask_label_name` for the OME-Zarr label image.
+lazy iterator in the API. Mask sources were set with `common.mask_source` (`"tiff_tree"`, the
+default, or `"ngff_labels"`) and `common.mask_label_name` for the OME-Zarr label image; both were
+removed in v0.2.0 (CP-2b): the masks are those the preprocessing run paired, of the type
+`matching.mask_type`.
 
 ## 10. Validation and messages
 
@@ -498,6 +504,33 @@ from GitHub at a pinned version) **[D1]**.
   channel in its group (`Parameters.select([i])`, N46). RGB refuses any channel splitting. The
   notebook shows one checkbox per channel (`C0`, `C1`, ..., with the OME channel names when the
   header records them, `cellpatcher.io.channel_names`).
+- **CellPatcher v0.2.0 — reading through the preprocessing run** (MorphoBricks design v0.4,
+  §6 and §8). *CP-1:* the plane statistics are opened with the brick's `RunInputs.open`.
+  *CP-2a/b:* folder and tree runs read only through `RunInputs` (images, FOV keys, roles,
+  pairing), `common.preprocessing_run` is required, CellPatcher's own discovery, pairing and
+  header checks are removed, and `run_config.json` version 2 records the run and its manifest
+  SHA-256. *CP-3:* the notebook asks for the run's output folder only (LabConstrictor
+  portability, Colab and JupyterLab), the docs and installers follow, preprocessing is pinned at
+  `v0.4.0rc2` (files the run did not record are refused: `unrecorded_files`), in-memory
+  `image_axes` with X before Y are refused like masks (and by the object scan), and the
+  MorphoBricks code standards (`tools/check.py`, a shrink-only baseline) are adopted.
+  *CP-3b (owner decisions of 2026-11-02), a follow-up PR **before** tagging `v0.2.0rc1`:*
+  `CellPatcher_Pytorch.ipynb` and `CellPatcher_Strategy_Examples.ipynb` get the LabConstrictor
+  treatment of the main notebook (no `GITHUB_TOKEN`, an install pinned to `RELEASE_TAG`, the
+  Colab guard, `# @title` cells, tests); the main notebook's "show parameters per group" table
+  and before/after normalization histograms come back, computed in the package (no computing
+  in notebook cells). Release candidates get no installer (pip and Colab only; the release
+  script refuses an `rc` version); the installer's package layout (the package copied to
+  `src/cellpatcher/cellpatcher/`, which `setup.py` does not find) is fixed before the final
+  `v0.2.0` installers. Then tag `v0.2.0rc1`.
+- **Planned after preprocessing v0.4.0 is final: the preprocessing steps inside the CellPatcher
+  notebook** (owner decision of 2026-11-02). Preprocessing is the essential first step, so the
+  CellPatcher notebook should eventually include it, but not while preprocessing's notebook is
+  still changing (PP-10 to PP-13): an embedded copy would drift. It will embed preprocessing's
+  steps only through the brick's declared embedding API (`PreprocessingNotebook` and
+  `notebook_style`, pinned by preprocessing's `tests/test_embedding_api.py`, as MorphoRelate
+  does), never by copying its code. Until then the notebook sends users to the preprocessing
+  notebook or command line first (its introduction and Step 1 say so).
 - **Later:** reading only patch windows for planes too large to hold in memory (the
   preprocessing brick now computes statistics for those planes in blocks, but patching still
   needs the whole plane); reading the preprocessing OME-Zarr copies; reference parameters

@@ -565,3 +565,13 @@ def test_a_file_path_is_refused_when_the_dataset_is_built(tmp_path):
         PatchTorchDataset([tmp_path / "img.tif"], [patch])
     with pytest.raises(TypeError, match=r"masks of run_patching as arrays; got the path .*m.tif"):
         PatchTorchDataset([np.zeros((4, 4))], [patch], masks=[str(tmp_path / "m.tif")])
+
+
+@pytest.mark.parametrize(("image_axes", "mask_axes", "refused"), [("XY", "YX", "image"), ("YX", "XY", "mask")])
+def test_axes_with_x_before_y_are_refused_when_the_dataset_is_built(image_axes, mask_axes, refused):
+    # CP-3 review: in-memory arrays are taken Y before X only (design v0.4 §6). Before, the
+    # dataset was built and the refusal came from lazy delivery, in a DataLoader worker.
+    patch = PatchRegion(patch_id="p", image_id="image_0000", mode="whole_fov", y0=0, y1=4, x0=0, x1=4)
+    with pytest.raises(ValueError, match=rf"common.{refused}_axes='XY' puts X before Y"):
+        PatchTorchDataset([np.zeros((4, 4))], [patch], image_axes=image_axes, masks=[np.ones((4, 4), np.int32)],
+                          mask_axes=mask_axes)

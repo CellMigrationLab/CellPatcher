@@ -2,7 +2,7 @@ from setuptools import find_packages, setup
 
 setup(
     name="cellpatcher",
-    version="0.1.2",
+    version="0.2.0rc1",
     package_dir={"": "src"},
     packages=find_packages(where="src"),
     python_requires=">=3.11",
@@ -17,7 +17,7 @@ setup(
         # checks). Pinned to its tag and raised deliberately; the ``zarr`` extra
         # below adds its OME-Zarr reader at the same tag.
         "morphobricks-preprocessing @ git+https://github.com/CellMigrationLab/"
-        "morphobricks-preprocessing@v0.4.0rc1",
+        "morphobricks-preprocessing@v0.4.0rc2",
         # CellPatcher imports the normalization brick directly (plane histograms,
         # the plane table, pooling, normalization parameters, SINGLE), so it
         # declares it, at the tag the preprocessing tag above pins (owner
@@ -28,6 +28,14 @@ setup(
     extras_require={
         "test": [
             "pytest",
+            # tools/check.py and tests/test_code_rules.py: the code standards (design v0.4
+            # §9). Pinned, because the baseline of existing findings is Ruff's at this version.
+            "ruff==0.17.3",
+            # tests/test_notebook_file.py runs the notebook in a local kernel (with the
+            # notebook extra; skipped without it).
+            "nbclient",
+            "nbformat",
+            "ipykernel",
         ],
         "notebook": [
             "ipywidgets",
@@ -46,7 +54,7 @@ setup(
         # is a core dependency.
         "zarr": [
             "morphobricks-preprocessing[zarr] @ git+https://github.com/CellMigrationLab/"
-            "morphobricks-preprocessing@v0.4.0rc1",
+            "morphobricks-preprocessing@v0.4.0rc2",
         ],
     },
 )

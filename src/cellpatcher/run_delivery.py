@@ -16,7 +16,7 @@ from collections.abc import Iterable, Iterator, Mapping
 from typing import TYPE_CHECKING
 
 from cellpatcher.delivery import _finish_patch
-from cellpatcher.file_runs import _read_mask, open_file_run, run_config_for
+from cellpatcher.file_runs import open_file_run, read_run_mask, run_config_for
 from cellpatcher.io import SINGLE_CONDITION_LABEL
 from cellpatcher.planes import patch_plane_choice, select_mask_plane
 from cellpatcher.run_reading import read_fov
@@ -81,7 +81,7 @@ def iter_run_patch_arrays(
         mask_plane, mask_axes = None, None
         if run.mask_type is not None:
             if mask is None or mask[0] != fov.relative_path:
-                mask = (fov.relative_path, _read_mask(run, fov))  # one image's mask in memory at a time
+                mask = (fov.relative_path, read_run_mask(run, fov))  # one image's mask in memory at a time
             mask_plane, mask_axes = select_mask_plane(mask[1], run.mask_axes, choice)
         yield patch, _finish_patch(patch, plane, axes, mask_plane, mask_axes, delivered)
 

@@ -4,6 +4,89 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.2.0rc1] - Preprocessing v0.4.0rc2, unrecorded files refused, the v0.2 notebook (CP-3)
+
+The first release candidate of v0.2.0, after CP-1 to CP-3 (see the sections below for CP-1,
+CP-2a and CP-2b, all part of it).
+
+### Changed
+- CellPatcher requires `morphobricks-preprocessing` `v0.4.0rc2` (core and `zarr` extra; was
+  `v0.4.0rc1`). Its normalization pin is unchanged (`v0.3.2`).
+- **Files the preprocessing run did not record are refused, never left out.** Since rc2
+  `RunInputs.open` refuses an experiment holding images or masks the run did not record (for
+  example added after the run); CellPatcher reports it as `unrecorded_files`, naming the files.
+  This closes the CP-2a known limitation (an added image was not patched and nothing said so).
+  Run preprocessing again on the experiment as it is, or exclude the images there.
+- A run with OME-Zarr images opened without the zarr package is refused (`zarr_extra_missing`,
+  naming `cellpatcher[zarr]`): their label images cannot be checked, and none is skipped.
+- A mask whose header puts X before Y is refused by the preprocessing run itself (rc2), and a
+  run written by rc1 that recorded such a mask without axes is refused when it is opened
+  (`preprocessing_run_refused`). CellPatcher's own refusal of such a record stays as a safety
+  net.
+- The preprocessing command CellPatcher gives (`no_preprocessing_run`) names rc2's `design`
+  step: `check` now writes `experiment_design.csv`, and `run` stops until it is confirmed.
+- **The notebook is rewritten for v0.2** (it was broken since CP-2b). It asks for the
+  preprocessing run's output folder and, only for an experiment moved or copied since, where the
+  experiment and masks folder are now; no axes, labels or mask source. Four steps: the run, the
+  settings, a preview of one image (the file-run code, so the patches the export gives), and the
+  export (one `patches.csv`, `images.csv`, `run_config.json`). It follows LabConstrictor's
+  portability guide: `# @title` cells, Colab code (Drive, the widget manager, the zarr extra)
+  only under `if "google.colab" in sys.modules:`, the install pinned to `v0.2.0rc1` (no
+  `GITHUB_TOKEN`), Colab and JupyterLab callouts. Its code is in the package:
+  `cellpatcher.notebook_session` (no widgets) and `cellpatcher.notebook_ui`/`notebook_form`.
+- **Breaking:** in-memory `common.image_axes` with X before Y (`"XY"`, `"CXY"`, ...) is refused by
+  `run_patching` and lazy delivery, as masks already were (design v0.4 §6: a canonical-only
+  layout for in-memory arrays). Before, such an image was patched in the transposed frame: a
+  12 x 20 array gave the whole-FOV patch `y1=20`, `x1=12`. Swap the spatial axes
+  (`numpy.swapaxes`) and declare Y before X.
+- `refuse_transposed_mask_axes` moved from `cellpatcher.io` to `cellpatcher.axes`;
+  `file_runs._read_mask` is public as `read_run_mask`.
+- Version 0.2.0rc1 (`setup.py`, `cellpatcher.__version__`, the notebook's `current_version`).
+- Installer: `construct.yaml` lists every module again (it lacked the CP-1/CP-2 modules); a
+  test keeps it complete. The release script refuses a pre-release version: release candidates
+  are installed with pip or on Colab only, and the installers are built at the final release.
+- Code standards (design v0.4 §9): `tools/check.py`, the shared `tools/code_rules.py` (SHA-256
+  checked) and `tools/code_rules_baseline.json` (today's debt, which may only shrink, with a
+  `# noqa` ratchet); Ruff 0.17.3 in the `test` extra, a CI rules job.
+
+- In-memory X-before-Y axes are also refused by `scan_cell_patch_size`/`scan_cell_objects`
+  (before, a square mask declared `XY` gave the transposed mask's sizes), by
+  `CellSegmentationStrategy(mask_axes=...)`, and by `PatchTorchDataset` when it is built (before,
+  only when an item was loaded, in a DataLoader worker).
+- `tools/check.py` runs Ruff with `--ignore-noqa`: a `# noqa` comment silences no finding past
+  the baseline.
+
+### Not yet (follow-ups)
+- **CP-3b, before the `v0.2.0rc1` tag** (owner decisions of 2026-11-02):
+  - `CellPatcher_Pytorch.ipynb` and `CellPatcher_Strategy_Examples.ipynb` still install `main`
+    with a `GITHUB_TOKEN`; they get the LabConstrictor treatment of the main notebook.
+  - The old notebook's "show parameters per group" table and its before/after normalization
+    histograms are not in the v0.2 notebook; they come back, computed in the package.
+  - The installer copies the package to `src/cellpatcher/cellpatcher/`, where `setup.py` finds
+    no package, so the installed app has no `cellpatcher`; fixed before the final `v0.2.0`
+    installers (none is built for a release candidate).
+- **After preprocessing v0.4.0 is final:** the CellPatcher notebook will include the
+  preprocessing steps through preprocessing's declared embedding API (`PreprocessingNotebook`,
+  `notebook_style`), never a copy of its code. Until then, run the preprocessing notebook or
+  command line first.
+
+### Migration notes for the bricks (pin CellPatcher `v0.2.0rc1` with preprocessing `v0.4.0rc2`)
+- **MorphoRelate** (`io/cellpatcher.py`): `check_image_axes` reads `common.image_axes` from
+  `run_config.json`; a folder or tree run's version 2 file has none (its arrays' order is
+  `preprocessing.layout.image`, and the run is `preprocessing.run`), so it reports "not checked".
+  Take the axes from the preprocessing run (`RunInputs`) or `preprocessing.layout`.
+  `read_patch_table` reads `run_config_version` 1 and 2 and refuses any other.
+- **MorphoEmbed** (`provider_crops.py`): `PatchTorchDataset` takes arrays only; a path is a
+  `TypeError` when the dataset is built (use `iter_run_patch_arrays` for a file run's patches).
+  In-memory arrays must be declared Y before X.
+- **fiberfeatures**: `data/experiment_001/reference/patch_config.json` holds
+  `common.mask_source`/`mask_label_name` (at their defaults): `load_config` still reads it, but
+  `CommonConfig(**common)` is a `TypeError`. Regenerate the reference with v0.2.0rc1 (both keys
+  gone) or drop them before building a `CommonConfig`; the masks are the preprocessing run's,
+  chosen with `matching.mask_type`.
+- **Every brick:** run preprocessing v0.4 on the experiment; give CellPatcher
+  `common.preprocessing_run`; files added after the run are refused (`unrecorded_files`).
+
 ## [Unreleased] - File-run removals and run_config.json version 2 (CP-2b)
 
 ### Changed
@@ -81,9 +164,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   with `RunInputs.read_plane`/`read_mask` in the roles it recorded, in one canonical layout per
   run (T, Z, C, then Y, X), recorded in `run_config.json` as `common.image_axes`/`mask_axes`
   (in its `preprocessing.layout` since CP-2b).
-  An image added to the experiment after the run is not patched, and nothing says so yet (known
-  limitation, closed when CellPatcher calls the preprocessing check for added images, which is
-  not in v0.4.0rc1).
+  (An image added to the experiment after the run was then not patched, and nothing said so; since
+  preprocessing v0.4.0rc2 it is refused: see v0.2.0rc1 above.)
 - The run is opened with the image folder/root and the masks folder given, so an experiment
   moved or copied since its run (times kept) is checked and read where it is now. A mask
   changed in a copy is refused (before, only the original was checked).

@@ -69,8 +69,10 @@ if TYPE_CHECKING:
 
 PREPROCESSING_COMMAND = (
     "morphobricks-preprocessing check <experiment> --masks <masks folder>, then "
+    "morphobricks-preprocessing design --output <output folder> --confirm GROUP (or --confirm-all, once the "
+    "repeat groups are comparable), then "
     "morphobricks-preprocessing run <experiment> --axes <roles> --masks <masks folder> "
-    "(leave out --masks without masks)"
+    "(leave out --masks without masks), or the preprocessing notebook"
 )
 
 _DEFAULT_AXES = "YX"
@@ -341,7 +343,7 @@ def patch_fovs(run: FileRun, fovs: Sequence[Fov], config: CellPatcherConfig) -> 
     if splits_planes(common):
         return _patch_planes(config, _plane_sources(run, fovs, metadata, config))
     images = [read_fov(run.inputs, fov, run.layout)[0] for fov in fovs]
-    masks = None if run.mask_type is None else [_read_mask(run, fov) for fov in fovs]
+    masks = None if run.mask_type is None else [read_run_mask(run, fov) for fov in fovs]
     return run_patching(images=images, masks=masks, config=config, image_metadata=metadata)
 
 
@@ -349,15 +351,15 @@ def _plane_sources(run: FileRun, fovs: Sequence[Fov], metadata: Sequence[dict], 
     """Yield ``(metadata, planes)`` per image, reading one image (and its mask) at a time."""
     common = config.common
     for fov, meta in zip(fovs, metadata):
-        mask = None if run.mask_type is None else _read_mask(run, fov)
+        mask = None if run.mask_type is None else read_run_mask(run, fov)
         planes = iter_fov_planes(
             run.inputs, fov, run.layout, mask, run.mask_axes, common, single_planes=config.normalization.enabled
         )
         yield meta, planes
 
 
-def _read_mask(run: FileRun, fov: Fov) -> np.ndarray:
-    """Read an image's mask of the run's type."""
+def read_run_mask(run: FileRun, fov: Fov) -> np.ndarray:
+    """Read an image's mask of the run's type, through ``RunInputs.read_mask``, in the run's mask layout."""
     return read_fov_mask(run.inputs, fov, _record(run.inputs, fov, run.mask_type), run.mask_axes)
 
 

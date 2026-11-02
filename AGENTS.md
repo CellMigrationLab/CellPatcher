@@ -16,12 +16,12 @@
 | Ecosystem   | MorphoBricks — one of several interconnected repos                                                                                                        |
 | Position    | Step 1 of 3 in the MorphoBricks pipeline (image patching)                                                                                                 |
 | Language    | Python 3.11+                                                                                                                                              |
-| Tests       | `PYTHONPATH=src python -m pytest -q` (equivalent to `pytest tests/` once the package is installed editable)                                              |
+| Tests       | `python tools/check.py` (pytest, Ruff and the MorphoBricks code rules against `tools/code_rules_baseline.json`, design v0.4 §9); `PYTHONPATH=src python -m pytest -q` for the tests alone |
 | Environment | `python -m pip install -e .` (add extras as needed: `.[test]`, `.[notebook]`, `.[torch]`) or `conda env create -f environment.yaml`                       |
 
 Key dependencies: `numpy`, `scipy`, `tifffile`, `imageio`, and the MorphoBricks bricks `morphobricks-preprocessing` and `morphobricks-normalization` from GitHub at pinned tags (core, required; normalization is declared at the tag the preprocessing tag pins, owner decision D-h, checked by `tests/test_dependency_pins.py`; histograms, the plane table, plane IDs, pooling and normalization parameters are imported from `morphobricks_normalization`, not from their deprecated preprocessing paths). Optional extras: `ipywidgets`, `matplotlib`, `pillow`, `tqdm`, `joblib`, `jl-hidecode` (notebook extra); `torch` (optional `cellpatcher.torch_dataset` adapter only — never a core dependency); `morphobricks-preprocessing[zarr]` at the same tag (`zarr` extra, formerly `preprocessing`: OME-Zarr images and OME-NGFF label masks).
 
-Current health snapshot (2026-10-29, after the normalization follow-ups C1–C5): 764 tests passing on Python 3.12 (Windows) with `torch` installed. Earlier (2026-10-28, schema version 4 with preprocessing `v0.3.0`): 728 passing, plus `test_torch_dataset.py::test_exported_patch_torch_dataset_filename_column_and_relative_path`, which failed on Windows only (it compared a `/` path with a `\` one; fixed on 2026-10-29). Earlier (schema version 3, preprocessing `v0.2.0`): 717 passing on Python 3.11 with `torch`. Earlier (2026-10-26): 685 passing, 4 skipped, on Python 3.11 and 3.13.
+Current health snapshot (2026-11-02, CP-3 after its review, preprocessing `v0.4.0rc2`, Python 3.11, Linux): `.[test,zarr]` 1057 passed, 11 skipped (7 torch, 4 notebook extra); `.[test]` 1036 passed, 32 skipped (21 zarr, 7 torch, 4 notebook extra); `.[test,zarr,notebook]` 1068 passed, 7 skipped (torch); the torch tests (`test_torch_dataset.py`, `test_delivery.py`, `test_biological_repeat.py`) also passed with CPU `torch` installed. Earlier (2026-10-29, after the normalization follow-ups C1–C5): 764 tests passing on Python 3.12 (Windows) with `torch` installed. Earlier (2026-10-28, schema version 4 with preprocessing `v0.3.0`): 728 passing, plus `test_torch_dataset.py::test_exported_patch_torch_dataset_filename_column_and_relative_path`, which failed on Windows only (it compared a `/` path with a `\` one; fixed on 2026-10-29). Earlier (schema version 3, preprocessing `v0.2.0`): 717 passing on Python 3.11 with `torch`. Earlier (2026-10-26): 685 passing, 4 skipped, on Python 3.11 and 3.13.
 
 ---
 
@@ -155,11 +155,14 @@ docs/
 
 notebooks/
   README.md
-  notebook_latest_versions.yaml
+  notebook_latest_versions.yaml   # LabConstrictor's index: equals the notebook's current_version
   CellPatcher/
-    CellPatcher.ipynb         
+    CellPatcher.ipynb     # calls cellpatcher.notebook_ui only (src/cellpatcher/notebook_*.py)
     requirements.yaml
-    CHANGELOG.md
+    CHANGELOG.md          # the package's changelog too (breaking changes, brick migration notes)
+
+tools/                # code standards (design v0.4 §9): check.py, the shared code_rules.py
+                      # (identical in every MorphoBricks repo), code_rules_baseline.json
 
 references/
   legacy_patch_generation/   # reference-only; DO NOT import from here
@@ -202,7 +205,8 @@ CellPatcher-specific conventions:
   `masks_root` say where a moved experiment is for `run_patching` at a CSV
   scope (owner decisions of 2026-11-02).
 * `image_axes`/`mask_axes` are explicit and axis-aware (see `axes.py`) for
-  in-memory arrays only (canonical, Y before X; a mask with X first is refused).
+  in-memory arrays only (canonical, Y before X; an image or mask with X first is
+  refused, images since v0.2.0rc1: `axes.refuse_transposed_inputs`).
   Image/mask pairing is the preprocessing run's (its `find_masks`; issue #45,
   owner decision 2026-10-30): TIFF masks named
   `<image>_<type>.tif` or `<type>/<image>.tif`, or an OME-Zarr image's label
@@ -261,7 +265,9 @@ preprocessing run (`common.preprocessing_run`, opened with `RunInputs`; see §4 
 `docs/configuration_reference.md`, "File runs read through the preprocessing
 run"): the images, their labels and `position_id`, their roles and their masks
 are the run's. A folder mask and a label image of one type for one image are
-refused by the preprocessing run (`duplicate_mask`, rc1). Since CP-2b CellPatcher
+refused by the preprocessing run (`duplicate_mask`). Since preprocessing v0.4.0rc2
+`RunInputs.open` refuses images or masks of the experiment that the run did not record
+(`unrecorded_files`): none is left out. Since CP-2b CellPatcher
 discovers, pairs and reads no file itself for any run: `validate_image_and_mask_folders`
 returns the run's recorded pairing and lazy delivery reads through the run
 (`iter_run_patch_arrays`). What the preprocessing run applied: images are found with

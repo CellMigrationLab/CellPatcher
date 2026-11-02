@@ -16,10 +16,29 @@ C/Z/T handling is explicit preprocessing (`prepare_*` helpers and iterators). Co
 
 ## Notebook hygiene
 
-- Use package APIs (`run_patching`, config dataclasses, helpers).
-- Keep `# @title` UI cells where used.
-- Strip outputs before committing.
-- Avoid duplicating backend patching logic in notebooks.
+- The CellPatcher notebook only creates `cellpatcher.notebook_ui.CellPatcherNotebook` and calls
+  one step per cell; its actions are `cellpatcher.notebook_session` (no widgets, tested
+  without them) and its pages `cellpatcher.notebook_ui`/`notebook_form`.
+- LabConstrictor portability (`.tools/docs/notebook_portability.md`): `# @title` first on every
+  code cell; Colab-only code (Drive, the widget manager, pip through `subprocess`) only inside
+  `if "google.colab" in sys.modules:`; no magics and no `/content` path outside it; the GitHub
+  install pinned to `RELEASE_TAG`; `current_version`/`notebook_name` with the
+  `notebooks/notebook_latest_versions.yaml` entry. `tests/test_notebook_file.py` checks these
+  and runs the notebook in a local kernel (nbclient).
+- Before tagging a release: set `RELEASE_TAG` and `current_version` in the notebook's first
+  cell, `version` in `setup.py` and `__version__` to the new version.
+- **No installer for a release candidate** (owner decision of 2026-11-02): an `rc` tag
+  (`v0.2.0rc1`) is installed with pip or on Colab only. The release workflow's
+  `.tools/python/bump_version.py` refuses a pre-release version with that reason before it
+  changes anything, so no installer is built; the installers are built at the final release
+  (`v0.2.0`). `tests/test_installers.py` checks the refusal (the `.tools` folder is synced from
+  the LabConstrictor template, which would drop it).
+- **Before the final v0.2.0 installer:** the template's `construct.yaml` copies the package to
+  `CellPatcher/src/cellpatcher/cellpatcher/`, where `setup.py` (`find_packages(where="src")`)
+  finds no package, so the installed app has no `cellpatcher` module (checked on 2026-11-02 by
+  copying the files as `construct.yaml` lists them and installing them). It has to be fixed,
+  with the LabConstrictor template, before the installers are built (CP-3b).
+- Strip outputs before committing; avoid duplicating backend patching logic in notebooks.
 
 ## Regenerate docs figures
 
@@ -30,13 +49,19 @@ PYTHONPATH=src python .tools/python/generate_docs_figures.py
 
 ## Validation and tests
 
-Primary test command:
+Before a pull request:
 
 ```bash
-PYTHONPATH=src python -m pytest -q
+python tools/check.py           # pytest, Ruff and the code rules
+python tools/check.py --rules   # only Ruff and the code rules (CI)
 ```
 
-Current health snapshot (latest audit): 417 tests passing.
+The code rules are the MorphoBricks standards (design v0.4 §9): the shared
+`tools/code_rules.py` (identical in every MorphoBricks repository, checked by its SHA-256),
+configured in `pyproject.toml`. Existing violations, and Ruff's findings counted per file,
+function and rule, are in `tools/code_rules_baseline.json`, which may only shrink
+(`--update-baseline` lowers it; it never adds an entry), with a ratchet on `# noqa` counts. New
+and moved code must comply.
 
 ## Demo fixture (for smoke tests and docs demos)
 

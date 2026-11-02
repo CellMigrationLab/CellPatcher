@@ -1,8 +1,9 @@
 """Open a clean preprocessing run through the brick's ``RunInputs`` (layer: io).
 
 Design v0.4 §6: CellPatcher reads a preprocessing run only through ``RunInputs.open``, which
-refuses a run before v0.4.0, a table or design whose SHA-256 is not the manifest's, and an
-image or mask changed or missing since the run. An experiment moved or copied since its run is
+refuses a run before v0.4.0, a table or design whose SHA-256 is not the manifest's, an
+image or mask changed or missing since the run and (since preprocessing v0.4.0rc2) an image or
+mask in the experiment that the run did not record. An experiment moved or copied since its run is
 opened with where it is now (``experiment_root``, ``masks_root``). Re-exported by
 :mod:`cellpatcher.statistics`, where these functions were before CP-2a. :func:`cached_statistics`
 (moved from :mod:`cellpatcher.normalization` in CP-2b) keeps an opened run for one call.
@@ -19,6 +20,7 @@ from cellpatcher.run_session import recalled, remember, session_statistics
 
 if TYPE_CHECKING:
     from morphobricks_normalization import PlaneRecord
+    from morphobricks_preprocessing import ValidationIssue
     from morphobricks_preprocessing.run_inputs import RunInputs
 
     from cellpatcher.config import NormalizationConfig
@@ -155,7 +157,8 @@ def open_run(
     """Open a clean preprocessing run with the brick's ``RunInputs.open``.
 
     ``RunInputs.open`` refuses a run written before v0.4.0, a table or design whose SHA-256 is
-    not the manifest's, and any image or mask of the run changed or missing (design v0.4 §6).
+    not the manifest's, any image or mask of the run changed or missing (design v0.4 §6) and,
+    since preprocessing v0.4.0rc2, any image or mask of the experiment the run did not record.
     *experiment_root* and *masks_root* say where the experiment and its masks folder are now,
     for an experiment moved or copied since the run (None: where the run recorded them); the
     images and masks there are the ones checked and read.
@@ -163,9 +166,10 @@ def open_run(
     Raises
     ------
     PreprocessingCheckError
-        ``preprocessing_run_refused`` with the brick's reason when ``RunInputs``
-        refuses the run, or ``unreadable_plane_histograms`` when its table
-        cannot be read.
+        ``unrecorded_files`` (images or masks the run did not record),
+        ``zarr_extra_missing`` or ``preprocessing_run_refused``, with the brick's
+        reason, when ``RunInputs`` refuses the run, or
+        ``unreadable_plane_histograms`` when its table cannot be read.
     """
     from morphobricks_normalization.csv_io import CsvFormatError
     from morphobricks_preprocessing.run_inputs import RunInputs, RunInputsError
@@ -183,16 +187,7 @@ def open_run(
         if _manifest_sha256(folder) != before:
             raise RunInputsError("its run_manifest.json changed while it was opened.")
     except RunInputsError as exc:
-        raise PreprocessingCheckError([
-            error(
-                "preprocessing_run_refused",
-                f"The preprocessing run in {folder} cannot be used: {exc}",
-                [str(folder)],
-                "Run preprocessing v0.4 on the experiment as it is now and give CellPatcher that run. For an "
-                "experiment only moved or copied since its run, give CellPatcher the experiment and masks "
-                "folder where they are now (the image folder or root, and mask_folder_path or mask_root_path).",
-            )
-        ]) from exc
+        raise PreprocessingCheckError([_refusal_issue(exc, folder)]) from exc
     except CsvFormatError as exc:
         raise PreprocessingCheckError([
             error(
@@ -204,6 +199,44 @@ def open_run(
         ]) from exc
     remember("manifest_sha256", folder, before)
     return inputs
+
+
+def _refusal_issue(exc: Exception, folder: Path) -> ValidationIssue:
+    """Return the issue for ``RunInputs.open`` refusing the run in *folder*, by its reason.
+
+    Since preprocessing v0.4.0rc2 the brick refuses a run whose experiment holds images or
+    masks it did not record (``UnrecordedFilesError``: none is ever left out), and a run
+    with OME-Zarr images when the zarr package is missing. Their messages say what to do;
+    every other refusal gets the generic advice.
+    """
+    from morphobricks_preprocessing.run_inputs import UnrecordedFilesError, ZarrUnavailableError
+    from morphobricks_preprocessing.validation import error
+
+    if isinstance(exc, UnrecordedFilesError):
+        files = [*exc.files.images, *exc.files.masks]
+        return error(
+            "unrecorded_files",
+            f"The preprocessing run in {folder} cannot be used: {exc}",
+            files,
+            "CellPatcher patches only the images the run recorded, and never leaves one out without a word: run "
+            "preprocessing again on the experiment as it is, or exclude those images in preprocessing.",
+        )
+    if isinstance(exc.__cause__, ZarrUnavailableError):
+        return error(
+            "zarr_extra_missing",
+            f"The preprocessing run in {folder} cannot be used: {exc}",
+            [str(folder)],
+            'Install CellPatcher with its zarr extra (pip install "cellpatcher[zarr]"; the notebook installs it '
+            "on Colab), then run CellPatcher again.",
+        )
+    return error(
+        "preprocessing_run_refused",
+        f"The preprocessing run in {folder} cannot be used: {exc}",
+        [str(folder)],
+        "Run preprocessing v0.4 on the experiment as it is now and give CellPatcher that run. For an "
+        "experiment only moved or copied since its run, give CellPatcher the experiment and masks "
+        "folder where they are now (the image folder or root, and mask_folder_path or mask_root_path).",
+    )
 
 
 def refuse_changed_manifest(output_folder: str | os.PathLike, opened_sha256: str) -> None:

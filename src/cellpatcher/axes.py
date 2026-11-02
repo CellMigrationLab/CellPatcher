@@ -114,3 +114,91 @@ def mapping_to_axes(mapping, ndim: int | None = None) -> str:
 
     axes = "".join(labels)
     return normalize_axes(axes)
+
+
+MASK_TRANSPOSE_HELP = (
+    "To fix the masks, give each one with Y before X, as its image: transpose its last two axes, "
+    "for example numpy.swapaxes(mask, -1, -2), then set common.mask_axes to those axes ('YX', "
+    "or 'ZYX'/'TYX' for a stack). Nothing is ever read transposed."
+)
+
+
+def refuse_transposed_mask_axes(mask_axes: str) -> None:
+    """Refuse ``common.mask_axes`` that put X before Y: CellPatcher cannot read a mask transposed.
+
+    The cell and random strategies take a label plane's two dimensions as Y
+    and X in their stored order, so a mask declared with X first (``'XY'``,
+    ``'ZXY'``) would be taken as if Y came first: the patches would not
+    match their objects (on a square image without any error).
+    Refused, never ignored (owner decision of 31 October 2026). Only
+    in-memory masks are declared: a folder or tree run reads each mask in the
+    roles its preprocessing run recorded. :data:`MASK_TRANSPOSE_HELP` says how
+    to fix the masks.
+    """
+    if mask_axes is None:
+        return
+    axes = normalize_axes(mask_axes)
+    if "X" in axes and "Y" in axes and axes.index("X") < axes.index("Y"):
+        raise ValueError(
+            f"common.mask_axes={mask_axes!r} puts X before Y, but CellPatcher cannot read a mask "
+            "transposed: it takes a label plane's dimensions as Y, X in their stored order, so the "
+            f"mask would not match its image. {MASK_TRANSPOSE_HELP}"
+        )
+
+
+IMAGE_TRANSPOSE_HELP = (
+    "To fix the images, give each one with Y before X: swap its two spatial axes, for example "
+    "numpy.swapaxes(image, -1, -2) when they are the last two, then set common.image_axes to the "
+    "new order ('YX', 'CYX', ...). Nothing is ever read transposed."
+)
+
+
+def refuse_transposed_image_axes(image_axes: str) -> None:
+    """Refuse ``common.image_axes`` that put X before Y for in-memory images.
+
+    In-memory arrays are taken only in the canonical layout, Y before X (design v0.4 §6: a
+    canonical-only layout argument, no swaps), as in-memory masks already are
+    (:func:`refuse_transposed_mask_axes`). With X first (``'XY'``, ``'CXY'``) every patch's
+    ``y0``/``y1`` would index the array's second spatial dimension and ``x0``/``x1`` its
+    first, so ``patches.csv`` would give the coordinates of the transposed image, not of the
+    array given. Folder and tree runs declare no axes: they read each file in the roles its
+    preprocessing run recorded.
+
+    Parameters
+    ----------
+    image_axes
+        The declared axes of the in-memory images.
+
+    Raises
+    ------
+    ValueError
+        When X comes before Y, with :data:`IMAGE_TRANSPOSE_HELP`.
+    """
+    axes = normalize_axes(image_axes)
+    if "X" in axes and "Y" in axes and axes.index("X") < axes.index("Y"):
+        raise ValueError(
+            f"common.image_axes={image_axes!r} puts X before Y, but CellPatcher takes in-memory images only "
+            "with Y before X (design v0.4 §6): the patch coordinates y0/y1 and x0/x1 would refer to the "
+            f"array's swapped dimensions. {IMAGE_TRANSPOSE_HELP}"
+        )
+
+
+def refuse_transposed_inputs(image_axes: str, mask_axes: str | None, images: object, masks: object) -> None:
+    """Refuse the declared axes of in-memory images and masks that put X before Y.
+
+    Parameters
+    ----------
+    image_axes, mask_axes
+        ``common.image_axes`` and ``common.mask_axes``.
+    images, masks
+        The in-memory images and masks; the axes of each are checked when it is given.
+
+    Raises
+    ------
+    ValueError
+        From :func:`refuse_transposed_image_axes` or :func:`refuse_transposed_mask_axes`.
+    """
+    if images is not None:
+        refuse_transposed_image_axes(image_axes)
+    if masks is not None:
+        refuse_transposed_mask_axes(mask_axes)

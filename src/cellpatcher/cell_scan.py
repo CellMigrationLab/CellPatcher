@@ -5,7 +5,12 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from cellpatcher.axes import normalize_axes, require_spatial_axes
+from cellpatcher.axes import (
+    normalize_axes,
+    refuse_transposed_image_axes,
+    refuse_transposed_mask_axes,
+    require_spatial_axes,
+)
 from cellpatcher.config import CellConfig
 from cellpatcher.object_geometry import object_boxes
 from cellpatcher.strategies.cell import CellSegmentationStrategy
@@ -134,6 +139,10 @@ def scan_cell_objects(*, image_shape, labels, image_id=None, config=None, image_
         One record per non-zero label, sorted by label id.
     """
     local_config = config if config is not None else CellConfig()
+    # In-memory arrays take Y before X only (design v0.4 §6): the sizes of a mask declared with
+    # X first would be those of the transposed mask (bbox_height its width), so it is refused.
+    refuse_transposed_image_axes(image_axes)
+    refuse_transposed_mask_axes(mask_axes)
 
     # Resolve the image's Y/X spatial extent so per-object border checks
     # below know where the image edges actually are.

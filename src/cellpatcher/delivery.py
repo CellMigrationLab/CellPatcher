@@ -33,9 +33,9 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from cellpatcher.axes import normalize_axes
+from cellpatcher.axes import normalize_axes, refuse_transposed_image_axes, refuse_transposed_mask_axes
 from cellpatcher.extract import extract_patch
-from cellpatcher.io import read_array, refuse_transposed_mask_axes
+from cellpatcher.io import read_array
 from cellpatcher.masking import apply_label_mask_to_patch
 from cellpatcher.normalization import PatchNormalization, parameters_from_row
 from cellpatcher.planes import apply_plane_choice, patch_plane_choice, select_mask_plane
@@ -217,8 +217,9 @@ def _splits_channel(config, patch, axes: str) -> bool:
 
 
 def _image_plane(image: np.ndarray, choice: PlaneChoice, config: CellPatcherConfig) -> tuple[np.ndarray, str]:
-    """Return the plane *choice* of an in-memory image, refusing a file path."""
+    """Return the plane *choice* of an in-memory image, refusing a file path or X before Y."""
     _refuse_file(image, "image")
+    refuse_transposed_image_axes(config.common.image_axes)
     return apply_plane_choice(image, config.common.image_axes, choice)
 
 
