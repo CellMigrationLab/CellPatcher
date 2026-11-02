@@ -1,0 +1,284 @@
+"""What the CellPatcher notebook does with a preprocessing run, without any widget (layer: orchestration).
+
+The notebook (:mod:`cellpatcher.notebook_ui`) only shows these results. Since v0.2.0 every
+file is read through the preprocessing run's ``RunInputs`` (design v0.4 §6): the user points
+the notebook to the run's output folder and, only for an experiment moved or copied since its
+run, to where the experiment and its masks folder are now. Nothing here discovers, pairs or
+reads a file itself: :func:`summarize_run` opens the run, :func:`preview_image` patches one
+of its images in memory with the file-run code, :func:`scan_object_sizes` measures the
+objects of its masks, and :func:`export_patches_of_run` is
+:func:`cellpatcher.run_patching_condition_repeat_tree` with one combined table.
+"""
+
+from __future__ import annotations
+
+import os
+from collections import Counter
+from collections.abc import Callable
+from dataclasses import dataclass, replace
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+from cellpatcher.cell_scan import scan_cell_patch_size
+from cellpatcher.file_runs import (
+    masks_used,
+    open_file_run,
+    patch_fovs,
+    read_run_mask,
+    run_config_for,
+)
+from cellpatcher.orchestration import run_patching_condition_repeat_tree
+from cellpatcher.run_open import open_run
+from cellpatcher.run_reading import run_layout
+from cellpatcher.run_session import statistics_session
+
+if TYPE_CHECKING:
+    import numpy as np
+
+    from cellpatcher.cell_scan import CellPatchSizeSummary
+    from cellpatcher.config import CellPatcherConfig
+    from cellpatcher.orchestration import ConditionRepeatResult
+    from cellpatcher.pipeline import PatchingResult
+
+PREVIEW_WHERE = "The notebook preview"
+"""How the preview names itself in a refusal."""
+
+
+@dataclass(frozen=True)
+class RunSummary:
+    """A clean preprocessing run, as the notebook shows it before patching.
+
+    Attributes
+    ----------
+    run
+        The run's output folder.
+    experiment_root, masks_root
+        Where the experiment and its masks folder are read from (given, or where the run
+        recorded them); ``masks_root`` is None for a run without a masks folder.
+    moved_experiment, moved_masks
+        Whether the user gave where the experiment or its masks folder is now; only then are
+        they passed to the run (otherwise the run's recorded places are used).
+    images
+        The run's images, relative to the experiment root, sorted.
+    groups
+        ``((condition, biological_repeat, technical_repeat), number of images)``, sorted.
+    channels
+        The channel names of the first image (``C0``, ``C1``, ... when it names none).
+    layout
+        The canonical layout of the run's image arrays (:func:`cellpatcher.run_reading.run_layout`).
+    mask_types
+        The mask types the run recorded.
+    image_type
+        The image type the user confirmed in preprocessing, or None.
+    """
+
+    run: Path
+    experiment_root: Path
+    masks_root: Path | None
+    moved_experiment: bool
+    moved_masks: bool
+    images: tuple[str, ...]
+    groups: tuple[tuple[tuple[str, str, str], int], ...]
+    channels: tuple[str, ...]
+    layout: str
+    mask_types: tuple[str, ...]
+    image_type: str | None
+
+    @property
+    def experiment_argument(self) -> Path:
+        """The experiment root to give a file run: where it is now (the run needs one)."""
+        return self.experiment_root
+
+    @property
+    def masks_argument(self) -> Path | None:
+        """The masks folder to give a file run: only when the user said where it is now."""
+        return self.masks_root if self.moved_masks else None
+
+
+def _path_or_none(text: str | os.PathLike | None) -> Path | None:
+    """Return *text* as a path with ``~`` expanded, or None for an empty value."""
+    if text is None or not str(text).strip():
+        return None
+    return Path(str(text).strip()).expanduser()
+
+
+def summarize_run(
+    preprocessing_run: str | os.PathLike,
+    experiment_root: str | os.PathLike | None = None,
+    masks_root: str | os.PathLike | None = None,
+) -> RunSummary:
+    """Open a clean preprocessing run with ``RunInputs.open`` and summarize what it recorded.
+
+    Parameters
+    ----------
+    preprocessing_run
+        The run's output folder.
+    experiment_root, masks_root
+        Where the experiment and its masks folder are now, only for an experiment moved or
+        copied since its run; empty or None: where the run recorded them.
+
+    Returns
+    -------
+    RunSummary
+
+    Raises
+    ------
+    PreprocessingCheckError
+        When ``RunInputs`` refuses the run: a run before v0.4, a changed, missing or
+        unrecorded image or mask (``unrecorded_files``), and so on.
+    ValueError
+        For a run without images.
+    """
+    run, given_root, given_masks = (_path_or_none(path) for path in (preprocessing_run, experiment_root, masks_root))
+    if run is None:
+        raise ValueError("Give the preprocessing run's output folder (the folder holding run_manifest.json).")
+    with statistics_session():
+        inputs = open_run(run, experiment_root=given_root, masks_root=given_masks)
+    fovs = inputs.fovs()
+    if not fovs:
+        raise ValueError(f"The preprocessing run in {run} has no images.")
+    groups = Counter(fov.key[:3] for fov in fovs)
+    names = fovs[0].channel_names or (None,) * fovs[0].c_count
+    return RunSummary(
+        run=run,
+        experiment_root=inputs.experiment_root,
+        masks_root=inputs.masks_root,
+        moved_experiment=given_root is not None,
+        moved_masks=given_masks is not None,
+        images=tuple(fov.relative_path for fov in fovs),
+        groups=tuple(sorted(groups.items())),
+        channels=tuple(name or f"C{index}" for index, name in enumerate(names)),
+        layout=run_layout(fovs),
+        mask_types=inputs.mask_types(),
+        image_type=inputs.image_type(),
+    )
+
+
+def file_run_config(config: CellPatcherConfig, summary: RunSummary) -> CellPatcherConfig:
+    """Return *config* set to read *summary*'s run: ``common.preprocessing_run`` and no file axes."""
+    common = replace(config.common, preprocessing_run=str(summary.run), image_axes="YX", mask_axes="YX")
+    return replace(config, common=common)
+
+
+@dataclass(frozen=True)
+class Preview:
+    """One image of the run patched in memory, nothing written.
+
+    Attributes
+    ----------
+    image
+        The image's relative path in the experiment.
+    plane
+        Its first plane (first T and Z, every channel), ``CYX``, as ``RunInputs.read_plane``
+        gives it.
+    result
+        The patches of the whole image, with their arrays.
+    """
+
+    image: str
+    plane: np.ndarray
+    result: PatchingResult
+
+
+def preview_image(config: CellPatcherConfig, summary: RunSummary, image: str) -> Preview:
+    """Patch one image of the run in memory, through the run, as a tree run would.
+
+    Parameters
+    ----------
+    config
+        The settings (``export`` is turned off and arrays are kept).
+    summary
+        The opened run (:func:`summarize_run`).
+    image
+        One of ``summary.images``.
+
+    Returns
+    -------
+    Preview
+    """
+    config = file_run_config(config, summary)
+    config = replace(config, export=replace(config.export, enabled=False))
+    config.common.extract_arrays = True
+    with statistics_session():
+        use_masks = masks_used(config, summary.masks_argument)
+        run = open_file_run(
+            config, summary.experiment_argument, summary.masks_argument, use_masks=use_masks, where=PREVIEW_WHERE
+        )
+        chosen = [fov for fov in run.fovs if fov.relative_path == image]
+        if not chosen:
+            raise ValueError(f"Choose an image of the preprocessing run to preview; {image!r} is not one of them.")
+        (fov,) = chosen
+        result = patch_fovs(run, [fov], run_config_for(config, run, fov.key[:3]))
+        plane = run.inputs.read_plane(fov, 0, 0)
+    return Preview(image=image, plane=plane, result=result)
+
+
+def scan_object_sizes(config: CellPatcherConfig, summary: RunSummary) -> CellPatchSizeSummary:
+    """Measure the objects of every mask of the run's mask type, with the cell settings of *config*.
+
+    Each mask is read through the run (``RunInputs.read_mask``); the sizes are those
+    :func:`cellpatcher.scan_cell_patch_size` gives, from which a dataset patch size is chosen.
+    """
+    config = file_run_config(replace(config, mode="cell"), summary)
+    with statistics_session():
+        run = open_file_run(
+            config, summary.experiment_argument, summary.masks_argument, use_masks=True, where="The object scan"
+        )
+        masks = [read_run_mask(run, fov) for fov in run.fovs]
+    shapes = [mask.shape for mask in masks]
+    return scan_cell_patch_size(shapes, masks, config=config.cell, image_axes=run.mask_axes, mask_axes=run.mask_axes)
+
+
+def refuse_output_inside_inputs(output_dir: Path, summary: RunSummary) -> None:
+    """Refuse an output folder inside the experiment, its masks folder or the preprocessing run.
+
+    Raises
+    ------
+    ValueError
+        Naming the folder it is inside.
+    """
+    output = output_dir.resolve()
+    for name, folder in (("experiment", summary.experiment_root), ("masks", summary.masks_root),
+                         ("preprocessing run", summary.run)):
+        if folder is not None and (output == folder.resolve() or folder.resolve() in output.parents):
+            raise ValueError(
+                f"The output folder {output_dir} is inside the {name} folder {folder}. Choose a folder outside it, "
+                "for example next to the experiment."
+            )
+
+
+def export_patches_of_run(
+    config: CellPatcherConfig,
+    summary: RunSummary,
+    output_dir: str | os.PathLike,
+    progress: Callable | None = None,
+) -> list[ConditionRepeatResult]:
+    """Patch every image of the run and export them, with one ``patches.csv`` for the experiment.
+
+    :func:`cellpatcher.run_patching_condition_repeat_tree` with ``combine_metadata=True``:
+    ``patches.csv``, ``images.csv`` and ``run_config.json`` in *output_dir*, the patch files in
+    ``<condition>/<biological_repeat>[/<technical_repeat>]`` below it.
+
+    Raises
+    ------
+    ValueError
+        For an output folder inside the inputs (:func:`refuse_output_inside_inputs`), or as
+        the tree run.
+    PreprocessingCheckError
+        As the tree run (the run is opened again, so a file changed since the summary is refused).
+    """
+    output = _path_or_none(output_dir)
+    if output is None:
+        raise ValueError("Give the output folder for the patches.")
+    refuse_output_inside_inputs(output, summary)
+    config = file_run_config(config, summary)
+    config = replace(config, export=replace(config.export, enabled=True))
+    config.common.output_dir = str(output)
+    return run_patching_condition_repeat_tree(
+        summary.experiment_argument,
+        config=config,
+        mask_root_path=summary.masks_argument,
+        combine_metadata=True,
+        progress_callback=progress,
+    )
+

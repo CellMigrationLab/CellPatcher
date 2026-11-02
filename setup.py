@@ -2,7 +2,7 @@ from setuptools import find_packages, setup
 
 setup(
     name="cellpatcher",
-    version="0.1.2",
+    version="0.2.0rc1",
     package_dir={"": "src"},
     packages=find_packages(where="src"),
     python_requires=">=3.11",
