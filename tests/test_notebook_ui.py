@@ -12,12 +12,12 @@ import tifffile
 pytest.importorskip("ipywidgets", reason="the notebook extra installs ipywidgets")
 pytest.importorskip("matplotlib", reason="the notebook extra installs matplotlib")
 
-import matplotlib  # noqa: E402
+import matplotlib
 
 matplotlib.use("Agg")
 
-from cellpatcher.notebook_ui import CellPatcherNotebook, issue_card  # noqa: E402
-from cellpatcher.statistics import PreprocessingCheckError  # noqa: E402
+from cellpatcher.notebook_ui import CellPatcherNotebook, issue_card
+from cellpatcher.statistics import PreprocessingCheckError
 
 
 @pytest.fixture

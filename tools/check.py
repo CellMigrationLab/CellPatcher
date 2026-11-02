@@ -19,6 +19,9 @@ under ``[tool.morphobricks.code-rules]`` (owner, package, layers, baseline file)
 CellPatcher adopted the standards (design v0.4 §9) with existing debt, so Ruff's findings
 go through the same shrink-only baseline as the code rules: each is counted per file,
 function and rule (:func:`ruff_problems`), and a function may not gain a finding of a rule.
+Ruff runs with ``--ignore-noqa``: a ``# noqa`` comment suppresses nothing here, so no rule can be
+silenced past the baseline (the shared ``# noqa`` ratchet counts only C901, PLR0913, PLR0915 and
+ANN, and Ruff would otherwise honour a new ``# noqa: F401`` without a word).
 """
 
 from __future__ import annotations
@@ -89,8 +92,8 @@ def _enclosing_function(spans: list[tuple[int, int, str]], line: int) -> str:
 
 
 def ruff_findings() -> list[dict]:
-    """Return Ruff's findings on the linted folders (its JSON output)."""
-    command = [sys.executable, "-m", "ruff", "check", "--no-cache", "--exit-zero"]
+    """Return Ruff's findings on the linted folders (its JSON output), ``# noqa`` ignored."""
+    command = [sys.executable, "-m", "ruff", "check", "--no-cache", "--exit-zero", "--ignore-noqa"]
     command += ["--output-format=json", *LINTED]
     result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, check=True)
     return json.loads(result.stdout)

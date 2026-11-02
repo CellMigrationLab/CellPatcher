@@ -207,3 +207,12 @@ def test_ruff_findings_are_counted_per_function_and_rule(tmp_path, monkeypatch):
     module_level = [{**finding(1, "unsorted-imports"), "location": {"row": 5}}]
     (tmp_path / "m.py").write_text(source + "import os\n", encoding="utf-8")
     assert check.ruff_problems(module_level) == ["m.py <module>: 1 Ruff findings unsorted-imports"]
+
+
+def test_a_noqa_comment_silences_no_ruff_finding(tmp_path, monkeypatch):
+    """A new ``# noqa`` for a rule outside the shared ratchet still counts against the baseline."""
+    monkeypatch.setattr(check, "ROOT", tmp_path)
+    monkeypatch.setattr(check, "LINTED", ("pkg",))
+    (tmp_path / "pkg").mkdir()
+    (tmp_path / "pkg" / "m.py").write_text(f"import os  {NOQA}: F401\n", encoding="utf-8")
+    assert "pkg/m.py <module>: 1 Ruff findings unused-import" in check.ruff_problems(check.ruff_findings())
