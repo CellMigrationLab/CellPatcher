@@ -302,13 +302,17 @@ design **[D12]**:
   `percentile_normalize` and `minmax_normalize` functions: each use emits a
   `DeprecationWarning` naming the replacement. Combining them with the new normalization is
   an error, to prevent normalizing twice.
-- `PatchTensorConfig.scale_policy="auto"` (the default): a `DeprecationWarning` when it
+- `PatchTensorConfig.scale_policy="auto"` (the default until v0.2.0rc1): a `DeprecationWarning` when it
   actually rescales an integer patch. It never rescales normalized float patches. Since the
   CP-3b review the warning is a `ScalePolicyDeprecationWarning`, shown under Python's default
   warning filters (a library's `DeprecationWarning` was hidden, so the dataset rescaled without
   a word), and every dataset item records the divisor (`scale_divisor`, 1.0 when unscaled).
-- Removal and the change of the `scale_policy` default happen in a later version, with
-  owner approval (AGENTS.md §8).
+- The default changed in v0.2.0 (CP-4, owner decision of 2026-11-02): `scale_policy` has no
+  default (an omitted one is a `TypeError` naming `"none"` and `"auto"`), so code written for
+  `"auto"` stops instead of receiving unscaled values without a word, and `channel_policy`
+  defaults to `"keep"`; `"repeat_to_rgb"` is done only when named and recorded per item
+  (`channel_repeat`). Removal of `"auto"` happens in a later version, with owner approval
+  (AGENTS.md §8).
 
 ## 7. Delivery
 

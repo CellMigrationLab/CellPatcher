@@ -271,8 +271,11 @@ Torch integration is optional. CellPatcher does not run DINO/Torch inference in 
 
 - Import from `cellpatcher.torch_dataset`
 - Dataset returns `C,H,W` tensors
+- `tensor_config=PatchTensorConfig(scale_policy=...)` is required (since v0.2.0): `scale_policy` has no default, and an omitted one is a `TypeError` naming the choices
+- `scale_policy="none"` keeps the values; normalize patches with `config.normalization` (normalized float patches are never rescaled)
+- `scale_policy="auto"` divides an integer patch by its dtype maximum (the default before v0.2.0); it does not percentile-normalize or ImageNet-normalize data. It is **deprecated**: it warns when it rescales (`ScalePolicyDeprecationWarning`, shown under Python's default filters), and each item records the divisor (`scale_divisor`, 1.0 when unscaled)
+- `channel_policy` defaults to `"keep"`, the channels as exported; `"repeat_to_rgb"` (the default before v0.2.0) repeats a single channel to three for RGB models, and each item records it (`channel_repeat`: 3 when repeated, else 1)
 - Use your own transform for ImageNet/DINO normalization
-- `scale_policy="auto"` scales integer arrays by dtype max; it does not percentile-normalize or ImageNet-normalize data. This rescaling is **deprecated**: it warns when it rescales (`ScalePolicyDeprecationWarning`, shown under Python's default filters) and each item records the divisor (`scale_divisor`, 1.0 when unscaled). Normalize patches with `config.normalization` and use `scale_policy="none"`; normalized float patches are never rescaled
 - For non-singleton Z/T, preprocess first with `prepare_image_for_patching(...)`, `iter_image_planes_for_patching(...)`, or `iter_cell_planes_for_patching(...)`
 - Keep `extra_metadata_by_image_id` values DataLoader-collate-friendly (for example strings, numbers, lists, or small dictionaries)
 
@@ -291,7 +294,8 @@ dataset = PatchTorchDataset(
     masks=labels,
     mask_axes=config.common.mask_axes,
     extraction=config.extraction,
-    tensor_config=PatchTensorConfig(channel_policy="repeat_to_rgb"),
+    # RGB model: repeat a single channel to three; values as normalized by config.normalization.
+    tensor_config=PatchTensorConfig(channel_policy="repeat_to_rgb", scale_policy="none"),
     transform=dinov2_transform,
 )
 
@@ -313,6 +317,7 @@ dataset = PatchTorchDataset(
     patches=result.patches,
     image_axes=planes[0].axes,
     extra_metadata_by_image_id=plane_lookup,
+    tensor_config=PatchTensorConfig(scale_policy="none"),
 )
 ```
 
@@ -349,7 +354,7 @@ result = run_patching(images=image, config=config, image_metadata=[{"position_id
 dataset = ExportedPatchTorchDataset(
     result.metadata_file,
     axes=config.common.image_axes,
-    tensor_config=PatchTensorConfig(channel_policy="repeat_to_rgb"),
+    tensor_config=PatchTensorConfig(channel_policy="repeat_to_rgb", scale_policy="none"),
     transform=dinov2_transform,
 )
 ```

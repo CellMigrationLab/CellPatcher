@@ -79,7 +79,8 @@ index per plane:
 | C | `split_channels=True` (one patch per channel) or a list of channel indices (one patch per selected channel), `channel_policy="select"`/`"first"`, or channels kept together in one patch | `channel_policy="max"`/`"mean"` (merged channels) and `"repeat_to_rgb"` in the preparation helpers |
 
 Repeating a normalized grayscale patch to RGB stays available in the torch adapters
-(`PatchTensorConfig.channel_policy="repeat_to_rgb"`), which run after normalization.
+(`PatchTensorConfig.channel_policy="repeat_to_rgb"`, only when named since v0.2.0, recorded per
+item as `channel_repeat`), which run after normalization.
 
 **Plane identity.** A row of `plane_histograms.csv` (schema version 4) is an XYC plane: every
 channel of an image at one Z and T, each channel's histogram in its own columns. It is
@@ -348,11 +349,19 @@ and suggests an action, in the preprocessing brick's style. Technical details go
 ## 15. Deprecations
 
 Deprecated when Milestone 3 is merged; each use emits one `DeprecationWarning` naming the
-replacement (`config.normalization`). Removal, and changing the `scale_policy` default, need
-owner approval in a later version.
+replacement (`config.normalization`). Removal needs owner approval in a later version.
+
+**No default rescaling or channel repetition (v0.2.0, CP-4, owner decision of 2026-11-02).**
+`PatchTensorConfig.scale_policy` has **no default**: an omitted one is a `TypeError` naming
+`"none"` (keep the values) and `"auto"` (deprecated); `channel_policy` defaults to `"keep"`.
+Requiring the choice, rather than defaulting to `"none"`, follows the science rules: code written
+for the old default (`"auto"`) stops with an error instead of receiving values up to 65535 times
+larger without a word, an implicit change of normalization either way; each caller's choice is
+then explicit and stated in its code. A rescale (`"auto"`) or a repetition (`"repeat_to_rgb"`) is
+done only when named and recorded per dataset item (`scale_divisor`, `channel_repeat`).
 
 | Deprecated | Where |
 |---|---|
 | `normalize=`, `percentile=` arguments (**removed in v0.1.1**, D86) | `prepare_image_for_patching`, `iter_image_planes_for_patching`, `iter_cell_planes_for_patching` |
 | `percentile_normalize`, `minmax_normalize` (**removed in v0.1.1**, D86) | `cellpatcher.preprocess` |
-| `scale_policy="auto"` rescaling an integer patch by its dtype maximum (the default) | `PatchTensorConfig` in `cellpatcher.torch_dataset`; it never rescales normalized float patches. Its warning is a `ScalePolicyDeprecationWarning` (a `DeprecationWarning` shown under Python's default filters), and each dataset item records the divisor (`scale_divisor`) |
+| `scale_policy="auto"` rescaling an integer patch by its dtype maximum (the default until v0.2.0rc1; since v0.2.0 only when named, no default) | `PatchTensorConfig` in `cellpatcher.torch_dataset`; it never rescales normalized float patches. Its warning is a `ScalePolicyDeprecationWarning` (a `DeprecationWarning` shown under Python's default filters), and each dataset item records the divisor (`scale_divisor`) |
