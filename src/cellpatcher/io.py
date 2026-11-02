@@ -760,8 +760,8 @@ def header_axes_disagreement(path: str | os.PathLike, declared_axes: str) -> tup
     """Check *declared_axes* against a TIFF file's header with the preprocessing brick's rule.
 
     The declared axes are the file's roles, checked with the brick's
-    ``check_mapping`` and ``header_axis_issue`` (design v0.4 §3; CellPatcher
-    keeps no copy): they may name what the header leaves open, never
+    ``review_axes`` (``check_mapping`` and ``header_axis_issue``, design v0.4
+    §3; CellPatcher keeps no copy): they may name what the header leaves open, never
     contradict an axis it names. A Y/X swap is refused like any contradiction:
     nothing is ever read transposed. OME-Zarr images are matched by role when
     read (:func:`conform_axes`), not here.
@@ -782,19 +782,20 @@ def header_axes_disagreement(path: str | os.PathLike, declared_axes: str) -> tup
 
 
 def _declared_axes_problem(meta: TiffMetadata, declared: str) -> str | None:
-    """Return the preprocessing brick's errors for roles *declared* on a TIFF header, or None."""
-    from morphobricks_preprocessing import AXIS_ERROR_CODES, AxisMapping, check_mapping, header_axis_issue
-    from morphobricks_preprocessing.axis_check import axis_check_issues
+    """Return the errors of the brick's ``review_axes`` for roles *declared* on a TIFF header, or None.
+
+    ``review_axes`` runs ``check_mapping`` and the axis check (``header_axis_issue``) on the
+    file; its warnings (``axes_not_named``: a plain stack read with the declared roles) do
+    not block. An unreadable header, which ``review_axes`` leaves out, is refused here.
+    """
+    from morphobricks_preprocessing import AxisMapping, review_axes
 
     if not meta.readable:
         return f"The header of {meta.relative_path} could not be read, so its axes cannot be checked."
     if len(declared) != len(meta.axes):
         return f"{meta.relative_path}: {len(declared)} declared for {len(meta.axes)} dimensions ({meta.axes!r})."
-    mapping = AxisMapping(meta.axes, tuple(declared))
-    issues = [issue for issue in check_mapping(mapping, [meta]) if issue.is_error]
-    code = header_axis_issue(meta, mapping)
-    if code in AXIS_ERROR_CODES:
-        issues += axis_check_issues({code: [(meta, mapping)]})
+    review = review_axes([meta], AxisMapping(meta.axes, tuple(declared)))
+    issues = [issue for issue in review.issues if issue.is_error]
     if not issues:
         return None
     return " ".join(f"{meta.relative_path}: [{issue.code}] {issue.message} {issue.action}" for issue in issues)

@@ -1,7 +1,8 @@
 """Declared axes against file headers: the preprocessing brick's axis check (design v0.4 §3).
 
 CellPatcher keeps no copy of the rule: the declared axes are checked as the
-file's roles with the brick's ``check_mapping`` and ``header_axis_issue``. A
+file's roles with the brick's ``review_axes`` (``check_mapping`` and
+``header_axis_issue``). A
 declaration may name what a header leaves open and never contradict it. Since
 preprocessing v0.4.0 a Y/X swap is refused like any other contradiction:
 nothing is ever read transposed (``check_declared_axes`` and
@@ -41,13 +42,13 @@ def test_the_shared_rule_is_the_preprocessing_brick_s(tmp_path, monkeypatch):
     import morphobricks_preprocessing
 
     calls = []
-    check = morphobricks_preprocessing.header_axis_issue
+    check = morphobricks_preprocessing.review_axes
 
-    def recording(meta, mapping):
-        calls.append((meta.relative_path, mapping.roles_string))
-        return check(meta, mapping)
+    def recording(files, mapping):
+        calls.extend((meta.relative_path, mapping.roles_string) for meta in files)
+        return check(files, mapping)
 
-    monkeypatch.setattr(morphobricks_preprocessing, "header_axis_issue", recording)
+    monkeypatch.setattr(morphobricks_preprocessing, "review_axes", recording)
     write_tiff(tmp_path / "exp" / "a.tif", np.zeros((3, 16, 16), dtype=np.uint8), "ZYX")
     run_patching_pipeline(str(tmp_path / "exp"), config=_grid_config("ZYX"))
     assert ("a.tif", "ZYX") in calls
