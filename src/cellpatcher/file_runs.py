@@ -12,9 +12,9 @@ and read where it is now). Then:
   with ``RunInputs.read_mask`` by the run's pairing (:mod:`cellpatcher.run_reading`);
 - the CSV normalization scopes read the run's own table, design and image type.
 
-The settings that told CellPatcher how to read files (``common.image_axes``, ``mask_axes``,
-``mask_source``, ``mask_label_name`` and the labels) are refused for file runs with a
-migration message; CP-2b removes them. In-memory ``run_patching`` keeps them.
+The settings that told CellPatcher how to read files (``common.image_axes``, ``mask_axes`` and
+the labels) are refused for file runs with a migration message; in-memory ``run_patching``
+keeps them. ``mask_source`` and ``mask_label_name`` were removed in v0.2.0 (CP-2b).
 """
 
 from __future__ import annotations
@@ -126,12 +126,6 @@ def refuse_file_run_settings(config: CellPatcherConfig, where: str) -> None:
         for name in ("image_axes", "mask_axes")
         if getattr(common, name) != _DEFAULT_AXES
     ]
-    if common.mask_source != "tiff_tree" or common.mask_label_name is not None:
-        problems.append(
-            f"common.mask_source={common.mask_source!r}, common.mask_label_name={common.mask_label_name!r}: the "
-            "masks are those the preprocessing run paired (masks-folder TIFFs and OME-Zarr label images); "
-            "choose the type with matching.mask_type (a label image's type is its name)"
-        )
     problems += [
         f"common.{name}={getattr(common, name)!r}: each image's labels are its folders, as the preprocessing "
         "run recorded them; leave it unset"
@@ -142,8 +136,7 @@ def refuse_file_run_settings(config: CellPatcherConfig, where: str) -> None:
         raise ValueError(
             f"{where} reads the images, masks and labels through the preprocessing run since CellPatcher "
             "v0.2.0 (design v0.4 §6), so these settings are not used for files: " + "; ".join(problems) + ". "
-            "The axes and labels still describe in-memory arrays given to run_patching; mask_source and "
-            "mask_label_name are not used there."
+            "The axes and labels still describe in-memory arrays given to run_patching."
         )
     if common.preprocessing_run is None:
         _refuse_without_run(where)
@@ -375,14 +368,13 @@ def fov_metadata(run: FileRun, fov: Fov, config: CellPatcherConfig) -> dict:
 
     The FOV key is the run's (``position_id`` and ``technical_repeat`` included); the mask
     file and, in ``cell`` mode without ``common.object_set``, the object set come from the
-    recorded mask and its type. Nothing is read transposed (``image_read_transposed`` False).
+    recorded mask and its type.
     """
     meta = {
         "image_file": PurePosixPath(fov.relative_path).name,
         "source_relative_path": fov.relative_path,
         "position_id": fov.key[3],
         "technical_repeat": fov.key[2],
-        "image_read_transposed": False,
     }
     if run.mask_type is not None:
         meta["mask_file"] = mask_file_name(_record(run.inputs, fov, run.mask_type))

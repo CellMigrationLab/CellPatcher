@@ -44,6 +44,9 @@ from cellpatcher.run_session import recalled
 RUN_CONFIG_VERSION = 2
 READ_VERSIONS = (1, RUN_CONFIG_VERSION)
 
+# Settings removed in v0.2.0 (CP-2b), with the value that had no effect.
+_REMOVED_COMMON = {"mask_source": "tiff_tree", "mask_label_name": None}
+
 # The common settings a folder or tree run takes from the preprocessing run, not recorded.
 _RUN_SETTINGS = ("image_axes", "mask_axes", "condition", "biological_repeat", "technical_repeat")
 
@@ -138,8 +141,27 @@ def config_from_dict(data: Mapping, where: str = "The config") -> CellPatcherCon
         "matching": MatchConfig,
         "normalization": NormalizationConfig,
     }
+    data = {**data, "common": _without_removed_settings(data.get("common", {}), where)}
     built = {name: kind(**data[name]) if name in data else kind() for name, kind in sections.items()}
     return CellPatcherConfig(mode=data.get("mode", "cell"), **built)
+
+
+def _without_removed_settings(common: Mapping, where: str) -> dict:
+    """Return the ``common`` section without the settings removed in v0.2.0, refusing one that was used.
+
+    ``mask_source`` and ``mask_label_name`` chose where folder and tree runs read masks; a file
+    written before v0.2.0 holds their defaults, which had no effect and are left out.
+    """
+    common = dict(common)
+    for name, default in _REMOVED_COMMON.items():
+        value = common.pop(name, default)
+        if value != default:
+            raise ValueError(
+                f"{where}: common.{name}={value!r} was removed in CellPatcher v0.2.0: a folder or tree run reads "
+                "the masks its preprocessing run paired, masks-folder TIFFs and OME-Zarr label images alike. "
+                "Remove it and choose the mask type with matching.mask_type (a label image's type is its name)."
+            )
+    return common
 
 
 def delivery_config(data: Mapping, where: str) -> CellPatcherConfig:

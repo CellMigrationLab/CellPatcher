@@ -63,12 +63,18 @@ def test_y_and_x_declared_swapped_are_refused_never_read_transposed(tmp_path):
     assert np.array_equal(result.patch_arrays[0], image[1, patch.y0:patch.y1, patch.x0:patch.x1])
 
 
-def test_axes_as_named_are_recorded_as_not_transposed(tmp_path):
+def test_the_image_table_has_no_transposition_column(tmp_path):
+    # images.csv had a last column image_read_transposed (v0.1.2), always false or empty since
+    # preprocessing v0.4 refuses every Y/X swap; removed in v0.2.0 (CP-2b).
     write_tiff(tmp_path / "exp" / "a.tif", np.zeros((3, 16, 24), dtype=np.uint8), "ZYX")
     config = _grid_config("YX", tmp_path / "out")
     config.common.z_policy = "all"
     preprocessed_folder(tmp_path / "exp", config=config, axes="ZYX")
-    assert _image_rows(tmp_path / "out")["a.tif"]["image_read_transposed"] == "false"
+    images = [np.zeros((16, 16), dtype=np.uint8)]
+    run_patching(images=images, config=_grid_config("YX", tmp_path / "memory"), image_metadata=named(images))
+    for out in (tmp_path / "out", tmp_path / "memory"):
+        (row,) = _image_rows(out).values()
+        assert list(row)[-1] == "n_normalized" and "image_read_transposed" not in row
 
 
 def test_a_mask_declared_swapped_is_refused(tmp_path):
@@ -132,14 +138,3 @@ def _cell_config(image_axes, mask_axes, output_dir=None):
         config.export.enabled = True
         config.common.output_dir = str(output_dir)
     return config
-
-
-def test_an_in_memory_run_records_no_transposition(tmp_path):
-    images = [np.zeros((16, 16), dtype=np.uint8)]
-    config = _grid_config("YX", tmp_path / "out")
-    run_patching(images=images, config=config, image_metadata=named(images))
-    with open(tmp_path / "out" / IMAGE_TABLE_FILENAME, newline="", encoding="utf-8") as handle:
-        (row,) = csv.DictReader(handle)
-    assert row["image_read_transposed"] == ""
-
-

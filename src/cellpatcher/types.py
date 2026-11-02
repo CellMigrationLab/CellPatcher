@@ -290,11 +290,6 @@ IMAGE_TABLE_COLUMNS = (
     "n_regions",
     "n_kept",
     "n_normalized",
-    # Whether the image was read transposed: its header's named Y and X
-    # declared swapped in common.image_axes (v0.1.2 only: since preprocessing
-    # v0.4 a swap is refused, so always false for a TIFF file). Empty when not
-    # checked (an in-memory array, an OME-Zarr image matched by role).
-    "image_read_transposed",
 )
 
 
@@ -333,7 +328,6 @@ class ImageRecord:
     n_patches: int = 0
     skip_reason: str | None = None
     position_id: str | None = None
-    image_read_transposed: bool | None = None
 
     @property
     def status(self) -> str:

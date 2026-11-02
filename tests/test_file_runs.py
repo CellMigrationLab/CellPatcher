@@ -197,8 +197,7 @@ def test_file_runs_read_through_run_inputs_only(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize(("setting", "value"), [
-    ("image_axes", "ZCYX"), ("mask_axes", "ZYX"), ("mask_source", "ngff_labels"), ("mask_label_name", "Cells"),
-    ("condition", "ctrl"), ("biological_repeat", "rep1"), ("technical_repeat", "B02"),
+    ("image_axes", "ZCYX"), ("mask_axes", "ZYX"), ("condition", "ctrl"), ("biological_repeat", "rep1"), ("technical_repeat", "B02"),
 ])
 def test_the_former_file_settings_raise_a_migration_message(tmp_path, monkeypatch, setting, value):
     from cellpatcher import file_runs

@@ -13,15 +13,12 @@ from cellpatcher.io import (
 from cellpatcher.ids import validate_object_set
 from cellpatcher.planes import validate_plane_policies
 
-MASK_SOURCES = ("tiff_tree", "ngff_labels")
-
-
 @accept_deprecated_repeat
 @dataclass
 class CommonConfig:
-    # The axes of in-memory arrays given to run_patching (canonical, Y before X). File runs
-    # read each image and mask in the roles the preprocessing run recorded and refuse other
-    # values than "YX" (CP-2a; removed for them in CP-2b).
+    # The axes of in-memory arrays given to run_patching (canonical, Y before X). Folder and
+    # tree runs read each image and mask in the roles the preprocessing run recorded, refuse
+    # other values than "YX" and do not record them in run_config.json (design v0.4 §6).
     image_axes: str = "YX"
     mask_axes: str = "YX"
     output_dir: str | None = None
@@ -48,11 +45,6 @@ class CommonConfig:
     z_index: int | None = None
     t_policy: str = "keep"
     t_index: int | None = None
-    # Where folder and tree runs read masks before CP-2a. They now read the masks the
-    # preprocessing run paired (choose the type with matching.mask_type) and refuse other
-    # values than these defaults.
-    mask_source: str = "tiff_tree"
-    mask_label_name: str | None = None
     # The object set of cell-mode patches (the `object_set` column and a
     # level of patch_id, cellpatcher.ids). None: folder and tree runs name it
     # after the mask type the preprocessing run recorded (a folder name, or an
@@ -63,10 +55,6 @@ class CommonConfig:
 
     def __post_init__(self) -> None:
         validate_plane_policies(self)
-        if self.mask_source not in MASK_SOURCES:
-            raise ValueError(f"mask_source must be one of {list(MASK_SOURCES)}; got {self.mask_source!r}.")
-        if self.mask_label_name is not None and not isinstance(self.mask_label_name, str):
-            raise ValueError("mask_label_name must be a string or None.")
         validate_object_set(self.object_set)
 
 
