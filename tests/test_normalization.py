@@ -745,13 +745,13 @@ def test_pooling_by_conditions_weighs_each_condition_equally(tmp_path):
 
 
 def test_a_missing_or_unconfirmed_design_stops_the_run_before_any_image_is_read(tmp_path, monkeypatch):
-    import cellpatcher.io
+    from morphobricks_preprocessing.run_inputs import RunInputs
 
     def no_reading(*args, **kwargs):
         raise AssertionError("an image was read")
 
     root, _, csv_path = _unpaired_experiment(tmp_path, design=None)  # no experiment_design.csv
-    monkeypatch.setattr(cellpatcher.io, "read_image", no_reading)
+    monkeypatch.setattr(RunInputs, "read_plane", no_reading)
     config = _config(csv_path, image_axes="YX", scope="biological_repeat")
     with pytest.raises(PreprocessingCheckError) as missing:
         _tree(root, config)

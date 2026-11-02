@@ -305,20 +305,17 @@ def test_a_plain_stack_without_axis_metadata_keeps_its_declared_axes(tmp_path):
     assert sorted({p.t for p in result.patches}) == [0, 1, 2]
 
 
-def test_lazy_delivery_refuses_image_and_mask_files_whose_header_disagrees(tmp_path):
+def test_lazy_delivery_of_a_file_reads_its_planes_through_the_run(tmp_path):
+    # CP-2b: a path given to patch_array was read by CellPatcher (common.image_axes, its own header
+    # check). It is refused; the run's patches are read plane by plane through the run.
+    from cellpatcher import iter_run_patch_arrays
     from cellpatcher.delivery import patch_array
 
     write_tiff(tmp_path / "exp" / "a.tif", _stack(), "TYX")
-    result = preprocessed_folder(tmp_path / "exp", config=_grid_config("YX", t_policy="all"), axes="TYX")
-    patch = result.patches[0]
-    write_tiff(tmp_path / "z.tif", _stack(), "ZYX")
-    config = _grid_config(image_axes="TYX", t_policy="all")
-    np.testing.assert_array_equal(patch_array(patch, tmp_path / "exp" / "a.tif", config), result.patch_arrays[0])
-    with pytest.raises(ValueError, match=r"common.image_axes='TYX'.*z.tif: \[axes_contradict_header\].*header ZYX, confirmed TYX"):
-        patch_array(patch, tmp_path / "z.tif", config)
-    mask = np.ones((3, 16, 16), dtype=np.uint16)
-    write_tiff(tmp_path / "m.tif", mask, "ZYX")
-    config.common.mask_axes = "TYX"
-    config.extraction.apply_mask = True
-    with pytest.raises(ValueError, match=r"common.mask_axes='TYX'.*m.tif: \[axes_contradict_header\].*header ZYX, confirmed TYX"):
-        patch_array(patch, tmp_path / "exp" / "a.tif", config, mask=tmp_path / "m.tif")
+    config = _grid_config("YX", t_policy="all")
+    result = preprocessed_folder(tmp_path / "exp", config=config, axes="TYX")
+    with pytest.raises(TypeError, match="iter_run_patch_arrays"):
+        patch_array(result.patches[0], tmp_path / "exp" / "a.tif", _grid_config(image_axes="TYX", t_policy="all"))
+    lazy = [array for _, array in iter_run_patch_arrays(result.patches, config)]
+    assert len(lazy) == len(result.patch_arrays) > 3
+    assert all(np.array_equal(lazy_array, eager) for lazy_array, eager in zip(lazy, result.patch_arrays))

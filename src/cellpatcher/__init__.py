@@ -24,7 +24,9 @@ from cellpatcher.config import (
     WholeFOVConfig,
 )
 from cellpatcher.delivery import iter_exported_patches, iter_patch_arrays, load_exported_patch, patch_array
+from cellpatcher.run_delivery import iter_run_patch_arrays
 from cellpatcher.errors import CellPatcherRefusal, LabelRangeError, SamplingExhaustedError
+from cellpatcher.file_runs import validate_image_and_mask_folders
 from cellpatcher.export import (
     PatchTableError,
     export_patches,
@@ -45,7 +47,6 @@ from cellpatcher.io import (
     list_supported_files,
     read_array,
     read_array_shape,
-    validate_image_and_mask_folders,
     write_array,
     run_patching_from_folders,
 )
@@ -132,6 +133,7 @@ __all__ = [
     "save_patch_array",
     "export_patches",
     "iter_patch_arrays",
+    "iter_run_patch_arrays",
     "patch_array",
     "iter_exported_patches",
     "load_exported_patch",

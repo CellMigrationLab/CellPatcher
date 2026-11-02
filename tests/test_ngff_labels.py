@@ -2,8 +2,8 @@
 
 Since CP-2a a file run reads the masks the preprocessing run paired, a label image's type
 being its name (``matching.mask_type``), with ``RunInputs.read_mask``; the former
-``common.mask_source='ngff_labels'`` and ``mask_label_name`` are refused. Needs the ``zarr``
-extra; the tests skip without it.
+``common.mask_source='ngff_labels'`` and ``mask_label_name`` were removed in v0.2.0 (CP-2b).
+Needs the ``zarr`` extra; the tests skip without it.
 """
 
 import importlib.util
@@ -11,7 +11,7 @@ import importlib.util
 import numpy as np
 import pytest
 
-from cellpatcher.config import CellPatcherConfig, CommonConfig
+from cellpatcher.config import CellPatcherConfig
 from cellpatcher.io import write_array
 from cellpatcher.orchestration import run_patching_condition_repeat_tree
 from tests.helpers import file_run_config, preprocess, write_ngff, write_ngff_labels
@@ -48,12 +48,6 @@ def _image(root, name="a.ome.zarr", shape=(16, 16), axes="yx", labels=None, labe
     if labels:
         write_ngff_labels(path, labels, label_axes or axes)
     return path
-
-
-def test_mask_source_is_validated():
-    assert (CommonConfig().mask_source, CommonConfig().mask_label_name) == ("tiff_tree", None)
-    with pytest.raises(ValueError, match="mask_source must be one of"):
-        CommonConfig(mask_source="labels")
 
 
 def test_cell_mode_reads_the_only_label_image(tmp_path):
@@ -108,13 +102,10 @@ def test_a_label_image_that_does_not_fit_has_no_clean_run(tmp_path):
         preprocess(floats)
 
 
-def test_the_former_label_settings_are_refused_for_file_runs(tmp_path):
+def test_every_image_needs_a_label_image_of_the_type(tmp_path):
     _image(tmp_path, labels={"cells": _labels((16, 16), [(1, 2, 2)])})
     write_array(tmp_path / "control" / "b.tif", np.ones((16, 16), dtype=np.uint16))
-    for setting in ({"mask_source": "ngff_labels"}, {"mask_label_name": "cells"}):
-        with pytest.raises(ValueError, match="common.mask_source=.*choose the type with matching.mask_type"):
-            run_patching_condition_repeat_tree(tmp_path, config=_cell_config(preprocessing_run="run", **setting))
-    # Every image needs a mask of the type: the TIFF has no label image.
+    # The TIFF has no label image.
     with pytest.raises(ValueError, match="recorded no 'cells' mask for control/b.tif"):
         _tree(tmp_path, _cell_config())
 

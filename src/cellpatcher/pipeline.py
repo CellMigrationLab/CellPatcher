@@ -1,7 +1,7 @@
 import json
 from collections import Counter
 from contextvars import ContextVar
-from dataclasses import asdict, dataclass, field, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import numpy as np
@@ -31,11 +31,10 @@ from cellpatcher.normalization import (
     Normalizer,
     finish_patch_groups,
     resolved_patch_region,
-    normalization_inputs,
-    run_settings,
     split_channel_normalization,
     validate_normalization,
 )
+from cellpatcher.run_config_file import run_config_data
 from cellpatcher.run_session import one_session
 from cellpatcher.statistics import _preprocessing
 from cellpatcher.planes import iter_image_planes, plane_choices, splits_planes
@@ -79,23 +78,6 @@ def check_config_identity(config: CellPatcherConfig) -> None:
     _run_labels(config)
     if config.common.object_set is not None:
         validate_object_set(config.common.object_set)
-
-
-def check_source_identities(config: CellPatcherConfig, image_files) -> None:
-    """Refuse the D85 identity of a folder's images from their names alone, before any read.
-
-    Each image file is one source: its labels, its ``position_id`` (the image name) and the
-    uniqueness of ``position_id`` within the technical repeat, ignoring case, are checked
-    exactly as ``run_patching`` checks them later, so two images ``Img.tif`` and ``img.tiff``
-    are refused before either (or a mask) is read.
-    """
-    seen: dict = {}
-    for index, path in enumerate(image_files):
-        meta = {"image_file": Path(path).name}
-        labels = _image_labels(config, meta)
-        meta["position_id"] = resolve_position_id(labels, meta, image_index=index)
-        check_unique_position(seen, labels, meta, index)
-    check_run_identity_case(seen)
 
 
 def _stamp_run_context(config: CellPatcherConfig, patches: list[PatchRegion]) -> None:
@@ -240,7 +222,6 @@ def _image_record(config: CellPatcherConfig, image_id: str, meta, image_shape=No
         image_height=height,
         image_width=width,
         position_id=None if meta.get("position_id") is None else str(meta["position_id"]),
-        image_read_transposed=meta.get("image_read_transposed"),
     )
 
 
@@ -572,23 +553,6 @@ def _normalize(config: CellPatcherConfig, image_list, masks, image_metadata, pat
     )
 
 
-def run_config_data(config: CellPatcherConfig) -> dict:
-    """The ``run_config.json`` content: the config, plus the normalization brick's records.
-
-    ``normalization_inputs`` when a CSV is used, and ``normalization_settings``
-    (the brick's ``NormalizationSettings.to_dict()``) for the image and patch
-    scopes.
-    """
-    data = asdict(config)
-    inputs = normalization_inputs(config)
-    if inputs is not None:
-        data["normalization_inputs"] = inputs
-    settings = run_settings(config)
-    if settings is not None:
-        data["normalization_settings"] = settings
-    return data
-
-
 def _build_result(
     config: CellPatcherConfig, image_list, patches: list[PatchRegion], masks=None, image_metadata=None,
     fraction_masks=None,
@@ -667,8 +631,9 @@ def _finish_result(
         out_dir.mkdir(parents=True, exist_ok=True)
         if config.export.save_run_config:
             config_path = out_dir / RUN_CONFIG_FILENAME
+            data = run_config_data(config)  # before the file is created: a refusal leaves none
             with config_path.open("w", encoding="utf-8") as f:
-                json.dump(run_config_data(config), f, indent=2, default=str)
+                json.dump(data, f, indent=2, default=str)
             for patch in patches:
                 patch.config_file = RUN_CONFIG_FILENAME
 

@@ -85,10 +85,7 @@ def save_image_table_csv(image_records, csv_path):
         writer = csv.DictWriter(f, fieldnames=list(IMAGE_TABLE_COLUMNS))
         writer.writeheader()
         for record in image_records:
-            row = record.to_dict()
-            if isinstance(row["image_read_transposed"], bool):
-                row["image_read_transposed"] = "true" if row["image_read_transposed"] else "false"
-            writer.writerow(row)
+            writer.writerow(record.to_dict())
 
 
 def image_records_from_patches(patches) -> list[ImageRecord]:
@@ -257,7 +254,7 @@ def _typed(text: str, kind: type, optional: bool, column: str):
     raise TypeError(f"no reader for {column} ({kind})")
 
 
-def _read_run_config(csv_path: Path, names: set[str], problems: list[str]):
+def _read_run_config(csv_path: Path, names: set[str], problems: list[str]) -> dict | None:
     """The ``run_config.json`` the rows' ``config_file`` names (relative to the CSV's folder), or None."""
     import json
 
@@ -281,6 +278,13 @@ def _read_run_config(csv_path: Path, names: set[str], problems: list[str]):
         return None
     if not isinstance(run_config, dict):
         problems.append(f"config file {path} holds a {type(run_config).__name__}, not the JSON object CellPatcher writes")
+        return None
+    from cellpatcher.run_config_file import run_config_version
+
+    try:
+        run_config_version(run_config, f"config file {path}")
+    except ValueError as exc:
+        problems.append(str(exc))
         return None
     return run_config
 

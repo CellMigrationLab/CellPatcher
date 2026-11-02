@@ -2,12 +2,12 @@ import csv
 
 import numpy as np
 
+from cellpatcher import validate_image_and_mask_folders
 from cellpatcher.cell_scan import scan_cell_patch_size
 from cellpatcher.config import CellPatcherConfig, GridConfig, RandomConfig
-from cellpatcher.io import read_array, validate_image_and_mask_folders, write_array
+from cellpatcher.io import read_array, write_array
 from cellpatcher.pipeline import run_patching
-from tests.helpers import make_synthetic_cell_image_and_labels
-from tests.helpers import named
+from tests.helpers import make_synthetic_cell_image_and_labels, named, preprocess
 
 
 def test_e2e_cell_scan_mask_resize_export(tmp_path):
@@ -149,7 +149,8 @@ def test_e2e_folder_matching_to_cell_pipeline(tmp_path):
     write_array(img_path, image)
     write_array(mask_path, labels)
 
-    matched = validate_image_and_mask_folders(img_dir, mask_dir)
+    run = preprocess(img_dir, masks=mask_dir)
+    matched = validate_image_and_mask_folders(img_dir, mask_dir, preprocessing_run=run)
     assert len(matched) == 1
 
     image_arr = read_array(next(iter(matched.keys())))

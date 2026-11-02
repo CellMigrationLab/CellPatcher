@@ -13,8 +13,8 @@ and is shared by every plane when it lacks the axis or has length 1 (the rule
 of ``docs/normalization_contract.md`` §4 for OME-NGFF labels, applied to every
 mask).
 
-Images in memory are split with :func:`iter_image_planes`; image files with
-:func:`iter_file_planes`, which reads only the chosen planes when it can.
+Images in memory are split with :func:`iter_image_planes`; the images of a file run are read
+plane by plane through the preprocessing run (:mod:`cellpatcher.run_reading`).
 """
 
 from __future__ import annotations
@@ -22,7 +22,6 @@ from __future__ import annotations
 import itertools
 from collections.abc import Iterator
 from dataclasses import dataclass
-from pathlib import Path
 
 import numpy as np
 
@@ -190,26 +189,6 @@ def patch_plane_choice(patch, image_axes, common) -> PlaneChoice:
     return PlaneChoice(t=values["T"], z=values["Z"], suffix="")
 
 
-def read_file_plane(path, image_axes, choice: PlaneChoice, common):
-    """Read the plane *choice* of an image file: ``(pixels, axes)``.
-
-    A TIFF or OME-Zarr plane is read on its
-    own (as :func:`iter_file_planes` does); any other image is read whole
-    and the plane taken from it.
-    """
-    from cellpatcher.io import read_image
-
-    mbp = _plane_reader(path, common)
-    if mbp is None or any(isinstance(choice.value(axis), str) for axis in ("T", "Z")):
-        return apply_plane_choice(read_image(path, image_axes), image_axes, choice)
-    path = Path(path).expanduser()
-    target = normalize_axes(image_axes)
-    mapping, shape, dtype = _file_layout(mbp, path, target)
-    return _read_choice(mbp, path, mapping, shape, dtype, target, choice), "".join(
-        axis for axis in target if choice.value(axis) is None
-    )
-
-
 def select_mask_plane(mask, mask_axes, choice: PlaneChoice):
     """The mask plane for *choice*: a mask axis with the image's length follows it, length 1 is shared."""
     if mask is None:
@@ -222,131 +201,6 @@ def select_mask_plane(mask, mask_axes, choice: PlaneChoice):
         mask_value = 0 if mask.shape[position] == 1 or isinstance(value, str) else value
         mask, mask_axes = select_axis_index(mask, mask_axes, axis, mask_value)
     return mask, mask_axes
-
-
-def iter_file_planes(path, image_axes, mask, mask_axes, common, *, single_planes=False) -> Iterator[ImagePlane]:
-    """Yield the planes of an image file chosen by the policies, reading only those planes when possible.
-
-    A TIFF or OME-Zarr image whose planes
-    are split or selected (``"all"``, ``"first"``, ``"select"``) is read one
-    2D plane at a time with the preprocessing brick's ``read_plane``
-    (``docs/normalization_contract.md`` §3): only the chosen planes are
-    decoded, and a plane that cannot be read whole within the brick's memory
-    limit is an error. Other images, ``"keep"`` and projections are read
-    whole with :func:`cellpatcher.io.read_image`, as before. Either way the
-    planes equal those of :func:`iter_image_planes` on the whole image.
-
-    Raises
-    ------
-    ValueError
-        As :func:`plane_choices`, or if a plane needs more memory than the limit.
-    """
-    from cellpatcher.io import read_image
-
-    mbp = _plane_reader(path, common)
-    if mbp is None:
-        image = read_image(path, image_axes)
-        yield from iter_image_planes(image, image_axes, mask, mask_axes, common, single_planes=single_planes)
-        return
-
-    path = Path(path).expanduser()
-    target = normalize_axes(image_axes)
-    mapping, shape, dtype = _file_layout(mbp, path, target)
-    if mask is not None:
-        mask = np.asarray(mask)
-        mask_axes = normalize_axes(mask_axes, mask.ndim)
-    mask_shape = None if mask is None else mask.shape
-    for choice in plane_choices(shape, target, mask_shape, mask_axes, common, single_planes=single_planes):
-        plane_axes = "".join(axis for axis in target if choice.value(axis) is None)
-        pixels = _read_choice(mbp, path, mapping, shape, dtype, target, choice)
-        plane_mask, plane_mask_axes = select_mask_plane(mask, mask_axes, choice)
-        yield ImagePlane(
-            pixels, plane_axes, plane_mask, plane_mask_axes, choice.index("Z"), choice.index("T"), choice.suffix
-        )
-
-
-def _read_choice(mbp, path: Path, mapping, shape, dtype, target: str, choice: PlaneChoice) -> np.ndarray:
-    """Read the plane *choice* of a file, one 2D plane at a time, in *target* order minus resolved axes."""
-    plane_axes = "".join(axis for axis in target if choice.value(axis) is None)
-    pixels = np.empty([shape[target.index(axis)] for axis in plane_axes], dtype=dtype)
-    # Axes kept in the plane (channels, or a "keep" axis) are read one 2D
-    # plane at a time and stacked back in place.
-    stacked = [axis for axis in plane_axes if axis not in "YX"]
-    y_before_x = plane_axes.index("Y") < plane_axes.index("X")
-    for position in np.ndindex(*(pixels.shape[plane_axes.index(axis)] for axis in stacked)):
-        coordinates = {"T": choice.index("T"), "Z": choice.index("Z"), "C": None}
-        coordinates.update(zip(stacked, position))
-        plane = _read_plane(mbp, path, mapping, coordinates)
-        where = tuple(position[stacked.index(axis)] if axis in stacked else slice(None) for axis in plane_axes)
-        pixels[where] = plane if y_before_x else plane.T
-    return pixels
-
-
-def _plane_reader(path, common):
-    """The preprocessing package when *path* can be read plane by plane under *common*, else None."""
-    from cellpatcher.io import is_ome_zarr
-    from cellpatcher.statistics import _preprocessing
-
-    policies = (common.z_policy, common.t_policy)
-    if not splits_planes(common) or any(policy in _PROJECTIONS for policy in policies):
-        return None
-    if not (is_ome_zarr(path) or Path(path).suffix.lower() in (".tif", ".tiff")):
-        return None
-    return _preprocessing()
-
-
-def _file_layout(mbp, path: Path, target: str):
-    """The preprocessing ``AxisMapping`` of a file, and its shape and dtype in *target* order.
-
-    Raises
-    ------
-    ValueError
-        If the file cannot be read, or holds more than one image (several
-        series, positions or wells): its planes would be read from the first
-        one only, as when reading it whole (``io.read_ome_zarr``).
-    """
-    meta = mbp.inspect_image(path, path.name)
-    if not meta.readable:
-        raise ValueError(f"{path.name} cannot be read: {meta.error}")
-    if meta.series_count > 1:
-        raise ValueError(
-            f"{path} holds {meta.series_count} images (several series, positions or wells); CellPatcher reads "
-            "one image per file or OME-Zarr folder and would patch only the first. Save each image in its own "
-            "file or folder."
-        )
-    if meta.kind == "ome-zarr":
-        # OME-Zarr axes come from the metadata and are matched by role, as in
-        # io.conform_axes: an axis the configured axes lack must have length 1.
-        for axis, length in zip(meta.axes, meta.shape):
-            if axis not in target and length != 1:
-                raise ValueError(
-                    f"{path.name} has an axis {axis!r} of length {length} that the axes {target!r} do not "
-                    f"have; its axes are {meta.axes!r}. Set common.image_axes to include every axis "
-                    "longer than 1."
-                )
-        lengths = dict(zip(meta.axes, meta.shape))
-        roles = tuple(axis if axis in target else None for axis in meta.axes)
-        shape = tuple(lengths.get(axis, 1) for axis in target)
-    else:
-        # A TIFF's dimensions are those tifffile.imread returns, which
-        # common.image_axes names in order.
-        normalize_axes(target, len(meta.shape))
-        roles = tuple(target)
-        shape = tuple(meta.shape)
-    return mbp.AxisMapping(meta.axes, roles), shape, np.dtype(meta.dtype)
-
-
-def _read_plane(mbp, path: Path, mapping, coordinates) -> np.ndarray:
-    """Read one (Y, X) plane, with None for roles the file does not have."""
-    present = set(mapping.roles)
-    wanted = {axis.lower(): (value if axis in present else None) for axis, value in coordinates.items()}
-    try:
-        return mbp.read_plane(path, mapping, **wanted).pixels
-    except mbp.PlaneMemoryError as exc:
-        raise ValueError(
-            f"CellPatcher needs each plane whole in memory to patch it, and a plane of {path.name} is too "
-            f"large: {exc}"
-        ) from exc
 
 
 def _axis_choices(image_shape, image_axes, mask_shape, mask_axes, axis, policy, index, single_planes) -> list[tuple]:

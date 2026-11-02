@@ -100,12 +100,6 @@ def object_set_from_mask_type(mask_type) -> str | None:
     return re.sub(r"[^A-Za-z0-9._-]", "_", str(mask_type)).strip("_") or None
 
 
-def object_set_from_label_path(mask_file) -> str:
-    """The label image name of an OME-NGFF mask ``<image>/labels/<name>`` (``io.read_ngff_mask``)."""
-    name = str(mask_file).rsplit("/", 1)[-1]
-    return re.sub(r"[^A-Za-z0-9._-]", "_", name).strip("_") or DEFAULT_OBJECT_SET
-
-
 def resolve_object_set(meta, common) -> str:
     """The ``object_set`` of a cell-mode image.
 

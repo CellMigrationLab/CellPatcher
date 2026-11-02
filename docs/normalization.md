@@ -123,8 +123,8 @@ channels never share parameters (except the three channels of an RGB image).
   selected channels. A single-channel patch keeps the parameters of its channel in the image's
   group, so selecting channels never changes their values.
 - **OME-Zarr images** (folders ending in `.zarr`) are read like TIFF files; their masks can be a
-  mask folder or the label images inside them (`common.mask_source="ngff_labels"`, with
-  `common.mask_label_name`).
+  mask folder or the label images inside them, as the preprocessing run paired them (a label
+  image's type is its name: `matching.mask_type`).
 
 ## What is recorded
 
@@ -151,7 +151,7 @@ own settings (`normalization_settings`).
 | Normalized files (default) | `export.enabled=True`: float32 `.tif`/`.npy` files |
 | Raw files plus parameters (smaller, reversible) | `normalization.export_values="raw"`; read them back normalized with `cellpatcher.iter_exported_patches("patches.csv")` or `ExportedPatchTorchDataset`, which apply each row's offset and scale |
 | Arrays in memory | `common.extract_arrays=True` (stops above `normalization.memory_limit`, 4 GiB by default) |
-| One patch at a time (large datasets) | Run with `extract_arrays=False`, then `cellpatcher.iter_patch_arrays(patches, images, config)`; `PatchTorchDataset(images, patches, config=config)` for PyTorch |
+| One patch at a time (large datasets) | Run with `extract_arrays=False`, then `cellpatcher.iter_run_patch_arrays(patches, config)` for a folder or tree run (read through its preprocessing run), or `cellpatcher.iter_patch_arrays(patches, images, config)` for `run_patching`'s arrays; `PatchTorchDataset(images, patches, config=config)` for PyTorch (arrays) |
 
 All of these give the same arrays for the same settings.
 

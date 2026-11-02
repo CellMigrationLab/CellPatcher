@@ -4,7 +4,8 @@ Design v0.4 §6: CellPatcher reads a preprocessing run only through ``RunInputs.
 refuses a run before v0.4.0, a table or design whose SHA-256 is not the manifest's, and an
 image or mask changed or missing since the run. An experiment moved or copied since its run is
 opened with where it is now (``experiment_root``, ``masks_root``). Re-exported by
-:mod:`cellpatcher.statistics`, where these functions were before CP-2a.
+:mod:`cellpatcher.statistics`, where these functions were before CP-2a. :func:`cached_statistics`
+(moved from :mod:`cellpatcher.normalization` in CP-2b) keeps an opened run for one call.
 """
 
 from __future__ import annotations
@@ -14,10 +15,13 @@ from collections import defaultdict
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from cellpatcher.run_session import recalled, remember, session_statistics
+
 if TYPE_CHECKING:
     from morphobricks_normalization import PlaneRecord
     from morphobricks_preprocessing.run_inputs import RunInputs
 
+    from cellpatcher.config import NormalizationConfig
     from cellpatcher.statistics import PlaneStatistics
 
 
@@ -74,6 +78,45 @@ def load_plane_statistics(
     if manifest is not None:
         _refuse_other_file("normalization.manifest", Path(manifest).expanduser(), folder / MANIFEST_FILENAME)
     return statistics_of(open_run(folder, experiment_root=experiment_root, masks_root=masks_root))
+
+
+def cached_statistics(
+    plane_histograms: str | os.PathLike,
+    manifest: str | os.PathLike | None = None,
+    *,
+    experiment_root: str | os.PathLike | None = None,
+    masks_root: str | os.PathLike | None = None,
+) -> PlaneStatistics:
+    """:func:`~cellpatcher.statistics.load_plane_statistics`, opened once per CellPatcher call.
+
+    Within one call (:mod:`cellpatcher.run_session`: a tree run normalizes every leaf with
+    the same, possibly large, table) the run is opened once; outside a call, or in the next
+    one, it is opened again, so ``RunInputs.open`` checks every image and mask of the run each
+    time. Nothing is reused across calls.
+    """
+    csv_path = Path(plane_histograms).expanduser()
+    statistics = session_statistics(
+        csv_path,
+        lambda: load_plane_statistics(csv_path, manifest, experiment_root=experiment_root, masks_root=masks_root),
+    )
+    if manifest is not None:
+        _refuse_other_file("normalization.manifest", Path(manifest).expanduser(), statistics.manifest_path)
+    return statistics
+
+
+def settings_statistics(settings: NormalizationConfig) -> PlaneStatistics:
+    """Return :func:`cached_statistics` of ``settings.plane_histograms``, opened where the experiment is now.
+
+    ``normalization.experiment_root``/``masks_root`` say where the run's experiment and masks
+    folder are when they moved since the run (owner decision of 2026-11-02); a folder or tree
+    run gives them as its arguments instead.
+    """
+    return cached_statistics(
+        settings.plane_histograms,
+        settings.manifest,
+        experiment_root=settings.experiment_root,
+        masks_root=settings.masks_root,
+    )
 
 
 def statistics_of(inputs: RunInputs) -> PlaneStatistics:
@@ -133,7 +176,12 @@ def open_run(
     folder = Path(output_folder).expanduser()
     roots = [Path(root).expanduser() if root is not None else None for root in (experiment_root, masks_root)]
     try:
-        return RunInputs.open(folder, *roots)
+        before = _manifest_sha256(folder)
+        if recalled("manifest_sha256", folder) not in {None, before}:
+            raise RunInputsError("its run_manifest.json changed since this call first opened it.")
+        inputs = RunInputs.open(folder, *roots)
+        if _manifest_sha256(folder) != before:
+            raise RunInputsError("its run_manifest.json changed while it was opened.")
     except RunInputsError as exc:
         raise PreprocessingCheckError([
             error(
@@ -154,6 +202,45 @@ def open_run(
                 "Give the plane_histograms.csv the preprocessing brick wrote, or run it again.",
             )
         ]) from exc
+    remember("manifest_sha256", folder, before)
+    return inputs
+
+
+def refuse_changed_manifest(output_folder: str | os.PathLike, opened_sha256: str) -> None:
+    """Refuse a run whose ``run_manifest.json`` changed since this call opened it.
+
+    ``run_config.json`` records the manifest's SHA-256 taken at the open; a manifest rewritten
+    during the run (preprocessing run again on the same output folder) no longer names what was
+    read, so nothing is recorded.
+
+    Raises
+    ------
+    PreprocessingCheckError
+        ``preprocessing_run_refused`` when the manifest's SHA-256 is not *opened_sha256*.
+    """
+    from morphobricks_preprocessing.validation import error
+
+    from cellpatcher.statistics import PreprocessingCheckError
+
+    folder = Path(output_folder).expanduser()
+    if _manifest_sha256(folder) != opened_sha256:
+        raise PreprocessingCheckError([
+            error(
+                "preprocessing_run_refused",
+                f"The preprocessing run in {folder} cannot be used: its run_manifest.json changed during this "
+                "CellPatcher run, so the run read is no longer the one in that folder.",
+                [str(folder)],
+                "Wait until preprocessing has finished writing its run, then run CellPatcher again.",
+            )
+        ])
+
+
+def _manifest_sha256(folder: Path) -> str | None:
+    """Return the SHA-256 of the run's ``run_manifest.json`` (recorded in ``run_config.json``), None if absent."""
+    from morphobricks_preprocessing import MANIFEST_FILENAME, file_sha256
+
+    path = folder / MANIFEST_FILENAME
+    return file_sha256(path) if path.is_file() else None
 
 
 def _refuse_other_file(setting: str, given: Path, expected: Path) -> None:

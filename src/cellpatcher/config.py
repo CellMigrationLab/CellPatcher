@@ -13,15 +13,12 @@ from cellpatcher.io import (
 from cellpatcher.ids import validate_object_set
 from cellpatcher.planes import validate_plane_policies
 
-MASK_SOURCES = ("tiff_tree", "ngff_labels")
-
-
 @accept_deprecated_repeat
 @dataclass
 class CommonConfig:
-    # The axes of in-memory arrays given to run_patching (canonical, Y before X). File runs
-    # read each image and mask in the roles the preprocessing run recorded and refuse other
-    # values than "YX" (CP-2a; removed for them in CP-2b).
+    # The axes of in-memory arrays given to run_patching (canonical, Y before X). Folder and
+    # tree runs read each image and mask in the roles the preprocessing run recorded, refuse
+    # other values than "YX" and do not record them in run_config.json (design v0.4 §6).
     image_axes: str = "YX"
     mask_axes: str = "YX"
     output_dir: str | None = None
@@ -29,12 +26,10 @@ class CommonConfig:
     # The output folder of the clean preprocessing run (v0.4) a folder or tree run reads its
     # images, masks and labels through (RunInputs, design v0.4 §6); required for file runs.
     preprocessing_run: str | None = None
-    # The MorphoBricks shared-CSV-contract `condition`/`biological_repeat`/`technical_repeat`
-    # columns (AGENTS.md §5) of in-memory run_patching; a label not given (or None) is
-    # "single", as for a missing folder level. Folder and tree runs take each image's labels
-    # from the preprocessing run and refuse other values. technical_repeat is the well/dish/
-    # coverslip; per-image image_metadata["technical_repeat"] overrides it. `repeat` stays
-    # accepted as a deprecated alias of biological_repeat (DeprecationWarning).
+    # The shared-CSV-contract labels (AGENTS.md §5) of in-memory run_patching; None is "single",
+    # as for a missing folder level. Folder and tree runs take each image's from the run and
+    # refuse other values. technical_repeat (well/dish/coverslip) is overridden per image by
+    # image_metadata["technical_repeat"]; `repeat` is a deprecated alias of biological_repeat.
     condition: str | None = SINGLE_CONDITION_LABEL
     biological_repeat: str | None = SINGLE_BIOLOGICAL_REPEAT_LABEL
     technical_repeat: str | None = SINGLE_TECHNICAL_REPEAT_LABEL
@@ -48,25 +43,14 @@ class CommonConfig:
     z_index: int | None = None
     t_policy: str = "keep"
     t_index: int | None = None
-    # Where folder and tree runs read masks before CP-2a. They now read the masks the
-    # preprocessing run paired (choose the type with matching.mask_type) and refuse other
-    # values than these defaults.
-    mask_source: str = "tiff_tree"
-    mask_label_name: str | None = None
-    # The object set of cell-mode patches (the `object_set` column and a
-    # level of patch_id, cellpatcher.ids). None: folder and tree runs name it
-    # after the mask type the preprocessing run recorded (a folder name, or an
-    # OME-NGFF label name), and "mask" when the mask gives no name (in-memory
-    # run_patching). Set it to name it
-    # explicitly; image_metadata["object_set"] overrides it per image.
+    # The object set of cell-mode patches (the `object_set` column and a level of patch_id,
+    # cellpatcher.ids). None: folder and tree runs name it after the mask type the run recorded
+    # (a folder name, or an OME-NGFF label name), in-memory run_patching "mask". Set it to name
+    # it explicitly; image_metadata["object_set"] overrides it per image.
     object_set: str | None = None
 
     def __post_init__(self) -> None:
         validate_plane_policies(self)
-        if self.mask_source not in MASK_SOURCES:
-            raise ValueError(f"mask_source must be one of {list(MASK_SOURCES)}; got {self.mask_source!r}.")
-        if self.mask_label_name is not None and not isinstance(self.mask_label_name, str):
-            raise ValueError("mask_label_name must be a string or None.")
         validate_object_set(self.object_set)
 
 
@@ -372,6 +356,9 @@ class NormalizationConfig:
     manifest
         The run's ``run_manifest.json``: None, or the one in the table's
         folder (another file is refused).
+    experiment_root, masks_root
+        For ``run_patching`` at a CSV scope: where the run's experiment and masks
+        folder are now, if moved since the run (None: where it recorded them).
     method
         ``"minmax"``, ``"percentile"`` (default), ``"zscore"`` or
         ``"robust_zscore"`` (MAD x 1.4826); only ``"percentile"`` for
@@ -427,6 +414,8 @@ class NormalizationConfig:
     enabled: bool = False
     plane_histograms: str | None = None
     manifest: str | None = None
+    experiment_root: str | None = None
+    masks_root: str | None = None
     method: str = "percentile"
     percentile: tuple[float, float] = (1.0, 99.8)
     clip: tuple[float, float] | None = None
@@ -500,16 +489,15 @@ _NOT_GIVEN = object()
 class MatchConfig:
     """Which masks to pair with the images.
 
-    Images and masks are paired with the MorphoBricks preprocessing brick's
-    rule (``morphobricks_preprocessing.find_masks``, issue #45), so every
-    brick pairs the same files: a mask is a TIFF file
+    Images and masks are paired by the preprocessing run (its ``find_masks``,
+    design v0.4 §6), so every brick reads the same pairs: a mask is a TIFF file
     ``<mask type>/<image's folders>/<image name>.tif`` or
-    ``<image's folders>/<image name>_<mask type>.tif`` in the mask folder
-    (:func:`~cellpatcher.io.pair_masks`).
+    ``<image's folders>/<image name>_<mask type>.tif`` in the mask folder, or
+    an OME-Zarr image's label image (its type is its name).
 
     ``mask_type`` names the mask type to use (``"cells"`` for
-    ``img_cells.tif`` or ``cells/img.tif``). None (default) uses the only
-    type in the mask folder, and refuses a folder holding several.
+    ``img_cells.tif`` or ``cells/img.tif``). None (default) uses the run's only
+    type, and refuses a run holding several.
 
     The former options ``strategy``, ``mask_suffixes``, ``case_sensitive``
     and ``ignore_unrequested_masks`` were removed in v0.1.1: given here, set

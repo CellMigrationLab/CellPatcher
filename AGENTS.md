@@ -186,16 +186,28 @@ CellPatcher-specific conventions:
   with `RunInputs.read_plane`/`read_mask` (`cellpatcher.run_reading`) in one
   canonical layout per run (T, Z, C, then Y, X). No CellPatcher-side axis,
   pairing or calibration logic is used for them; `common.image_axes`/`mask_axes`
-  other than `"YX"`, `mask_source="ngff_labels"`, `mask_label_name` and labels
-  other than `"single"` are refused with a migration message (CP-2b removes
-  them for file runs). The run is opened once per call and kept for that call
-  only (`cellpatcher.run_session`).
+  other than `"YX"`, labels other than `"single"` and
+  `normalization.experiment_root`/`masks_root` are refused with a migration
+  message. The run is opened once per call and kept for that call only
+  (`cellpatcher.run_session`). Since CP-2b no file is read or paired by
+  CellPatcher itself: `validate_image_and_mask_folders(..., preprocessing_run=)`
+  returns the run's pairing, lazy delivery of a file run's patches is
+  `iter_run_patch_arrays` (`cellpatcher.run_delivery`, through `RunInputs`),
+  and `patch_array`/`iter_patch_arrays` take arrays only. `run_config.json` is
+  version 2 (`cellpatcher.run_config_file`): `run_config_version` and a
+  `preprocessing` section (the run, its manifest's SHA-256, a file run's array
+  layout); a file run records no `image_axes`/`mask_axes`/labels; readers
+  refuse other versions. Grid/whole-FOV folder runs accept `mask_folder_path`
+  (where the run's masks folder is now), and `normalization.experiment_root`/
+  `masks_root` say where a moved experiment is for `run_patching` at a CSV
+  scope (owner decisions of 2026-11-02).
 * `image_axes`/`mask_axes` are explicit and axis-aware (see `axes.py`) for
-  in-memory arrays and lazy delivery from a path.
-  Image/mask pairing is the preprocessing brick's `find_masks`, called by
-  `io.pair_masks` (issue #45, owner decision 2026-10-30): TIFF masks named
-  `<image>_<type>.tif` or `<type>/<image>.tif`; `matching.mask_type` picks
-  the type. CellPatcher has no pairing rule of its own; the former matching
+  in-memory arrays only (canonical, Y before X; a mask with X first is refused).
+  Image/mask pairing is the preprocessing run's (its `find_masks`; issue #45,
+  owner decision 2026-10-30): TIFF masks named
+  `<image>_<type>.tif` or `<type>/<image>.tif`, or an OME-Zarr image's label
+  image; `matching.mask_type` picks the type. CellPatcher has no pairing rule
+  of its own (`io.pair_masks` was removed in CP-2b); the former matching
   options (`strategy`, `mask_suffixes`, `case_sensitive`,
   `ignore_unrequested_masks`) and matchers (`find_candidate_matches`, ...)
   were removed in v0.1.1 (D86, owner decision 2026-10-31): the options are
@@ -249,40 +261,23 @@ preprocessing run (`common.preprocessing_run`, opened with `RunInputs`; see §4 
 `docs/configuration_reference.md`, "File runs read through the preprocessing
 run"): the images, their labels and `position_id`, their roles and their masks
 are the run's. A folder mask and a label image of one type for one image are
-refused by the preprocessing run (`duplicate_mask`, rc1). The rest of this
-paragraph describes discovery and pairing as `validate_image_and_mask_folders`
-and lazy delivery from paths still do them (until CP-2b), and as file runs did
-before v0.2.0. CellPatcher reads image files, and (for `cell` mode) matching label/mask
-files, directly from user-provided folders. Images are found with the
-preprocessing brick's `discover_experiment` (`io.discover_images`; owner
-decision of 2026-10-30, issue #45): TIFF files and OME-Zarr images. PNG, JPEG,
-BMP, GIF, NumPy and microscope-format images (`.czi`, `.nd2`, `.lif`, ...;
-`io.UNSUPPORTED_IMAGE_EXTENSIONS`) are refused by name, never skipped (exported
-`.npy` patches are still written and read back). OME-Zarr images are folders ending
-in `.zarr`, read from level 0 of their only image, with their axes from the
-OME-NGFF metadata put into `common.image_axes` by role (`io.read_image`);
-discovery never enters them, and `img.ome.zarr` pairs with masks named like
-`img_cells.tif` or `cells/img.tif`. With `common.mask_source="ngff_labels"`, the masks of OME-Zarr
-images are their own OME-NGFF label images (`common.mask_label_name`,
-`io.read_ngff_mask`, contract §4) instead of a mask folder. Matching is
-paired by the preprocessing brick's `find_masks` (`io.pair_masks`, used by
-`validate_image_and_mask_folders` and both run entry points; issue #45): a
-mask is a TIFF file `<mask type>/<image's folders>/<image name>.tif` or
-`<image's folders>/<image name>_<mask type>.tif` in a mask folder outside the
-image root, the image name being its `position_id` (D85);
-`config.matching.mask_type` picks the type (None: the only one). Its header
-checks (preprocessing v0.3.2) are refused for the type used and ignored for the
-other types; CellPatcher also checks masks with its own axes on reading, and
-refuses `common.mask_axes` that disagree with the axes a mask's header names
-(`io.refuse_mask_header_axes`, read with preprocessing `inspect_image`; a ZYX mask
-declared TYX would read Z slices as time points). `common.image_axes` is checked
-the same way against each TIFF image's header (`io.refuse_image_header_axes`) in
-folder and tree runs (every leaf before any runs) and in lazy delivery from files,
-which also checks mask files; OME-Zarr images are matched by role instead. Mask
-files with a channel (C) axis or without axis metadata are refused, never
-guessed, and `common.mask_axes` with a `C` is refused for mask-folder masks
-(owner decision of 2026-10-30): users save one mask type per file
-(`<image>_cells.tif`, `<image>_nuclei.tif`) and name a stack's Z/T axes.
+refused by the preprocessing run (`duplicate_mask`, rc1). Since CP-2b CellPatcher
+discovers, pairs and reads no file itself for any run: `validate_image_and_mask_folders`
+returns the run's recorded pairing and lazy delivery reads through the run
+(`iter_run_patch_arrays`). What the preprocessing run applied: images are found with
+its `discover_experiment` (TIFF files and OME-Zarr images; `io.discover_images` still
+wraps it for `discover_condition_repeat_folders`, refusing PNG, JPEG, BMP, GIF, NumPy
+and microscope-format images by name, `io.UNSUPPORTED_IMAGE_EXTENSIONS`), and masks are
+paired by its `find_masks`: a TIFF file `<mask type>/<image's folders>/<image name>.tif`
+or `<image's folders>/<image name>_<mask type>.tif` in a masks folder outside the
+experiment, the image name being its `position_id` (D85), or an OME-Zarr image's own
+label image (its type is its name); `config.matching.mask_type` picks the type (None:
+the only one). The run checks every image's and mask's axes against its header (design
+v0.4 §3; nothing is read transposed) and refuses masks with a channel axis or unnamed
+extra axes (one mask type per file, named Z/T axes). Removed in CP-2b:
+`common.mask_source`/`mask_label_name` (a config file holding their defaults still
+loads), `io.read_image`/`conform_axes`/`read_ngff_mask`, the header-axis checks
+(`io.refuse_image_header_axes`, `refuse_mask_header_axes`) and `planes.read_file_plane`.
 
 Two ways to point CellPatcher at input data:
 
@@ -326,7 +321,12 @@ Two ways to point CellPatcher at input data:
   (`cellpatcher.RUN_CONFIG_FILENAME`) with the full run config — every CSV
   row's `config_file` column names it — so a row plus that file fully
   determine how to reproduce the patch (coordinates, strategy parameters
-  including `random.seed`, extraction/resize settings, axes).
+  including `random.seed`, extraction/resize settings, axes). Version 2 since
+  v0.2.0 (CP-2b): `run_config_version: 2` and, when a preprocessing run was read,
+  `preprocessing` = {`run`, `manifest_sha256`, and for a folder or tree run
+  `layout` (`image`, `mask`)}; a folder or tree run records no
+  `common.image_axes`/`mask_axes`/labels (MorphoRelate's `common.image_axes`
+  check then reports "not checked"). Readers refuse versions other than 1 and 2.
 - For `run_patching_condition_repeat_tree`, one `patches.csv` +
   `run_config.json` pair per
   `<condition>/<biological_repeat>[/<technical_repeat>]/` output folder by
@@ -349,9 +349,8 @@ Two ways to point CellPatcher at input data:
   later, `position_id` (the one its patches carry, also for an image
   without patches; always filled since decision D45) and
   `n_regions`/`n_kept`/`n_normalized` (counts after the patch mode, the
-  filters and normalization) and `image_read_transposed` (the image's
-  header Y and X declared swapped, read transposed; v0.1.2 only, as
-  a swap is refused since v0.2.0). There is no
+  filters and normalization) (v0.1.2's last column `image_read_transposed`
+  was removed in v0.2.0, CP-2b). There is no
   `failed` status: a failing image stops the run with an error before any
   table is written. Every `patches.csv` row joins exactly one `images.csv`
   row on `condition`/`biological_repeat`/`technical_repeat`/`image_id`/
@@ -404,7 +403,7 @@ bricks (core dependencies, pinned tags in `setup.py`), CellPatcher:
   `run_manifest.json`, all required; `cellpatcher.statistics`) and runs the
   checks of contract §5;
 - splits Z/T stacks into planes (`common.z_policy`/`t_policy`) and reads
-  OME-Zarr images and OME-NGFF label masks (`common.mask_source`) (see
+  OME-Zarr images and OME-NGFF label masks through the preprocessing run (see
   "Inputs" above);
 - normalizes patches (`config.normalization`, `cellpatcher.normalization`)
   at the biological-repeat scope (across conditions, from the preprocessing

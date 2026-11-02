@@ -12,10 +12,15 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+import tifffile
 
-from cellpatcher import iter_exported_patches, iter_patch_arrays, patch_array
+from cellpatcher import (
+    iter_exported_patches,
+    iter_run_patch_arrays,
+    patch_array,
+)
 from cellpatcher.config import CellPatcherConfig, GridConfig, NormalizationConfig
-from cellpatcher.io import list_supported_files, read_image
+from cellpatcher.io import list_supported_files
 from cellpatcher.orchestration import run_patching_condition_repeat_tree
 
 pytestmark = [
@@ -98,14 +103,18 @@ CONFIGS = {
 }
 
 
-def _run(root, masks, config, **options):
+def _file_run(config):
     # A file run reads through the preprocessing run, in the roles it recorded (CP-2a); the
-    # axes stay set for the lazy delivery from paths and arrays below.
+    # axes of *config* stay set for the lazy delivery from arrays below.
     config = copy.deepcopy(config)
     config.common.image_axes = config.common.mask_axes = "YX"
     config.common.preprocessing_run = str(Path(config.normalization.plane_histograms).parent)
+    return config
+
+
+def _run(root, masks, config, **options):
     return run_patching_condition_repeat_tree(
-        root, config=config, mask_root_path=masks if config.mode == "cell" else None, **options
+        root, config=_file_run(config), mask_root_path=masks if config.mode == "cell" else None, **options
     )
 
 
@@ -152,20 +161,22 @@ def test_files_raw_files_and_the_lazy_iterator_equal_eager_delivery(experiment, 
         finite = [array[np.isfinite(array)] for array in eager.values()]  # NaN mask fill aside
         assert all(values.min() >= clip[0] and values.max() <= clip[1] for values in finite)
 
-    lazy_from_paths, lazy_from_arrays = {}, {}
-    for leaf in _run(root, masks, config):
+    lazy_from_run, lazy_from_arrays = {}, {}
+    leaves = _run(root, masks, config)
+    file_config = _file_run(config)
+    for patch, array in iter_run_patch_arrays([p for leaf in leaves for p in leaf.result.patches], file_config):
+        lazy_from_run[(patch.source_relative_path, patch.patch_id)] = array
+    for leaf in leaves:
         image_paths = list_supported_files(leaf.image_folder)
         mask_paths = list_supported_files(masks / "cells" / leaf.relative_folder) if config.mode == "cell" else None
-        for patch, array in iter_patch_arrays(leaf.result.patches, image_paths, config, masks=mask_paths):
-            lazy_from_paths[(patch.source_relative_path, patch.patch_id)] = array
-        images = [read_image(path, config.common.image_axes) for path in image_paths]
-        mask_arrays = [read_image(path, config.common.mask_axes) for path in mask_paths] if mask_paths else None
+        images = [tifffile.imread(path) for path in image_paths]  # stored ZCYX, the in-memory config's axes
+        mask_arrays = [tifffile.imread(path) for path in mask_paths] if mask_paths else None  # stored ZYX
         for patch in leaf.result.patches:
             mask = mask_arrays[int(patch.image_id[-4:])] if mask_arrays else None
             lazy_from_arrays[(patch.source_relative_path, patch.patch_id)] = patch_array(
                 patch, images[int(patch.image_id[-4:])], config, mask=mask
             )
-    _same(lazy_from_paths, eager)
+    _same(lazy_from_run, eager)
     _same(lazy_from_arrays, eager)
 
 
@@ -215,7 +226,11 @@ def test_delivery_settings_are_validated():
 @pytest.mark.parametrize("name", CONFIGS)
 def test_torch_datasets_give_the_same_arrays(experiment, tmp_path, name):
     pytest.importorskip("torch")
-    from cellpatcher.torch_dataset import ExportedPatchTorchDataset, PatchTensorConfig, PatchTorchDataset
+    from cellpatcher.torch_dataset import (
+        ExportedPatchTorchDataset,
+        PatchTensorConfig,
+        PatchTorchDataset,
+    )
 
     root, masks, csv_path = experiment
     config = CONFIGS[name](csv_path)
@@ -224,9 +239,9 @@ def test_torch_datasets_give_the_same_arrays(experiment, tmp_path, name):
 
     from_images = {}
     for leaf in _run(root, masks, config):
-        images = [read_image(p, config.common.image_axes) for p in list_supported_files(leaf.image_folder)]
+        images = [tifffile.imread(p) for p in list_supported_files(leaf.image_folder)]  # stored ZCYX
         mask_list = (
-            [read_image(p, config.common.mask_axes) for p in list_supported_files(masks / "cells" / leaf.relative_folder)]
+            [tifffile.imread(p) for p in list_supported_files(masks / "cells" / leaf.relative_folder)]  # stored ZYX
             if config.mode == "cell" else None
         )
         dataset = PatchTorchDataset(images, leaf.result.patches, masks=mask_list, config=config, tensor_config=tensors)

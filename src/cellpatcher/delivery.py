@@ -7,7 +7,9 @@ exported files, patches can be delivered:
   patch): each patch is rebuilt from its source image with the pipeline's own
   steps (plane, extract, normalize with the patch's recorded parameters, mask,
   resize, channel), so only one patch, and one image or plane, is in memory at
-  a time; ``cellpatcher.torch_dataset.PatchTorchDataset`` is built on it;
+  a time; ``cellpatcher.torch_dataset.PatchTorchDataset`` is built on it. The
+  images are arrays (``run_patching``); a folder or tree run's patches are read
+  through their preprocessing run with :func:`cellpatcher.iter_run_patch_arrays`;
 - **from exported files**, with :func:`iter_exported_patches` (or
   :func:`load_exported_patch`): files exported with
   ``normalization.export_values="raw"`` are normalized on load with each row's
@@ -24,25 +26,26 @@ from __future__ import annotations
 import csv
 import json
 import os
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from pathlib import Path
 from types import SimpleNamespace
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from cellpatcher.axes import normalize_axes
 from cellpatcher.extract import extract_patch
-from cellpatcher.io import (
-    read_array,
-    read_image,
-    refuse_image_header_axes,
-    refuse_mask_header_axes,
-    refuse_transposed_mask_axes,
-)
+from cellpatcher.io import read_array, refuse_transposed_mask_axes
 from cellpatcher.masking import apply_label_mask_to_patch
 from cellpatcher.normalization import PatchNormalization, parameters_from_row
-from cellpatcher.planes import apply_plane_choice, patch_plane_choice, read_file_plane, select_mask_plane
+from cellpatcher.planes import apply_plane_choice, patch_plane_choice, select_mask_plane
 from cellpatcher.resize import resize_patch
+from cellpatcher.run_config_file import delivery_config, run_config_version
+
+if TYPE_CHECKING:
+    from cellpatcher.config import CellPatcherConfig
+    from cellpatcher.planes import PlaneChoice
+    from cellpatcher.types import PatchRegion
 
 
 def patch_axes(config, patch) -> str:
@@ -55,7 +58,9 @@ def patch_axes(config, patch) -> str:
     return axes
 
 
-def patch_array(patch, image, config, *, mask=None) -> np.ndarray:
+def patch_array(
+    patch: PatchRegion, image: np.ndarray, config: CellPatcherConfig, *, mask: np.ndarray | None = None
+) -> np.ndarray:
     """Rebuild one patch's array from its source image, as the pipeline delivers it.
 
     Parameters
@@ -64,9 +69,9 @@ def patch_array(patch, image, config, *, mask=None) -> np.ndarray:
         A ``PatchRegion`` from a run with *config* (its ``z0``/``t``, ``c``,
         ``label_id`` and ``normalization_*`` fields are used).
     image
-        Its source image, in ``config.common.image_axes``: an array, or a
-        file path (for a TIFF or OME-Zarr image, only the patch's plane is
-        read).
+        Its source image, in ``config.common.image_axes``, as an array. A file
+        path is refused: the patches of a folder or tree run are delivered with
+        :func:`cellpatcher.iter_run_patch_arrays`, through their preprocessing run.
     config
         The run's ``CellPatcherConfig``.
     mask
@@ -85,7 +90,13 @@ def patch_array(patch, image, config, *, mask=None) -> np.ndarray:
     return _finish_patch(patch, plane, axes, mask_plane, mask_axes, config)
 
 
-def iter_patch_arrays(patches, images: Sequence, config, *, masks: Sequence | None = None) -> Iterator[tuple]:
+def iter_patch_arrays(
+    patches: Iterable[PatchRegion],
+    images: Sequence,
+    config: CellPatcherConfig,
+    *,
+    masks: Sequence | None = None,
+) -> Iterator[tuple]:
     """Yield ``(patch, array)`` for every patch, one at a time (lazy delivery).
 
     Parameters
@@ -96,8 +107,9 @@ def iter_patch_arrays(patches, images: Sequence, config, *, masks: Sequence | No
         *images*. A run with ``extract_arrays=False`` and no export gives
         them, with their normalization recorded, without holding any array.
     images
-        The run's source images, in image order: arrays or file paths (for a
-        folder run, ``cellpatcher.list_supported_files(folder)``).
+        The run's source images, in image order, as arrays (a file path is
+        refused: see :func:`cellpatcher.iter_run_patch_arrays` for folder and
+        tree runs).
     config
         The run's ``CellPatcherConfig``.
     masks
@@ -161,8 +173,10 @@ def iter_exported_patches(metadata_file, *, root_dir=None) -> Iterator[tuple[dic
         yield row, load_exported_patch(row, root_dir=root, run_config=run_configs[name])
 
 
-def _normalize_on_load(row: Mapping, array, run_config: Mapping | None) -> np.ndarray:
+def _normalize_on_load(row: Mapping, array: np.ndarray, run_config: Mapping | None) -> np.ndarray:
     """Normalize a loaded patch file when its run exported raw values (else return it as stored)."""
+    if run_config is not None:
+        run_config_version(run_config, "run_config.json")
     settings = (run_config or {}).get("normalization") or {}
     if settings.get("export_values") != "raw":
         return array
@@ -172,7 +186,7 @@ def _normalize_on_load(row: Mapping, array, run_config: Mapping | None) -> np.nd
     patch = _row_patch(row)
     clip = settings.get("clip")
     return PatchNormalization(parameters).apply(
-        array, patch_axes(_run_config(run_config), patch), clip=tuple(clip) if clip else None
+        array, patch_axes(delivery_config(run_config, "run_config.json"), patch), clip=tuple(clip) if clip else None
     )
 
 
@@ -202,25 +216,32 @@ def _splits_channel(config, patch, axes: str) -> bool:
     return bool(config.extraction.split_channels and patch.c is not None and "C" in axes)
 
 
-def _image_plane(image, choice, config):
-    common = config.common
-    if isinstance(image, (str, os.PathLike)):
-        refuse_image_header_axes([image], common.image_axes)
-        return read_file_plane(image, common.image_axes, choice, common)
-    return apply_plane_choice(image, common.image_axes, choice)
+def _image_plane(image: np.ndarray, choice: PlaneChoice, config: CellPatcherConfig) -> tuple[np.ndarray, str]:
+    """Return the plane *choice* of an in-memory image, refusing a file path."""
+    _refuse_file(image, "image")
+    return apply_plane_choice(image, config.common.image_axes, choice)
 
 
-def _mask_plane(mask, choice, config):
+def _mask_plane(
+    mask: np.ndarray | None, choice: PlaneChoice, config: CellPatcherConfig
+) -> tuple[np.ndarray | None, str | None]:
+    """Return the mask plane for *choice* of an in-memory mask, refusing a file path or X before Y."""
     if mask is None:
         return None, None
-    common = config.common
-    if isinstance(mask, (str, os.PathLike)):
-        refuse_mask_header_axes([mask], common.mask_axes)
-        mask = read_image(mask, common.mask_axes)
-    else:
-        refuse_transposed_mask_axes(common.mask_axes)
-        mask = np.asarray(mask)
-    return select_mask_plane(mask, normalize_axes(common.mask_axes, mask.ndim), choice)
+    _refuse_file(mask, "mask")
+    refuse_transposed_mask_axes(config.common.mask_axes)
+    mask = np.asarray(mask)
+    return select_mask_plane(mask, normalize_axes(config.common.mask_axes, mask.ndim), choice)
+
+
+def _refuse_file(source: object, what: str) -> None:
+    """Refuse a file path: since v0.2.0 files are read only through the preprocessing run (CP-2b)."""
+    if isinstance(source, (str, os.PathLike)):
+        raise TypeError(
+            f"Lazy delivery takes the {what}s of run_patching as arrays; got the path {source}. Since CellPatcher "
+            "v0.2.0 an image or mask file is read only through its preprocessing run (design v0.4 §6): deliver "
+            "the patches of a folder or tree run with cellpatcher.iter_run_patch_arrays(patches, config)."
+        )
 
 
 def _finish_patch(patch, plane, axes, mask_plane, mask_axes, config) -> np.ndarray:
@@ -268,20 +289,3 @@ def _row_patch(row: Mapping):
         t=number("t"),
         c=number("c"),
     )
-
-
-def _run_config(data: Mapping):
-    """The config of a ``run_config.json``, for the axes of its patches.
-
-    A run normalized at a scope removed since (``condition``,
-    ``technical_repeat``; normalization brick N29) still loads here: its
-    parameters are in ``patches.csv``, and only the patch axes are needed.
-    """
-    from cellpatcher.config import REMOVED_NORMALIZATION_SCOPES
-    from cellpatcher.orchestration import _config_from_dict
-
-    data = dict(data)
-    normalization = data.get("normalization")
-    if isinstance(normalization, Mapping) and normalization.get("scope") in REMOVED_NORMALIZATION_SCOPES:
-        data["normalization"] = {**normalization, "scope": "image"}
-    return _config_from_dict(data)

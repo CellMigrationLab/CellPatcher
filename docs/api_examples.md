@@ -128,14 +128,15 @@ print(len(result.patches))  # 1
 
 ## Example 5 — Folder matching and loading
 
-Use this pattern when images and masks live in separate folders and need reliable pairing. The pairing is the preprocessing brick's (`morphobricks_preprocessing.find_masks`): masks are TIFF files named `<image name>_<mask type>.tif` or `<mask type>/<image name>.tif` (see [`config.matching`](configuration_reference.md)).
+Use this pattern to list the image/mask pairs of a preprocessing run. The pairing is the preprocessing run's (its `find_masks`; since v0.2.0 CellPatcher pairs nothing itself): masks are TIFF files named `<image name>_<mask type>.tif` or `<mask type>/<image name>.tif` (see [`config.matching`](configuration_reference.md)).
 
 ```python
 # ./masks holds img_01_cells.tif, img_01_nuclei.tif, ...: choose the type.
-# pairs is a dict[Path, Path]: {image_path: mask_path} for every image
+# pairs is a dict[Path, Path]: {image_path: mask_path} for every image of the run
 pairs = validate_image_and_mask_folders(
     image_folder_path="./images",
     mask_folder_path="./masks",
+    preprocessing_run="./images_MorphoBricks_Preprocessing",
     mask_type="cells",
 )
 

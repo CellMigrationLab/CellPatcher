@@ -9,23 +9,12 @@ import json
 from typing import Any
 
 from cellpatcher._deprecation import accept_deprecated_repeat
-from cellpatcher.config import (
-    CellConfig,
-    CellPatcherConfig,
-    CommonConfig,
-    ExportConfig,
-    ExtractionConfig,
-    FilterConfig,
-    GridConfig,
-    MatchConfig,
-    NormalizationConfig,
-    RandomConfig,
-    WholeFOVConfig,
-)
+from cellpatcher.config import CellPatcherConfig
 from cellpatcher.file_runs import FileRun, leaves, masks_used, open_file_run, patch_fovs, run_config_for
 from cellpatcher.io import SINGLE_TECHNICAL_REPEAT_LABEL, ConditionRepeatFolder, refuse_removed_matching
 from cellpatcher.export import IMAGE_TABLE_FILENAME, save_image_table_csv, save_metadata_csv
-from cellpatcher.pipeline import RUN_CONFIG_FILENAME, PatchingResult, run_config_data
+from cellpatcher.pipeline import RUN_CONFIG_FILENAME, PatchingResult
+from cellpatcher.run_config_file import config_from_dict, run_config_data
 from cellpatcher.run_session import statistics_session
 
 # Sections always written regardless of mode
@@ -215,7 +204,7 @@ def save_config_for_mode(mode: str, path) -> Path:
     return out
 
 
-def load_config(path) -> CellPatcherConfig:
+def load_config(path: str | os.PathLike) -> CellPatcherConfig:
     """Load a :class:`~cellpatcher.CellPatcherConfig` from a JSON file.
 
     The file is typically created by :func:`save_default_config` or
@@ -252,30 +241,7 @@ def load_config(path) -> CellPatcherConfig:
     CellPatcherConfig
         A fully reconstructed config instance.
     """
-    return _config_from_dict(json.loads(Path(path).read_text()))
-
-
-def _config_from_dict(data: dict) -> CellPatcherConfig:
-    """Build a config from the data of a config or ``run_config.json`` file (extra keys are ignored)."""
-    # Each section is reconstructed only if present in the file (a
-    # mode-specific save omits irrelevant sections), otherwise it falls
-    # back to that section's own defaults.
-    return CellPatcherConfig(
-        mode=data.get("mode", "cell"),
-        common=CommonConfig(**data["common"]) if "common" in data else CommonConfig(),
-        cell=CellConfig(**data["cell"]) if "cell" in data else CellConfig(),
-        random=RandomConfig(**data["random"]) if "random" in data else RandomConfig(),
-        grid=GridConfig(**data["grid"]) if "grid" in data else GridConfig(),
-        whole_fov=WholeFOVConfig(**data["whole_fov"]) if "whole_fov" in data else WholeFOVConfig(),
-        filters=FilterConfig(**data["filters"]) if "filters" in data else FilterConfig(),
-        export=ExportConfig(**data["export"]) if "export" in data else ExportConfig(),
-        extraction=ExtractionConfig(**data["extraction"]) if "extraction" in data else ExtractionConfig(),
-        matching=MatchConfig(**data["matching"]) if "matching" in data else MatchConfig(),
-        # A run_config.json written before normalization existed means it was off.
-        normalization=(
-            NormalizationConfig(**data["normalization"]) if "normalization" in data else NormalizationConfig()
-        ),
-    )
+    return config_from_dict(json.loads(Path(path).read_text()), str(path))
 
 
 def run_patching_pipeline(
@@ -367,9 +333,9 @@ def run_patching_pipeline(
         * ``'cell'`` mode always reads masks.
         * ``'random'`` mode reads them when this or ``matching.mask_type``
           is given — masks restrict where patches are sampled.
-        * **Must not be provided** for ``'grid'`` or ``'whole_fov'`` modes
-          (those modes do not consume masks; a ``ValueError`` is raised if
-          this argument is set for those modes).
+        * ``'grid'`` and ``'whole_fov'`` read none; given, it only says
+          where the run's masks folder is now (its masks are checked there,
+          as for the tree run).
     strategy, mask_suffixes, case_sensitive:
         Former matching options, removed in v0.1.1 and refused by name:
         the masks are those the preprocessing run paired; choose the mask
@@ -395,13 +361,14 @@ def run_patching_pipeline(
         Without ``common.preprocessing_run``, or when ``RunInputs`` refuses
         the run (an image or mask changed or missing, a run before v0.4).
     ValueError
-        For ``common.image_axes``/``mask_axes`` other than ``"YX"``,
-        ``mask_source``/``mask_label_name``, or labels other than
-        ``"single"``: file runs read these from the run (the message says so).
+        For ``common.image_axes``/``mask_axes`` other than ``"YX"``, labels
+        other than ``"single"``, or ``normalization.experiment_root``/``masks_root``:
+        file runs read these from the run and its arguments (the message says so).
     """
     config = _checked_config(config, overrides)
     refuse_removed_matching("run_patching_pipeline", removed_options)
     with statistics_session():
+        # grid/whole_fov read no masks: a masks folder given for them only says where the run's is now.
         use_masks = masks_used(config, mask_folder_path)
         run = open_file_run(
             config, image_folder_path, mask_folder_path, use_masks=use_masks, where="run_patching_pipeline"
@@ -540,8 +507,7 @@ def run_patching_condition_repeat_tree(
             "combine_metadata=True requires config.export.enabled=True and config.common.output_dir to be set."
         )
     refuse_removed_matching("run_patching_condition_repeat_tree", removed_options)
-    # grid/whole_fov read no masks: a masks folder given for them only says where the run's is now.
-    use_masks = masks_used(config, None if config.mode in {"grid", "whole_fov"} else mask_root_path)
+    use_masks = masks_used(config, mask_root_path)
     with statistics_session():
         run = open_file_run(
             config, image_root_path, mask_root_path, use_masks=use_masks, where="run_patching_condition_repeat_tree"
@@ -597,9 +563,10 @@ def _patch_leaves(
 
 def _write_combined_metadata(config: CellPatcherConfig, output_dir: Path, results: list[ConditionRepeatResult]) -> None:
     """Write one run_config.json, one patches.csv and one images.csv covering every leaf of a tree run."""
+    data = run_config_data(config)  # before the file is created: a refusal leaves none
     output_dir.mkdir(parents=True, exist_ok=True)
     with (output_dir / RUN_CONFIG_FILENAME).open("w", encoding="utf-8") as f:
-        json.dump(run_config_data(config), f, indent=2, default=str)
+        json.dump(data, f, indent=2, default=str)
 
     all_patches = []
     for leaf_result in results:

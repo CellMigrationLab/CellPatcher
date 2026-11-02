@@ -96,7 +96,12 @@ memory limit is an error, even if the preprocessing brick read it in blocks.
 
 ## 4. Masks
 
-`common.mask_source` selects where masks come from:
+Since v0.2.0 folder and tree runs read the masks their preprocessing run paired (a label
+image's type is its name, chosen with `matching.mask_type`); `common.mask_source` and
+`mask_label_name`, which selected the source below before v0.2.0, were removed in CP-2b. The
+rules below are the ones the preprocessing run applies.
+
+Before v0.2.0, `common.mask_source` selected where masks come from:
 
 | Value | Masks | Matching |
 |---|---|---|
@@ -293,7 +298,7 @@ In memory, `PatchRegion.normalization_parameters` holds the brick's `Parameters`
 | Normalized files (default) | `export.enabled=True`, `normalization.export_values="normalized"` | float32 `.tif`/`.npy` |
 | Raw files plus parameters | `export.enabled=True`, `normalization.export_values="raw"` | Source dtype; the columns of §10 hold the parameters, and loaders normalize on load |
 | In memory, eager | `common.extract_arrays=True` | float32 arrays in `PatchingResult.patch_arrays` |
-| In memory, lazy | A NumPy iterator over patches (core) and `PatchTorchDataset` (torch extra) | float32, one patch at a time |
+| In memory, lazy | A NumPy iterator over patches (core: `iter_patch_arrays` for arrays, `iter_run_patch_arrays` for a folder or tree run, read through its preprocessing run) and `PatchTorchDataset` (torch extra, arrays) | float32, one patch at a time |
 
 - All modes give identical arrays for the same configuration.
 - Eager delivery estimates its memory first and stops above `normalization.memory_limit`,
@@ -311,6 +316,7 @@ In memory, `PatchRegion.normalization_parameters` holds the brick's `Parameters`
 | `enabled` | `bool` | `False` | Off keeps current behaviour exactly |
 | `plane_histograms` | `str \| None` | `None` | Path of `plane_histograms.csv` (§5) |
 | `manifest` | `str \| None` | `None` | The run's `run_manifest.json`, next to the CSV; `None` uses it, and another file is refused (§5) |
+| `experiment_root`, `masks_root` | `str \| None` | `None` | `run_patching` only: where the run's experiment and masks folder are now, if moved since the run; refused by folder and tree runs (since v0.2.0) |
 | `method` | `str` | `"percentile"` | §6 |
 | `percentile` | `tuple[float, float]` | `(1.0, 99.8)` | Low and high percentiles, `0 ≤ low < high ≤ 100` |
 | `clip` | `tuple[float, float] \| None` | `None` | Limits applied right after normalizing (by the brick's `NormalizationParameters.apply`), before masking and resizing; the same in eager, lazy, exported and raw-on-load delivery |
@@ -323,8 +329,8 @@ In memory, `PatchRegion.normalization_parameters` holds the brick's `Parameters`
 | `pooling` | `str` | `"pixels"` | §7: `"pixels"` or `"conditions"` |
 | `image_type` | `str` | `"fluorescence"` | §6: `"fluorescence"` (each channel separately) or `"rgb"` (R, G and B together, `"percentile"` only, `extraction.split_channels=False`); must equal the manifest's image type when it records one (§5) |
 
-`config.common` gains `mask_source` (`"tiff_tree"` or `"ngff_labels"`, default `"tiff_tree"`)
-and `mask_label_name` (`str | None`, default `None`) (§4), and `z_policy`/`t_policy`
+`config.common` gained `mask_source` and `mask_label_name` (§4; removed in v0.2.0, CP-2b), and
+`z_policy`/`t_policy`
 (`"keep"` by default, or `"all"`, `"first"`, `"select"`; Z also `"max"`, `"mean"`, `"sum"`)
 with `z_index`/`t_index` (`int | None`), which split Z and T in folder, tree and
 `run_patching` runs (§3; Milestone 2, decided October 2026).

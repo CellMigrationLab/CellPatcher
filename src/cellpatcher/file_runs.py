@@ -12,9 +12,9 @@ and read where it is now). Then:
   with ``RunInputs.read_mask`` by the run's pairing (:mod:`cellpatcher.run_reading`);
 - the CSV normalization scopes read the run's own table, design and image type.
 
-The settings that told CellPatcher how to read files (``common.image_axes``, ``mask_axes``,
-``mask_source``, ``mask_label_name`` and the labels) are refused for file runs with a
-migration message; CP-2b removes them. In-memory ``run_patching`` keeps them.
+The settings that told CellPatcher how to read files (``common.image_axes``, ``mask_axes`` and
+the labels) are refused for file runs with a migration message; in-memory ``run_patching``
+keeps them. ``mask_source`` and ``mask_label_name`` were removed in v0.2.0 (CP-2b).
 """
 
 from __future__ import annotations
@@ -26,7 +26,11 @@ from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING
 
 from cellpatcher.ids import object_set_from_mask_type, validate_object_set
-from cellpatcher.io import SINGLE_CONDITION_LABEL, ConditionRepeatFolder
+from cellpatcher.io import (
+    SINGLE_CONDITION_LABEL,
+    ConditionRepeatFolder,
+    refuse_removed_matching,
+)
 from cellpatcher.normalization import (
     CSV_SCOPES,
     check_image_type,
@@ -50,7 +54,7 @@ from cellpatcher.run_reading import (
     run_layout,
     run_mask_layout,
 )
-from cellpatcher.run_session import keep_in_session
+from cellpatcher.run_session import keep_in_session, remember
 from cellpatcher.statistics import (
     PlaneStatistics,
     PreprocessingCheckError,
@@ -122,12 +126,12 @@ def refuse_file_run_settings(config: CellPatcherConfig, where: str) -> None:
         for name in ("image_axes", "mask_axes")
         if getattr(common, name) != _DEFAULT_AXES
     ]
-    if common.mask_source != "tiff_tree" or common.mask_label_name is not None:
-        problems.append(
-            f"common.mask_source={common.mask_source!r}, common.mask_label_name={common.mask_label_name!r}: the "
-            "masks are those the preprocessing run paired (masks-folder TIFFs and OME-Zarr label images); "
-            "choose the type with matching.mask_type (a label image's type is its name)"
-        )
+    problems += [
+        f"normalization.{name}={getattr(config.normalization, name)!r}: where the experiment and masks are now "
+        "is the image folder or root and mask_folder_path or mask_root_path of the run; leave it unset"
+        for name in ("experiment_root", "masks_root")
+        if getattr(config.normalization, name) is not None
+    ]
     problems += [
         f"common.{name}={getattr(common, name)!r}: each image's labels are its folders, as the preprocessing "
         "run recorded them; leave it unset"
@@ -138,25 +142,23 @@ def refuse_file_run_settings(config: CellPatcherConfig, where: str) -> None:
         raise ValueError(
             f"{where} reads the images, masks and labels through the preprocessing run since CellPatcher "
             "v0.2.0 (design v0.4 §6), so these settings are not used for files: " + "; ".join(problems) + ". "
-            "The axes and labels still describe in-memory arrays given to run_patching; mask_source and "
-            "mask_label_name are not used there."
+            "The axes and labels still describe in-memory arrays given to run_patching."
         )
     if common.preprocessing_run is None:
         _refuse_without_run(where)
 
 
-def _refuse_without_run(where: str) -> None:
-    """Raise ``no_preprocessing_run``, with the preprocessing command."""
+def _refuse_without_run(where: str, setting: str = "common.preprocessing_run") -> None:
+    """Raise ``no_preprocessing_run`` (*setting* not set), with the preprocessing command."""
     from morphobricks_preprocessing.validation import error
 
     raise PreprocessingCheckError([
         error(
             "no_preprocessing_run",
-            f"{where} reads files only through a clean preprocessing run (v0.4), and "
-            "common.preprocessing_run is not set.",
+            f"{where} reads files only through a clean preprocessing run (v0.4), and {setting} is not set.",
             [],
             f"Run preprocessing on the experiment first: {PREPROCESSING_COMMAND}. Then set "
-            "common.preprocessing_run to its output folder (by default <experiment>_MorphoBricks_Preprocessing, "
+            f"{setting} to its output folder (by default <experiment>_MorphoBricks_Preprocessing, "
             "beside the experiment).",
         )
     ])
@@ -165,19 +167,11 @@ def _refuse_without_run(where: str) -> None:
 def masks_used(config: CellPatcherConfig, masks_root: str | os.PathLike | None) -> bool:
     """Return whether the run reads masks: always in ``cell`` mode, in ``random`` mode when asked.
 
-    ``random`` mode reads them when a masks folder or ``matching.mask_type`` is given.
-
-    Raises
-    ------
-    ValueError
-        For a masks folder in ``grid`` or ``whole_fov`` mode, which use no masks.
+    ``random`` mode reads them when a masks folder or ``matching.mask_type`` is given. ``grid``
+    and ``whole_fov`` read none: a masks folder given for them only says where the run's masks
+    folder is now (owner decision of 2026-11-02), and the run checks its masks there.
     """
     if config.mode in {"grid", "whole_fov"}:
-        if masks_root is not None:
-            raise ValueError(
-                f"mask_folder_path is not supported for mode='{config.mode}'. "
-                "Remove it, or switch to 'cell' or 'random' mode."
-            )
         return False
     return config.mode == "cell" or masks_root is not None or config.matching.mask_type is not None
 
@@ -208,11 +202,12 @@ def open_file_run(
     refuse_file_run_settings(config, where)
     check_config_identity(config)
     inputs = open_run(config.common.preprocessing_run, experiment_root=experiment_root, masks_root=masks_root)
+    remember("file_run", config.common.preprocessing_run, "folder or tree run")
     fovs = inputs.fovs()
     if not fovs:
         raise ValueError(f"The preprocessing run in {inputs.output_folder} has no images.")
     layout = run_layout(fovs)
-    mask_type = _mask_type(config, inputs) if use_masks else None
+    mask_type = _mask_type(config.matching.mask_type, inputs, f"mode={config.mode!r}") if use_masks else None
     mask_axes = _DEFAULT_AXES
     if mask_type is not None:
         mask_axes = run_mask_layout([_record(inputs, fov, mask_type) for fov in fovs])
@@ -221,13 +216,12 @@ def open_file_run(
     return FileRun(inputs, layout, mask_type, mask_axes, statistics)
 
 
-def _mask_type(config: CellPatcherConfig, inputs: RunInputs) -> str:
-    """Return the mask type the run reads: ``matching.mask_type``, or the run's only type."""
+def _mask_type(wanted: str | None, inputs: RunInputs, reader: str) -> str:
+    """Return the mask type *reader* reads: *wanted* (``matching.mask_type``), or the run's only type."""
     types = inputs.mask_types()
-    wanted = config.matching.mask_type
     if not types:
         raise ValueError(
-            f"mode={config.mode!r} reads masks, but the preprocessing run in {inputs.output_folder} recorded none. "
+            f"{reader} reads masks, but the preprocessing run in {inputs.output_folder} recorded none. "
             f"Run preprocessing with the masks folder ({PREPROCESSING_COMMAND})."
         )
     if wanted is None and len(types) > 1:
@@ -372,17 +366,71 @@ def fov_metadata(run: FileRun, fov: Fov, config: CellPatcherConfig) -> dict:
 
     The FOV key is the run's (``position_id`` and ``technical_repeat`` included); the mask
     file and, in ``cell`` mode without ``common.object_set``, the object set come from the
-    recorded mask and its type. Nothing is read transposed (``image_read_transposed`` False).
+    recorded mask and its type.
     """
     meta = {
         "image_file": PurePosixPath(fov.relative_path).name,
         "source_relative_path": fov.relative_path,
         "position_id": fov.key[3],
         "technical_repeat": fov.key[2],
-        "image_read_transposed": False,
     }
     if run.mask_type is not None:
         meta["mask_file"] = mask_file_name(_record(run.inputs, fov, run.mask_type))
         if config.mode == "cell" and config.common.object_set is None:
             meta["object_set"] = object_set_from_mask_type(run.mask_type)
     return meta
+
+
+def validate_image_and_mask_folders(
+    image_folder_path: str | os.PathLike,
+    mask_folder_path: str | os.PathLike,
+    *,
+    preprocessing_run: str | os.PathLike | None = None,
+    mask_type: str | None = None,
+    **removed_options: object,
+) -> dict[Path, Path]:
+    """Return the mask of every image of a clean preprocessing run, as the run paired them.
+
+    Since v0.2.0 (design v0.4 §6) CellPatcher pairs no file itself: the run is opened with
+    ``RunInputs.open`` with *image_folder_path* as the experiment root and *mask_folder_path* as
+    its masks folder (where they are now), so every image and mask is checked against the run.
+
+    Parameters
+    ----------
+    image_folder_path
+        The experiment root, where the preprocessed experiment is now.
+    mask_folder_path
+        Where the run's masks folder is now.
+    preprocessing_run
+        The run's output folder (``common.preprocessing_run`` of a file run).
+    mask_type
+        The mask type (``matching.mask_type``); None: the run's only type.
+    **removed_options
+        The matching options removed in v0.1.1, refused by name.
+
+    Returns
+    -------
+    dict
+        Each image's path mapped to its mask's path (a label image's is inside its OME-Zarr image).
+
+    Raises
+    ------
+    PreprocessingCheckError
+        ``no_preprocessing_run`` without *preprocessing_run*, or when ``RunInputs`` refuses the run.
+    ValueError
+        For a mask type the run did not record, several types without *mask_type*, or an image
+        the run recorded no mask of the type for.
+    """
+    from morphobricks_preprocessing.masks import FOLDER
+
+    refuse_removed_matching("validate_image_and_mask_folders", removed_options)
+    if preprocessing_run is None:
+        _refuse_without_run("validate_image_and_mask_folders", "preprocessing_run=")
+    inputs = open_run(preprocessing_run, experiment_root=image_folder_path, masks_root=mask_folder_path)
+    chosen = _mask_type(mask_type, inputs, "validate_image_and_mask_folders")
+    pairs = {}
+    for fov in inputs.fovs():
+        record = _record(inputs, fov, chosen)
+        root = inputs.masks_root if record["source"] == FOLDER else inputs.experiment_root
+        pairs[inputs.experiment_root / fov.relative_path] = root / str(record["path"])
+    return pairs

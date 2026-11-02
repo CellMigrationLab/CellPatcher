@@ -78,6 +78,70 @@ def test_a_moved_experiment_is_opened_where_it_is_now(tmp_path):
         run_patching_condition_repeat_tree(moved, config=_cell_config(run))
 
 
+def test_a_file_runs_patches_are_delivered_lazily_through_the_run_where_it_is_now(tmp_path):
+    # CP-2b: lazy delivery from a file path read the file itself (with common.image_axes and its
+    # own header check). A folder or tree run's patches are now read through their run.
+    from dataclasses import replace
+
+    from cellpatcher import iter_patch_arrays, iter_run_patch_arrays
+
+    run = _clean_run(tmp_path, axes="YX", shape=(16, 20), mask_types=("Cells",))
+    config = _cell_config(run)
+    config.extraction.apply_mask = True
+    leaves = run_patching_condition_repeat_tree(run.experiment, config=config)
+    eager = _patches(leaves)
+    patches = [patch for leaf in leaves for patch in leaf.result.patches]
+    with pytest.raises(TypeError, match=r"path .*a.ome.tif.*iter_run_patch_arrays\(patches, config\)"):
+        next(iter_patch_arrays(leaves[0].result.patches, [run.experiment / "ctrl" / "rep1" / "a.ome.tif"], config))
+    moved, moved_masks = tmp_path / "moved" / "experiment", tmp_path / "moved" / "masks"
+    moved.parent.mkdir()
+    shutil.move(run.experiment, moved)
+    shutil.move(run.masks, moved_masks)
+    lazy = {
+        (patch.patch_id, patch.mask_file): array
+        for patch, array in iter_run_patch_arrays(patches, config, experiment_root=moved, masks_root=moved_masks)
+    }
+    assert lazy.keys() == eager.keys() and len(lazy) == 8
+    assert all(np.array_equal(lazy[key], eager[key]) for key in eager)
+    with pytest.raises(ValueError, match="comes from 'ctrl/rep1/z.tif', which is not an image of the preprocessing run"):
+        list(iter_run_patch_arrays([replace(patches[0], source_relative_path="ctrl/rep1/z.tif")], config,
+                                   experiment_root=moved, masks_root=moved_masks))
+    with pytest.raises(ValueError, match=r"has the FOV key \('drug',.*but the preprocessing run recorded \('ctrl'"):
+        list(iter_run_patch_arrays([replace(patches[0], condition="drug")], config,
+                                   experiment_root=moved, masks_root=moved_masks))
+
+
+def test_run_patching_at_a_csv_scope_opens_a_moved_experiment_where_normalization_says(tmp_path):
+    # Owner decision 4 (2026-11-02): normalization.experiment_root/masks_root. Old main had no such
+    # setting: run_patching opened the run where it recorded the experiment, refusing a moved one.
+    from cellpatcher import run_patching
+    from cellpatcher.config import NormalizationConfig
+
+    run = _clean_run(tmp_path, axes="YX", shape=(16, 20), mask_types=("Cells",))
+    moved, moved_masks = tmp_path / "moved" / "experiment", tmp_path / "moved" / "masks"
+    moved.parent.mkdir()
+    shutil.move(run.experiment, moved)
+    shutil.move(run.masks, moved_masks)
+    (path,) = sorted((moved / "ctrl" / "rep1").glob("a.*"))
+    config = CellPatcherConfig(mode="grid")
+    config.grid.tile_size, config.common.extract_arrays = 8, True
+    config.common.condition, config.common.biological_repeat = "ctrl", "rep1"
+    config.normalization = NormalizationConfig(
+        enabled=True, scope="image", plane_histograms=str(run.output / "plane_histograms.csv")
+    )
+    meta = [{"image_file": path.name, "source_relative_path": path.relative_to(moved).as_posix()}]
+    with pytest.raises(PreprocessingCheckError, match="4 images changed or missing since the run"):
+        run_patching(images=[tifffile.imread(path)], config=config, image_metadata=meta)
+    config.normalization.experiment_root, config.normalization.masks_root = str(moved), str(moved_masks)
+    result = run_patching(images=[tifffile.imread(path)], config=config, image_metadata=meta)
+    assert len(result.patch_arrays) == 4 and all(array.dtype == np.float32 for array in result.patch_arrays)
+    # A folder or tree run is told where the experiment is by its arguments, not by these settings.
+    file_config = _cell_config(run)
+    file_config.normalization.experiment_root = str(moved)
+    with pytest.raises(ValueError, match=r"normalization.experiment_root=.*the image folder or root"):
+        run_patching_condition_repeat_tree(moved, mask_root_path=moved_masks, config=file_config)
+
+
 def test_a_copied_experiment_is_checked_where_it_is_read(tmp_path):
     # CP-2a closes a CP-1 gap: with a copy of the experiment (the original in place), the run
     # was opened at the original, and the copy's masks were read without any check. A mask
@@ -100,7 +164,7 @@ def test_an_opened_run_is_not_reused_once_a_mask_or_another_image_changed(tmp_pa
     # Former code (CP-1): cached_statistics kept the opened run for the session, keyed on the
     # table and manifest; a mask, or an image not patched, changed after the first open was
     # not checked again. Now every call opens the run again (cellpatcher.run_session).
-    from cellpatcher.normalization import cached_statistics
+    from cellpatcher.run_open import cached_statistics
 
     run = _clean_run(tmp_path, axes="YX", shape=(16, 20), mask_types=("Cells",))
     table = run.output / "plane_histograms.csv"
@@ -143,10 +207,13 @@ def test_file_runs_read_through_run_inputs_only(tmp_path, monkeypatch):
     def refused(*args, **kwargs):
         raise AssertionError("CellPatcher read or paired a file itself")
 
-    for module, name in ((cellpatcher.io, "pair_masks"), (cellpatcher.io, "read_image"), (cellpatcher.io, "read_array"),
-                         (cellpatcher.io, "refuse_image_header_axes"), (cellpatcher.io, "discover_images"),
-                         (cellpatcher.planes, "iter_file_planes"), (cellpatcher.planes, "read_file_plane")):
-        monkeypatch.setattr(module, name, refused)
+    for name in ("read_array", "discover_images"):
+        monkeypatch.setattr(cellpatcher.io, name, refused)
+    # CellPatcher's own file readers and header checks are gone (CP-2b).
+    for module, name in ((cellpatcher.io, "read_image"), (cellpatcher.io, "conform_axes"), (cellpatcher.io, "pair_masks"),
+                         (cellpatcher.io, "refuse_image_header_axes"), (cellpatcher.io, "refuse_mask_header_axes"),
+                         (cellpatcher.planes, "read_file_plane"), (cellpatcher.planes, "iter_file_planes")):
+        assert not hasattr(module, name), name
     run = _clean_run(tmp_path, axes="ZCYX", shape=(3, 2, 16, 20), mask_types=())
     config = CellPatcherConfig(mode="grid")
     config.grid.tile_size = 8
@@ -161,8 +228,7 @@ def test_file_runs_read_through_run_inputs_only(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize(("setting", "value"), [
-    ("image_axes", "ZCYX"), ("mask_axes", "ZYX"), ("mask_source", "ngff_labels"), ("mask_label_name", "Cells"),
-    ("condition", "ctrl"), ("biological_repeat", "rep1"), ("technical_repeat", "B02"),
+    ("image_axes", "ZCYX"), ("mask_axes", "ZYX"), ("condition", "ctrl"), ("biological_repeat", "rep1"), ("technical_repeat", "B02"),
 ])
 def test_the_former_file_settings_raise_a_migration_message(tmp_path, monkeypatch, setting, value):
     from cellpatcher import file_runs
@@ -179,17 +245,139 @@ def test_a_folder_run_patches_one_condition_and_repeat(tmp_path):
         run_patching_pipeline(run.experiment, config=_cell_config(run))
 
 
-def test_the_run_config_records_the_layout_read_and_the_run(tmp_path):
+def test_the_run_config_records_the_run_and_its_manifest_and_loads_back_for_a_file_run(tmp_path):
+    # run_config.json version 2 (CP-2b). Old main recorded the run's layout as common.image_axes
+    # ('CYX') and each leaf's labels, without a version or the manifest's SHA-256, so the file
+    # loaded back was refused for a file run (a migration message about image_axes).
     from cellpatcher.orchestration import load_config
 
     run = _clean_run(tmp_path, axes="CYX", shape=(2, 16, 20), mask_types=("Cells",))
     config = _cell_config(run)
     config.export.enabled, config.common.output_dir = True, str(tmp_path / "out")
-    run_patching_condition_repeat_tree(run.experiment, config=config, combine_metadata=True)
-    saved = load_config(tmp_path / "out" / "run_config.json")
-    assert (saved.common.image_axes, saved.common.mask_axes) == ("CYX", "YX")
-    assert saved.common.preprocessing_run == str(run.output)
+    first = run_patching_condition_repeat_tree(run.experiment, config=config)
+    leaf_file = tmp_path / "out" / first[0].relative_folder / "run_config.json"
+    data = json.loads(leaf_file.read_text(encoding="utf-8"))
+    assert data["run_config_version"] == 2
+    assert data["preprocessing"] == {
+        "run": str(run.output),
+        "manifest_sha256": hashlib.sha256((run.output / "run_manifest.json").read_bytes()).hexdigest(),
+        "layout": {"image": "CYX", "mask": "YX"},
+    }
+    assert not {"image_axes", "mask_axes", "condition", "biological_repeat", "technical_repeat"} & data["common"].keys()
     assert config.common.image_axes == "YX"  # the caller's config is not changed
+    saved = load_config(leaf_file)
+    assert saved.common.preprocessing_run == str(run.output)
+    saved.common.output_dir = str(tmp_path / "again")
+    again = run_patching_condition_repeat_tree(run.experiment, config=saved)
+    assert [p.patch_id for leaf in again for p in leaf.result.patches] == [
+        p.patch_id for leaf in first for p in leaf.result.patches
+    ]
+
+
+def test_an_in_memory_run_records_the_run_its_csv_scope_read_and_keeps_its_axes(tmp_path):
+    # run_config.json version 2 for run_patching: a CSV scope records the run its table came from
+    # and the manifest's SHA-256, without a layout (the arrays are the caller's, in common.image_axes).
+    from cellpatcher import run_patching
+    from cellpatcher.config import NormalizationConfig
+
+    run = _clean_run(tmp_path, axes="YX", shape=(16, 20), mask_types=("Cells",))
+    (path,) = sorted((run.experiment / "ctrl" / "rep1").glob("a.*"))
+    config = CellPatcherConfig(mode="grid")
+    config.grid.tile_size, config.common.extract_arrays = 8, True
+    config.common.condition, config.common.biological_repeat = "ctrl", "rep1"
+    config.export.enabled = True
+    meta = [{"image_file": path.name, "source_relative_path": path.relative_to(run.experiment).as_posix()}]
+    for scope, out in (("image", tmp_path / "csv"), ("patch", tmp_path / "patch")):
+        config.common.output_dir = str(out)
+        config.normalization = NormalizationConfig(
+            enabled=True, scope=scope, plane_histograms=str(run.output / "plane_histograms.csv") if scope == "image" else None
+        )
+        run_patching(images=[tifffile.imread(path)], config=config, image_metadata=meta)
+    csv_scope = json.loads((tmp_path / "csv" / "run_config.json").read_text(encoding="utf-8"))
+    assert csv_scope["run_config_version"] == 2
+    assert csv_scope["preprocessing"] == {
+        "run": str(run.output),
+        "manifest_sha256": hashlib.sha256((run.output / "run_manifest.json").read_bytes()).hexdigest(),
+    }
+    assert (csv_scope["common"]["image_axes"], csv_scope["common"]["condition"]) == ("YX", "ctrl")
+    patch_scope = json.loads((tmp_path / "patch" / "run_config.json").read_text(encoding="utf-8"))
+    assert patch_scope["run_config_version"] == 2 and "preprocessing" not in patch_scope
+
+
+def _touch_manifest(run):
+    """Rewrite the run's run_manifest.json with one more trailing newline: same content, another SHA-256."""
+    path = run.output / "run_manifest.json"
+    path.write_bytes(path.read_bytes() + b"\n")
+
+
+def test_a_manifest_changed_while_the_run_is_opened_is_refused(tmp_path, monkeypatch):
+    from morphobricks_preprocessing.run_inputs import RunInputs
+
+    run = _clean_run(tmp_path, axes="YX", shape=(16, 20), mask_types=("Cells",))
+    original = RunInputs.open.__func__
+
+    def open_and_touch(cls, *args, **kwargs):
+        inputs = original(cls, *args, **kwargs)
+        _touch_manifest(run)
+        return inputs
+
+    monkeypatch.setattr(RunInputs, "open", classmethod(open_and_touch))
+    with pytest.raises(PreprocessingCheckError, match="run_manifest.json changed while it was opened"):
+        run_patching_condition_repeat_tree(run.experiment, config=_cell_config(run))
+
+
+def test_a_manifest_changed_during_the_run_is_refused_before_run_config_is_written(tmp_path, monkeypatch):
+    # run_config.json records the manifest's SHA-256 taken at the open; a manifest rewritten
+    # after it (preprocessing run again on the same folder) would make it name another run.
+    from cellpatcher import file_runs
+
+    run = _clean_run(tmp_path, axes="YX", shape=(16, 20), mask_types=("Cells",))
+    original = file_runs.run_layout
+
+    def layout_and_touch(fovs):
+        _touch_manifest(run)
+        return original(fovs)
+
+    monkeypatch.setattr(file_runs, "run_layout", layout_and_touch)
+    config = _cell_config(run)
+    config.export.enabled, config.common.output_dir = True, str(tmp_path / "out")
+    with pytest.raises(PreprocessingCheckError, match="run_manifest.json changed during this CellPatcher run"):
+        run_patching_condition_repeat_tree(run.experiment, config=config)
+    assert not list((tmp_path / "out").rglob("run_config.json"))
+    assert not list((tmp_path / "out").rglob("patches.csv"))
+
+
+def test_a_second_open_in_one_call_refuses_a_manifest_changed_since_the_first(tmp_path):
+    from cellpatcher.run_open import open_run
+    from cellpatcher.run_session import statistics_session
+
+    run = _clean_run(tmp_path, axes="YX", shape=(16, 20), mask_types=("Cells",))
+    with statistics_session():
+        open_run(run.output)
+        open_run(run.output)  # the same manifest: opened again
+        _touch_manifest(run)
+        with pytest.raises(PreprocessingCheckError, match="changed since this call first opened it"):
+            open_run(run.output)
+
+
+@pytest.mark.parametrize("version", [3, "2", None])
+def test_a_run_config_of_an_unknown_version_is_refused_by_every_reader(tmp_path, version):
+    from cellpatcher import PatchTableError, iter_exported_patches, read_patch_table
+    from cellpatcher.orchestration import load_config
+
+    run = _clean_run(tmp_path, axes="YX", shape=(16, 20), mask_types=("Cells",))
+    config = _cell_config(run)
+    config.export.enabled, config.common.output_dir = True, str(tmp_path / "out")
+    run_patching_condition_repeat_tree(run.experiment, config=config, combine_metadata=True)  # files as delivered
+    path = tmp_path / "out" / "run_config.json"
+    path.write_text(json.dumps({**json.loads(path.read_text(encoding="utf-8")), "run_config_version": version}))
+    refusal = rf"run_config_version {version!r}; this CellPatcher reads versions 1, 2"
+    with pytest.raises(ValueError, match=refusal):
+        load_config(path)
+    with pytest.raises(ValueError, match=refusal):
+        list(iter_exported_patches(tmp_path / "out" / "patches.csv"))
+    with pytest.raises(PatchTableError, match=refusal):
+        read_patch_table(tmp_path / "out" / "patches.csv")
 
 
 def test_another_table_than_the_run_s_is_refused(tmp_path):

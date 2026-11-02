@@ -391,3 +391,19 @@ def test_save_config_for_mode_default_values_match_dataclass_defaults(tmp_path):
     assert cfg.grid.tile_size == expected.grid.tile_size
     assert cfg.common.image_axes == expected.common.image_axes
     assert cfg.export.enabled == expected.export.enabled
+
+
+def test_the_mask_source_settings_are_removed(tmp_path):
+    # Removed in v0.2.0 (CP-2b): old main still accepted them (refused for file runs only, unused
+    # in memory). A file written before holds their defaults, which had no effect: it still loads.
+    from cellpatcher.config import CommonConfig
+
+    with pytest.raises(TypeError, match="mask_source"):
+        CommonConfig(mask_source="ngff_labels")
+    path = tmp_path / "run_config.json"
+    path.write_text(json.dumps({"mode": "grid", "common": {"mask_source": "tiff_tree", "mask_label_name": None}}))
+    assert load_config(path).common == CommonConfig()
+    for name, value in (("mask_source", "ngff_labels"), ("mask_label_name", "cells")):
+        path.write_text(json.dumps({"mode": "cell", "common": {name: value}}))
+        with pytest.raises(ValueError, match=rf"common.{name}={value!r} was removed in CellPatcher v0.2.0.*mask_type"):
+            load_config(path)

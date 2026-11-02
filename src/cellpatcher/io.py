@@ -1,20 +1,14 @@
 from __future__ import annotations
 
-import os
 import warnings
-from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import numpy as np
 from morphobricks_normalization.records import SINGLE
 
 from cellpatcher._deprecation import accept_deprecated_repeat
 from cellpatcher.axes import normalize_axes
-
-if TYPE_CHECKING:
-    from morphobricks_preprocessing import TiffMetadata
 
 # ".zarr" is an OME-Zarr image: a folder, read with the preprocessing brick's
 # reader and the ``zarr`` extra (docs/normalization_contract.md §2); every other
@@ -271,26 +265,6 @@ def discover_images(root_path, *, mask_folder_path=None):
     return result
 
 
-def discover_folder_images(image_folder_path, *, mask_folder_path=None) -> list[Path]:
-    """The images of a single image folder (a folder run), found by :func:`discover_images`.
-
-    The folder must hold its images directly. A folder holding subfolders
-    of images is a tree: run it with
-    :func:`~cellpatcher.orchestration.run_patching_condition_repeat_tree`.
-    Returns an empty list when the folder holds no image.
-    """
-    folder = Path(image_folder_path).expanduser()
-    result = discover_images(folder, mask_folder_path=mask_folder_path)
-    nested = [leaf.relative_path for leaf in result.leaves if leaf.relative_path != "."]
-    if nested:
-        raise ValueError(
-            f"The image folder '{folder}' holds its images in subfolders ({', '.join(nested[:10])}"
-            f"{', ...' if len(nested) > 10 else ''}). A folder run reads the images directly in one "
-            "folder; run a tree of condition and repeat folders with run_patching_condition_repeat_tree."
-        )
-    return sorted(folder / path for path in result.images)
-
-
 def discover_condition_repeat_folders(
     root_path,
     *,
@@ -326,7 +300,6 @@ def discover_condition_repeat_folders(
 
     When *mask_root_path* is given, the same leaf path is mirrored under it
     for each leaf's ``mask_folder``; its existence is not checked here.
-    The pairing itself reads the whole mask root (:func:`pair_masks`).
 
     *supported_extensions* is no longer supported: the images are the
     brick's (TIFF and OME-Zarr). Any value other than None is refused.
@@ -499,123 +472,6 @@ def read_ome_zarr(path) -> tuple[np.ndarray, str]:
     return pixels, image.axes
 
 
-def read_ngff_mask(path, label_name: str | None, axes: str) -> tuple[np.ndarray, str]:
-    """Read an OME-Zarr image's label image as its mask, put into *axes* by role.
-
-    Follows ``docs/normalization_contract.md`` §4: the label image comes from
-    the image's ``labels`` group (*label_name* may be None when it has exactly
-    one), level 0 is read, its values must be integers, and each of its
-    dimensions must equal the image's or have length 1 (a channel axis, length
-    1). A label Z or T axis with the image's length then follows the image's
-    planes, and one of length 1 is shared (``common.z_policy``/``t_policy``).
-
-    Returns
-    -------
-    tuple
-        The mask in *axes*, and its ``mask_file`` name,
-        ``<image folder name>/labels/<label name>``.
-
-    Raises
-    ------
-    cellpatcher.statistics.PreprocessingUnavailableError
-        If the ``zarr`` extra is not installed.
-    ValueError
-        If the image has no such label image, the name is ambiguous, or the
-        label image does not fit the image.
-    """
-    from cellpatcher.statistics import INSTALL_COMMAND, PreprocessingUnavailableError, _preprocessing
-
-    mbp = _preprocessing()
-    path = Path(path).expanduser()
-    try:
-        image = mbp.open_ngff(path)
-        labels = mbp.open_ngff_labels(path, label_name)
-    except mbp.ZarrUnavailableError as exc:
-        raise PreprocessingUnavailableError(
-            f"Reading the OME-Zarr image {path.name} needs the zarr package. Install it with: {INSTALL_COMMAND}"
-        ) from exc
-    except mbp.NgffError as exc:
-        raise ValueError(
-            f"The mask of {path.name} cannot be read from its OME-Zarr labels: {exc}. Set "
-            "common.mask_label_name to one of its label images, or use common.mask_source='tiff_tree'."
-        ) from exc
-    # dataset_path is "[<image prefix>]labels/<name>/<level-0 array>".
-    name = labels.dataset_path.split("/")[-2]
-    if not np.issubdtype(labels.dtype, np.integer):
-        raise ValueError(
-            f"The label image {name!r} of {path.name} holds {labels.dtype} values; OME-NGFF label images "
-            "hold integers."
-        )
-    image_lengths = dict(zip(image.axes, image.shape))
-    problems = []
-    for axis, length in zip(labels.axes, labels.shape):
-        if axis == "C" and length != 1:
-            problems.append(f"its channel axis has length {length} (must be 1)")
-        elif axis in "YX" and length != image_lengths.get(axis):
-            problems.append(f"its {axis} axis has length {length}, the image's {image_lengths.get(axis)}")
-        elif length not in (1, image_lengths.get(axis)):
-            problems.append(f"its {axis} axis has length {length}, neither 1 nor the image's {image_lengths.get(axis)}")
-    if problems:
-        raise ValueError(
-            f"The label image {name!r} of {path.name} (axes {labels.axes!r}, shape {labels.shape}) does not fit "
-            f"the image (axes {image.axes!r}, shape {image.shape}): {'; '.join(problems)}."
-        )
-    pixels = mbp.zarr_input.read_selection(labels.array, (slice(None),) * len(labels.shape))
-    mask = conform_axes(pixels, labels.axes, axes, name=f"The label image {name!r} of {path.name}")
-    return mask, f"{path.name}/labels/{name}"
-
-
-def conform_axes(array, array_axes: str, target_axes: str, *, name="the image") -> np.ndarray:
-    """Rearrange *array* (with axes *array_axes*) into *target_axes*, matching axes by role.
-
-    Used for OME-Zarr images, whose axes come from their metadata. A
-    dimension of length 1 that *target_axes* lacks (including an axis
-    without a role, ``Q``) is dropped; a target axis the array lacks is added
-    with length 1; then the dimensions are put in the target order.
-
-    Raises
-    ------
-    ValueError
-        If the array has a dimension longer than 1 that *target_axes* does
-        not have, or the same role twice.
-    """
-    target = normalize_axes(target_axes)
-    array = np.asarray(array)
-    if len(array_axes) != array.ndim:
-        raise ValueError(f"{name}: {len(array_axes)} axes ({array_axes!r}) for {array.ndim} dimensions.")
-    kept, kept_axes = [], ""
-    for dim, (axis, length) in enumerate(zip(array_axes, array.shape)):
-        if axis in target and axis not in kept_axes:
-            kept.append(dim)
-            kept_axes += axis
-        elif length != 1:
-            role = "an axis without a known role" if axis not in target else f"a second {axis} axis"
-            raise ValueError(
-                f"{name} has {role} ({axis!r}, length {length}) that the axes {target!r} do not have; "
-                f"its axes are {array_axes!r}. Set the axes (common.image_axes or common.mask_axes) to "
-                "include every axis longer than 1."
-            )
-    squeezed = array.reshape([array.shape[dim] for dim in kept])
-    for axis in target:
-        if axis not in kept_axes:
-            squeezed = squeezed[..., np.newaxis]
-            kept_axes += axis
-    return np.transpose(squeezed, [kept_axes.index(axis) for axis in target])
-
-
-def read_image(file_path, axes: str):
-    """Read an image or mask for patching with *axes* (``common.image_axes``/``mask_axes``).
-
-    The same as :func:`read_array`, except that an OME-Zarr image is put
-    into *axes* by role with :func:`conform_axes`, since its own axes come
-    from its metadata rather than from the configuration.
-    """
-    if not is_ome_zarr(file_path):
-        return read_array(file_path)
-    pixels, stored_axes = read_ome_zarr(file_path)
-    return conform_axes(pixels, stored_axes, axes, name=Path(file_path).name)
-
-
 def read_array_shape(file_path) -> tuple[int, ...]:
     return tuple(read_array(file_path).shape)
 
@@ -668,66 +524,24 @@ def refuse_removed_matching(where: str, options) -> None:
     )
 
 
-@dataclass(frozen=True)
-class MaskPairing:
-    """The mask of every image, from the preprocessing brick's pairing (:func:`pair_masks`).
-
-    Attributes
-    ----------
-    mask_type
-        The mask type used: its folder name, or the part of the mask's name
-        after ``<image name>_``.
-    masks
-        Each image path (as given) mapped to its mask file.
-    """
-
-    mask_type: str
-    masks: dict
-
-
-# find_masks issue codes about a mask's header (axes, shape, pixel type, planes),
-# not about which image it belongs to. They are refused for the masks of the
-# type the run uses and ignored for the other types, which are never read
-# (owner decision, preprocessing v0.3.2). CellPatcher still checks each mask
-# against its image when it reads it.
-_MASK_HEADER_CODES = frozenset(
-    {"unreadable_mask", "mask_not_2d", "mask_size_mismatch", "mask_pixel_type", "mask_planes_differ"}
-)
-_MASK_PLANES_CODE = "mask_planes_differ"
-
-# Reported per mask type; CellPatcher checks the type it uses itself.
-_MASK_MISSING_CODE = "mask_missing"
-_MASK_NOT_2D_CODE = "mask_not_2d"
-
-# What to do with a mask file that has a channel (C) axis or unnamed extra
-# axes, both refused (owner decision of 2026-10-30): no axis is guessed, and
-# common.mask_axes cannot declare a C axis for mask files. One mask type per file.
-MASK_CHANNEL_HELP = (
-    "Mask files may hold only Y and X, plus the Z/T axes their metadata names; a channel (C) axis "
-    "or an axis without a name is never guessed. Save each label channel as its own mask type, for "
-    "example <image>_cells.tif and <image>_nuclei.tif (or cells/<image>.tif and nuclei/<image>.tif), "
-    "and choose one with matching.mask_type; save a stack of Z slices or time points with its Z/T "
-    "axes named (an ImageJ hyperstack or an OME-TIFF)."
-)
-
 MASK_TRANSPOSE_HELP = (
-    "To fix the masks, save each one with Y before X, as its image is read: transpose its last "
-    "two axes, for example tifffile.imwrite(path, numpy.swapaxes(mask, -1, -2), "
-    "metadata={'axes': 'YX'}) ('ZYX' or 'TYX' for a stack), then set common.mask_axes to those "
-    "axes. Nothing is ever read transposed."
+    "To fix the masks, give each one with Y before X, as its image: transpose its last two axes, "
+    "for example numpy.swapaxes(mask, -1, -2), then set common.mask_axes to those axes ('YX', "
+    "or 'ZYX'/'TYX' for a stack). Nothing is ever read transposed."
 )
 
 
-def refuse_transposed_mask_axes(mask_axes) -> None:
+def refuse_transposed_mask_axes(mask_axes: str) -> None:
     """Refuse ``common.mask_axes`` that put X before Y: CellPatcher cannot read a mask transposed.
 
     The cell and random strategies take a label plane's two dimensions as Y
     and X in their stored order, so a mask declared with X first (``'XY'``,
     ``'ZXY'``) would be taken as if Y came first: the patches would not
     match their objects (on a square image without any error).
-    Refused, never ignored (owner decision of 31 October 2026), for in-memory
-    masks as for mask files; :data:`MASK_TRANSPOSE_HELP` says how to fix the
-    masks.
+    Refused, never ignored (owner decision of 31 October 2026). Only
+    in-memory masks are declared: a folder or tree run reads each mask in the
+    roles its preprocessing run recorded. :data:`MASK_TRANSPOSE_HELP` says how
+    to fix the masks.
     """
     if mask_axes is None:
         return
@@ -740,333 +554,11 @@ def refuse_transposed_mask_axes(mask_axes) -> None:
         )
 
 
-def refuse_mask_channel_axis(mask_axes) -> None:
-    """Refuse ``common.mask_axes`` with a C axis for masks read from a mask folder.
-
-    The preprocessing brick's ``find_masks`` refuses mask files with a channel
-    axis (``mask_not_2d``), so a C in *mask_axes* could only re-read a Z or T
-    axis the mask's metadata names, or an axis it does not name, as channels:
-    a guessed axis. Refused, never overridden (owner decision of 2026-10-30).
-    """
-    if mask_axes is not None and "C" in normalize_axes(mask_axes):
-        raise ValueError(
-            f"common.mask_axes={mask_axes!r} has a channel (C) axis, which mask files from a mask folder "
-            f"cannot have; it would read the mask's other axes as label channels. {MASK_CHANNEL_HELP} "
-            "Then set common.mask_axes to the mask's own axes (for example 'YX' or 'ZYX')."
-        )
-
-
-def header_axes_disagreement(path: str | os.PathLike, declared_axes: str) -> tuple[str | None, bool]:
-    """Check *declared_axes* against a TIFF file's header with the preprocessing brick's rule.
-
-    The declared axes are the file's roles, checked with the brick's
-    ``review_axes`` (``check_mapping`` and ``header_axis_issue``, design v0.4
-    §3; CellPatcher keeps no copy): they may name what the header leaves
-    open, never contradict an axis it names. A Y/X swap is refused like any contradiction:
-    nothing is ever read transposed. OME-Zarr images are matched by role when
-    read (:func:`conform_axes`), not here.
-
-    Returns
-    -------
-    tuple
-        The brick's message, or None when the declaration fits; and False (no
-        file is read transposed; kept until ``image_read_transposed`` goes).
-    """
-    from morphobricks_preprocessing import inspect_image
-
-    path = Path(path)
-    meta = inspect_image(path, path.name)
-    if meta.is_ome_zarr:
-        return None, False  # OME-Zarr axes are matched by role when read (conform_axes), not by position
-    return _declared_axes_problem(meta, normalize_axes(declared_axes)), False
-
-
-def _declared_axes_problem(meta: TiffMetadata, declared: str) -> str | None:
-    """Return the errors of the brick's ``review_axes`` for roles *declared* on a TIFF header, or None.
-
-    Its warnings (``axes_not_named``) do not block; an unreadable header, which it leaves out, does.
-    """
-    from morphobricks_preprocessing import AxisMapping, review_axes
-
-    if not meta.readable:
-        return f"The header of {meta.relative_path} could not be read, so its axes cannot be checked."
-    if len(declared) != len(meta.axes):
-        return f"{meta.relative_path}: {len(declared)} declared for {len(meta.axes)} dimensions ({meta.axes!r})."
-    review = review_axes([meta], AxisMapping(meta.axes, tuple(declared)))
-    errors = [issue for issue in review.issues if issue.is_error]
-    return " ".join(f"{meta.relative_path}: [{issue.code}] {issue.message} {issue.action}" for issue in errors) or None
-
-
-def refuse_header_axes(
-    paths: Iterable[str | os.PathLike], declared_axes: str, *, setting: str, what: str
-) -> set[str | os.PathLike]:
-    """Refuse *declared_axes* (the setting named *setting*) that do not fit the header axes of *paths*.
-
-    Every file is checked before any is read; all disagreements are listed in
-    one message. See :func:`header_axes_disagreement`.
-
-    Returns
-    -------
-    set
-        The paths (as given) read transposed: always empty, as a Y/X swap is
-        refused (kept until ``image_read_transposed`` is removed).
-    """
-    problems = [problem for problem, _ in (header_axes_disagreement(path, declared_axes) for path in paths) if problem]
-    if problems:
-        raise ValueError(
-            f"{setting}={declared_axes!r} does not fit the header of "
-            f"{len(problems)} {what} file(s): {' '.join(problems[:10])}{' ...' if len(problems) > 10 else ''} "
-            f"Axes are never reinterpreted and nothing is read transposed: set {setting} to the "
-            f"{what}s' header axes, or fix the {what}s' metadata."
-        )
-    return set()
-
-
-def refuse_image_header_axes(image_paths: Iterable[str | os.PathLike], image_axes: str) -> set[str | os.PathLike]:
-    """Refuse ``common.image_axes`` that do not fit an image file's own header axes.
-
-    A TIFF image is read in its stored order and then interpreted with
-    *image_axes*, so an image whose header names its axes ZYX would, with
-    ``image_axes='TYX'``, have its depth slices read as time points (or, with
-    ``'CYX'``, as channels). Returns the images read transposed, always none
-    (see :func:`refuse_header_axes`). See :func:`header_axes_disagreement`.
-    """
-    return refuse_header_axes(image_paths, image_axes, setting="common.image_axes", what="image")
-
-
-def refuse_mask_header_axes(mask_paths: Iterable[str | os.PathLike], mask_axes: str) -> None:
-    """Refuse ``common.mask_axes`` that do not fit a mask file's own header axes.
-
-    A mask TIFF is read in its stored order and then interpreted with
-    *mask_axes*, so a mask whose header names its axes ZYX would, with
-    ``mask_axes='TYX'``, have its depth slices read as time points: a guessed
-    axis. Every mask is checked before any is read; all disagreements are
-    listed in one message. See :func:`header_axes_disagreement`.
-
-    A mask declared with its header's Y and X swapped is refused by the same
-    rule as an image (``axes_yx_swapped``), and a mask whose header names X
-    before Y, declared as named, by :func:`refuse_transposed_mask_axes`:
-    CellPatcher takes a label plane's two dimensions as Y and X in their
-    stored order.
-    """
-    refuse_header_axes(mask_paths, mask_axes, setting="common.mask_axes", what="mask")
-    refuse_transposed_mask_axes(mask_axes)  # a header naming X before Y, declared as named
-
-
-def source_relative_path(image_path, experiment_root) -> str:
-    """Path of *image_path* relative to *experiment_root*, with ``/`` separators.
-
-    Built from where the image sits in the folder tree, so it matches the
-    preprocessing brick's ``source_relative_path`` (``control/img.tif`` for an
-    image directly in ``control/``). Like the brick, which walks the tree
-    following links, a linked image or folder keeps its path under the root
-    (the link's, not its target's). A path that is not under the root as
-    written is compared by real locations.
-    """
-    root = Path(experiment_root).expanduser()
-    image = Path(image_path).expanduser()
-    try:
-        # Discovery builds every image path from the root, so this holds for
-        # folder and tree runs; resolving would follow links out of the tree.
-        return image.absolute().relative_to(root.absolute()).as_posix()
-    except ValueError:  # e.g. the same folder written through a link
-        pass
-    try:
-        return image.resolve().relative_to(root.resolve()).as_posix()
-    except ValueError as exc:
-        raise ValueError(f"Image '{image_path}' is not inside the experiment root '{root}'.") from exc
-
-
-def _discovery_of(experiment_root, relative_paths):
-    """The preprocessing ``DiscoveryResult`` of images CellPatcher has already discovered.
-
-    One leaf per image folder, holding its images' relative paths. The labels
-    are the folder names, ``single`` for missing levels; ``find_masks`` reads
-    only the folders and image names.
-    """
-    from morphobricks_preprocessing import DiscoveryResult, LeafFolder
-
-    by_folder: dict[str, list[str]] = {}
-    for relative in relative_paths:
-        folder = relative.rsplit("/", 1)[0] if "/" in relative else "."
-        by_folder.setdefault(folder, []).append(relative)
-    leaves = []
-    for folder, images in sorted(by_folder.items()):
-        names = () if folder == "." else tuple(folder.split("/"))
-        labels = (names + (SINGLE,) * 3)[:3]
-        leaves.append(LeafFolder(folder, *labels, tuple(sorted(images))))
-    return DiscoveryResult(root=Path(experiment_root).expanduser().resolve(), leaves=tuple(leaves))
-
-
 def _issue_text(issue) -> str:
     paths = list(issue.paths)
     listed = f" ({', '.join(paths[:10])}{', ...' if len(paths) > 10 else ''})" if paths else ""
     action = f" {issue.action.rstrip('.')}" if issue.action else ""
     return f"[{issue.code}] {issue.message.rstrip('.')}{listed}.{action}"
-
-
-def pair_masks(experiment_root, image_files, mask_folder_path, *, mask_type=None) -> MaskPairing:
-    """Pair every image with its mask using the preprocessing brick's pairing, or raise.
-
-    CellPatcher does not pair images and masks itself: the mask folder is
-    read by ``morphobricks_preprocessing.find_masks`` (decision of
-    2026-10-30, issue #45), so CellPatcher, the preprocessing brick and the
-    bricks that use its discovery pair the same files. A mask is a TIFF file
-    named ``<mask type>/<image's folders>/<image name>.tif`` or
-    ``<image's folders>/<image name>_<mask type>.tif``, where the image's
-    folders are its path below *experiment_root* and the image name is its
-    ``position_id`` (D85); names are compared ignoring case.
-
-    Refused, never resolved by a guess:
-
-    - every problem ``find_masks`` reports about the pairing, including a
-      mask that could belong to two images or two types (``ambiguous_mask``),
-      a file in the mask folder that pairs with no image
-      (``mask_without_image``, ``mask_outside_type_folder``: never silently
-      left out) and a mask folder inside the image root;
-    - several mask types when *mask_type* is None, and a *mask_type* that was
-      not found;
-    - an image without a mask of the type used.
-
-    - a header problem ``find_masks`` reports about a mask of the type used
-      (``_MASK_HEADER_CODES``: ``unreadable_mask``, ``mask_not_2d``,
-      ``mask_size_mismatch``, ``mask_pixel_type``; ``mask_planes_differ``
-      between masks of the type used). The same problems of masks of other
-      types are ignored: those masks are never read.
-
-    Each mask is also checked against its image when it is read.
-
-    Parameters
-    ----------
-    experiment_root
-        The folder the images' paths are relative to: the image folder of a
-        folder run, the image root of a tree run.
-    image_files
-        The images to pair, all under *experiment_root*.
-    mask_folder_path
-        The mask folder, mirroring *experiment_root*'s folders; it may not be
-        inside *experiment_root*.
-    mask_type
-        The mask type to use (``config.matching.mask_type``), or None when the
-        mask folder holds exactly one type.
-    """
-    from morphobricks_preprocessing import find_masks
-    from morphobricks_preprocessing.masks import FOLDER
-    from morphobricks_preprocessing.metadata import inspect_images
-
-    if mask_type is not None and (not isinstance(mask_type, str) or not mask_type.strip()):
-        raise ValueError(f"mask_type must be None or a non-empty name; got {mask_type!r}.")
-    image_files = [Path(image) for image in image_files]
-    relative = {image: source_relative_path(image, experiment_root) for image in image_files}
-    discovery = _discovery_of(experiment_root, relative.values())
-    # The images' headers give the Y and X sizes each mask's header is checked against.
-    images = inspect_images(Path(experiment_root).expanduser(), list(relative.values())).files
-    inventory = find_masks(Path(mask_folder_path).expanduser(), discovery, images)
-
-    problems = [
-        _issue_text(issue)
-        for issue in inventory.issues
-        if issue.code not in _MASK_HEADER_CODES and issue.code != _MASK_MISSING_CODE
-    ]
-    if problems:
-        raise ValueError(f"Images and masks cannot be paired: {'; '.join(problems)}. {MASK_LAYOUT_HELP}")
-    # The mask folder's files only: label images (design v0.4 §2) need mask_source="ngff_labels".
-    folder_files = [f for f in inventory.files if f.source == FOLDER]
-    types = sorted({f.mask_type for f in folder_files})
-    if not types:
-        raise ValueError(f"No mask in '{mask_folder_path}' pairs with an image. {MASK_LAYOUT_HELP}")
-    if mask_type is None:
-        if len(types) > 1:
-            raise ValueError(
-                f"The mask folder holds {len(types)} mask types ({', '.join(types)}); set "
-                "matching.mask_type (or mask_type=) to the one to use. A type is never chosen for you."
-            )
-        mask_type = types[0]
-    elif mask_type not in types:
-        raise ValueError(
-            f"No mask of type {mask_type!r} pairs with an image; the mask folder holds the types "
-            f"{', '.join(types)} (names are compared exactly; an OME-Zarr image's own label image is read "
-            f"with common.mask_source='ngff_labels'). {MASK_LAYOUT_HELP}"
-        )
-    _refuse_header_problems(inventory, mask_type)
-    by_image = {f.image: f for f in folder_files if f.mask_type == mask_type}
-    missing = [relative[image] for image in image_files if relative[image] not in by_image]
-    if missing:
-        raise ValueError(
-            f"Images with no {mask_type!r} mask: {', '.join(missing[:10])}"
-            f"{', ...' if len(missing) > 10 else ''} ({len(missing)} of {len(image_files)}). {MASK_LAYOUT_HELP}"
-        )
-    folder = Path(mask_folder_path).expanduser()
-    return MaskPairing(mask_type, {image: folder / by_image[relative[image]].path for image in image_files})
-
-
-def _refuse_header_problems(inventory, mask_type: str) -> None:
-    """Refuse the header problems ``find_masks`` reports about masks of *mask_type*, the type used.
-
-    Its ``mask_planes_differ`` compares every mask of an image, whatever its
-    type; it is recomputed between the masks of *mask_type* only, so a mask
-    type the run does not use never blocks it.
-    """
-    used = [f for f in inventory.files if f.mask_type == mask_type]
-    used_paths = {f.path for f in used}
-    problems = []
-    for issue in inventory.issues:
-        if issue.code not in _MASK_HEADER_CODES or issue.code == _MASK_PLANES_CODE:
-            continue
-        paths = sorted(path for path in issue.paths if path in used_paths)
-        if paths:
-            text = f"[{issue.code}] {issue.message.rstrip('.')} ({', '.join(paths[:10])}). {issue.action}"
-            if issue.code == _MASK_NOT_2D_CODE:
-                text = f"{text.rstrip()} {MASK_CHANNEL_HELP}"
-            problems.append(text)
-    by_image: dict[str, list] = {}
-    for mask in used:
-        if mask.axes:
-            by_image.setdefault(mask.image, []).append(mask)
-    differ = sorted(
-        mask.path
-        for masks in by_image.values()
-        if len({tuple(m.planes.items()) for m in masks}) > 1
-        for mask in masks
-    )
-    if differ:
-        planes = next(issue for issue in inventory.issues if issue.code == _MASK_PLANES_CODE)
-        problems.append(f"[{_MASK_PLANES_CODE}] {planes.message.rstrip('.')} ({', '.join(differ[:10])}). {planes.action}")
-    if problems:
-        raise ValueError(f"The {mask_type!r} masks cannot be used: {'; '.join(problems)}")
-
-
-def validate_image_and_mask_folders(
-    image_folder_path,
-    mask_folder_path,
-    *,
-    mask_type=None,
-    **removed_options,
-) -> dict[Path, Path]:
-    """Pair every image of a folder with exactly one mask, or raise listing every problem.
-
-    The pairing is the preprocessing brick's (:func:`pair_masks`, issue #45):
-    masks are TIFF files named ``<image name>_<mask type>.tif`` or
-    ``<mask type>/<image name>.tif`` in *mask_folder_path*. With several mask
-    types in the folder, *mask_type* says which to use.
-
-    The former matching options (``strategy``, ``mask_suffixes``,
-    ``case_sensitive``, ``ignore_unrequested_masks``) were removed in
-    v0.1.1 and are refused by name (:func:`refuse_removed_matching`).
-
-    Returns
-    -------
-    dict
-        Each image path mapped to its mask path.
-    """
-    refuse_removed_matching("validate_image_and_mask_folders", removed_options)
-    mask_folder = Path(mask_folder_path).expanduser()
-    if not mask_folder.is_dir():
-        raise ValueError(f"Folder does not exist or is not a directory: {mask_folder}")
-    image_files = discover_folder_images(image_folder_path, mask_folder_path=mask_folder)
-    if len(image_files) == 0:
-        raise ValueError("No supported image files found in image folder.")
-    return pair_masks(image_folder_path, image_files, mask_folder_path, mask_type=mask_type).masks
 
 
 def run_patching_from_folders(
