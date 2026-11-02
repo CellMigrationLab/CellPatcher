@@ -25,7 +25,8 @@ def batch_html(batch: TorchBatch) -> str:
     low, high = batch.value_range
     return style.status("ok", f"{len(batch.patch_ids)} of {batch.n_patches} patches loaded as one batch", [
         f"Table: {batch.table}; patch arrays {batch.axes}",
-        f"Tensor: {tuple(batch.images.shape)} (patches, channels, height, width), {batch.images.dtype}",
+        f"Tensor: {tuple(batch.images.shape)} (patches, channels, height, width), {batch.images.dtype}"
+        f" (exported as {batch.exported_dtype}, converted exactly; values not rescaled)",
         f"Values from {low:.6g} to {high:.6g}",
     ])
 

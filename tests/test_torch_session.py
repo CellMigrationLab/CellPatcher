@@ -39,6 +39,7 @@ def test_the_batch_is_the_exported_patches(clean, tmp_path):
     batch = load_exported_batch(tmp_path / "out", batch_size=5)
     assert (batch.n_patches, batch.axes, tuple(batch.images.shape)) == (len(patches), "CYX", (5, 2, 16, 16))
     assert batch.images.dtype == torch.float32
+    assert batch.exported_dtype == str(tifffile.imread(tmp_path / "out" / patches[0].patch_file).dtype)
     for index, patch_id in enumerate(batch.patch_ids):
         (patch,) = [p for p in patches if p.patch_id == patch_id]
         exported = tifffile.imread(tmp_path / "out" / patch.patch_file)
@@ -53,6 +54,34 @@ def test_raw_files_are_normalized_on_load(clean, tmp_path):
     raw = load_exported_batch(tmp_path / "raw")
     assert normalized.patch_ids == raw.patch_ids
     assert torch.equal(normalized.images, raw.images)
+
+
+def _retype(folder, patches, dtype, value):
+    for patch in patches:
+        path = folder / patch.patch_file
+        tifffile.imwrite(path, np.full(tifffile.imread(path).shape, value, dtype=dtype))
+
+
+@pytest.mark.parametrize(("dtype", "value"), [
+    (np.uint32, 2**24 + 1), (np.int32, -(2**24) - 1), (np.float64, 0.1),
+])
+def test_values_float32_cannot_hold_are_refused_never_rounded(clean, tmp_path, dtype, value):
+    patches = _export(clean, tmp_path / "out")
+    _retype(tmp_path / "out", patches, dtype, value)
+    with pytest.raises(ValueError, match="float32 cannot hold exactly"):
+        load_exported_batch(tmp_path / "out")
+
+
+@pytest.mark.parametrize(("dtype", "value"), [
+    (np.uint32, 2**24), (np.int32, -(2**24)), (np.float64, 0.5), (np.uint8, 255),
+])
+def test_values_float32_holds_are_converted_exactly_and_the_type_recorded(clean, tmp_path, dtype, value):
+    patches = _export(clean, tmp_path / "out")
+    _retype(tmp_path / "out", patches, dtype, value)
+    batch = load_exported_batch(tmp_path / "out")
+    assert batch.exported_dtype == np.dtype(dtype).name
+    assert batch.images.dtype == torch.float32
+    assert torch.all(batch.images == float(value))  # never divided by the type's maximum
 
 
 def test_patches_of_different_sizes_are_refused_never_resized(clean, tmp_path):
@@ -91,6 +120,7 @@ def test_the_notebook_page_loads_the_export(clean, tmp_path):
     notebook.load_button.click()
     assert "4 of 16 patches loaded as one batch" in notebook.message.value
     assert "(4, 2, 16, 16)" in notebook.message.value and "patch arrays CYX" in notebook.message.value
+    assert "exported as uint16, converted exactly" in notebook.message.value
     notebook.output_folder.value = str(tmp_path)
     assert notebook.load() is None
     assert "holds no patches.csv" in notebook.message.value

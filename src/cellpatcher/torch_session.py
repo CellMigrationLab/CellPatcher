@@ -9,7 +9,11 @@ maximum, which is deprecated; normalization is CellPatcher's ``config.normalizat
 Files exported with raw values are normalized on load with each row's parameters, as everywhere
 else. The first patches are stacked into one batch with PyTorch's ``default_collate``, as a
 ``DataLoader`` does. Patches of different sizes are refused, never
-resized: a batch needs one size, which the export chooses. Needs the ``torch`` extra.
+resized: a batch needs one size, which the export chooses. The batch is float32, the type
+models take: the patches are read in their exported type (``dtype_policy="keep"``) and converted
+only when float32 holds every value exactly (always for 8- and 16-bit integers and for normalized
+patches, which are float32); otherwise they are refused, never rounded. The exported type is
+recorded with the batch. Needs the ``torch`` extra.
 """
 
 from __future__ import annotations
@@ -19,10 +23,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import numpy as np
+
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    import numpy as np
     import torch
 
     from cellpatcher.torch_dataset import PatchTensorConfig
@@ -30,6 +35,8 @@ if TYPE_CHECKING:
 
 PATCH_TABLE = "patches.csv"
 """The table of an export (``ExportConfig.metadata_filename``'s default, the notebook's export)."""
+FLOAT32_EXACT_INTEGERS = 2**24
+"""The largest integer magnitude below which float32 holds every integer exactly."""
 
 
 @dataclass(frozen=True)
@@ -45,8 +52,11 @@ class TorchBatch:
     n_patches
         The patches it lists.
     images
-        The batch: ``(patches, channels, height, width)``, as
+        The batch: ``(patches, channels, height, width)``, float32, as
         :class:`~cellpatcher.torch_dataset.ExportedPatchTorchDataset` gives each patch.
+    exported_dtype
+        The type of the patches as exported (and normalized on load), before the exact
+        conversion to float32.
     patch_ids
         Each batch patch's ``patch_id``.
     first_channels
@@ -57,6 +67,7 @@ class TorchBatch:
     axes: str
     n_patches: int
     images: torch.Tensor
+    exported_dtype: str
     patch_ids: tuple[str, ...]
     first_channels: tuple[np.ndarray, ...]
 
@@ -70,7 +81,25 @@ def _tensor_config() -> PatchTensorConfig:
     """Return the tensor settings that keep the patches as exported: every channel, the values unscaled."""
     from cellpatcher.torch_dataset import PatchTensorConfig
 
-    return PatchTensorConfig(channel_policy="keep", scale_policy="none")
+    return PatchTensorConfig(channel_policy="keep", dtype_policy="keep", scale_policy="none")
+
+
+def _exact_float32(values: np.ndarray) -> np.ndarray:
+    """Return *values* as float32, refusing values float32 cannot hold exactly (never rounded)."""
+    converted = values.astype(np.float32)
+    if np.issubdtype(values.dtype, np.integer):
+        exact = values.size == 0 or max(-int(values.min()), int(values.max())) <= FLOAT32_EXACT_INTEGERS
+    elif np.issubdtype(values.dtype, np.floating):
+        exact = np.array_equal(converted.astype(values.dtype), values, equal_nan=True)
+    else:
+        exact = False
+    if not exact:
+        raise ValueError(
+            f"The patches are {values.dtype} with values float32 cannot hold exactly; they are not rounded. "
+            "Load them with ExportedPatchTorchDataset and PatchTensorConfig(dtype_policy='keep'), or export "
+            "them normalized (float32)."
+        )
+    return converted
 
 
 def _array_axes(table: Path, patches: Sequence[PatchRegion]) -> str:
@@ -107,10 +136,11 @@ def load_exported_batch(output_folder: str | os.PathLike, batch_size: int = 8) -
     ------
     ValueError
         For a folder without ``patches.csv``, an export without patches, a batch size below 1,
-        or patches of different sizes.
+        patches of different sizes, or values float32 cannot hold exactly.
     FileNotFoundError
         For a patch file the table names but that is missing.
     """
+    import torch
     from torch.utils.data import default_collate
 
     from cellpatcher.export import read_patch_table
@@ -138,12 +168,14 @@ def load_exported_batch(output_folder: str | os.PathLike, batch_size: int = 8) -
             "them with one size: a fixed patch size or 'Resize patches to' in step 2 of the CellPatcher notebook."
         )
     batch = default_collate(items)
-    images = batch["image"]
+    exported = batch["image"].numpy()
+    images = torch.from_numpy(_exact_float32(exported))
     return TorchBatch(
         table=table,
         axes=axes,
         n_patches=len(dataset),
         images=images,
+        exported_dtype=str(exported.dtype),
         patch_ids=tuple(batch["patch_id"]),
         first_channels=tuple(image[0].numpy() for image in images),
     )
