@@ -206,7 +206,7 @@ Normalization with the statistics of the preprocessing brick, following the [nor
 | Field | Type | Default | Notes |
 |---|---|---|---|
 | `enabled` | `bool` | `False` | Normalize every patch. |
-| `plane_histograms` | `str \| None` | `None` | Path of the preprocessing brick's `plane_histograms.csv` (schema version 4, preprocessing `v0.3.0`; earlier versions are refused with a message asking to run the brick again); required for every scope except `"patch"`. Give CellPatcher the same experiment root as the preprocessing brick. |
+| `plane_histograms` | `str \| None` | `None` | Path of the preprocessing brick's `plane_histograms.csv`, unrenamed in the run's output folder beside its `run_manifest.json` (since v0.2.0 a run of preprocessing v0.4 or later, read through `RunInputs`; earlier runs are refused with a message asking to run the brick again); required for every scope except `"patch"`. Give CellPatcher the same experiment root as the preprocessing brick. |
 | `manifest` | `str \| None` | `None` | The run's `run_manifest.json`, which must be the one in the table's folder (`not_the_run_output` otherwise); `None` uses it. Since v0.2.0 the run is read through the preprocessing brick's `RunInputs` (design v0.4 §6), which needs a v0.4 manifest and refuses a table, design, image or mask changed since the run (`preprocessing_run_refused`). |
 | `method` | `str` | `"percentile"` | `"minmax"`, `"percentile"`, `"zscore"` or `"robust_zscore"` (MAD × 1.4826). |
 | `percentile` | `(float, float)` | `(1.0, 99.8)` | Low and high percentile for `"percentile"`, `0 ≤ low < high ≤ 100`. |
