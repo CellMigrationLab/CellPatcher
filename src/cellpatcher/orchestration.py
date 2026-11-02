@@ -548,9 +548,9 @@ def run_patching_condition_repeat_tree(
         )
         groups = leaves(run)
         results = _patch_leaves(config, run, groups, combine_metadata, progress_callback)
-    if combine_metadata:
-        tree_config = run_config_for(config, run, (SINGLE_TECHNICAL_REPEAT_LABEL,) * 3)
-        _write_combined_metadata(tree_config, Path(config.common.output_dir), results)
+        if combine_metadata:  # in the session: its normalization_inputs come from the run opened above
+            tree_config = run_config_for(config, run, (SINGLE_TECHNICAL_REPEAT_LABEL,) * 3)
+            _write_combined_metadata(tree_config, Path(config.common.output_dir), results)
     if progress_callback is not None:
         progress_callback(len(groups), len(groups), None)
     return results

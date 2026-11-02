@@ -6,6 +6,8 @@ experiment moved or copied since its run is checked and read where it is now. Th
 that told CellPatcher how to read files are refused for file runs with a migration message.
 """
 
+import hashlib
+import json
 import shutil
 from types import SimpleNamespace
 
@@ -220,3 +222,21 @@ def test_masks_with_and_without_depth_share_the_run_s_layout(tmp_path):
     (leaf,) = run_patching_condition_repeat_tree(root, mask_root_path=masks, config=config)
     found = sorted((p.image_file, p.z0, p.label_id) for p in leaf.result.patches)
     assert found == [("a.tif", 0, 1), ("a.tif", 1, 2), ("a.tif", 2, 3), ("b.tif", 0, 2)]
+
+
+def test_a_moved_experiment_s_combined_run_config_is_written_from_the_call_s_run(tmp_path):
+    # Review of CP-2a: the combined run_config.json of a tree run was written after the call's
+    # run session had closed, so its normalization_inputs opened the run again where it had
+    # recorded the experiment: a moved experiment was refused after every leaf was patched.
+    run = _clean_run(tmp_path, axes="YX", shape=(16, 20), mask_types=("Cells",))
+    moved, moved_masks = tmp_path / "moved" / "experiment", tmp_path / "moved" / "masks"
+    moved.parent.mkdir()
+    shutil.move(run.experiment, moved)
+    shutil.move(run.masks, moved_masks)
+    config = _cell_config(run)
+    config.normalization.enabled, config.normalization.scope = True, "image"
+    config.export.enabled, config.common.output_dir = True, str(tmp_path / "out")
+    run_patching_condition_repeat_tree(moved, mask_root_path=moved_masks, config=config, combine_metadata=True)
+    saved = json.loads((tmp_path / "out" / "run_config.json").read_text())
+    table_sha256 = hashlib.sha256((run.output / "plane_histograms.csv").read_bytes()).hexdigest()
+    assert saved["normalization_inputs"]["plane_histograms_sha256"] == table_sha256
