@@ -9,23 +9,12 @@ import json
 from typing import Any
 
 from cellpatcher._deprecation import accept_deprecated_repeat
-from cellpatcher.config import (
-    CellConfig,
-    CellPatcherConfig,
-    CommonConfig,
-    ExportConfig,
-    ExtractionConfig,
-    FilterConfig,
-    GridConfig,
-    MatchConfig,
-    NormalizationConfig,
-    RandomConfig,
-    WholeFOVConfig,
-)
+from cellpatcher.config import CellPatcherConfig
 from cellpatcher.file_runs import FileRun, leaves, masks_used, open_file_run, patch_fovs, run_config_for
 from cellpatcher.io import SINGLE_TECHNICAL_REPEAT_LABEL, ConditionRepeatFolder, refuse_removed_matching
 from cellpatcher.export import IMAGE_TABLE_FILENAME, save_image_table_csv, save_metadata_csv
-from cellpatcher.pipeline import RUN_CONFIG_FILENAME, PatchingResult, run_config_data
+from cellpatcher.pipeline import RUN_CONFIG_FILENAME, PatchingResult
+from cellpatcher.run_config_file import config_from_dict, run_config_data
 from cellpatcher.run_session import statistics_session
 
 # Sections always written regardless of mode
@@ -252,30 +241,7 @@ def load_config(path) -> CellPatcherConfig:
     CellPatcherConfig
         A fully reconstructed config instance.
     """
-    return _config_from_dict(json.loads(Path(path).read_text()))
-
-
-def _config_from_dict(data: dict) -> CellPatcherConfig:
-    """Build a config from the data of a config or ``run_config.json`` file (extra keys are ignored)."""
-    # Each section is reconstructed only if present in the file (a
-    # mode-specific save omits irrelevant sections), otherwise it falls
-    # back to that section's own defaults.
-    return CellPatcherConfig(
-        mode=data.get("mode", "cell"),
-        common=CommonConfig(**data["common"]) if "common" in data else CommonConfig(),
-        cell=CellConfig(**data["cell"]) if "cell" in data else CellConfig(),
-        random=RandomConfig(**data["random"]) if "random" in data else RandomConfig(),
-        grid=GridConfig(**data["grid"]) if "grid" in data else GridConfig(),
-        whole_fov=WholeFOVConfig(**data["whole_fov"]) if "whole_fov" in data else WholeFOVConfig(),
-        filters=FilterConfig(**data["filters"]) if "filters" in data else FilterConfig(),
-        export=ExportConfig(**data["export"]) if "export" in data else ExportConfig(),
-        extraction=ExtractionConfig(**data["extraction"]) if "extraction" in data else ExtractionConfig(),
-        matching=MatchConfig(**data["matching"]) if "matching" in data else MatchConfig(),
-        # A run_config.json written before normalization existed means it was off.
-        normalization=(
-            NormalizationConfig(**data["normalization"]) if "normalization" in data else NormalizationConfig()
-        ),
-    )
+    return config_from_dict(json.loads(Path(path).read_text()), str(path))
 
 
 def run_patching_pipeline(

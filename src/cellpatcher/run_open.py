@@ -14,6 +14,8 @@ from collections import defaultdict
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from cellpatcher.run_session import remember
+
 if TYPE_CHECKING:
     from morphobricks_normalization import PlaneRecord
     from morphobricks_preprocessing.run_inputs import RunInputs
@@ -133,7 +135,10 @@ def open_run(
     folder = Path(output_folder).expanduser()
     roots = [Path(root).expanduser() if root is not None else None for root in (experiment_root, masks_root)]
     try:
-        return RunInputs.open(folder, *roots)
+        before = _manifest_sha256(folder)
+        inputs = RunInputs.open(folder, *roots)
+        if _manifest_sha256(folder) != before:
+            raise RunInputsError("its run_manifest.json changed while it was opened.")
     except RunInputsError as exc:
         raise PreprocessingCheckError([
             error(
@@ -154,6 +159,16 @@ def open_run(
                 "Give the plane_histograms.csv the preprocessing brick wrote, or run it again.",
             )
         ]) from exc
+    remember("manifest_sha256", folder, before)
+    return inputs
+
+
+def _manifest_sha256(folder: Path) -> str | None:
+    """Return the SHA-256 of the run's ``run_manifest.json`` (recorded in ``run_config.json``), None if absent."""
+    from morphobricks_preprocessing import MANIFEST_FILENAME, file_sha256
+
+    path = folder / MANIFEST_FILENAME
+    return file_sha256(path) if path.is_file() else None
 
 
 def _refuse_other_file(setting: str, given: Path, expected: Path) -> None:

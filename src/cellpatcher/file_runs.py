@@ -54,7 +54,7 @@ from cellpatcher.run_reading import (
     run_layout,
     run_mask_layout,
 )
-from cellpatcher.run_session import keep_in_session
+from cellpatcher.run_session import keep_in_session, remember
 from cellpatcher.statistics import (
     PlaneStatistics,
     PreprocessingCheckError,
@@ -211,6 +211,7 @@ def open_file_run(
     refuse_file_run_settings(config, where)
     check_config_identity(config)
     inputs = open_run(config.common.preprocessing_run, experiment_root=experiment_root, masks_root=masks_root)
+    remember("file_run", config.common.preprocessing_run, "folder or tree run")
     fovs = inputs.fovs()
     if not fovs:
         raise ValueError(f"The preprocessing run in {inputs.output_folder} has no images.")

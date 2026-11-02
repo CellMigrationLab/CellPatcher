@@ -179,17 +179,53 @@ def test_a_folder_run_patches_one_condition_and_repeat(tmp_path):
         run_patching_pipeline(run.experiment, config=_cell_config(run))
 
 
-def test_the_run_config_records_the_layout_read_and_the_run(tmp_path):
+def test_the_run_config_records_the_run_and_its_manifest_and_loads_back_for_a_file_run(tmp_path):
+    # run_config.json version 2 (CP-2b). Old main recorded the run's layout as common.image_axes
+    # ('CYX') and each leaf's labels, without a version or the manifest's SHA-256, so the file
+    # loaded back was refused for a file run (a migration message about image_axes).
     from cellpatcher.orchestration import load_config
 
     run = _clean_run(tmp_path, axes="CYX", shape=(2, 16, 20), mask_types=("Cells",))
     config = _cell_config(run)
     config.export.enabled, config.common.output_dir = True, str(tmp_path / "out")
-    run_patching_condition_repeat_tree(run.experiment, config=config, combine_metadata=True)
-    saved = load_config(tmp_path / "out" / "run_config.json")
-    assert (saved.common.image_axes, saved.common.mask_axes) == ("CYX", "YX")
-    assert saved.common.preprocessing_run == str(run.output)
+    first = run_patching_condition_repeat_tree(run.experiment, config=config)
+    leaf_file = tmp_path / "out" / first[0].relative_folder / "run_config.json"
+    data = json.loads(leaf_file.read_text(encoding="utf-8"))
+    assert data["run_config_version"] == 2
+    assert data["preprocessing"] == {
+        "run": str(run.output),
+        "manifest_sha256": hashlib.sha256((run.output / "run_manifest.json").read_bytes()).hexdigest(),
+        "layout": {"image": "CYX", "mask": "YX"},
+    }
+    assert not {"image_axes", "mask_axes", "condition", "biological_repeat", "technical_repeat"} & data["common"].keys()
     assert config.common.image_axes == "YX"  # the caller's config is not changed
+    saved = load_config(leaf_file)
+    assert saved.common.preprocessing_run == str(run.output)
+    saved.common.output_dir = str(tmp_path / "again")
+    again = run_patching_condition_repeat_tree(run.experiment, config=saved)
+    assert [p.patch_id for leaf in again for p in leaf.result.patches] == [
+        p.patch_id for leaf in first for p in leaf.result.patches
+    ]
+
+
+@pytest.mark.parametrize("version", [3, "2", None])
+def test_a_run_config_of_an_unknown_version_is_refused_by_every_reader(tmp_path, version):
+    from cellpatcher import iter_exported_patches
+    from cellpatcher.orchestration import load_config
+
+    run = _clean_run(tmp_path, axes="YX", shape=(16, 20), mask_types=("Cells",))
+    config = _cell_config(run)
+    config.export.enabled, config.common.output_dir = True, str(tmp_path / "out")
+    config.normalization.enabled, config.normalization.scope = True, "image"
+    config.normalization.export_values = "raw"
+    run_patching_condition_repeat_tree(run.experiment, config=config, combine_metadata=True)
+    path = tmp_path / "out" / "run_config.json"
+    path.write_text(json.dumps({**json.loads(path.read_text(encoding="utf-8")), "run_config_version": version}))
+    refusal = rf"run_config_version {version!r}; this CellPatcher reads versions 1, 2"
+    with pytest.raises(ValueError, match=refusal):
+        load_config(path)
+    with pytest.raises(ValueError, match=refusal):
+        list(iter_exported_patches(tmp_path / "out" / "patches.csv"))
 
 
 def test_another_table_than_the_run_s_is_refused(tmp_path):

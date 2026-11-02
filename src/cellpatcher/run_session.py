@@ -7,6 +7,9 @@ it. ``RunInputs.open`` checks every image and mask of the run against the
 manifest, and the brick checks each file again whenever it is read, so within
 a call nothing is read unchecked.
 
+The call also keeps what ``run_config.json`` records about the run (:func:`remember`): the
+SHA-256 of its manifest when it was opened, and whether it was read as a folder or tree run.
+
 Nothing is kept beyond the call: the next call opens the run again, so an
 image or mask changed in between, patched or not, is refused then (design
 v0.4 §6; CP-2a). Before CP-2a an opened run was cached for the whole session,
@@ -26,7 +29,7 @@ from typing import TYPE_CHECKING, ParamSpec, TypeVar
 if TYPE_CHECKING:
     from cellpatcher.statistics import PlaneStatistics
 
-_SESSION: ContextVar[dict[str, PlaneStatistics] | None] = ContextVar("cellpatcher_run_session", default=None)
+_SESSION: ContextVar[dict[str, PlaneStatistics | str] | None] = ContextVar("cellpatcher_run_session", default=None)
 _P = ParamSpec("_P")
 _R = TypeVar("_R")
 
@@ -81,3 +84,23 @@ def keep_in_session(statistics: PlaneStatistics) -> None:
     if session is None:
         raise RuntimeError("keep_in_session needs an open statistics_session().")
     session[str(statistics.plane_histograms.expanduser().resolve())] = statistics
+
+
+
+def remember(kind: str, output_folder: str | Path, value: str) -> None:
+    """Record *value* of *kind* (``"manifest_sha256"``, ``"file_run"``) for the run in *output_folder*, for this call.
+
+    Outside :func:`statistics_session` nothing is kept.
+    """
+    session = _SESSION.get()
+    if session is not None:
+        session[f"{kind}:{Path(output_folder).expanduser().resolve()}"] = value
+
+
+def recalled(kind: str, output_folder: str | Path) -> str | None:
+    """Return the value of *kind* recorded in this call for the run in *output_folder*, or None."""
+    session = _SESSION.get()
+    if session is None:
+        return None
+    value = session.get(f"{kind}:{Path(output_folder).expanduser().resolve()}")
+    return value if isinstance(value, str) else None

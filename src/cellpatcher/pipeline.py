@@ -1,7 +1,7 @@
 import json
 from collections import Counter
 from contextvars import ContextVar
-from dataclasses import asdict, dataclass, field, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import numpy as np
@@ -31,11 +31,10 @@ from cellpatcher.normalization import (
     Normalizer,
     finish_patch_groups,
     resolved_patch_region,
-    normalization_inputs,
-    run_settings,
     split_channel_normalization,
     validate_normalization,
 )
+from cellpatcher.run_config_file import run_config_data
 from cellpatcher.run_session import one_session
 from cellpatcher.statistics import _preprocessing
 from cellpatcher.planes import iter_image_planes, plane_choices, splits_planes
@@ -553,23 +552,6 @@ def _normalize(config: CellPatcherConfig, image_list, masks, image_metadata, pat
     return normalizer.normalize(
         image_list, config.common.image_axes, mask_list, config.common.mask_axes, metadata, labels, patches
     )
-
-
-def run_config_data(config: CellPatcherConfig) -> dict:
-    """The ``run_config.json`` content: the config, plus the normalization brick's records.
-
-    ``normalization_inputs`` when a CSV is used, and ``normalization_settings``
-    (the brick's ``NormalizationSettings.to_dict()``) for the image and patch
-    scopes.
-    """
-    data = asdict(config)
-    inputs = normalization_inputs(config)
-    if inputs is not None:
-        data["normalization_inputs"] = inputs
-    settings = run_settings(config)
-    if settings is not None:
-        data["normalization_settings"] = settings
-    return data
 
 
 def _build_result(

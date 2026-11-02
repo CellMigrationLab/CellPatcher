@@ -43,6 +43,7 @@ from cellpatcher.masking import apply_label_mask_to_patch
 from cellpatcher.normalization import PatchNormalization, parameters_from_row
 from cellpatcher.planes import apply_plane_choice, patch_plane_choice, read_file_plane, select_mask_plane
 from cellpatcher.resize import resize_patch
+from cellpatcher.run_config_file import delivery_config
 
 
 def patch_axes(config, patch) -> str:
@@ -172,7 +173,7 @@ def _normalize_on_load(row: Mapping, array, run_config: Mapping | None) -> np.nd
     patch = _row_patch(row)
     clip = settings.get("clip")
     return PatchNormalization(parameters).apply(
-        array, patch_axes(_run_config(run_config), patch), clip=tuple(clip) if clip else None
+        array, patch_axes(delivery_config(run_config, "run_config.json"), patch), clip=tuple(clip) if clip else None
     )
 
 
@@ -268,20 +269,3 @@ def _row_patch(row: Mapping):
         t=number("t"),
         c=number("c"),
     )
-
-
-def _run_config(data: Mapping):
-    """The config of a ``run_config.json``, for the axes of its patches.
-
-    A run normalized at a scope removed since (``condition``,
-    ``technical_repeat``; normalization brick N29) still loads here: its
-    parameters are in ``patches.csv``, and only the patch axes are needed.
-    """
-    from cellpatcher.config import REMOVED_NORMALIZATION_SCOPES
-    from cellpatcher.orchestration import _config_from_dict
-
-    data = dict(data)
-    normalization = data.get("normalization")
-    if isinstance(normalization, Mapping) and normalization.get("scope") in REMOVED_NORMALIZATION_SCOPES:
-        data["normalization"] = {**normalization, "scope": "image"}
-    return _config_from_dict(data)
