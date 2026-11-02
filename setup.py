@@ -31,6 +31,11 @@ setup(
             # tools/check.py and tests/test_code_rules.py: the code standards (design v0.4
             # §9). Pinned, because the baseline of existing findings is Ruff's at this version.
             "ruff==0.17.3",
+            # tests/test_notebook_file.py runs the notebook in a local kernel (with the
+            # notebook extra; skipped without it).
+            "nbclient",
+            "nbformat",
+            "ipykernel",
         ],
         "notebook": [
             "ipywidgets",

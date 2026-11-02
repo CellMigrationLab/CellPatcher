@@ -31,8 +31,9 @@ jobs:
       fail-fast: false
       matrix:
         # Without and with the optional zarr extra (OME-Zarr images), whose tests
-        # skip when it is not installed.
-        extras: ['test', 'test,zarr']
+        # skip when it is not installed; the notebook's tests (its pages and a run
+        # of the notebook file in a kernel) need the notebook extra.
+        extras: ['test', 'test,zarr', 'test,zarr,notebook']
     steps:
       - name: Checkout
         uses: actions/checkout@v4
