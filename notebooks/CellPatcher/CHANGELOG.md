@@ -14,7 +14,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   run's, with their labels and `position_id` as it recorded them; images and masks are read
   with `RunInputs.read_plane`/`read_mask` in the roles it recorded, in one canonical layout per
   run (T, Z, C, then Y, X), recorded in `run_config.json` as `common.image_axes`/`mask_axes`.
-  An image added to the experiment after the run is not patched.
+  An image added to the experiment after the run is not patched, and nothing says so yet (known
+  limitation, closed when CellPatcher calls the preprocessing check for added images, which is
+  not in v0.4.0rc1).
 - The run is opened with the image folder/root and the masks folder given, so an experiment
   moved or copied since its run (times kept) is checked and read where it is now. A mask
   changed in a copy is refused (before, only the original was checked).
