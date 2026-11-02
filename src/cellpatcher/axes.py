@@ -114,3 +114,33 @@ def mapping_to_axes(mapping, ndim: int | None = None) -> str:
 
     axes = "".join(labels)
     return normalize_axes(axes)
+
+
+MASK_TRANSPOSE_HELP = (
+    "To fix the masks, give each one with Y before X, as its image: transpose its last two axes, "
+    "for example numpy.swapaxes(mask, -1, -2), then set common.mask_axes to those axes ('YX', "
+    "or 'ZYX'/'TYX' for a stack). Nothing is ever read transposed."
+)
+
+
+def refuse_transposed_mask_axes(mask_axes: str) -> None:
+    """Refuse ``common.mask_axes`` that put X before Y: CellPatcher cannot read a mask transposed.
+
+    The cell and random strategies take a label plane's two dimensions as Y
+    and X in their stored order, so a mask declared with X first (``'XY'``,
+    ``'ZXY'``) would be taken as if Y came first: the patches would not
+    match their objects (on a square image without any error).
+    Refused, never ignored (owner decision of 31 October 2026). Only
+    in-memory masks are declared: a folder or tree run reads each mask in the
+    roles its preprocessing run recorded. :data:`MASK_TRANSPOSE_HELP` says how
+    to fix the masks.
+    """
+    if mask_axes is None:
+        return
+    axes = normalize_axes(mask_axes)
+    if "X" in axes and "Y" in axes and axes.index("X") < axes.index("Y"):
+        raise ValueError(
+            f"common.mask_axes={mask_axes!r} puts X before Y, but CellPatcher cannot read a mask "
+            "transposed: it takes a label plane's dimensions as Y, X in their stored order, so the "
+            f"mask would not match its image. {MASK_TRANSPOSE_HELP}"
+        )

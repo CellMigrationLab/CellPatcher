@@ -33,9 +33,9 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from cellpatcher.axes import normalize_axes
+from cellpatcher.axes import normalize_axes, refuse_transposed_mask_axes
 from cellpatcher.extract import extract_patch
-from cellpatcher.io import read_array, refuse_transposed_mask_axes
+from cellpatcher.io import read_array
 from cellpatcher.masking import apply_label_mask_to_patch
 from cellpatcher.normalization import PatchNormalization, parameters_from_row
 from cellpatcher.planes import apply_plane_choice, patch_plane_choice, select_mask_plane
