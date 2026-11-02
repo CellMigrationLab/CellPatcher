@@ -281,7 +281,11 @@ def _run_in_a_kernel(name, folder, after=None):
     client = nbclient.NotebookClient(
         notebook, km=manager, timeout=300, kernel_name="python3", resources={"metadata": {"path": str(path.parent)}}
     )
-    client.execute()
+    try:
+        client.execute()
+    finally:  # nbclient shuts down only the kernels of managers it made itself
+        if manager.has_kernel:
+            manager.shutdown_kernel(now=True)
     code = [cell for cell in notebook.cells if cell.cell_type == "code"]
     outputs = [output for cell in code for output in cell.outputs]
     assert not [output for output in outputs if output.output_type == "error"]
