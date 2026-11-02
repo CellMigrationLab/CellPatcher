@@ -47,6 +47,33 @@ MorphoRelate `ea19bb0`, fiberfeatures `362f1ba`, MorphoObjects `2080ff5`: no use
   `scale_policy` (`"none"`), and the RGB examples their `channel_policy`; contract §3 and §15 and
   `docs/plan.md` §6.8 record the decision.
 
+### LabConstrictor template sync (0.1.19)
+
+No change to the package or the notebooks. Before the final `v0.2.0` (owner decision of
+2026-11-02):
+- The installers, release and notebook workflows and `.tools/` follow LabConstrictor template
+  version 0.1.19, synced with the template's `.template_sync` migrations (later syncs come as the
+  template's pull requests; `docs/developer_notes.md`, "LabConstrictor template"). For the
+  installers built at `v0.2.0` this brings the template's TLS-resilient JupyterLab launcher
+  (`launch_jupyter.py`), install checks that stop on a failed step, an NVIDIA-GPU requirements file
+  (`requirements_gpu.txt`, the same packages as `requirements.txt` here), the inert LabConstrictor
+  tools-bridge hooks and actions pinned by commit SHA in the template workflows.
+- The installer copies the package to `<app>/src/cellpatcher/` (the template's fixed
+  `bump_constructor.py`); `setup.py` reads `src/` only again (CP-3b's two-layout workaround is
+  removed). The app's package is still installed with its dependencies and the `zarr` extra (and
+  with build isolation, so pip can build the bricks from GitHub), and release candidates still get
+  no installer.
+- The template's weekly sync schedule is off: syncs are run by hand. The final `v0.2.0` installers
+  get a manual install test on Windows, macOS and Linux before the release is announced
+  (`docs/developer_notes.md`).
+- CI: the workflow is `.github/workflows/cellpatcher_tests.yml` (was `tests.yml`; same jobs), with
+  a new job running every test with `.[test,zarr,notebook]` and CPU `torch` 2.15.0: the torch tests
+  and the PyTorch notebook's kernel run now run in CI, and the job fails if any test is skipped.
+- `pyyaml` is added to the `test` extra (the installer test runs the template's
+  `bump_constructor.py`).
+- `docs/labconstrictor-upstream-proposals.md`: what CellPatcher had to change in template files,
+  proposed for the template (not sent).
+
 ---
 ## [0.2.0rc1] - 2026-11-02
 

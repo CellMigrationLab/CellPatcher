@@ -10,7 +10,7 @@ Choose your operating system and follow the instructions below to install CellPa
 
 ## 1. Click the button to download CellPatcher executable
 
-<a href="https://github.com/CellMigrationLab/CellPatcher/releases/download/0.0.1/CellPatcher-0.0.1-Windows-x86_64.exe">
+<a href="https://github.com/CellMigrationLab/CellPatcher/releases/download/VERSION_NUMBER/CellPatcher-VERSION_NUMBER-Windows-x86_64.exe">
     <img src="https://img.shields.io/badge/Download%20for%20Windows-Latest-blue?logo=windows&style=for-the-badge" alt="Download for Windows" width="250">
 </a>
 
@@ -48,7 +48,7 @@ Then, start using it following the instructions on the [Usage of Notebooks After
 
 ## 1. Click the button to download CellPatcher executable
 
-<a href="https://github.com/CellMigrationLab/CellPatcher/releases/download/0.0.1/CellPatcher-0.0.1-Linux-x86_64.sh">
+<a href="https://github.com/CellMigrationLab/CellPatcher/releases/download/VERSION_NUMBER/CellPatcher-VERSION_NUMBER-Linux-x86_64.sh">
     <img src="https://img.shields.io/badge/Download%20for%20Linux-Latest-green?logo=linux&style=for-the-badge" alt="Download for Linux" width="250">
 </a>
 
@@ -61,7 +61,7 @@ Then, start using it following the instructions on the [Usage of Notebooks After
 2.- Copy and paste the following command:
 
 ```bash
-bash CellPatcher-0.0.1-Linux-x86_64.sh
+bash CellPatcher-VERSION_NUMBER-Linux-x86_64.sh
 ```
 
 3.- Click Enter to run the command.
@@ -99,13 +99,13 @@ After installation, you can launch CellPatcher from your applications menu and s
 > 2. Select About This Mac.
 > 3. A window will pop up displaying your Mac’s information. Look into the `Chip` or `Processor` field. If `Intel` is mentioned, then download the Intel option. Otherwise, if `Mx` (e.g. M1 or M2) is mentioned, then download the ARM64 option. 
 
-<a href="https://github.com/CellMigrationLab/CellPatcher/releases/download/0.0.1/CellPatcher-0.0.1-MacOSX-arm64.pkg">
+<a href="https://github.com/CellMigrationLab/CellPatcher/releases/download/VERSION_NUMBER/CellPatcher-VERSION_NUMBER-MacOSX-arm64.pkg">
     <img src="https://img.shields.io/badge/Download%20for%20Mac%20(ARM64)-Latest-lightgrey?logo=apple&style=for-the-badge" alt="Download for Mac" width="250">
 </a>
 
 or 
     
-<a href="https://github.com/CellMigrationLab/CellPatcher/releases/download/0.0.1/CellPatcher-0.0.1-MacOSX-x86_64.pkg">
+<a href="https://github.com/CellMigrationLab/CellPatcher/releases/download/VERSION_NUMBER/CellPatcher-VERSION_NUMBER-MacOSX-x86_64.pkg">
     <img src="https://img.shields.io/badge/Download%20for%20Mac%20(Intel)-Latest-lightgrey?logo=apple&style=for-the-badge" alt="Download for Mac" width="250">
 </a>
 

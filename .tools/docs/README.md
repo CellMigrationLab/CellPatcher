@@ -37,6 +37,7 @@ Go from notebook to installer in minutes.
 #### 1. [**Create a New Repository from this Template**](./create_repository.md)
 #### 2. [**Initialise your repository**](./initialise_repository.md)
 #### 3. [*(Optional)* **Upload external code**](./external_code_upload.md)
+- [Expose tools to Napari and Fiji (experimental)](tools_bridge.md)
 #### 4. [**Upload Your Notebooks**](./notebook_upload.md) 
 #### 5. [**Create Executable Installers**](./executable_creation.md)
 > **Requirements:** You only need a GitHub account and the Jupyter notebooks you want to distribute.
@@ -57,3 +58,7 @@ We’d love to feature your project! [Open an issue](https://github.com/YOUR_USE
 If you use LabConstrictor in your research, please cite the project to support its development:
 
 Iván Hidalgo-Cenalmor, Marcela Xiomara Rivera Pineda, Bruno M. Saraiva, Ricardo Henriques, and Guillaume Jacquemet. **Packaging Jupyter notebooks as installable desktop apps using LabConstrictor. arXiv preprint 2026** DOI: https://doi.org/10.48550/arXiv.2603.10704
+
+## GitHub management
+
+- [Configure automatic template synchronization](template_synchronization.md)

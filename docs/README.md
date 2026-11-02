@@ -26,6 +26,7 @@ Since v0.2.0 files are read only through a run of the MorphoBricks preprocessing
 - **preprocessing.md**: explicit 2D-plane prep for multidimensional arrays.
 - **normalization.md**: user guide to normalizing patches with the MorphoBricks preprocessing statistics (scopes, methods, outputs, delivery, messages).
 - **configuration_reference.md**: exhaustive config and field behavior reference.
-- **developer_notes.md**: architecture and maintenance guidance for contributors.
+- **developer_notes.md**: architecture and maintenance guidance for contributors, including how the LabConstrictor template is synced.
+- **labconstrictor-upstream-proposals.md**: what CellPatcher changed in LabConstrictor template files, proposed for the template.
 - **plan.md**: design brief for normalization and preprocessing integration, with the recorded design decisions.
 - **normalization_contract.md**: the exact normalization rules (inputs, checks, scopes, columns, configuration); implemented over Milestones 1–5.

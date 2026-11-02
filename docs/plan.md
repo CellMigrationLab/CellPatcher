@@ -540,14 +540,26 @@ from GitHub at a pinned version) **[D1]**.
   need a preprocessing run (revisited when preprocessing is embedded, after v0.4.0). The
   `setup.py` layout fix stays for now.
 - **Before the final `v0.2.0` (not before `v0.2.0rc1`): one LabConstrictor template-sync PR**
-  (owner decision of 2026-11-02). It syncs `.github`/`.tools` with the current LabConstrictor
-  template (which fixes `bump_constructor.py`'s layout, upstream `a76be61`), re-applies
-  CellPatcher's own changes the sync would drop (the code-rules job and the extras matrix of
-  `tests.yml`, and `bump_version.py`'s release-candidate refusal) and proposes them upstream,
-  and adds a **CPU-torch CI job**. Until then no CI job has `torch`: the PyTorch notebook's
-  kernel run (`tests/test_notebook_file.py`) and the torch tests (`test_torch_session.py`,
-  `test_torch_dataset.py`, the torch tests of `test_delivery.py` and
-  `test_biological_repeat.py`) are skipped in CI and run locally with CPU `torch`.
+  (owner decision of 2026-11-02). *Done (2026-11-02).* The repository is at template version
+  0.1.19, synced with the template's own `.template_sync` migrations (from 0.0.0: it predated
+  them), so later syncs are the template's pull requests. The synced `bump_constructor.py` maps the
+  package to `<app>/src/cellpatcher/` (upstream `a76be61`): `construct.yaml` is regenerated with
+  it and CP-3b's two-layout `setup.py` is no longer needed (removed; `tests/test_installers.py`
+  runs the synced script and installs what it lists). CellPatcher's changes to template files
+  (`bump_version.py`'s release-candidate refusal, the `[zarr]` package install with dependencies in
+  `post_install`, the launcher's empty icons) are re-applied and guarded by tests; its CI moved to
+  its own `.github/workflows/cellpatcher_tests.yml` (the code-rules job, the extras matrix) with a
+  new **CPU-torch job** (`.[test,zarr,notebook]` + `torch` 2.15.0 from the CPU index; no skip
+  allowed), so the torch tests and the PyTorch notebook's kernel run now run in CI. Proposals for
+  the template are in `docs/labconstrictor-upstream-proposals.md` (not sent: the owner decides);
+  how to sync and what is changed are in `docs/developer_notes.md`. The template's weekly sync
+  schedule is turned off (owner decision of 2026-11-02; syncs are run by hand).
+- **Release checklist for the final `v0.2.0`: a manual installer test on Windows, macOS and
+  Linux** (owner decision of 2026-11-02), before the release is announced: the installer
+  finishes, the shortcut launches JupyterLab, `import cellpatcher` works in the app's Python, the
+  notebook opens, and the bricks (`morphobricks_preprocessing`, `morphobricks_normalization`,
+  `zarr`) import. The steps are in `docs/developer_notes.md` (Notebook hygiene, "Manual
+  installer test before the final `v0.2.0`").
 - **Planned after preprocessing v0.4.0 is final: the preprocessing steps inside the CellPatcher
   notebook** (owner decision of 2026-11-02). Preprocessing is the essential first step, so the
   CellPatcher notebook should eventually include it, but not while preprocessing's notebook is

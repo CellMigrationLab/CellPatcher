@@ -148,3 +148,7 @@ Note: plane iterator `metadata` (the `t`/`z` indices) reaches `PatchRegion` rows
 
 
 - Optional Torch dataset adapter is available via `cellpatcher.torch_dataset`; Torch remains optional and DINO inference is not included in core (see `docs/api_examples.md`).
+
+## 🔄 Automatic Template Updates
+
+LabConstrictor can prepare pull requests that keep this repository aligned with improvements in the main template, including updates to GitHub Actions workflows. Complete the one-time [automatic synchronization setup](.tools/docs/template_synchronization.md) to enable these updates.

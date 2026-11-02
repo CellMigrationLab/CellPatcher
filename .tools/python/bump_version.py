@@ -14,10 +14,28 @@ VERSION_LINE_RE = re.compile(
     r'^(version:\s*)(?P<quote>["\']?)(?P<version>\d+\.\d+\.\d+)(?P=quote)(?P<trailing>\s*(?:#.*)?)$',
     re.MULTILINE,
 )
-THANKS_LINE_RE = re.compile(r'(Thank you! You have successfully installed [^\n]*)(\d+\.\d+\.\d+)(!)')
+CONCLUSION_LINE_RE = re.compile(
+    r'^(conclusion_text:\s*)(?:(?P<quote>["\'])(?P<quoted_body>.*?)(?P=quote)|(?P<bare_body>.*?))(?P<trailing>\s*(?:#.*)?)$',
+    re.MULTILINE,
+)
 PKG_VERSION_RE = re.compile(r'^(\s*SET\s+"PKG_VERSION=)(\d+\.\d+\.\d+)("\s*)$', re.MULTILINE)
 POST_INSTALL = ROOT / "app" / "bash_bat_scripts" / "post_install.bat"
 
+def replace_version_placeholder(text: str, new_version: str) -> str:
+    """Render the release version in download documentation.
+
+    Handles both pristine templates containing ``VERSION_NUMBER`` and
+    initialized repositories where that placeholder was already rendered to an
+    older explicit version such as ``0.0.0``.
+    """
+    explicit_versions = set(
+        re.findall(r"/releases/download/(\d+\.\d+\.\d+)/", text)
+    )
+
+    text = text.replace("VERSION_NUMBER", new_version)
+    for previous_version in explicit_versions:
+        text = text.replace(previous_version, new_version)
+    return text
 
 def replace_version_in_file(file_path: pathlib.Path, old_version: str, new_version: str) -> bool:
     """Replace all occurrences of old_version with new_version in a file.
@@ -85,8 +103,8 @@ def bump_construct_text(text: str, old_version: str, new_version: str) -> str:
     """Return updated file text with bumped version, preserving YAML structure/comments.
 
     - Updates the `version: "X.Y.Z"` line.
-    - Updates the version inside the 'Thank you for installing ... vX.Y.Z!' line
-      within `conclusion_text` if present.
+    - Updates the version inside `conclusion_text`, replacing either
+      `VERSION_NUMBER` or the previous explicit version if present.
     """
     # 1) Update the explicit version line
     def _repl_version(m: re.Match) -> str:
@@ -95,8 +113,22 @@ def bump_construct_text(text: str, old_version: str, new_version: str) -> str:
 
     text = VERSION_LINE_RE.sub(_repl_version, text, count=1)
 
-    # 2) Update the thank-you line version (only first occurrence)
-    text = THANKS_LINE_RE.sub(lambda m: f"{m.group(1)}{new_version}{m.group(3)}", text, count=1)
+    # 2) Update the version inside conclusion_text if present.
+    def _repl_conclusion(m: re.Match) -> str:
+        quote = m.group("quote") or ""
+        body = m.group("quoted_body") if quote else (m.group("bare_body") or "")
+        if "VERSION_NUMBER" in body:
+            updated_body = body.replace("VERSION_NUMBER", new_version)
+        else:
+            updated_body = re.sub(
+                r"\b\d+\.\d+\.\d+\b",
+                new_version,
+                body,
+                count=1,
+            )
+        return f"{m.group(1)}{quote}{updated_body}{quote}{m.group('trailing')}"
+
+    text = CONCLUSION_LINE_RE.sub(_repl_conclusion, text, count=1)
     return text
 
 
@@ -111,14 +143,34 @@ def bump_post_install_bat(new_version: str) -> None:
     print(f"Updated post_install.bat PKG_VERSION to {new_version}")
 
 def bump_version_in_download_executable_md(new_version: str) -> None:
-    download_md = ROOT / "docs" / "download_executable.md"
-    if not download_md.exists():
-        return
-    # This file may contain the version in various formats, so we use the flexible replacement function
-    if replace_version_in_file(download_md, new_version, new_version):
-        print(f"Updated download_executable.md to version {new_version}")
-    else:
-        print("No version string found in download_executable.md to update.")
+    possible_download_md_paths = [
+        ROOT / "docs" / "download_executable.md",
+        ROOT / ".tools" / "docs" / "download_executable.md"
+    ]
+    template_md = ROOT / ".tools" / "templates" / "download_executable_template.md"
+
+    for download_md in possible_download_md_paths:
+        # We only want to update the existing files
+        if download_md.exists():
+            # Replace download_executable.md with the template (but only if it exists)
+            if template_md.exists():
+                # Remove existing download_executable.md if present
+                if download_md.exists():
+                    download_md.unlink()
+                # Copy the template to the docs folder using shutil for cross-platform support
+                shutil.copy(template_md, download_md)
+            else:
+                print("Template for download_executable.md not found! Skipping creation of download_executable.md")
+                return
+            
+            # This file contains placeholders, update them with the new version
+            text = download_md.read_text(encoding="utf-8")
+            updated_text = replace_version_placeholder(text, new_version)
+            if updated_text != text:
+                download_md.write_text(updated_text, encoding="utf-8")
+                print(f"Updated download_executable.md to version {new_version}")
+            else:
+                print("No version string found in download_executable.md to update.")
 
 def main() -> None:
     parser = argparse.ArgumentParser(
@@ -142,7 +194,8 @@ def main() -> None:
 
     # CellPatcher (owner decision of 2026-11-02): release candidates such as 0.2.0rc1 are
     # installed with pip or on Colab only; the installers are built at final releases. Checked
-    # first, before anything is changed (tests/test_installers.py).
+    # first, before anything is changed (tests/test_installers.py). A CellPatcher change to a
+    # template file: docs/developer_notes.md lists it for template syncs.
     if re.fullmatch(r"\d+\.\d+\.\d+(?:a|b|rc)\d+", args.new_version):
         sys.exit(
             f"{args.new_version} is a pre-release: no installer is built for it. Release candidates "
@@ -152,32 +205,22 @@ def main() -> None:
     if not re.fullmatch(r"\d+\.\d+\.\d+", args.new_version):
         sys.exit("Version must look like X.Y.Z")
 
-    # On the first release replace download_executable.md with the template
-    # (but only if it exists)
-    if pathlib.Path(".tools/templates/download_executable_template.md").exists():
-        # Remove existing download_executable.md if present
-        if pathlib.Path(".tools/docs/download_executable.md").exists():
-            pathlib.Path(".tools/docs/download_executable.md").unlink()
-        # Copy the template to the docs folder using shutil for cross-platform support
-        shutil.copy(
-            ".tools/templates/download_executable_template.md",
-            ".tools/docs/download_executable.md",
-        )
-
     text, current = read_current_version()
-    if args.new_version == current:
-        print(f"Version already at {current}; nothing to update.")
-        return
-
     updated_text = bump_construct_text(text, current, args.new_version)
 
-    CONSTRUCT.write_text(updated_text, encoding="utf-8")
-    print(f"Bumped {current} -> {args.new_version}")
+    if updated_text != text:
+        CONSTRUCT.write_text(updated_text, encoding="utf-8")
+        print(f"Bumped {current} -> {args.new_version}")
+    else:
+        print(
+            f"Project version already at {args.new_version}; "
+            "checking dependent versioned files."
+        )
 
     # Also bump PKG_VERSION in post_install.bat
     bump_post_install_bat(args.new_version)
 
-    # Update download_executable.md if it exists
+    # Update download_executable.md
     bump_version_in_download_executable_md(args.new_version)
 
     # Update additional files if specified
