@@ -28,6 +28,9 @@ setup(
     extras_require={
         "test": [
             "pytest",
+            # tools/check.py and tests/test_code_rules.py: the code standards (design v0.4
+            # §9). Pinned, because the baseline of existing findings is Ruff's at this version.
+            "ruff==0.17.3",
         ],
         "notebook": [
             "ipywidgets",

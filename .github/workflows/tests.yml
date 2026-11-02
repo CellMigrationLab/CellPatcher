@@ -6,6 +6,25 @@ on:
     branches: [ main, master ]
 
 jobs:
+  rules:
+    # The code standards (design v0.4 §9): the shared code rules and Ruff, against their
+    # shrink-only baseline (tools/code_rules_baseline.json).
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Ruff
+        run: python -m pip install "ruff==0.17.3"
+
+      - name: Code rules
+        run: python tools/check.py --rules
+
   pytest:
     runs-on: ubuntu-latest
     strategy:
