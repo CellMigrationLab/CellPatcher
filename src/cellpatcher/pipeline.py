@@ -35,7 +35,7 @@ from cellpatcher.normalization import (
     Normalizer,
     finish_patch_groups,
     resolved_patch_region,
-    run_inputs,
+    normalization_inputs,
     run_settings,
     split_channel_normalization,
     validate_normalization,
@@ -583,7 +583,7 @@ def run_config_data(config: CellPatcherConfig) -> dict:
     scopes.
     """
     data = asdict(config)
-    inputs = run_inputs(config)
+    inputs = normalization_inputs(config)
     if inputs is not None:
         data["normalization_inputs"] = inputs
     settings = run_settings(config)

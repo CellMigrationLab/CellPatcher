@@ -314,7 +314,7 @@ def _preprocessing_pairs(img_dir, mask_dir):
 
     discovery = mbp.discover_experiment(img_dir)
     images = inspect_images(img_dir, discovery.images).files
-    inventory = mbp.find_masks(mask_dir, discovery, images, ome_zarr_labels=False)
+    inventory = mbp.find_masks(mask_dir, discovery, images)
     errors = sorted(issue.code for issue in inventory.issues if issue.is_error)
     if errors:
         return errors
@@ -353,11 +353,13 @@ def test_pairing_is_the_preprocessing_bricks(tmp_path, masks, mask_type, expecte
 
 def test_a_mask_name_starting_with_another_images_name_is_refused_like_preprocessing(tmp_path):
     # a_seg_mask.tif is "a" + "_seg_mask" and "a_seg" + "_mask". The former rule
-    # paired it with a_seg (and a_mask.tif with a); preprocessing refuses it as
-    # ambiguous, and so does CellPatcher now.
+    # paired it with a_seg (and a_mask.tif with a); preprocessing's pairing refuses it as
+    # ambiguous. Since preprocessing v0.4, the image a_seg.tif ("a" + "_seg") is itself named
+    # as a mask of a.tif, an error of discovery (image_named_as_mask), so CellPatcher refuses
+    # the folder before pairing.
     img_dir, mask_dir = _folders(tmp_path, ["a.tif", "a_seg.tif"], ["a_mask.tif", "a_seg_mask.tif"])
     assert _preprocessing_pairs(img_dir, mask_dir) == ["ambiguous_mask"]
-    with pytest.raises(ValueError, match=r"\[ambiguous_mask\].*a_seg_mask.tif"):
+    with pytest.raises(ValueError, match=r"\[image_named_as_mask\].*a_seg.tif"):
         validate_image_and_mask_folders(img_dir, mask_dir)
 
 
@@ -505,7 +507,7 @@ def _header_codes(img_dir, mask_dir):
 
     discovery = mbp.discover_experiment(img_dir)
     images = inspect_images(img_dir, discovery.images).files
-    inventory = mbp.find_masks(mask_dir, discovery, images, ome_zarr_labels=False)
+    inventory = mbp.find_masks(mask_dir, discovery, images)
     return {issue.code for issue in inventory.issues if issue.is_error}
 
 

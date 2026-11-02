@@ -7,6 +7,7 @@ URLs for one package, so the two requirement strings must be identical.
 
 import ast
 import importlib.metadata
+import json
 import re
 from pathlib import Path
 
@@ -46,12 +47,25 @@ def test_normalization_is_pinned_where_preprocessing_pins_it():
     assert _url(pins["morphobricks-normalization"]) == _url(brick["morphobricks-normalization"])
 
 
+def _installed_revision(name):
+    """The git tag *name* was installed from (PEP 610 ``direct_url.json``), or its version as ``v<version>``."""
+    distribution = importlib.metadata.distribution(name)
+    direct_url = distribution.read_text("direct_url.json")
+    if direct_url:
+        revision = json.loads(direct_url).get("vcs_info", {}).get("requested_revision")
+        if revision:
+            return revision
+    return f"v{distribution.version}"
+
+
 def test_the_installed_preprocessing_is_the_pinned_tag():
+    # The tag an install came from, not the version it reports: preprocessing's v0.4.0rc1
+    # tag still reports version 0.3.4 in its package metadata.
     core, _ = _setup_requirements()
-    tag = _url(_by_name(core)["morphobricks-preprocessing"]).rsplit("@", 1)[1]
-    assert importlib.metadata.version("morphobricks-preprocessing") == tag.removeprefix("v")
-    normalization_tag = _url(_by_name(core)["morphobricks-normalization"]).rsplit("@", 1)[1]
-    assert importlib.metadata.version("morphobricks-normalization") == normalization_tag.removeprefix("v")
+    pins = _by_name(core)
+    for name in ("morphobricks-preprocessing", "morphobricks-normalization"):
+        tag = _url(pins[name]).rsplit("@", 1)[1]
+        assert _installed_revision(name) == tag, name
 
 
 def test_the_zarr_extra_installs_the_core_preprocessing_tag():

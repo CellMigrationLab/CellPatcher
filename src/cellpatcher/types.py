@@ -291,10 +291,9 @@ IMAGE_TABLE_COLUMNS = (
     "n_kept",
     "n_normalized",
     # Whether the image was read transposed: its header's named Y and X
-    # declared swapped in common.image_axes, which the preprocessing brick's
-    # check_declared_axes accepts (owner decision of 31 October 2026).
-    # true/false for a TIFF file, empty when not checked (an in-memory
-    # array, an OME-Zarr image matched by role).
+    # declared swapped in common.image_axes (v0.1.2 only: since preprocessing
+    # v0.4 a swap is refused, so always false for a TIFF file). Empty when not
+    # checked (an in-memory array, an OME-Zarr image matched by role).
     "image_read_transposed",
 )
 

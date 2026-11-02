@@ -37,6 +37,7 @@ from collections import defaultdict
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 from morphobricks_normalization.records import SINGLE
@@ -48,11 +49,19 @@ from cellpatcher.statistics import (
     PreprocessingCheckError,
     SourcePlane,
     _preprocessing,
+    _refuse_other_file,
     check_images,
     check_planes,
     load_plane_statistics,
     require_normalization,
 )
+
+if TYPE_CHECKING:
+    import os
+
+    from morphobricks_preprocessing import ConfirmedDesign
+
+    from cellpatcher.config import CellPatcherConfig, NormalizationConfig
 
 CSV_SCOPES = ("biological_repeat", "image")
 _STATISTICS_CACHE: dict[tuple, PlaneStatistics] = {}
@@ -107,17 +116,18 @@ def validate_normalization(config) -> None:
         )
 
 
-def cached_statistics(plane_histograms, manifest=None) -> PlaneStatistics:
-    """:func:`~cellpatcher.statistics.load_plane_statistics`, loaded once per unchanged table.
+def cached_statistics(
+    plane_histograms: str | os.PathLike, manifest: str | os.PathLike | None = None
+) -> PlaneStatistics:
+    """:func:`~cellpatcher.statistics.load_plane_statistics`, once per unchanged table and manifest.
 
-    A tree run normalizes every leaf with the same table, which can be large;
-    the cache is keyed by the table's path, size and modification time.
+    A tree run normalizes every leaf with the same, possibly large, table; the
+    key is the path, size and modification time of the table and the manifest.
     """
     csv_path = Path(plane_histograms).expanduser()
     if not csv_path.is_file():
         return load_plane_statistics(csv_path, manifest)  # raises the plain-language error
-    stat = csv_path.resolve().stat()
-    key = (str(csv_path.resolve()), stat.st_size, stat.st_mtime_ns, None if manifest is None else str(manifest))
+    key = (*_file_key(csv_path), *_file_key(csv_path.parent / _preprocessing().MANIFEST_FILENAME), str(manifest))
     if key not in _STATISTICS_CACHE:
         if len(_STATISTICS_CACHE) >= 4:
             _STATISTICS_CACHE.pop(next(iter(_STATISTICS_CACHE)))
@@ -125,24 +135,41 @@ def cached_statistics(plane_histograms, manifest=None) -> PlaneStatistics:
     return _STATISTICS_CACHE[key]
 
 
-def experiment_design_path(settings) -> Path:
-    """``normalization.experiment_design``, or the ``experiment_design.csv`` next to ``plane_histograms``."""
-    _preprocessing()
+def _file_key(path: Path) -> tuple[str, int | None, int | None]:
+    """Return a file's resolved path, size and modification time (None, None when missing)."""
+    resolved = path.resolve()
+    if not resolved.is_file():
+        return str(resolved), None, None
+    stat = resolved.stat()
+    return str(resolved), stat.st_size, stat.st_mtime_ns
+
+
+def experiment_design_path(settings: NormalizationConfig) -> Path:
+    """The preprocessing run's ``experiment_design.csv``, beside ``plane_histograms``.
+
+    ``normalization.experiment_design`` may name only that file (design v0.4 §6).
+
+    Raises
+    ------
+    PreprocessingCheckError
+        If ``normalization.experiment_design`` names another file.
+    """
     from morphobricks_preprocessing.design import DESIGN_FILENAME
 
+    path = Path(settings.plane_histograms).expanduser().parent / DESIGN_FILENAME
     if settings.experiment_design is not None:
-        return Path(settings.experiment_design).expanduser()
-    return Path(settings.plane_histograms).expanduser().parent / DESIGN_FILENAME
+        _refuse_other_file("normalization.experiment_design", Path(settings.experiment_design).expanduser(), path)
+    return path
 
 
-def load_experiment_design(settings, statistics: PlaneStatistics):
+def load_experiment_design(settings: NormalizationConfig, statistics: PlaneStatistics) -> ConfirmedDesign:
     """Read and check the experiment design of the ``biological_repeat`` scope, before any image is read.
 
-    The file is read with the preprocessing brick's one shared reader,
-    ``read_confirmed_design`` (contract §16; CellPatcher keeps no reader of
-    its own): exactly as the brick writes it, every repeat group confirmed
-    with one folder per condition, and, when the run manifest records an
-    ``experiment_design_sha256``, the file that run used.
+    The design is the preprocessing run's own, opened with ``RunInputs``: the
+    file whose SHA-256 the run's manifest records, read with the brick's one
+    shared reader, ``read_confirmed_design`` (contract §16; CellPatcher keeps
+    no reader of its own), exactly as the brick writes it, every repeat group
+    confirmed with one folder per condition.
 
     Returns
     -------
@@ -154,71 +181,44 @@ def load_experiment_design(settings, statistics: PlaneStatistics):
     Raises
     ------
     PreprocessingCheckError
-        With the reader's errors (``missing_experiment_design``,
-        ``unreadable_experiment_design``, ``repeat_group_conflict``,
-        ``design_not_confirmed``, ``changed_experiment_design``).
+        ``missing_experiment_design`` when the run recorded no design, or the
+        reader's errors (``unreadable_experiment_design``,
+        ``repeat_group_conflict``, ``design_not_confirmed``,
+        ``changed_experiment_design``).
     """
-    _preprocessing()
     from morphobricks_preprocessing.design import DesignCheckError, read_confirmed_design
+    from morphobricks_preprocessing.validation import error
 
     path = experiment_design_path(settings)
-    manifest = statistics.manifest
-    expected = None if manifest is None else getattr(manifest, "experiment_design_sha256", None)
+    expected = statistics.manifest.experiment_design_sha256
+    if expected is None:
+        raise PreprocessingCheckError([
+            error(
+                "missing_experiment_design",
+                "normalization.scope='biological_repeat' pools the biological repeats as the "
+                "experiment design pairs them, but the preprocessing run recorded no design.",
+                [str(statistics.manifest_path)],
+                "Run step 1 of the preprocessing brick on this experiment (it pairs and confirms the "
+                "biological repeats), then run the preprocessing brick again.",
+            )
+        ])
     try:
         return read_confirmed_design(path, expected_sha256=expected)
     except DesignCheckError as exc:
-        issues = [
-            # Where CellPatcher looks for the file is CellPatcher's setting.
-            replace(issue, action=f"{issue.action} Or give the file in normalization.experiment_design.")
-            if issue.code == "missing_experiment_design" else issue
-            for issue in exc.issues
-        ]
-        raise PreprocessingCheckError(issues) from exc
+        raise PreprocessingCheckError(exc.issues) from exc
 
 
-def _warn_unchecked_inputs(settings, statistics: PlaneStatistics) -> None:
-    """Warn when a CSV-scope run cannot check its inputs against the preprocessing run (issue #46).
-
-    Without ``run_manifest.json`` the table's SHA-256 and each image's size,
-    modification time and axes are not checked. At the ``biological_repeat``
-    scope, a manifest that records no ``experiment_design_sha256`` (or no
-    manifest) cannot tell whether ``experiment_design.csv`` changed since the
-    statistics were written.
-    """
-    manifest = statistics.manifest
-    if manifest is None:
-        warnings.warn(
-            f"No run_manifest.json was found for {statistics.plane_histograms.name}, so CellPatcher cannot check "
-            "that the table, and each image's size, modification time and axes, are the ones of the preprocessing "
-            "run. Give the run_manifest.json written next to it (normalization.manifest) for these checks.",
-            NormalizationWarning,
-            stacklevel=3,
-        )
-    if settings.scope == "biological_repeat" and getattr(manifest, "experiment_design_sha256", None) is None:
-        warnings.warn(
-            "The run manifest records no experiment_design_sha256"
-            + (" (there is no manifest)" if manifest is None else "")
-            + ", so a change to experiment_design.csv since the preprocessing run cannot be detected: the "
-            "biological repeats are pooled as the file pairs them now. Run the preprocessing brick again to "
-            "record it.",
-            NormalizationWarning,
-            stacklevel=3,
-        )
-
-
-def check_image_type(settings, statistics: PlaneStatistics) -> None:
+def check_image_type(settings: NormalizationConfig, statistics: PlaneStatistics) -> None:
     """Refuse an ``image_type`` that differs from the one the preprocessing manifest records (N34).
 
-    Without a manifest, or with one that records no image type (written before
-    the preprocessing brick asked for it), ``normalization.image_type`` decides.
+    When the run recorded no image type, ``normalization.image_type`` decides.
 
     Raises
     ------
     PreprocessingCheckError
         If the manifest records another image type.
     """
-    manifest = statistics.manifest
-    recorded = None if manifest is None else getattr(manifest, "image_type", None)
+    recorded = statistics.inputs.image_type()
     if recorded is None or recorded == settings.image_type:
         return
     from morphobricks_preprocessing.validation import error
@@ -229,33 +229,33 @@ def check_image_type(settings, statistics: PlaneStatistics) -> None:
             "image_type_differs",
             f"The preprocessing run that wrote {statistics.plane_histograms.name} was confirmed for "
             f"{recorded!r} images, but normalization.image_type is {settings.image_type!r}.",
-            [str(path)] if path is not None else [],
+            [str(path)],
             f"Set normalization.image_type={recorded!r}, or run the preprocessing brick again with image type "
             f"{settings.image_type!r} if that one is right.",
         )
     ])
 
 
-def run_inputs(config) -> dict | None:
-    """The ``normalization_inputs`` of ``run_config.json`` (contract §11).
+def normalization_inputs(config: CellPatcherConfig) -> dict | None:
+    """The ``normalization_inputs`` of ``run_config.json`` (contract §11), from the opened run.
 
-    None when normalization is off or uses no CSV (the patch scope). Paths
-    are not recorded: they are machine-specific. The ``biological_repeat``
-    scope also records the experiment design's file name and SHA-256.
+    None when normalization is off or uses no CSV (the patch scope). The
+    values come from the run ``RunInputs`` opened: the table's SHA-256 and
+    the manifest version its manifest records. Paths are not recorded: they
+    are machine-specific. The ``biological_repeat`` scope also records the
+    experiment design's file name and SHA-256.
     """
     settings = config.normalization
     if not settings.enabled or settings.scope not in CSV_SCOPES or settings.plane_histograms is None:
         return None
-    mbp = _preprocessing()
-    mbn = require_normalization()
     statistics = cached_statistics(settings.plane_histograms, settings.manifest)
     manifest = statistics.manifest
     inputs = {
-        "plane_histograms_sha256": statistics.csv_sha256,
-        "schema_version": mbn.csv_io.SCHEMA_VERSION,
-        "manifest_used": manifest is not None,
-        "manifest_version": None if manifest is None else manifest.manifest_version,
-        "preprocessing_version": mbp.__version__,
+        "plane_histograms_sha256": manifest.csv_sha256,
+        "schema_version": manifest.schema_version,
+        "manifest_used": True,
+        "manifest_version": manifest.manifest_version,
+        "preprocessing_version": _preprocessing().__version__,
     }
     if settings.scope == "biological_repeat":
         design = load_experiment_design(settings, statistics)
@@ -513,7 +513,6 @@ class Normalizer:
                 NormalizationWarning,
                 stacklevel=2,
             )
-            _warn_unchecked_inputs(settings, statistics)
             if settings.scope == "biological_repeat":
                 repeat_groups = load_experiment_design(settings, statistics).repeat_groups
         mbn = require_normalization()
