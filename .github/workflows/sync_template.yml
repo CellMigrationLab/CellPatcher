@@ -1,9 +1,10 @@
 name: Sync with Template Repository
 
 on:
-  schedule:
-    # Run weekly on Monday at 9 AM UTC
-    - cron: '0 9 * * 1'
+  # CellPatcher (owner decision of 2026-11-02): no weekly schedule; a template sync is run by hand
+  # (Actions > Sync with Template Repository > Run workflow). The template's file runs weekly on
+  # Monday at 9 AM UTC. A CellPatcher change to a template file: docs/developer_notes.md lists it,
+  # tests/test_ci_workflow.py guards it.
   workflow_dispatch:
 
 # This enables only one template synchronization workflow at a time.

@@ -52,3 +52,23 @@ def test_the_torch_job_runs_everything_with_pinned_cpu_torch_and_no_skips():
     assert 'pip install -e ".[test,zarr,notebook]"' in job
     assert "python -m pytest -q -rs" in job
     assert "skipped" in job and "exit 1" in job
+
+
+def test_the_template_sync_runs_only_by_hand():
+    # CellPatcher's change to a template file (owner decision of 2026-11-02, docs/developer_notes.md):
+    # the template's sync_template.yml runs weekly; CellPatcher's runs on workflow_dispatch only.
+    text = (WORKFLOWS / "sync_template.yml").read_text(encoding="utf-8")
+    triggers = re.search(r"^on:\n(.*?)(?=^\S)", text, re.M | re.S)
+    assert triggers is not None, "sync_template.yml has no on: block"
+    active = [line for line in triggers.group(1).splitlines() if line.strip() and not line.lstrip().startswith("#")]
+    assert active == ["  workflow_dispatch:"], active
+    assert not re.search(r"^\s*(schedule|- cron):", text, re.M)
+
+
+def test_every_action_of_the_ci_is_pinned_by_commit_sha():
+    # As the template's workflows are (LabConstrictor migration 0.1.18): a moved tag cannot change
+    # what CI runs.
+    uses = re.findall(r"^\s*(?:-\s*)?uses:\s*(\S+)", WORKFLOW.read_text(encoding="utf-8"), re.M)
+    assert uses
+    for action in uses:
+        assert re.fullmatch(r"[\w.-]+/[\w.-]+@[0-9a-f]{40}", action), action
