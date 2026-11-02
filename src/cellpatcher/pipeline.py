@@ -6,7 +6,7 @@ from pathlib import Path
 
 import numpy as np
 
-from cellpatcher.axes import normalize_axes, refuse_transposed_mask_axes, require_spatial_axes
+from cellpatcher.axes import normalize_axes, refuse_transposed_inputs, require_spatial_axes
 from cellpatcher.config import CellPatcherConfig
 from cellpatcher.extract import extract_patches
 from cellpatcher.export import IMAGE_TABLE_FILENAME, export_patches
@@ -928,8 +928,7 @@ def run_patching(images=None, masks=None, config=None, image_metadata=None, frac
     if images is not None:
         _check_split_channels(config, _normalize_images(images))
         image_metadata = _identity_metadata(config, _normalize_images(images), image_metadata)
-    if masks is not None:
-        refuse_transposed_mask_axes(config.common.mask_axes)  # a mask is never read transposed
+    refuse_transposed_inputs(config.common.image_axes, config.common.mask_axes, images, masks)
     if config.mode == "cell" and masks is not None:
         _refuse_masking_computed_labels(config, _normalize_masks(masks))
     if fraction_masks is not None:

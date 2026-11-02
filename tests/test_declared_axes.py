@@ -92,12 +92,52 @@ def test_an_in_memory_mask_with_x_before_y_is_refused(mode):
     # Before v0.1.2, mask_axes='XY' was ignored for an in-memory mask: the strategies took the
     # label plane as Y, X in its stored order, so with image_axes='XY' too the patches missed
     # their objects without a word. A mask is never read transposed: refused, with the fix.
+    # (Since v0.2.0 the image is refused too: test_an_in_memory_image_with_x_before_y_is_refused.)
     image, labels, _ = make_synthetic_cell_image_and_labels(shape=(32, 32))
-    config = _cell_config("XY", "XY")
+    config = _cell_config("YX", "XY")
     config.mode = mode
     with pytest.raises(ValueError, match=r"common.mask_axes='XY' puts X before Y, but CellPatcher cannot read a "
                                          r"mask transposed.*To fix the masks"):
         run_patching(images=[image], masks=[labels], config=config, image_metadata=named([image]))
+
+
+@pytest.mark.parametrize("mode", ["grid", "whole_fov", "random", "cell"])
+@pytest.mark.parametrize(("axes", "shape"), [("XY", (12, 20)), ("CXY", (2, 12, 20)), ("XYZ", (12, 20, 3))])
+def test_an_in_memory_image_with_x_before_y_is_refused(mode, axes, shape):
+    # Before v0.2.0 an in-memory image declared 'XY' was patched in the transposed frame: a
+    # 12 x 20 array gave the whole-FOV patch y0..y1 = 0..20 and x0..x1 = 0..12, so patches.csv
+    # held the coordinates of the transposed image (CP-2b review follow-up; design v0.4 §6:
+    # in-memory arrays take a canonical-only layout, never swapped).
+    image = np.arange(np.prod(shape), dtype=np.uint16).reshape(shape)
+    config = CellPatcherConfig(mode=mode)
+    config.common.image_axes = axes
+    config.cell.patch_size = 4
+    config.random.patch_size = 4
+    config.grid.tile_size = 4
+    masks = [np.ones(shape[-2:] if axes != "XYZ" else shape[:2], dtype=np.int32)] if mode == "cell" else None
+    with pytest.raises(ValueError, match=rf"common.image_axes='{axes}' puts X before Y, but CellPatcher takes "
+                                         r"in-memory images only with Y before X .*Nothing is ever read transposed"):
+        run_patching(images=[image], masks=masks, config=config, image_metadata=named([image]))
+
+
+def test_an_in_memory_image_with_y_before_x_is_patched_as_given():
+    # The canonical layout is unchanged: a 12 x 20 'YX' array gives y0..y1 = 0..12, x0..x1 = 0..20.
+    image = np.zeros((12, 20), dtype=np.uint16)
+    config = CellPatcherConfig(mode="whole_fov")
+    (patch,) = run_patching(images=[image], config=config, image_metadata=named([image])).patches
+    assert (patch.y0, patch.y1, patch.x0, patch.x1) == (0, 12, 0, 20)
+
+
+def test_lazy_delivery_refuses_an_in_memory_image_declared_swapped():
+    # Lazy delivery takes the same canonical layout as run_patching.
+    from cellpatcher.delivery import patch_array
+
+    image = np.zeros((12, 20), dtype=np.uint16)
+    config = CellPatcherConfig(mode="whole_fov")
+    (patch,) = run_patching(images=[image], config=config, image_metadata=named([image])).patches
+    config.common.image_axes = "XY"
+    with pytest.raises(ValueError, match=r"common.image_axes='XY' puts X before Y"):
+        patch_array(patch, image, config)
 
 
 def test_a_mask_file_whose_header_names_x_before_y_is_refused(tmp_path):
