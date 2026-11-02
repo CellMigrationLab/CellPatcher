@@ -13,6 +13,11 @@ Use this page as the entry point for package documentation.
 7. **Contributing or maintaining docs/backend?** Read [Developer notes](developer_notes.md).
 8. **Reviewing the normalization design?** Read the [Plan](plan.md) and the [Normalization contract](normalization_contract.md).
 
+Since v0.2.0 files are read only through a run of the MorphoBricks preprocessing brick: see
+"Files" in [Quick start](quick_start.md) and "File runs read through the preprocessing run" in the
+[Configuration reference](configuration_reference.md). The notebook is
+`notebooks/CellPatcher/CellPatcher.ipynb`.
+
 ## Relationship between pages
 
 - **quick_start.md**: shortest practical path, minimal setup + runnable examples.

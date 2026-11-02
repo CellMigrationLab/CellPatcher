@@ -12,6 +12,31 @@ pip install -e .
 PYTHONPATH=src python -m pytest -q
 ```
 
+## Files: patch an experiment through its preprocessing run
+
+Since v0.2.0 CellPatcher reads image and mask files only through a clean run of the MorphoBricks
+preprocessing brick (v0.4): run its notebook, or `morphobricks-preprocessing check`, `design`
+and `run`, on the experiment first. CellPatcher then takes the run's images, labels, axis roles
+and mask pairing; no axes are given. The notebook (`notebooks/CellPatcher/CellPatcher.ipynb`)
+does the same from its four steps.
+
+```python
+from cellpatcher import CellPatcherConfig, run_patching_condition_repeat_tree
+
+config = CellPatcherConfig(mode="cell")
+config.common.preprocessing_run = "./experiment_MorphoBricks_Preprocessing"
+config.common.output_dir = "./experiment_CellPatcher"
+config.export.enabled = True
+config.matching.mask_type = "cells"   # None: the run's only mask type
+
+results = run_patching_condition_repeat_tree("./experiment", config=config, combine_metadata=True)
+```
+
+`./experiment` is where the experiment is now (a moved or copied experiment is checked there;
+copy it with its file times). Images or masks the run did not record (added after it) are
+refused (`unrecorded_files`): run preprocessing again. The examples below use in-memory arrays
+with `run_patching`, where you declare the axes (Y before X).
+
 ## Data-shape guide (what happens to my data?)
 
 CellPatcher processes data in four stages. Use the tables below as a quick decision matrix.

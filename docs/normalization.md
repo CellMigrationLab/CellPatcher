@@ -14,22 +14,23 @@ before.
 
 ## The workflow
 
-1. **Install** CellPatcher: the preprocessing and normalization bricks are core dependencies.
-   OME-Zarr images need the optional extra `pip install "cellpatcher[zarr]"` (the notebook's
-   first cell installs it on Google Colab).
-2. **Run the preprocessing notebook** (or `morphobricks-preprocessing run`) on your experiment
-   folder. It writes `plane_histograms.csv` and `run_manifest.json` to an output folder next to
-   the experiment.
-3. **Run CellPatcher on the same experiment folder** with normalization enabled, giving it that
-   `plane_histograms.csv`. Before any patch is normalized, CellPatcher checks that every image
-   still matches the statistics (see [Checks](#checks-and-messages)).
+1. **Install** CellPatcher: the preprocessing (v0.4.0rc2) and normalization bricks are core
+   dependencies. OME-Zarr images need the optional extra `pip install "cellpatcher[zarr]"` (the
+   notebook's first cell installs it on Google Colab).
+2. **Run the preprocessing notebook** (or `morphobricks-preprocessing check`, `design`, `run`)
+   on your experiment folder. It writes `plane_histograms.csv`, `run_manifest.json` and, once the
+   design is confirmed, `experiment_design.csv` to an output folder next to the experiment.
+3. **Run CellPatcher on that preprocessing run** (`common.preprocessing_run`, its output folder)
+   with normalization enabled. Since v0.2.0 a folder or tree run reads every image, and the CSV
+   scopes read the run's own table, through the run (`RunInputs`): `plane_histograms` may be left
+   unset. Before any patch is normalized, CellPatcher checks that every image still matches the
+   statistics (see [Checks](#checks-and-messages)).
 
-In the CellPatcher notebook, normalization is the **Normalization (optional)** section of
-step 4; **Show parameters per group** lists the parameters before you run, and the preview in
-step 5 shows a few patches before and after normalization with their histograms. The
-**Pool conditions** choice appears only for the biological-repeat scope. **Image type** is taken
-from the preprocessing manifest, and locked, when the manifest records one; otherwise you choose
-it. For RGB only the percentile method is offered.
+In the CellPatcher notebook (v0.2), normalization is the **Normalization** card of step 2:
+**Normalize the patches**, **Statistics from** (image, biological repeat or patch), the
+method and percentiles, **Normalize each time point separately**, and whether the files hold
+normalized or raw values. The image type is the one confirmed in preprocessing (fluorescence
+when the run records none). The preview of step 3 shows the normalized patches of one image.
 
 In Python:
 
@@ -38,13 +39,13 @@ from cellpatcher import CellPatcherConfig, NormalizationConfig, run_patching_con
 
 config = CellPatcherConfig(mode="grid")
 config.grid.tile_size = 128
-config.common.image_axes = "ZCYX"
+# The preprocessing run: every image is read through it, in the roles it recorded (no axes here).
+config.common.preprocessing_run = "./experiment_MorphoBricks_Preprocessing"
 config.common.z_policy = "all"          # one patch per Z plane (needed for stacks)
 config.common.output_dir = "./patches"
 config.export.enabled = True
 config.normalization = NormalizationConfig(
-    enabled=True,
-    plane_histograms="./experiment_MorphoBricks_Preprocessing/plane_histograms.csv",
+    enabled=True,                        # the CSV scopes read the run's own plane_histograms.csv
     method="percentile",                 # 1st-99.8th percentile range (default)
     scope="image",                       # default
 )
@@ -169,6 +170,8 @@ planes and what to do:
 
 | Message | Meaning and fix |
 |---|---|
+| *The preprocessing run in ... cannot be used: The experiment holds ... that the preprocessing run did not record* (`unrecorded_files`) | Since preprocessing v0.4.0rc2: images or masks were added to the experiment (or masks folder) after the run. None is left out: run preprocessing again on the experiment as it is, or exclude the images there. |
+| *... the zarr package is not installed* (`zarr_extra_missing`) | The run holds OME-Zarr images: `pip install "cellpatcher[zarr]"`. |
 | *The preprocessing run in ... cannot be used* (`preprocessing_run_refused`) | The preprocessing brick's `RunInputs` refuses the run (since v0.2.0): no `run_manifest.json` next to the table, a run written before preprocessing v0.4.0, a table or `experiment_design.csv` changed since the run, or an image or mask changed or missing since the run where CellPatcher reads it. Run preprocessing v0.4 on the experiment as it is now; an experiment only moved or copied (times kept) since its run is read where it is now when CellPatcher is given that folder and its masks folder (since CP-2a). |
 | *normalization.plane_histograms/manifest/experiment_design names ...* (`not_the_run_output`) | Only the run's own files, unrenamed in its output folder, are read. Give that folder's `plane_histograms.csv` (and leave `manifest` and `experiment_design` empty). |
 | *... the preprocessing run recorded no design* (`missing_experiment_design`) | The `biological_repeat` scope needs a run whose experiment design was confirmed (step 1 of the preprocessing brick). |
@@ -176,7 +179,7 @@ planes and what to do:
 | *... changed after the preprocessing brick read them* / *... the images changed after the preprocessing run* | An image's size, time or pixel values differ from the statistics. Run the preprocessing again. |
 | *... other condition, biological repeat or technical repeat labels* | CellPatcher and the preprocessing read different folder levels: give both the same experiment folder. |
 | *... another position_id than their rows* | A `position_id` given in `image_metadata` is not the one the preprocessing recorded (the image name). Leave it to the image name, or give the recorded one. |
-| *... another role than the axis mapping confirmed in the preprocessing brick* | `common.image_axes` differs from the axes confirmed in the preprocessing notebook. |
+| *... another role than the axis mapping confirmed in the preprocessing brick* | In-memory runs: `common.image_axes` differs from the axes confirmed in the preprocessing notebook. (Folder and tree runs take the run's roles and declare no axes.) |
 | *Normalization needs one plane per patch* | Set `z_policy`/`t_policy` to `"all"`, `"first"` or `"select"`. |
 | *... cannot be computed for N group(s)* | A group has no finite pixels or no intensity spread: choose a larger scope or another method. |
 | *Keeping the normalized patches in memory needs about ...* | Use `iter_patch_arrays`, export to files, or raise `normalization.memory_limit`. |
