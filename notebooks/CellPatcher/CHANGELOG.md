@@ -38,8 +38,9 @@ before the final `v0.2.0`; `v0.2.0rc1` ships with the old ones.
 `src/morphoembed/provider_crops.py` already passes `channel_policy="keep"`, `scale_policy="none"`
 (`TENSOR_CONFIG`), unaffected; its `ROADMAP.md` (lines 126-127) describes the old defaults.
 MorphoFeature `main` `4e6970f`: documentation only (`AGENTS.md` line 247,
-`docs/audits/pytorch-encoder-phenome-audit.md`), which already names `scale_policy="none"`.
-MorphoRelate `ea19bb0`, fiberfeatures `362f1ba`, MorphoObjects `ca548cd`: no use.
+`docs/audits/pytorch-encoder-phenome-audit.md`), which already names `scale_policy="none"`; the
+audit's PT08 row (line 121) still describes the old default RGB repetition.
+MorphoRelate `ea19bb0`, fiberfeatures `362f1ba`, MorphoObjects `2080ff5`: no use.
 
 ### Changed
 - `docs/api_examples.md`, `docs/quick_start.md`: every `PatchTensorConfig` names its
