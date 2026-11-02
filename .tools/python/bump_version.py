@@ -140,6 +140,15 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    # CellPatcher (owner decision of 2026-11-02): release candidates such as 0.2.0rc1 are
+    # installed with pip or on Colab only; the installers are built at final releases. Checked
+    # first, before anything is changed (tests/test_installers.py).
+    if re.fullmatch(r"\d+\.\d+\.\d+(?:a|b|rc)\d+", args.new_version):
+        sys.exit(
+            f"{args.new_version} is a pre-release: no installer is built for it. Release candidates "
+            "are installed with pip or on Google Colab only; the installers are built at the final "
+            "release (X.Y.Z)."
+        )
     if not re.fullmatch(r"\d+\.\d+\.\d+", args.new_version):
         sys.exit("Version must look like X.Y.Z")
 

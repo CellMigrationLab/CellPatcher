@@ -27,6 +27,17 @@ C/Z/T handling is explicit preprocessing (`prepare_*` helpers and iterators). Co
   and runs the notebook in a local kernel (nbclient).
 - Before tagging a release: set `RELEASE_TAG` and `current_version` in the notebook's first
   cell, `version` in `setup.py` and `__version__` to the new version.
+- **No installer for a release candidate** (owner decision of 2026-11-02): an `rc` tag
+  (`v0.2.0rc1`) is installed with pip or on Colab only. The release workflow's
+  `.tools/python/bump_version.py` refuses a pre-release version with that reason before it
+  changes anything, so no installer is built; the installers are built at the final release
+  (`v0.2.0`). `tests/test_installers.py` checks the refusal (the `.tools` folder is synced from
+  the LabConstrictor template, which would drop it).
+- **Before the final v0.2.0 installer:** the template's `construct.yaml` copies the package to
+  `CellPatcher/src/cellpatcher/cellpatcher/`, where `setup.py` (`find_packages(where="src")`)
+  finds no package, so the installed app has no `cellpatcher` module (checked on 2026-11-02 by
+  copying the files as `construct.yaml` lists them and installing them). It has to be fixed,
+  with the LabConstrictor template, before the installers are built (CP-3b).
 - Strip outputs before committing; avoid duplicating backend patching logic in notebooks.
 
 ## Regenerate docs figures
