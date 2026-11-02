@@ -274,6 +274,36 @@ def test_the_run_config_records_the_run_and_its_manifest_and_loads_back_for_a_fi
     ]
 
 
+def test_an_in_memory_run_records_the_run_its_csv_scope_read_and_keeps_its_axes(tmp_path):
+    # run_config.json version 2 for run_patching: a CSV scope records the run its table came from
+    # and the manifest's SHA-256, without a layout (the arrays are the caller's, in common.image_axes).
+    from cellpatcher import run_patching
+    from cellpatcher.config import NormalizationConfig
+
+    run = _clean_run(tmp_path, axes="YX", shape=(16, 20), mask_types=("Cells",))
+    (path,) = sorted((run.experiment / "ctrl" / "rep1").glob("a.*"))
+    config = CellPatcherConfig(mode="grid")
+    config.grid.tile_size, config.common.extract_arrays = 8, True
+    config.common.condition, config.common.biological_repeat = "ctrl", "rep1"
+    config.export.enabled = True
+    meta = [{"image_file": path.name, "source_relative_path": path.relative_to(run.experiment).as_posix()}]
+    for scope, out in (("image", tmp_path / "csv"), ("patch", tmp_path / "patch")):
+        config.common.output_dir = str(out)
+        config.normalization = NormalizationConfig(
+            enabled=True, scope=scope, plane_histograms=str(run.output / "plane_histograms.csv") if scope == "image" else None
+        )
+        run_patching(images=[tifffile.imread(path)], config=config, image_metadata=meta)
+    csv_scope = json.loads((tmp_path / "csv" / "run_config.json").read_text(encoding="utf-8"))
+    assert csv_scope["run_config_version"] == 2
+    assert csv_scope["preprocessing"] == {
+        "run": str(run.output),
+        "manifest_sha256": hashlib.sha256((run.output / "run_manifest.json").read_bytes()).hexdigest(),
+    }
+    assert (csv_scope["common"]["image_axes"], csv_scope["common"]["condition"]) == ("YX", "ctrl")
+    patch_scope = json.loads((tmp_path / "patch" / "run_config.json").read_text(encoding="utf-8"))
+    assert patch_scope["run_config_version"] == 2 and "preprocessing" not in patch_scope
+
+
 def _touch_manifest(run):
     """Rewrite the run's run_manifest.json with one more trailing newline: same content, another SHA-256."""
     path = run.output / "run_manifest.json"
