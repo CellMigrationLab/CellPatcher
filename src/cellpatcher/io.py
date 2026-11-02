@@ -1,20 +1,14 @@
 from __future__ import annotations
 
-import os
 import warnings
-from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import numpy as np
 from morphobricks_normalization.records import SINGLE
 
 from cellpatcher._deprecation import accept_deprecated_repeat
 from cellpatcher.axes import normalize_axes
-
-if TYPE_CHECKING:
-    from morphobricks_preprocessing import TiffMetadata
 
 # ".zarr" is an OME-Zarr image: a folder, read with the preprocessing brick's
 # reader and the ``zarr`` extra (docs/normalization_contract.md §2); every other
@@ -478,57 +472,6 @@ def read_ome_zarr(path) -> tuple[np.ndarray, str]:
     return pixels, image.axes
 
 
-def conform_axes(array, array_axes: str, target_axes: str, *, name="the image") -> np.ndarray:
-    """Rearrange *array* (with axes *array_axes*) into *target_axes*, matching axes by role.
-
-    Used for OME-Zarr images, whose axes come from their metadata. A
-    dimension of length 1 that *target_axes* lacks (including an axis
-    without a role, ``Q``) is dropped; a target axis the array lacks is added
-    with length 1; then the dimensions are put in the target order.
-
-    Raises
-    ------
-    ValueError
-        If the array has a dimension longer than 1 that *target_axes* does
-        not have, or the same role twice.
-    """
-    target = normalize_axes(target_axes)
-    array = np.asarray(array)
-    if len(array_axes) != array.ndim:
-        raise ValueError(f"{name}: {len(array_axes)} axes ({array_axes!r}) for {array.ndim} dimensions.")
-    kept, kept_axes = [], ""
-    for dim, (axis, length) in enumerate(zip(array_axes, array.shape)):
-        if axis in target and axis not in kept_axes:
-            kept.append(dim)
-            kept_axes += axis
-        elif length != 1:
-            role = "an axis without a known role" if axis not in target else f"a second {axis} axis"
-            raise ValueError(
-                f"{name} has {role} ({axis!r}, length {length}) that the axes {target!r} do not have; "
-                f"its axes are {array_axes!r}. Set the axes (common.image_axes or common.mask_axes) to "
-                "include every axis longer than 1."
-            )
-    squeezed = array.reshape([array.shape[dim] for dim in kept])
-    for axis in target:
-        if axis not in kept_axes:
-            squeezed = squeezed[..., np.newaxis]
-            kept_axes += axis
-    return np.transpose(squeezed, [kept_axes.index(axis) for axis in target])
-
-
-def read_image(file_path, axes: str):
-    """Read an image or mask for patching with *axes* (``common.image_axes``/``mask_axes``).
-
-    The same as :func:`read_array`, except that an OME-Zarr image is put
-    into *axes* by role with :func:`conform_axes`, since its own axes come
-    from its metadata rather than from the configuration.
-    """
-    if not is_ome_zarr(file_path):
-        return read_array(file_path)
-    pixels, stored_axes = read_ome_zarr(file_path)
-    return conform_axes(pixels, stored_axes, axes, name=Path(file_path).name)
-
-
 def read_array_shape(file_path) -> tuple[int, ...]:
     return tuple(read_array(file_path).shape)
 
@@ -609,103 +552,6 @@ def refuse_transposed_mask_axes(mask_axes) -> None:
             "transposed: it takes a label plane's dimensions as Y, X in their stored order, so the "
             f"mask would not match its image. {MASK_TRANSPOSE_HELP}"
         )
-
-
-def header_axes_disagreement(path: str | os.PathLike, declared_axes: str) -> tuple[str | None, bool]:
-    """Check *declared_axes* against a TIFF file's header with the preprocessing brick's rule.
-
-    The declared axes are the file's roles, checked with the brick's
-    ``review_axes`` (``check_mapping`` and ``header_axis_issue``, design v0.4
-    §3; CellPatcher keeps no copy): they may name what the header leaves
-    open, never contradict an axis it names. A Y/X swap is refused like any contradiction:
-    nothing is ever read transposed. OME-Zarr images are matched by role when
-    read (:func:`conform_axes`), not here.
-
-    Returns
-    -------
-    tuple
-        The brick's message, or None when the declaration fits; and False (no
-        file is read transposed; kept until ``image_read_transposed`` goes).
-    """
-    from morphobricks_preprocessing import inspect_image
-
-    path = Path(path)
-    meta = inspect_image(path, path.name)
-    if meta.is_ome_zarr:
-        return None, False  # OME-Zarr axes are matched by role when read (conform_axes), not by position
-    return _declared_axes_problem(meta, normalize_axes(declared_axes)), False
-
-
-def _declared_axes_problem(meta: TiffMetadata, declared: str) -> str | None:
-    """Return the errors of the brick's ``review_axes`` for roles *declared* on a TIFF header, or None.
-
-    Its warnings (``axes_not_named``) do not block; an unreadable header, which it leaves out, does.
-    """
-    from morphobricks_preprocessing import AxisMapping, review_axes
-
-    if not meta.readable:
-        return f"The header of {meta.relative_path} could not be read, so its axes cannot be checked."
-    if len(declared) != len(meta.axes):
-        return f"{meta.relative_path}: {len(declared)} declared for {len(meta.axes)} dimensions ({meta.axes!r})."
-    review = review_axes([meta], AxisMapping(meta.axes, tuple(declared)))
-    errors = [issue for issue in review.issues if issue.is_error]
-    return " ".join(f"{meta.relative_path}: [{issue.code}] {issue.message} {issue.action}" for issue in errors) or None
-
-
-def refuse_header_axes(
-    paths: Iterable[str | os.PathLike], declared_axes: str, *, setting: str, what: str
-) -> set[str | os.PathLike]:
-    """Refuse *declared_axes* (the setting named *setting*) that do not fit the header axes of *paths*.
-
-    Every file is checked before any is read; all disagreements are listed in
-    one message. See :func:`header_axes_disagreement`.
-
-    Returns
-    -------
-    set
-        The paths (as given) read transposed: always empty, as a Y/X swap is
-        refused (kept until ``image_read_transposed`` is removed).
-    """
-    problems = [problem for problem, _ in (header_axes_disagreement(path, declared_axes) for path in paths) if problem]
-    if problems:
-        raise ValueError(
-            f"{setting}={declared_axes!r} does not fit the header of "
-            f"{len(problems)} {what} file(s): {' '.join(problems[:10])}{' ...' if len(problems) > 10 else ''} "
-            f"Axes are never reinterpreted and nothing is read transposed: set {setting} to the "
-            f"{what}s' header axes, or fix the {what}s' metadata."
-        )
-    return set()
-
-
-def refuse_image_header_axes(image_paths: Iterable[str | os.PathLike], image_axes: str) -> set[str | os.PathLike]:
-    """Refuse ``common.image_axes`` that do not fit an image file's own header axes.
-
-    A TIFF image is read in its stored order and then interpreted with
-    *image_axes*, so an image whose header names its axes ZYX would, with
-    ``image_axes='TYX'``, have its depth slices read as time points (or, with
-    ``'CYX'``, as channels). Returns the images read transposed, always none
-    (see :func:`refuse_header_axes`). See :func:`header_axes_disagreement`.
-    """
-    return refuse_header_axes(image_paths, image_axes, setting="common.image_axes", what="image")
-
-
-def refuse_mask_header_axes(mask_paths: Iterable[str | os.PathLike], mask_axes: str) -> None:
-    """Refuse ``common.mask_axes`` that do not fit a mask file's own header axes.
-
-    A mask TIFF is read in its stored order and then interpreted with
-    *mask_axes*, so a mask whose header names its axes ZYX would, with
-    ``mask_axes='TYX'``, have its depth slices read as time points: a guessed
-    axis. Every mask is checked before any is read; all disagreements are
-    listed in one message. See :func:`header_axes_disagreement`.
-
-    A mask declared with its header's Y and X swapped is refused by the same
-    rule as an image (``axes_yx_swapped``), and a mask whose header names X
-    before Y, declared as named, by :func:`refuse_transposed_mask_axes`:
-    CellPatcher takes a label plane's two dimensions as Y and X in their
-    stored order.
-    """
-    refuse_header_axes(mask_paths, mask_axes, setting="common.mask_axes", what="mask")
-    refuse_transposed_mask_axes(mask_axes)  # a header naming X before Y, declared as named
 
 
 def _issue_text(issue) -> str:

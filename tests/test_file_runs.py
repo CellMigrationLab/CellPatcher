@@ -176,10 +176,13 @@ def test_file_runs_read_through_run_inputs_only(tmp_path, monkeypatch):
     def refused(*args, **kwargs):
         raise AssertionError("CellPatcher read or paired a file itself")
 
-    for module, name in ((cellpatcher.io, "read_image"), (cellpatcher.io, "read_array"),
-                         (cellpatcher.io, "refuse_image_header_axes"), (cellpatcher.io, "discover_images"),
-                         (cellpatcher.planes, "read_file_plane")):
-        monkeypatch.setattr(module, name, refused)
+    for name in ("read_array", "discover_images"):
+        monkeypatch.setattr(cellpatcher.io, name, refused)
+    # CellPatcher's own file readers and header checks are gone (CP-2b).
+    for module, name in ((cellpatcher.io, "read_image"), (cellpatcher.io, "conform_axes"), (cellpatcher.io, "pair_masks"),
+                         (cellpatcher.io, "refuse_image_header_axes"), (cellpatcher.io, "refuse_mask_header_axes"),
+                         (cellpatcher.planes, "read_file_plane"), (cellpatcher.planes, "iter_file_planes")):
+        assert not hasattr(module, name), name
     run = _clean_run(tmp_path, axes="ZCYX", shape=(3, 2, 16, 20), mask_types=())
     config = CellPatcherConfig(mode="grid")
     config.grid.tile_size = 8

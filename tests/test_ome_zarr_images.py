@@ -13,11 +13,9 @@ import pytest
 from cellpatcher.config import CellPatcherConfig, GridConfig
 from cellpatcher.file_runs import validate_image_and_mask_folders
 from cellpatcher.io import (
-    conform_axes,
     discover_condition_repeat_folders,
     list_supported_files,
     read_array,
-    read_image,
     write_array,
 )
 from cellpatcher.orchestration import run_patching_condition_repeat_tree
@@ -102,34 +100,16 @@ def test_reading_a_store_without_the_extra_names_the_install_command(tmp_path, m
 # ---------------------------------------------------------------------------
 
 
-def test_conform_axes_reorders_drops_and_adds_length_one_axes():
-    data = np.arange(2 * 1 * 3 * 4).reshape(2, 1, 3, 4)  # C, Z (length 1), Y, X
-    out = conform_axes(data, "CZYX", "YXC")
-    assert out.shape == (3, 4, 2)
-    np.testing.assert_array_equal(out[..., 1], data[1, 0])
-    assert conform_axes(data, "CZYX", "TCYX").shape == (1, 2, 3, 4)
-
-
-def test_conform_axes_rejects_axes_longer_than_one_without_a_role():
-    with pytest.raises(ValueError, match="without a known role"):
-        conform_axes(np.zeros((2, 3, 4)), "QYX", "YX")
-    with pytest.raises(ValueError, match="'Z', length 2"):
-        conform_axes(np.zeros((2, 3, 4)), "ZYX", "YX")
-
-
 # ---------------------------------------------------------------------------
 # Reading and patching (needs the extra)
 # ---------------------------------------------------------------------------
 
 
 @needs_zarr
-def test_read_array_and_read_image(tmp_path):
+def test_read_array_reads_a_store_in_its_stored_order(tmp_path):
     data = np.arange(2 * 3 * 4 * 5, dtype=np.uint16).reshape(2, 3, 4, 5)
     path = write_ngff(tmp_path / "a.ome.zarr", data, "czyx")
     np.testing.assert_array_equal(read_array(path), data)
-    as_zcyx = read_image(path, "ZCYX")
-    assert as_zcyx.shape == (3, 2, 4, 5)
-    np.testing.assert_array_equal(as_zcyx[1, 0], data[0, 1])
 
 
 @needs_zarr

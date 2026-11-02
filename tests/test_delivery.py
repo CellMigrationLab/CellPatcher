@@ -239,9 +239,9 @@ def test_torch_datasets_give_the_same_arrays(experiment, tmp_path, name):
 
     from_images = {}
     for leaf in _run(root, masks, config):
-        images = [read_image(p, config.common.image_axes) for p in list_supported_files(leaf.image_folder)]
+        images = [tifffile.imread(p) for p in list_supported_files(leaf.image_folder)]  # stored ZCYX
         mask_list = (
-            [read_image(p, config.common.mask_axes) for p in list_supported_files(masks / "cells" / leaf.relative_folder)]
+            [tifffile.imread(p) for p in list_supported_files(masks / "cells" / leaf.relative_folder)]  # stored ZYX
             if config.mode == "cell" else None
         )
         dataset = PatchTorchDataset(images, leaf.result.patches, masks=mask_list, config=config, tensor_config=tensors)

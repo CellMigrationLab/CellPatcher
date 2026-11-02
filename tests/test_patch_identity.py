@@ -19,9 +19,6 @@ from cellpatcher.pipeline import RUN_CONFIG_FILENAME, run_patching
 from tests.helpers import preprocess, write_ngff, write_ngff_labels
 from tests.helpers import preprocessed_folder as _folder, preprocessed_tree as _tree
 
-needs_preprocessing = pytest.mark.skipif(
-    importlib.util.find_spec("morphobricks_preprocessing") is None, reason="needs morphobricks-preprocessing (a core dependency)"
-)
 needs_zarr = pytest.mark.skipif(
     importlib.util.find_spec("morphobricks_preprocessing") is None or importlib.util.find_spec("zarr") is None,
     reason="needs the 'zarr' extra",
@@ -348,29 +345,6 @@ def test_a_multi_series_tiff_never_reaches_a_file_run(tmp_path):
     tifffile.imwrite(path, np.ones((2, 16, 16), dtype=np.uint16), append=True)
     with pytest.raises(AssertionError, match="series"):
         preprocess(path.parent, "ZYX")
-
-
-@needs_preprocessing
-def test_a_multi_series_tiff_is_refused_when_reading_planes(tmp_path):
-    # Lazy delivery from a path still reads planes with planes.read_file_plane (until CP-2b).
-    import tifffile
-
-    from cellpatcher.planes import PlaneChoice, read_file_plane
-
-    path = tmp_path / "plate.tif"
-    tifffile.imwrite(path, np.zeros((2, 16, 16), dtype=np.uint16))
-    tifffile.imwrite(path, np.ones((2, 16, 16), dtype=np.uint16), append=True)
-    with pytest.raises(ValueError, match="plate.tif holds 2 images"):
-        read_file_plane(path, "ZYX", PlaneChoice(t=None, z=0, suffix=""), CommonConfig(image_axes="ZYX", z_policy="all"))
-
-
-@needs_zarr
-def test_a_store_with_several_images_is_refused_when_reading_planes(tmp_path):
-    from cellpatcher.planes import PlaneChoice, read_file_plane
-
-    path = write_ngff(tmp_path / "plate.ome.zarr", np.zeros((2, 16, 16), dtype=np.uint16), "zyx", images=2)
-    with pytest.raises(ValueError, match="plate.ome.zarr holds 2 images"):
-        read_file_plane(path, "ZYX", PlaneChoice(t=None, z=0, suffix=""), CommonConfig(image_axes="ZYX", z_policy="all"))
 
 
 def test_positions_differing_only_in_case_are_refused_in_one_repeat():
