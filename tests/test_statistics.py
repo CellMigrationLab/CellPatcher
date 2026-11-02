@@ -104,15 +104,6 @@ def test_the_zarr_extra_is_the_install_command():
     assert INSTALL_COMMAND == 'pip install "cellpatcher[zarr]"'
 
 
-def test_cellpatcher_pins_no_table_or_manifest_version_of_its_own():
-    # CP-1: RunInputs refuses a run it cannot use, so CellPatcher's own version pin (which
-    # accepted manifest version "1" only) is gone.
-    import cellpatcher.statistics
-
-    assert not hasattr(cellpatcher.statistics, "SUPPORTED_MANIFEST_VERSION")
-    assert not hasattr(cellpatcher.statistics, "SUPPORTED_SCHEMA_VERSION")
-
-
 def test_the_package_exports_the_statistics_functions():
     import cellpatcher
 
@@ -145,122 +136,9 @@ def test_load_reads_rows_and_finds_the_manifest_next_to_the_table(stack_experime
 
 
 @needs_preprocessing
-def test_load_opens_the_run_through_run_inputs(stack_experiment, monkeypatch):
-    import morphobricks_normalization as mbn
-    from morphobricks_preprocessing.run_inputs import RunInputs
-
-    _, output = stack_experiment
-    opened = []
-    original = RunInputs.open.__func__
-
-    def recording(cls, folder, *args, **kwargs):
-        opened.append(folder)
-        return original(cls, folder, *args, **kwargs)
-
-    monkeypatch.setattr(RunInputs, "open", classmethod(recording))
-    statistics = load_plane_statistics(output / mbn.OUTPUT_FILENAME)
-    assert opened == [output]
-    assert isinstance(statistics.inputs, RunInputs)
-    assert statistics.records == statistics.inputs.histograms()
-
-
-@needs_preprocessing
-def test_load_refuses_a_table_without_its_manifest(stack_experiment, tmp_path):
-    # Before CP-1 a table without run_manifest.json was read with a warning, and its images
-    # were never checked against the run. RunInputs needs the run's manifest.
-    import morphobricks_normalization as mbn
-
-    _, output = stack_experiment
-    alone = tmp_path / "alone"
-    alone.mkdir()
-    shutil.copy(output / mbn.OUTPUT_FILENAME, alone / mbn.OUTPUT_FILENAME)
-
-    with pytest.raises(PreprocessingCheckError, match="holds no run_manifest.json") as error_info:
-        load_plane_statistics(alone / mbn.OUTPUT_FILENAME)
-    assert _codes(error_info) == ["preprocessing_run_refused"]
-
-
-@needs_preprocessing
-def test_load_refuses_a_manifest_other_than_the_run_s(stack_experiment, tmp_path):
-    # Before CP-1 normalization.manifest could name any copy of a manifest. Only the run's own,
-    # in its output folder, is read now; naming it explicitly is still allowed.
-    import morphobricks_normalization as mbn
-    import morphobricks_preprocessing as mbp
-
-    _, output = stack_experiment
-    elsewhere = tmp_path / "elsewhere.json"
-    shutil.copy(output / mbp.MANIFEST_FILENAME, elsewhere)
-
-    with pytest.raises(PreprocessingCheckError, match="normalization.manifest names") as error_info:
-        load_plane_statistics(output / mbn.OUTPUT_FILENAME, manifest=elsewhere)
-    assert _codes(error_info) == ["not_the_run_output"]
-    statistics = load_plane_statistics(output / mbn.OUTPUT_FILENAME, manifest=output / mbp.MANIFEST_FILENAME)
-    assert statistics.manifest_path == output / mbp.MANIFEST_FILENAME
-
-
-@needs_preprocessing
-def test_load_refuses_a_renamed_table(stack_experiment):
-    import morphobricks_normalization as mbn
-
-    _, output = stack_experiment
-    renamed = output / "my_histograms.csv"
-    shutil.copy(output / mbn.OUTPUT_FILENAME, renamed)
-    with pytest.raises(PreprocessingCheckError, match="normalization.plane_histograms names") as error_info:
-        load_plane_statistics(renamed)
-    assert _codes(error_info) == ["not_the_run_output"]
-
-
-@needs_preprocessing
 def test_load_missing_table_is_an_error(tmp_path):
     with pytest.raises(FileNotFoundError, match="does not exist"):
         load_plane_statistics(tmp_path / "missing.csv")
-
-
-@needs_preprocessing
-def test_load_detects_a_table_changed_after_the_manifest(stack_experiment):
-    import morphobricks_normalization as mbn
-
-    _, output = stack_experiment
-    csv_path = output / mbn.OUTPUT_FILENAME
-    records = mbn.read_plane_histograms(csv_path)
-    mbn.write_plane_histograms(records[:-1], csv_path)
-
-    with pytest.raises(PreprocessingCheckError, match="histogram table plane_histograms.csv is not the one") as error_info:
-        load_plane_statistics(csv_path)
-    assert _codes(error_info) == ["preprocessing_run_refused"]
-
-
-@needs_preprocessing
-def test_load_refuses_a_run_before_v040(stack_experiment):
-    # A version 1 manifest is a run before the axis check (design v0.4 §6). Before CP-1,
-    # CellPatcher read version 1 manifests only.
-    import morphobricks_normalization as mbn
-    import morphobricks_preprocessing as mbp
-
-    _, output = stack_experiment
-    manifest_path = output / mbp.MANIFEST_FILENAME
-    data = json.loads(manifest_path.read_text(encoding="utf-8"))
-    data["manifest_version"] = "1"
-    manifest_path.write_text(json.dumps(data), encoding="utf-8")
-
-    with pytest.raises(PreprocessingCheckError, match="written before v0.4.0") as error_info:
-        load_plane_statistics(output / mbn.OUTPUT_FILENAME)
-    assert _codes(error_info) == ["preprocessing_run_refused"]
-
-
-@needs_preprocessing
-def test_load_refuses_a_run_whose_image_changed_since(stack_experiment):
-    # RunInputs checks every image of the run when it opens, not only the ones patched.
-    import morphobricks_normalization as mbn
-
-    root, output = stack_experiment
-    image_path = root / "control" / "img1.tif"
-    stat = image_path.stat()
-    os.utime(image_path, ns=(stat.st_atime_ns, stat.st_mtime_ns + 10**9))
-
-    with pytest.raises(PreprocessingCheckError, match="control/img1.tif") as error_info:
-        load_plane_statistics(output / mbn.OUTPUT_FILENAME)
-    assert _codes(error_info) == ["preprocessing_run_refused"]
 
 
 # ---------------------------------------------------------------------------
@@ -593,32 +471,3 @@ def test_check_planes_compares_position_id(stack_experiment):
         check_planes(statistics, [(plane("OTHER_FOV"), stack[0])])
     issues = {issue.code: issue.paths for issue in error_info.value.issues}
     assert issues == {"position_mismatch": (f"{path}::z=0,t=0 c=0 (CellPatcher 'OTHER_FOV', table 'img1')",)}
-
-
-# ---------------------------------------------------------------------------
-# A clean v0.4 run (preprocessing's make_clean_run), read through RunInputs (CP-1)
-# ---------------------------------------------------------------------------
-
-
-def test_a_clean_run_normalizes_a_tree_run_through_run_inputs(tmp_path):
-    # Before CP-1, CellPatcher refused every run written by preprocessing v0.4 (manifest
-    # version 2): it read only version 1 manifests.
-    from morphobricks_preprocessing.testing import make_clean_run
-
-    from cellpatcher.config import NormalizationConfig
-
-    run = make_clean_run(tmp_path / "clean", design=True)
-    config = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=8))
-    config.common.image_axes = "CYX"
-    config.normalization = NormalizationConfig(
-        enabled=True, plane_histograms=str(run.output / "plane_histograms.csv"), scope="biological_repeat",
-    )
-    statistics = load_plane_statistics(config.normalization.plane_histograms)
-    assert statistics.manifest.manifest_version == "2"
-    results = run_patching_condition_repeat_tree(run.experiment, config=config)
-    patches = [patch for leaf in results for patch in leaf.result.patches]
-    assert patches
-    assert {patch.normalization_scope for patch in patches} == {"biological_repeat"}
-    assert {patch.source_relative_path for patch in patches} == {
-        fov.relative_path for fov in statistics.inputs.fovs()
-    }

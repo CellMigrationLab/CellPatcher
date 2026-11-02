@@ -352,11 +352,9 @@ def test_pairing_is_the_preprocessing_bricks(tmp_path, masks, mask_type, expecte
 
 
 def test_a_mask_name_starting_with_another_images_name_is_refused_like_preprocessing(tmp_path):
-    # a_seg_mask.tif is "a" + "_seg_mask" and "a_seg" + "_mask". The former rule
-    # paired it with a_seg (and a_mask.tif with a); preprocessing's pairing refuses it as
-    # ambiguous. Since preprocessing v0.4, the image a_seg.tif ("a" + "_seg") is itself named
-    # as a mask of a.tif, an error of discovery (image_named_as_mask), so CellPatcher refuses
-    # the folder before pairing.
+    # a_seg_mask.tif is "a" + "_seg_mask" and "a_seg" + "_mask": the pairing finds it ambiguous.
+    # Since preprocessing v0.4 the image a_seg.tif ("a" + "_seg") is named as a mask of a.tif, a
+    # discovery error (image_named_as_mask), so CellPatcher refuses the folder before pairing.
     img_dir, mask_dir = _folders(tmp_path, ["a.tif", "a_seg.tif"], ["a_mask.tif", "a_seg_mask.tif"])
     assert _preprocessing_pairs(img_dir, mask_dir) == ["ambiguous_mask"]
     with pytest.raises(ValueError, match=r"\[image_named_as_mask\].*a_seg.tif"):
