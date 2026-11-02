@@ -42,11 +42,30 @@ CP-2a and CP-2b, all part of it).
 - `refuse_transposed_mask_axes` moved from `cellpatcher.io` to `cellpatcher.axes`;
   `file_runs._read_mask` is public as `read_run_mask`.
 - Version 0.2.0rc1 (`setup.py`, `cellpatcher.__version__`, the notebook's `current_version`).
-- Installer: `construct.yaml` lists every module again (it lacked the CP-1/CP-2 modules, so the
-  installed app could not import `cellpatcher`); a test keeps it complete.
+- Installer: `construct.yaml` lists every module again (it lacked the CP-1/CP-2 modules); a
+  test keeps it complete. The release script refuses a pre-release version: release candidates
+  are installed with pip or on Colab only, and the installers are built at the final release.
 - Code standards (design v0.4 §9): `tools/check.py`, the shared `tools/code_rules.py` (SHA-256
   checked) and `tools/code_rules_baseline.json` (today's debt, which may only shrink, with a
   `# noqa` ratchet); Ruff 0.17.3 in the `test` extra, a CI rules job.
+
+- In-memory X-before-Y axes are also refused by `scan_cell_patch_size`/`scan_cell_objects`
+  (before, a square mask declared `XY` gave the transposed mask's sizes) and by
+  `CellSegmentationStrategy(mask_axes=...)`.
+
+### Not yet (follow-ups)
+- **CP-3b, before the `v0.2.0rc1` tag** (owner decisions of 2026-11-02):
+  - `CellPatcher_Pytorch.ipynb` and `CellPatcher_Strategy_Examples.ipynb` still install `main`
+    with a `GITHUB_TOKEN`; they get the LabConstrictor treatment of the main notebook.
+  - The old notebook's "show parameters per group" table and its before/after normalization
+    histograms are not in the v0.2 notebook; they come back, computed in the package.
+  - The installer copies the package to `src/cellpatcher/cellpatcher/`, where `setup.py` finds
+    no package, so the installed app has no `cellpatcher`; fixed before the final `v0.2.0`
+    installers (none is built for a release candidate).
+- **After preprocessing v0.4.0 is final:** the CellPatcher notebook will include the
+  preprocessing steps through preprocessing's declared embedding API (`PreprocessingNotebook`,
+  `notebook_style`), never a copy of its code. Until then, run the preprocessing notebook or
+  command line first.
 
 ### Migration notes for the bricks (pin CellPatcher `v0.2.0rc1` with preprocessing `v0.4.0rc2`)
 - **MorphoRelate** (`io/cellpatcher.py`): `check_image_axes` reads `common.image_axes` from

@@ -186,3 +186,12 @@ def test_notebook_runs_in_a_kernel():
         assert any(
             "application/vnd.jupyter.widget-view+json" in output.get("data", {}) for output in cell.outputs
         ), cell.source.splitlines()[0]
+
+
+def test_step_1_sends_users_to_preprocessing_first():
+    # Owner decision (2026-11-02): until preprocessing v0.4.0 is final the notebook does not embed
+    # the preprocessing steps; Step 1 says plainly to run the preprocessing notebook or CLI first.
+    cells = ["".join(c["source"]) for c in _notebook()["cells"] if c["cell_type"] == "markdown"]
+    (step_1,) = [cell for cell in cells if "Step 1" in cell.splitlines()[1]]
+    assert "**Run preprocessing first.**" in step_1
+    assert "MorphoBricks preprocessing notebook" in step_1 and "morphobricks-preprocessing check" in step_1

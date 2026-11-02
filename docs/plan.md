@@ -512,8 +512,25 @@ from GitHub at a pinned version) **[D1]**.
   SHA-256. *CP-3:* the notebook asks for the run's output folder only (LabConstrictor
   portability, Colab and JupyterLab), the docs and installers follow, preprocessing is pinned at
   `v0.4.0rc2` (files the run did not record are refused: `unrecorded_files`), in-memory
-  `image_axes` with X before Y are refused like masks, and the MorphoBricks code standards
-  (`tools/check.py`, a shrink-only baseline) are adopted. Then tag `v0.2.0rc1`.
+  `image_axes` with X before Y are refused like masks (and by the object scan), and the
+  MorphoBricks code standards (`tools/check.py`, a shrink-only baseline) are adopted.
+  *CP-3b (owner decisions of 2026-11-02), a follow-up PR **before** tagging `v0.2.0rc1`:*
+  `CellPatcher_Pytorch.ipynb` and `CellPatcher_Strategy_Examples.ipynb` get the LabConstrictor
+  treatment of the main notebook (no `GITHUB_TOKEN`, an install pinned to `RELEASE_TAG`, the
+  Colab guard, `# @title` cells, tests); the main notebook's "show parameters per group" table
+  and before/after normalization histograms come back, computed in the package (no computing
+  in notebook cells). Release candidates get no installer (pip and Colab only; the release
+  script refuses an `rc` version); the installer's package layout (the package copied to
+  `src/cellpatcher/cellpatcher/`, which `setup.py` does not find) is fixed before the final
+  `v0.2.0` installers. Then tag `v0.2.0rc1`.
+- **Planned after preprocessing v0.4.0 is final: the preprocessing steps inside the CellPatcher
+  notebook** (owner decision of 2026-11-02). Preprocessing is the essential first step, so the
+  CellPatcher notebook should eventually include it, but not while preprocessing's notebook is
+  still changing (PP-10 to PP-13): an embedded copy would drift. It will embed preprocessing's
+  steps only through the brick's declared embedding API (`PreprocessingNotebook` and
+  `notebook_style`, pinned by preprocessing's `tests/test_embedding_api.py`, as MorphoRelate
+  does), never by copying its code. Until then the notebook sends users to the preprocessing
+  notebook or command line first (its introduction and Step 1 say so).
 - **Later:** reading only patch windows for planes too large to hold in memory (the
   preprocessing brick now computes statistics for those planes in blocks, but patching still
   needs the whole plane); reading the preprocessing OME-Zarr copies; reference parameters
