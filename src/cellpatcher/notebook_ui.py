@@ -27,11 +27,14 @@ from morphobricks_preprocessing.run_inputs import RunInputsError
 from cellpatcher import __version__
 from cellpatcher.cell_scan import CellPatchSizeSummary
 from cellpatcher.config import CellPatcherConfig
+from cellpatcher.normalization_review import BeforeAfter
 from cellpatcher.notebook_form import SettingsForm
 from cellpatcher.notebook_session import (
+    GroupParameters,
     Preview,
     RunSummary,
     export_patches_of_run,
+    group_parameters_of_run,
     preview_image,
     scan_object_sizes,
     summarize_run,
@@ -47,7 +50,8 @@ def issue_card(error: Exception) -> str:
 
     A :class:`~cellpatcher.statistics.PreprocessingCheckError` lists its issues; the brick's
     ``RunInputsError`` (a file refused while it is read) its message as a refused run; a
-    ``ValueError`` or ``TypeError`` (a setting refused) its message; anything else, which
+    ``ValueError`` or ``TypeError`` (a setting refused) or ``FileNotFoundError`` (a file a
+    table names is missing) its message; anything else, which
     is a bug, its traceback.
     """
     if isinstance(error, PreprocessingCheckError):
@@ -59,7 +63,7 @@ def issue_card(error: Exception) -> str:
         return style.status("error", "The preprocessing run cannot be used as it is", lines, raw=True)
     if isinstance(error, RunInputsError):  # refused while reading, e.g. a file changed since step 1
         return style.status("error", "The preprocessing run cannot be used as it is", [str(error)])
-    if isinstance(error, (ValueError, TypeError)):
+    if isinstance(error, (ValueError, TypeError, FileNotFoundError)):
         return style.status("error", "Please change the settings", [str(error)])
     trace = html.escape("".join(traceback.format_exception(error)))
     return style.status("error", f"Unexpected error: {type(error).__name__}", [f"<pre>{trace}</pre>"], raw=True)
@@ -134,6 +138,29 @@ def scan_html(scan: CellPatchSizeSummary) -> str:
     return style.status("ok", title, lines) + style.table(rows, numeric_from=1)
 
 
+def parameters_html(table: GroupParameters) -> str:
+    """Return the normalization parameters per group and channel, and the groups that stop a run."""
+    has_t = any(row["t"] is not None for row in table.rows)
+    rows = [["Group", "Channel", *(["Time point"] if has_t else []), "Planes", "Offset", "Scale", "Exact"]]
+    problems = []
+    for row in table.rows:
+        values = [row["group"], f"C{row['channel']}", *([str(row["t"])] if has_t else []), str(row["planes"])]
+        if "problem" in row:
+            problems.append(f"{row['group']} (C{row['channel']}): {row['problem']}")
+            values += ["-", "-", row["problem"]]
+        else:
+            values += [f"{row['offset']:.6g}", f"{row['scale']:.6g}", "yes" if row["exact"] else "approximate"]
+        rows.append(values)
+    groups = len({(row["group"], row["t"]) for row in table.rows})
+    lines = [f"Method: {table.method}; scope: {table.scope}. Each patch becomes (pixels - offset) / scale, "
+             "per channel, with its group's offset and scale.", *table.notes]
+    text = style.status("ok", f"Parameters per group ({groups} groups)", lines) + style.table(rows, numeric_from=2)
+    if problems:
+        text += style.status("error", "These groups cannot be normalized; a run stops on them",
+                             [*problems, "Choose a larger scope or another method."])
+    return text
+
+
 class CellPatcherNotebook:
     """The notebook's pages: the run, the settings, a preview and the export."""
 
@@ -153,6 +180,8 @@ class CellPatcherNotebook:
         self.export_message = widgets.HTML()
         self.check_button = style.button("Check the preprocessing run", style="primary", main=True)
         self.scan_button = style.button("Scan the object sizes of the dataset", icon="search")
+        self.parameters_button = style.button("Show parameters per group", icon="table")
+        self.parameters_message = widgets.HTML()
         self.preview_button = style.button("Show the preview", style="primary", main=True)
         self.export_button = style.button("Patch and export every image", style="success", main=True)
         self.image_choice = widgets.Dropdown(options=[], description="Image", style={"description_width": "200px"})
@@ -164,6 +193,7 @@ class CellPatcherNotebook:
         """Attach the buttons and the controls that change what is shown."""
         self.check_button.on_click(lambda _: self.check_run())
         self.scan_button.on_click(lambda _: self.scan_objects())
+        self.parameters_button.on_click(lambda _: self.show_group_parameters())
         self.preview_button.on_click(lambda _: self.show_preview())
         self.export_button.on_click(lambda _: self.export())
         self.moved.observe(lambda _: self._show_moved(), names="value")
@@ -255,7 +285,9 @@ class CellPatcherNotebook:
                                                       "selected keeps all channels in each patch.")]),
             style.card("Normalization", [*form.normalization.controls(), style.help_text(
                 "The image and biological-repeat scopes use the preprocessing run's plane_histograms.csv and "
-                "experiment_design.csv; the image type is the one confirmed in preprocessing.")]),
+                "experiment_design.csv; the image type is the one confirmed in preprocessing. "
+                "<b>Show parameters per group</b> lists the offset and scale every group gets."),
+                self.parameters_button, self.parameters_message]),
             style.card("Export", [form.file_format]),
             self.settings_message,
         ]))
@@ -282,6 +314,15 @@ class CellPatcherNotebook:
             self.settings_message.value = scan_html(scan)
         return scan
 
+    def show_group_parameters(self) -> GroupParameters | None:
+        """Show the normalization parameters of every group of the run's table, before any patch."""
+        self.parameters_message.value = style.working("Reading the preprocessing run's plane_histograms.csv…")
+        table = guarded(self.parameters_message, lambda: group_parameters_of_run(self.config_for_scan(),
+                                                                               self._summary()))
+        if table is not None:
+            self.parameters_message.value = parameters_html(table)
+        return table
+
     def config_for_scan(self) -> CellPatcherConfig:
         """Return the settings with a per-object size, to scan objects before a dataset size exists."""
         return self.form.config(self._summary(), lambda _: 0)
@@ -306,11 +347,14 @@ class CellPatcherNotebook:
         self.preview_output.clear_output()
         if preview is not None:
             patches = preview.result.patches
-            self.preview_message.value = style.status("ok", f"{len(patches)} patches in {preview.image}", [
-                "Rectangles: where the patches are, on the first plane and channel. Below: the first patches.",
-            ])
+            lines = ["Rectangles: where the patches are, on the first plane and channel. Below: the first patches."]
+            if preview.before_after:
+                lines.append("Then the first patches without and with normalization, with their intensity "
+                             "histograms.")
+            self.preview_message.value = style.status("ok", f"{len(patches)} patches in {preview.image}", lines)
             with self.preview_output:
                 draw_preview(preview)
+                draw_before_after(preview.before_after)
         return preview
 
     def export_step(self) -> None:
@@ -377,3 +421,32 @@ def draw_preview(preview: Preview) -> None:
             axis.axis("off")
         plt.show()
     plt.close("all")
+
+
+def draw_before_after(pairs: tuple[BeforeAfter, ...]) -> None:
+    """Draw each patch without and with normalization, each beside its intensity histogram."""
+    if not pairs:
+        return
+    figure, axes = plt.subplots(len(pairs), 4, figsize=(10, 2.3 * len(pairs)), squeeze=False)
+    for number, (row, pair) in enumerate(zip(axes, pairs, strict=True), start=1):
+        # The patch_id is shown whole or not at all: an identity is never parsed (here, cut at a "/").
+        name = f"label {pair.label_id}" if pair.label_id is not None else f"patch {number}"
+        channel = "" if pair.channel is None else f", C{pair.channel}"
+        for column, (plane, histogram, state) in enumerate((
+            (pair.raw, pair.raw_histogram, "without normalization"),
+            (pair.normalized, pair.normalized_histogram, "normalized"),
+        )):
+            image_axis, histogram_axis = row[2 * column], row[2 * column + 1]
+            image_axis.imshow(plane, cmap="gray")
+            image_axis.set_title(f"{name}{channel}: {state}", fontsize=8)
+            image_axis.axis("off")
+            if histogram.is_empty:
+                histogram_axis.set_title("no finite pixels", fontsize=8)
+            else:
+                histogram_axis.fill_between(histogram.representatives, histogram.counts, step="mid", color="#2563EB")
+                histogram_axis.set_title(f"intensities, {state}", fontsize=8)
+            histogram_axis.tick_params(labelsize=7)
+    figure.suptitle("Before and after normalization (first plane shown)", fontsize=10)
+    plt.tight_layout()
+    plt.show()
+    plt.close(figure)

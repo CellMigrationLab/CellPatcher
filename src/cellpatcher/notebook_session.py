@@ -5,14 +5,17 @@ file is read through the preprocessing run's ``RunInputs`` (design v0.4 §6): th
 the notebook to the run's output folder and, only for an experiment moved or copied since its
 run, to where the experiment and its masks folder are now. Nothing here discovers, pairs or
 reads a file itself: :func:`summarize_run` opens the run, :func:`preview_image` patches one
-of its images in memory with the file-run code, :func:`scan_object_sizes` measures the
-objects of its masks, and :func:`export_patches_of_run` is
+of its images in memory with the file-run code (with normalization, also without it, to show
+the patches before and after), :func:`group_parameters_of_run` gives the normalization
+parameters of every group of the run's table, :func:`scan_object_sizes` measures the objects
+of its masks, and :func:`export_patches_of_run` is
 :func:`cellpatcher.run_patching_condition_repeat_tree` with one combined table.
 """
 
 from __future__ import annotations
 
 import os
+import warnings
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, replace
@@ -22,11 +25,14 @@ from typing import TYPE_CHECKING
 from cellpatcher.cell_scan import scan_cell_patch_size
 from cellpatcher.file_runs import (
     masks_used,
+    normalization_settings,
     open_file_run,
     patch_fovs,
     read_run_mask,
     run_config_for,
 )
+from cellpatcher.normalization import CSV_SCOPES, NormalizationWarning, group_parameters
+from cellpatcher.normalization_review import BeforeAfter, before_after
 from cellpatcher.orchestration import run_patching_condition_repeat_tree
 from cellpatcher.run_open import open_run
 from cellpatcher.run_reading import run_layout
@@ -173,11 +179,15 @@ class Preview:
         gives it.
     result
         The patches of the whole image, with their arrays.
+    before_after
+        With normalization, the first patches without and with it
+        (:func:`cellpatcher.normalization_review.before_after`); empty without normalization.
     """
 
     image: str
     plane: np.ndarray
     result: PatchingResult
+    before_after: tuple[BeforeAfter, ...] = ()
 
 
 def preview_image(config: CellPatcherConfig, summary: RunSummary, image: str) -> Preview:
@@ -195,6 +205,8 @@ def preview_image(config: CellPatcherConfig, summary: RunSummary, image: str) ->
     Returns
     -------
     Preview
+        With normalization, also the first patches as the same run gives them without it
+        (the image is patched twice; the patches are paired by ``patch_id``).
     """
     config = file_run_config(config, summary)
     config = replace(config, export=replace(config.export, enabled=False))
@@ -209,8 +221,76 @@ def preview_image(config: CellPatcherConfig, summary: RunSummary, image: str) ->
             raise ValueError(f"Choose an image of the preprocessing run to preview; {image!r} is not one of them.")
         (fov,) = chosen
         result = patch_fovs(run, [fov], run_config_for(config, run, fov.key[:3]))
+        pairs = ()
+        if config.normalization.enabled:
+            raw_config = replace(config, normalization=replace(config.normalization, enabled=False))
+            raw = patch_fovs(run, [fov], run_config_for(raw_config, run, fov.key[:3]))
+            pairs = before_after(raw.patches, raw.patch_arrays, result.patches, result.patch_arrays)
         plane = run.inputs.read_plane(fov, 0, 0)
-    return Preview(image=image, plane=plane, result=result)
+    return Preview(image=image, plane=plane, result=result, before_after=pairs)
+
+
+@dataclass(frozen=True)
+class GroupParameters:
+    """The normalization parameters of every group of the run's table, before any patch is made.
+
+    Attributes
+    ----------
+    method, scope
+        ``normalization.method`` and ``normalization.scope``.
+    rows
+        :func:`cellpatcher.normalization.group_parameters`: one entry per group and channel
+        (and time point with ``per_time_point``): ``group``, ``channel``, ``t``, ``planes``,
+        then ``offset``, ``scale`` and ``exact``, or ``problem`` for a group that stops a run.
+    notes
+        The normalization warnings these settings give (for example that plane statistics
+        include the background), shown with the table rather than dropped.
+    """
+
+    method: str
+    scope: str
+    rows: tuple[dict, ...]
+    notes: tuple[str, ...]
+
+
+def group_parameters_of_run(config: CellPatcherConfig, summary: RunSummary) -> GroupParameters:
+    """Return the normalization parameters of every group of the run, from its ``plane_histograms.csv``.
+
+    The run is opened and checked as an export would open it; the groups and their
+    parameters are the ones the run's patches get (:func:`cellpatcher.normalization.group_parameters`,
+    fitted by the normalization brick).
+
+    Raises
+    ------
+    ValueError
+        When normalization is off, or for the patch scope, whose parameters come from each patch.
+    PreprocessingCheckError
+        When the run is refused, or its table or design does not fit the settings.
+    """
+    config = file_run_config(config, summary)
+    settings = config.normalization
+    if not settings.enabled:
+        raise ValueError("Normalization is off: tick 'Normalize the patches' in step 2 first.")
+    if settings.scope not in CSV_SCOPES:
+        raise ValueError(
+            "The patch scope has no parameters per group: each patch gets them from its own pixels. "
+            "Show the preview to see some, or choose the image or biological-repeat scope."
+        )
+    with statistics_session(), warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", NormalizationWarning)
+        run = open_file_run(
+            config, summary.experiment_argument, summary.masks_argument, use_masks=False,
+            where="The parameters per group",
+        )
+        rows = group_parameters(replace(config, normalization=normalization_settings(config, run.inputs)))
+    notes = []
+    for item in caught:
+        if issubclass(item.category, NormalizationWarning):
+            notes.append(str(item.message))
+        else:  # not the table's to show: passed on unchanged
+            warnings.warn_explicit(item.message, item.category, item.filename, item.lineno)
+    notes = tuple(dict.fromkeys(notes))
+    return GroupParameters(method=settings.method, scope=settings.scope, rows=tuple(rows), notes=notes)
 
 
 def scan_object_sizes(config: CellPatcherConfig, summary: RunSummary) -> CellPatchSizeSummary:

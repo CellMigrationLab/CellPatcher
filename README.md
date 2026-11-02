@@ -11,7 +11,8 @@ then point CellPatcher to the run's output folder. What changed, with the migrat
 other bricks, is in the [CHANGELOG](notebooks/CellPatcher/CHANGELOG.md) (v0.2.0rc1).
 
 - **Normal user / manual workflow:** open `notebooks/CellPatcher/CellPatcher.ipynb` and give it the preprocessing run's output folder.
-- **Python learner:** open `notebooks/CellPatcher_Strategy_Examples/CellPatcher_Strategy_Examples.ipynb`.
+- **Choosing a patching strategy:** open `notebooks/CellPatcher_Strategy_Examples/CellPatcher_Strategy_Examples.ipynb`: each strategy on one image of your preprocessing run, nothing written.
+- **Training or feature extraction in PyTorch:** open `notebooks/CellPatcher_Pytorch/CellPatcher_Pytorch.ipynb`: the patches of an export as a batch of tensors.
 - **API copy-paste examples:** read `docs/api_examples.md`.
 - **Multidimensional C/Z/T data:** read `docs/preprocessing.md`.
 - **Normalizing intensities** with the MorphoBricks preprocessing statistics: read `docs/normalization.md`.
@@ -64,7 +65,10 @@ All four modes use the same orchestration function: `run_patching`. The notebook
 ## Quick start: notebooks
 
 - **Recommended:** `notebooks/CellPatcher/CellPatcher.ipynb` (app-style workflow and preferred manual testing path). Its four steps: the preprocessing run (and, only if the experiment was moved, where it is now), the settings, a preview of one image, and the export. It runs in JupyterLab and in Google Colab, where its first cell mounts Google Drive and installs CellPatcher's release tag.
-- **API learning examples:** `notebooks/CellPatcher_Strategy_Examples/CellPatcher_Strategy_Examples.ipynb`
+- **Strategy examples:** `notebooks/CellPatcher_Strategy_Examples/CellPatcher_Strategy_Examples.ipynb` previews the cell, grid, random and whole-FOV strategies on one image of the same preprocessing run (the main notebook's preview, nothing written).
+- **PyTorch:** `notebooks/CellPatcher_Pytorch/CellPatcher_Pytorch.ipynb` loads an export of the main notebook with `ExportedPatchTorchDataset` and shows the first batch (needs the `torch` extra; Colab has PyTorch).
+
+All three notebooks share the same first cell (LabConstrictor portability: JupyterLab and Colab, Google Drive on Colab, the install pinned to the release tag).
 
 Open the notebook in Colab:
 

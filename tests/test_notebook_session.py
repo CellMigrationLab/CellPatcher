@@ -15,6 +15,7 @@ import tifffile
 from cellpatcher import CellPatcherConfig, run_patching_condition_repeat_tree
 from cellpatcher.notebook_session import (
     export_patches_of_run,
+    group_parameters_of_run,
     preview_image,
     scan_object_sizes,
     summarize_run,
@@ -135,3 +136,84 @@ def test_a_preview_of_an_image_not_in_the_run_is_refused(clean):
     summary = summarize_run(clean.output)
     with pytest.raises(ValueError, match="not one of them"):
         preview_image(_cell_config(), summary, "ctrl/rep1/other.tif")
+
+
+# CP-3b: the old notebook's "Show parameters per group" table and its before/after normalization
+# histograms come back, computed in the package (owner decision of 2026-11-02).
+
+
+def test_the_preview_shows_patches_before_and_after_normalization(clean):
+    from morphobricks_normalization import compute_plane_histogram
+
+    from cellpatcher.normalization_review import DISPLAY_BINS
+
+    summary = summarize_run(clean.output)
+    image = "drug/rep1/b.ome.tif"
+    normalized = preview_image(_normalized_config(), summary, image)
+    raw = preview_image(_cell_config(), summary, image)
+    assert raw.before_after == ()  # without normalization there is nothing to compare
+    assert normalized.before_after
+    raw_arrays = dict(zip((p.patch_id for p in raw.result.patches), raw.result.patch_arrays, strict=True))
+    shown = dict(zip((p.patch_id for p in normalized.result.patches), normalized.result.patch_arrays, strict=True))
+    for pair in normalized.before_after:
+        # "Before" is the patch the same settings give without normalization, "after" the one they give.
+        assert pair.channel == 0
+        assert np.array_equal(pair.raw, raw_arrays[pair.patch_id][0])
+        assert np.array_equal(pair.normalized, shown[pair.patch_id][0])
+        assert np.array_equal(pair.normalized_histogram.counts,
+                              compute_plane_histogram(pair.normalized, DISPLAY_BINS).counts)
+    first = normalized.result.patches[0]
+    offset, scale = first.normalization_parameters.offset[0], first.normalization_parameters.scale[0]
+    pair = next(p for p in normalized.before_after if p.patch_id == first.patch_id)
+    np.testing.assert_allclose(pair.normalized, (pair.raw - offset) / scale, rtol=1e-6)
+
+
+def test_the_parameters_per_group_are_those_the_patches_get(clean, tmp_path):
+    summary = summarize_run(clean.output)
+    table = group_parameters_of_run(_normalized_config(), summary)
+    assert (table.method, table.scope) == ("percentile", "image")
+    assert [(row["group"], row["channel"]) for row in table.rows] == [
+        (f"{c}/rep1/{n}.ome.tif", channel) for c in ("ctrl", "drug") for n in ("a", "b") for channel in (0, 1)
+    ]
+    assert all(row["planes"] == 1 and row["exact"] for row in table.rows)
+    assert any("background included" in note for note in table.notes)  # shown, not dropped
+    results = export_patches_of_run(_normalized_config(), summary, tmp_path / "out")
+    rows = {(row["group"], row["channel"]): row for row in table.rows}
+    patches = [patch for leaf in results for patch in leaf.result.patches]
+    assert patches
+    for patch in patches:
+        parameters = patch.normalization_parameters
+        for channel, offset, scale in zip(parameters.channels, parameters.offset, parameters.scale, strict=True):
+            row = rows[(patch.normalization_group, channel)]
+            assert (row["offset"], row["scale"]) == (offset, scale)
+
+
+def test_the_parameters_per_group_of_the_biological_repeat_scope(tmp_path):
+    from morphobricks_preprocessing.testing import make_clean_run
+
+    clean = make_clean_run(tmp_path / "clean", axes="CYX", shape=(2, 32, 40), mask_types=("Cells",), design=True)
+    config = _normalized_config()
+    config.normalization.scope = "biological_repeat"
+    table = group_parameters_of_run(config, summarize_run(clean.output))
+    assert [(row["group"], row["channel"], row["planes"]) for row in table.rows] == [("rep1", 0, 4), ("rep1", 1, 4)]
+
+
+@pytest.mark.parametrize(("change", "message"), [
+    ({"enabled": False}, "Normalization is off"),
+    ({"scope": "patch"}, "The patch scope has no parameters per group"),
+])
+def test_the_parameters_per_group_need_a_table_scope(clean, change, message):
+    config = _normalized_config()
+    for name, value in change.items():
+        setattr(config.normalization, name, value)
+    with pytest.raises(ValueError, match=message):
+        group_parameters_of_run(config, summarize_run(clean.output))
+
+
+def test_the_parameters_per_group_refuse_a_changed_run(clean):
+    summary = summarize_run(clean.output)
+    tifffile.imwrite(clean.experiment / "ctrl" / "rep1" / "new.tif", np.ones((2, 32, 40), np.uint16),
+                     metadata={"axes": "CYX"})
+    with pytest.raises(PreprocessingCheckError) as refused:
+        group_parameters_of_run(_normalized_config(), summary)
+    assert [issue.code for issue in refused.value.issues] == ["unrecorded_files"]

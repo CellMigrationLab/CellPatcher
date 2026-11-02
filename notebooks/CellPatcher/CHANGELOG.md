@@ -18,6 +18,74 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 CP-3: notebook, docs, installers and code standards for v0.2.0 (preprocessing v0.4.0rc2), with the independent review's fixes. v0.2.0rc1 is tagged after CP-3b.
 
 ---
+## [0.2.0rc1] - The other notebooks, the normalization views, the installer layout (CP-3b)
+
+The follow-ups the owner decided on 2026-11-02, before `v0.2.0rc1` is tagged.
+
+### Changed
+- **`CellPatcher_Strategy_Examples.ipynb` and `CellPatcher_Pytorch.ipynb` are rewritten for v0.2**
+  with the main notebook's LabConstrictor treatment. They installed `main` with a `GITHUB_TOKEN`
+  secret, worked on synthetic in-memory arrays rather than a preprocessing run, and computed in
+  their cells (synthetic data, galleries, `pytest` and parity checks). Now:
+  `# @title` cells only calling the package; the main notebook's Step 0 (Drive, the widget manager
+  and the zarr extra only under `if "google.colab" in sys.modules:`, no magics, no `/content`
+  outside it, the install pinned to `RELEASE_TAG` `v0.2.0rc1`); `current_version` `0.2.0rc1` and
+  `notebook_name` as in `notebooks/notebook_latest_versions.yaml`; Colab and JupyterLab callouts;
+  data on Google Drive on Colab.
+  - **Strategy examples** (`cellpatcher.notebook_examples`): the main notebook's step 1 (the
+    preprocessing run, read through `RunInputs`), then one page per strategy (cell, grid, random,
+    whole FOV) with that strategy's settings and a button that previews the chosen image with it.
+    It is the main notebook's preview, so it shows the patches the export gives; nothing is written.
+  - **PyTorch** (`cellpatcher.notebook_torch`, `cellpatcher.torch_session.load_exported_batch`):
+    the output folder of the main notebook's export is read with `ExportedPatchTorchDataset`, with
+    the arrays' axes from `patches.csv` (`output_axes`), every channel and the values as exported
+    (`channel_policy="keep"`, `scale_policy="none"`), and its first patches are shown as one batch
+    (shape, type, range, images). Patches of different sizes are refused, never resized. The old
+    notebook was a developer check that ran `pytest` from a clone; the torch tests run in the test
+    suite instead.
+- **The main notebook's normalization views are back**, computed in the package:
+  - **Show parameters per group** (step 2, Normalization card): the offset and scale of every group
+    and channel (and time point) of the run's table, before any patch, with the warnings of the
+    settings; a group that cannot be normalized is shown in red
+    (`cellpatcher.notebook_session.group_parameters_of_run`, which opens and checks the run as an
+    export does and calls `cellpatcher.normalization.group_parameters`). They are the parameters
+    the patches get (tested against an export).
+  - **Before and after normalization** (step 3): with normalization, the preview also patches the
+    image without it and shows the first four patches both ways, each beside its intensity
+    histogram (`Preview.before_after`, `cellpatcher.normalization_review`: paired by `patch_id`,
+    binned by the normalization brick's `compute_plane_histogram`; nothing is re-implemented).
+- **Installer layout fixed.** This repository's copy of LabConstrictor's `bump_constructor.py`
+  (older than the template's fix `a76be61`) copies the package to `src/cellpatcher/cellpatcher/`,
+  where `setup.py` found no package: the installed app had no `cellpatcher`. `setup.py` now reads
+  the package from there when it is laid out so, and from `src/` otherwise (the current template's
+  layout); a test installs both layouts and imports `cellpatcher`. No template file is changed.
+- A missing file a table names (`FileNotFoundError`) is shown as a red settings card, not a
+  traceback.
+- All three notebooks share one Step 0, checked by a test; each runs headless in a kernel in the
+  tests (the PyTorch notebook when `torch` is installed). **No CI job has `torch` yet**: the
+  PyTorch notebook's kernel run and the torch tests are skipped in CI; they were run locally with
+  CPU `torch` 2.15.0 (see "Not yet").
+
+### Fixed (independent review of CP-3b)
+- **The torch adapters' default rescaling was silent.** `PatchTensorConfig(scale_policy="auto")`
+  (the default) divides an integer patch by its dtype maximum. Its `DeprecationWarning` was raised
+  inside the library, where Python's default filters hide it, so `ExportedPatchTorchDataset` and
+  `PatchTorchDataset` rescaled without a word. The warning is now a
+  `cellpatcher.torch_dataset.ScalePolicyDeprecationWarning` (a `DeprecationWarning`, so existing
+  filters still match it) shown once per place under the default filters, naming the divisor, and
+  every dataset item records it as `scale_divisor` (1.0 when the values are not rescaled). The
+  default itself is unchanged (changing it needs an owner decision, contract §15).
+- **The PyTorch notebook's batch** was converted to float32 without a check (an int32/uint32 value
+  above 2^24 or a float64 value would have been rounded). The patches are now read in their
+  exported type and converted only when float32 holds every value exactly, otherwise refused; the
+  exported type is recorded (`TorchBatch.exported_dtype`) and shown.
+- The before/after figure titled a patch without a label with the end of its `patch_id` (cut at a
+  `/`); an identity is never parsed: it is now numbered.
+- The test extra installs `pip` (`tests/test_installers.py` pip-installs both installer layouts;
+  a venv made by `uv` has no pip), and the kernel tests put their IPC sockets in a short temporary
+  folder (pytest's `tmp_path` can exceed macOS's 104-byte socket path limit).
+
+---
 ## [0.2.0rc1] - Preprocessing v0.4.0rc2, unrecorded files refused, the v0.2 notebook (CP-3)
 
 The first release candidate of v0.2.0, after CP-1 to CP-3 (see the sections below for CP-1,
@@ -71,14 +139,14 @@ CP-2a and CP-2b, all part of it).
   the baseline.
 
 ### Not yet (follow-ups)
-- **CP-3b, before the `v0.2.0rc1` tag** (owner decisions of 2026-11-02):
-  - `CellPatcher_Pytorch.ipynb` and `CellPatcher_Strategy_Examples.ipynb` still install `main`
-    with a `GITHUB_TOKEN`; they get the LabConstrictor treatment of the main notebook.
-  - The old notebook's "show parameters per group" table and its before/after normalization
-    histograms are not in the v0.2 notebook; they come back, computed in the package.
-  - The installer copies the package to `src/cellpatcher/cellpatcher/`, where `setup.py` finds
-    no package, so the installed app has no `cellpatcher`; fixed before the final `v0.2.0`
-    installers (none is built for a release candidate).
+- **CP-3b, before the `v0.2.0rc1` tag** (owner decisions of 2026-11-02): done, see the CP-3b
+  section above (the other two notebooks, the normalization views, the installer layout).
+- **Before the final `v0.2.0` (not before `v0.2.0rc1`): one LabConstrictor template-sync PR**
+  (owner decision of 2026-11-02): sync `.github`/`.tools` with the current template (fixing
+  `bump_constructor.py`'s package layout upstream-style; `setup.py` reads both layouts until then),
+  re-apply CellPatcher's CI rules job, extras matrix and the release-candidate refusal of
+  `bump_version.py` (and propose them upstream), and **add a CPU-torch CI job**. Until then the
+  PyTorch notebook's kernel run and the torch tests are skipped in CI and run locally only.
 - **After preprocessing v0.4.0 is final:** the CellPatcher notebook will include the
   preprocessing steps through preprocessing's declared embedding API (`PreprocessingNotebook`,
   `notebook_style`), never a copy of its code. Until then, run the preprocessing notebook or

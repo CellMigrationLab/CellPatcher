@@ -19,6 +19,19 @@ except ImportError as exc:  # pragma: no cover - exercised in runtime import che
     raise ImportError("Install torch to use cellpatcher.torch_dataset.") from exc
 
 
+class ScalePolicyDeprecationWarning(DeprecationWarning):
+    """``PatchTensorConfig(scale_policy='auto')`` divided an integer patch by its dtype maximum.
+
+    A ``DeprecationWarning`` raised inside a library is hidden by Python's default warning
+    filters; this one is shown (the filter below), because it changes the values silently
+    otherwise. Each dataset item also records the divisor (``scale_divisor``).
+    """
+
+
+# Show the rescaling warning once per place it is raised, also when warnings are left at Python's defaults.
+warnings.filterwarnings("default", category=ScalePolicyDeprecationWarning)
+
+
 @dataclass
 class PatchTensorConfig:
     channel_policy: str = "repeat_to_rgb"
@@ -63,6 +76,29 @@ def _squeeze_zt_axes(array: np.ndarray, axes: str, config: PatchTensorConfig) ->
     return out, out_axes
 
 
+def scale_divisor(array: np.ndarray, config: PatchTensorConfig) -> float:
+    """Return what :func:`patch_array_to_tensor` divides *array*'s values by: 1.0 unless it rescales.
+
+    Parameters
+    ----------
+    array
+        The patch array, before it becomes a tensor.
+    config
+        The tensor settings.
+
+    Returns
+    -------
+    float
+        The dtype maximum of an integer *array* with ``dtype_policy="float32"`` and
+        ``scale_policy="auto"`` (deprecated), else 1.0.
+    """
+    dtype = np.asarray(array).dtype
+    if config.dtype_policy != "float32" or config.scale_policy != "auto" or not np.issubdtype(dtype, np.integer):
+        return 1.0
+    maximum = np.iinfo(dtype).max
+    return float(maximum) if maximum > 0 else 1.0
+
+
 def patch_array_to_tensor(array, *, axes, config=None):
     cfg = config if config is not None else PatchTensorConfig()
     arr = np.asarray(array)
@@ -105,19 +141,18 @@ def patch_array_to_tensor(array, *, axes, config=None):
         # Integer source data is assumed to span its dtype's full range, so
         # dividing by that max rescales it into [0, 1] like a normalized
         # float image; float source data is left as-is.
-        if cfg.scale_policy == "auto" and np.issubdtype(arr.dtype, np.integer):
-            info = np.iinfo(arr.dtype)
-            if info.max > 0:
-                # Deprecated (docs/normalization_contract.md §15); normalized
-                # patches are float and never rescaled here.
-                warnings.warn(
-                    "PatchTensorConfig(scale_policy='auto') dividing an integer patch by its dtype maximum "
-                    "is deprecated; normalize patches with config.normalization "
-                    "(cellpatcher.config.NormalizationConfig), and set scale_policy='none' to keep the values.",
-                    DeprecationWarning,
-                    stacklevel=2,
-                )
-                chw = chw / float(info.max)
+        divisor = scale_divisor(arr, cfg)
+        if divisor != 1.0:
+            # Deprecated (docs/normalization_contract.md §15); normalized
+            # patches are float and never rescaled here.
+            warnings.warn(
+                f"PatchTensorConfig(scale_policy='auto') divided an integer patch by its dtype maximum "
+                f"({divisor:g}); this is deprecated: normalize patches with config.normalization "
+                "(cellpatcher.config.NormalizationConfig), and set scale_policy='none' to keep the values.",
+                ScalePolicyDeprecationWarning,
+                stacklevel=2,
+            )
+            chw = chw / divisor
     # torch.from_numpy requires a C-contiguous array; the axis moves above
     # can leave a non-contiguous view.
     chw = np.ascontiguousarray(chw)
@@ -235,6 +270,7 @@ class PatchTorchDataset(torch.utils.data.Dataset):
             "label_id": patch.label_id,
             "patch": patch.to_dict(),
             "extra_metadata": self._extra_metadata.get(patch.image_id, {}),
+            "scale_divisor": scale_divisor(array, self._tensor_config),
         }
 
 
@@ -385,4 +421,5 @@ class ExportedPatchTorchDataset(torch.utils.data.Dataset):
             "patch": row,
             "extra_metadata": self._extra_metadata.get(image_id, {}),
             "path": str(path),
+            "scale_divisor": scale_divisor(array, self._tensor_config),
         }

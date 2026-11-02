@@ -30,7 +30,15 @@ In the CellPatcher notebook (v0.2), normalization is the **Normalization** card 
 **Normalize the patches**, **Statistics from** (image, biological repeat or patch), the
 method and percentiles, **Normalize each time point separately**, and whether the files hold
 normalized or raw values. The image type is the one confirmed in preprocessing (fluorescence
-when the run records none). The preview of step 3 shows the normalized patches of one image.
+when the run records none). **Show parameters per group** (image and biological-repeat scopes)
+lists the offset and scale of every group and channel of the run's table before anything is
+patched, the ones the patches get (`cellpatcher.notebook_session.group_parameters_of_run`, which
+calls `cellpatcher.normalization.group_parameters`); a group that cannot be normalized (no finite
+pixels, zero spread) is shown in red, as it would stop the run. The preview of step 3 shows the
+normalized patches of one image and, for the first four, the same patch without and with
+normalization beside its intensity histogram (`Preview.before_after`: the image is patched with
+normalization off and on, the patches paired by `patch_id`, and each histogram binned by the
+normalization brick's `compute_plane_histogram`).
 
 In Python:
 
