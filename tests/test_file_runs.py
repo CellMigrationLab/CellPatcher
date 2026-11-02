@@ -145,7 +145,7 @@ def test_file_runs_read_through_run_inputs_only(tmp_path, monkeypatch):
 
     for module, name in ((cellpatcher.io, "pair_masks"), (cellpatcher.io, "read_image"), (cellpatcher.io, "read_array"),
                          (cellpatcher.io, "refuse_image_header_axes"), (cellpatcher.io, "discover_images"),
-                         (cellpatcher.planes, "iter_file_planes"), (cellpatcher.planes, "read_file_plane")):
+                         (cellpatcher.planes, "read_file_plane")):
         monkeypatch.setattr(module, name, refused)
     run = _clean_run(tmp_path, axes="ZCYX", shape=(3, 2, 16, 20), mask_types=())
     config = CellPatcherConfig(mode="grid")

@@ -13,8 +13,8 @@ and is shared by every plane when it lacks the axis or has length 1 (the rule
 of ``docs/normalization_contract.md`` §4 for OME-NGFF labels, applied to every
 mask).
 
-Images in memory are split with :func:`iter_image_planes`; image files with
-:func:`iter_file_planes`, which reads only the chosen planes when it can.
+Images in memory are split with :func:`iter_image_planes`; the images of a file run are read
+plane by plane through the preprocessing run (:mod:`cellpatcher.run_reading`).
 """
 
 from __future__ import annotations
@@ -194,7 +194,7 @@ def read_file_plane(path, image_axes, choice: PlaneChoice, common):
     """Read the plane *choice* of an image file: ``(pixels, axes)``.
 
     A TIFF or OME-Zarr plane is read on its
-    own (as :func:`iter_file_planes` does); any other image is read whole
+    own; any other image is read whole
     and the plane taken from it.
     """
     from cellpatcher.io import read_image
@@ -222,47 +222,6 @@ def select_mask_plane(mask, mask_axes, choice: PlaneChoice):
         mask_value = 0 if mask.shape[position] == 1 or isinstance(value, str) else value
         mask, mask_axes = select_axis_index(mask, mask_axes, axis, mask_value)
     return mask, mask_axes
-
-
-def iter_file_planes(path, image_axes, mask, mask_axes, common, *, single_planes=False) -> Iterator[ImagePlane]:
-    """Yield the planes of an image file chosen by the policies, reading only those planes when possible.
-
-    A TIFF or OME-Zarr image whose planes
-    are split or selected (``"all"``, ``"first"``, ``"select"``) is read one
-    2D plane at a time with the preprocessing brick's ``read_plane``
-    (``docs/normalization_contract.md`` §3): only the chosen planes are
-    decoded, and a plane that cannot be read whole within the brick's memory
-    limit is an error. Other images, ``"keep"`` and projections are read
-    whole with :func:`cellpatcher.io.read_image`, as before. Either way the
-    planes equal those of :func:`iter_image_planes` on the whole image.
-
-    Raises
-    ------
-    ValueError
-        As :func:`plane_choices`, or if a plane needs more memory than the limit.
-    """
-    from cellpatcher.io import read_image
-
-    mbp = _plane_reader(path, common)
-    if mbp is None:
-        image = read_image(path, image_axes)
-        yield from iter_image_planes(image, image_axes, mask, mask_axes, common, single_planes=single_planes)
-        return
-
-    path = Path(path).expanduser()
-    target = normalize_axes(image_axes)
-    mapping, shape, dtype = _file_layout(mbp, path, target)
-    if mask is not None:
-        mask = np.asarray(mask)
-        mask_axes = normalize_axes(mask_axes, mask.ndim)
-    mask_shape = None if mask is None else mask.shape
-    for choice in plane_choices(shape, target, mask_shape, mask_axes, common, single_planes=single_planes):
-        plane_axes = "".join(axis for axis in target if choice.value(axis) is None)
-        pixels = _read_choice(mbp, path, mapping, shape, dtype, target, choice)
-        plane_mask, plane_mask_axes = select_mask_plane(mask, mask_axes, choice)
-        yield ImagePlane(
-            pixels, plane_axes, plane_mask, plane_mask_axes, choice.index("Z"), choice.index("T"), choice.suffix
-        )
 
 
 def _read_choice(mbp, path: Path, mapping, shape, dtype, target: str, choice: PlaneChoice) -> np.ndarray:
