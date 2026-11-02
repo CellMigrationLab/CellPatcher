@@ -333,9 +333,9 @@ def run_patching_pipeline(
         * ``'cell'`` mode always reads masks.
         * ``'random'`` mode reads them when this or ``matching.mask_type``
           is given — masks restrict where patches are sampled.
-        * **Must not be provided** for ``'grid'`` or ``'whole_fov'`` modes
-          (those modes do not consume masks; a ``ValueError`` is raised if
-          this argument is set for those modes).
+        * ``'grid'`` and ``'whole_fov'`` read none; given, it only says
+          where the run's masks folder is now (its masks are checked there,
+          as for the tree run).
     strategy, mask_suffixes, case_sensitive:
         Former matching options, removed in v0.1.1 and refused by name:
         the masks are those the preprocessing run paired; choose the mask
@@ -368,6 +368,7 @@ def run_patching_pipeline(
     config = _checked_config(config, overrides)
     refuse_removed_matching("run_patching_pipeline", removed_options)
     with statistics_session():
+        # grid/whole_fov read no masks: a masks folder given for them only says where the run's is now.
         use_masks = masks_used(config, mask_folder_path)
         run = open_file_run(
             config, image_folder_path, mask_folder_path, use_masks=use_masks, where="run_patching_pipeline"
@@ -506,8 +507,7 @@ def run_patching_condition_repeat_tree(
             "combine_metadata=True requires config.export.enabled=True and config.common.output_dir to be set."
         )
     refuse_removed_matching("run_patching_condition_repeat_tree", removed_options)
-    # grid/whole_fov read no masks: a masks folder given for them only says where the run's is now.
-    use_masks = masks_used(config, None if config.mode in {"grid", "whole_fov"} else mask_root_path)
+    use_masks = masks_used(config, mask_root_path)
     with statistics_session():
         run = open_file_run(
             config, image_root_path, mask_root_path, use_masks=use_masks, where="run_patching_condition_repeat_tree"

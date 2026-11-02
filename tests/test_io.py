@@ -158,32 +158,24 @@ def test_run_patching_pipeline_alias_grid_mode(tmp_path):
     assert len(result.patches) == 4
 
 
-def test_run_patching_pipeline_grid_raises_if_mask_folder_provided(tmp_path):
-    """grid mode must not silently ignore a provided mask folder."""
-    img_dir = tmp_path / "images"
-    mask_dir = tmp_path / "masks"
-    img_dir.mkdir()
-    mask_dir.mkdir()
-    write_array(img_dir / "a.tif", np.zeros((8, 8)))
-    write_array(mask_dir / "a_mask.tif", np.zeros((8, 8), dtype=np.int32))
+@pytest.mark.parametrize("mode", ["grid", "whole_fov"])
+def test_grid_and_whole_fov_folder_runs_take_a_moved_masks_folder(tmp_path, mode):
+    """Owner decision 3 (2026-11-02): as in the tree run, mask_folder_path says where the run's masks
+    folder is now; the masks are checked there and never read. Old main refused it for these modes."""
+    import shutil
 
-    config = CellPatcherConfig(mode="grid")
-    with pytest.raises(ValueError, match="mask_folder_path"):
-        run_patching_pipeline(img_dir, config=config, mask_folder_path=mask_dir)
+    from cellpatcher.statistics import PreprocessingCheckError
 
-
-def test_run_patching_pipeline_whole_fov_raises_if_mask_folder_provided(tmp_path):
-    """whole_fov mode must not silently ignore a provided mask folder."""
-    img_dir = tmp_path / "images"
-    mask_dir = tmp_path / "masks"
-    img_dir.mkdir()
-    mask_dir.mkdir()
-    write_array(img_dir / "a.tif", np.zeros((8, 8)))
-    write_array(mask_dir / "a_mask.tif", np.zeros((8, 8), dtype=np.int32))
-
-    config = CellPatcherConfig(mode="whole_fov")
-    with pytest.raises(ValueError, match="mask_folder_path"):
-        run_patching_pipeline(img_dir, config=config, mask_folder_path=mask_dir)
+    img_dir, mask_dir = tmp_path / "images", tmp_path / "masks"
+    write_array(img_dir / "a.tif", np.zeros((8, 8), dtype=np.uint16))
+    write_array(mask_dir / "a_mask.tif", np.ones((8, 8), dtype=np.uint16))
+    config = file_run_config(CellPatcherConfig(mode=mode), img_dir, masks=mask_dir)
+    config.grid.tile_size = 4
+    shutil.move(mask_dir, tmp_path / "moved")
+    with pytest.raises(PreprocessingCheckError, match="1 mask changed or missing since the run"):
+        run_patching_pipeline(img_dir, config=config)  # checked where the run recorded it: gone
+    result = run_patching_pipeline(img_dir, config=config, mask_folder_path=tmp_path / "moved")
+    assert result.patches and all(patch.mask_file is None for patch in result.patches)
 
 
 def test_run_patching_pipeline_random_mode_with_optional_mask(tmp_path):

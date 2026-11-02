@@ -161,19 +161,11 @@ def _refuse_without_run(where: str, setting: str = "common.preprocessing_run") -
 def masks_used(config: CellPatcherConfig, masks_root: str | os.PathLike | None) -> bool:
     """Return whether the run reads masks: always in ``cell`` mode, in ``random`` mode when asked.
 
-    ``random`` mode reads them when a masks folder or ``matching.mask_type`` is given.
-
-    Raises
-    ------
-    ValueError
-        For a masks folder in ``grid`` or ``whole_fov`` mode, which use no masks.
+    ``random`` mode reads them when a masks folder or ``matching.mask_type`` is given. ``grid``
+    and ``whole_fov`` read none: a masks folder given for them only says where the run's masks
+    folder is now (owner decision of 2026-11-02), and the run checks its masks there.
     """
     if config.mode in {"grid", "whole_fov"}:
-        if masks_root is not None:
-            raise ValueError(
-                f"mask_folder_path is not supported for mode='{config.mode}'. "
-                "Remove it, or switch to 'cell' or 'random' mode."
-            )
         return False
     return config.mode == "cell" or masks_root is not None or config.matching.mask_type is not None
 
