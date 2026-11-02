@@ -28,7 +28,6 @@ NOTEBOOKS = {
         ROOT / "notebooks" / "CellPatcher_Strategy_Examples" / "CellPatcher_Strategy_Examples.ipynb"
     ),
 }
-NOTEBOOK = NOTEBOOKS["CellPatcher"]
 VERSIONS = ROOT / "notebooks" / "notebook_latest_versions.yaml"
 HIDDEN = {
     "cellView": "form",
