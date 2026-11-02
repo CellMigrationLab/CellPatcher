@@ -563,9 +563,10 @@ def _patch_leaves(
 
 def _write_combined_metadata(config: CellPatcherConfig, output_dir: Path, results: list[ConditionRepeatResult]) -> None:
     """Write one run_config.json, one patches.csv and one images.csv covering every leaf of a tree run."""
+    data = run_config_data(config)  # before the file is created: a refusal leaves none
     output_dir.mkdir(parents=True, exist_ok=True)
     with (output_dir / RUN_CONFIG_FILENAME).open("w", encoding="utf-8") as f:
-        json.dump(run_config_data(config), f, indent=2, default=str)
+        json.dump(data, f, indent=2, default=str)
 
     all_patches = []
     for leaf_result in results:

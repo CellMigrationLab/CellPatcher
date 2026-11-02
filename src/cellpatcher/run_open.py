@@ -15,7 +15,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from cellpatcher.run_session import remember, session_statistics
+from cellpatcher.run_session import recalled, remember, session_statistics
 
 if TYPE_CHECKING:
     from morphobricks_normalization import PlaneRecord
@@ -177,6 +177,8 @@ def open_run(
     roots = [Path(root).expanduser() if root is not None else None for root in (experiment_root, masks_root)]
     try:
         before = _manifest_sha256(folder)
+        if recalled("manifest_sha256", folder) not in {None, before}:
+            raise RunInputsError("its run_manifest.json changed since this call first opened it.")
         inputs = RunInputs.open(folder, *roots)
         if _manifest_sha256(folder) != before:
             raise RunInputsError("its run_manifest.json changed while it was opened.")
@@ -202,6 +204,35 @@ def open_run(
         ]) from exc
     remember("manifest_sha256", folder, before)
     return inputs
+
+
+def refuse_changed_manifest(output_folder: str | os.PathLike, opened_sha256: str) -> None:
+    """Refuse a run whose ``run_manifest.json`` changed since this call opened it.
+
+    ``run_config.json`` records the manifest's SHA-256 taken at the open; a manifest rewritten
+    during the run (preprocessing run again on the same output folder) no longer names what was
+    read, so nothing is recorded.
+
+    Raises
+    ------
+    PreprocessingCheckError
+        ``preprocessing_run_refused`` when the manifest's SHA-256 is not *opened_sha256*.
+    """
+    from morphobricks_preprocessing.validation import error
+
+    from cellpatcher.statistics import PreprocessingCheckError
+
+    folder = Path(output_folder).expanduser()
+    if _manifest_sha256(folder) != opened_sha256:
+        raise PreprocessingCheckError([
+            error(
+                "preprocessing_run_refused",
+                f"The preprocessing run in {folder} cannot be used: its run_manifest.json changed during this "
+                "CellPatcher run, so the run read is no longer the one in that folder.",
+                [str(folder)],
+                "Wait until preprocessing has finished writing its run, then run CellPatcher again.",
+            )
+        ])
 
 
 def _manifest_sha256(folder: Path) -> str | None:

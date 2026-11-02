@@ -6,7 +6,8 @@ when a preprocessing run was read, a ``preprocessing`` section:
 - ``run``: the run's output folder, as given (``common.preprocessing_run``, or the folder of
   ``normalization.plane_histograms`` for a CSV scope of ``run_patching``);
 - ``manifest_sha256``: the SHA-256 of its ``run_manifest.json`` when this call opened it, which
-  names the run's images, masks, roles and table exactly;
+  names the run's images, masks, roles and table exactly (a manifest changed since is refused
+  when the file is written: :func:`cellpatcher.run_open.refuse_changed_manifest`);
 - for a folder or tree run, ``layout``: the order of the arrays CellPatcher built from the roles
   the run recorded (T, Z, C, then Y, X; ``image`` and ``mask``), which delivers exported patches.
 
@@ -39,6 +40,7 @@ from cellpatcher.config import (
     WholeFOVConfig,
 )
 from cellpatcher.normalization import CSV_SCOPES, normalization_inputs, run_settings
+from cellpatcher.run_open import refuse_changed_manifest
 from cellpatcher.run_session import recalled
 
 RUN_CONFIG_VERSION = 2
@@ -63,6 +65,8 @@ def run_config_data(config: CellPatcherConfig) -> dict:
     RuntimeError
         If the preprocessing run read was not opened in this call (an internal error: its
         manifest's SHA-256 is recorded when it is opened).
+    PreprocessingCheckError
+        If the run's ``run_manifest.json`` changed since this call opened it.
     """
     data: dict[str, Any] = {"run_config_version": RUN_CONFIG_VERSION, **asdict(config)}
     preprocessing = _preprocessing_section(config)
@@ -93,6 +97,7 @@ def _preprocessing_section(config: CellPatcherConfig) -> dict | None:
     sha256 = recalled("manifest_sha256", run)
     if sha256 is None:
         raise RuntimeError(f"The preprocessing run {run} was not opened in this call, so it cannot be recorded.")
+    refuse_changed_manifest(run, sha256)
     section: dict[str, Any] = {"run": str(run), "manifest_sha256": sha256}
     if file_run:
         section["layout"] = {"image": common.image_axes, "mask": common.mask_axes}

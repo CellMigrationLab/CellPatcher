@@ -274,6 +274,62 @@ def test_the_run_config_records_the_run_and_its_manifest_and_loads_back_for_a_fi
     ]
 
 
+def _touch_manifest(run):
+    """Rewrite the run's run_manifest.json with one more trailing newline: same content, another SHA-256."""
+    path = run.output / "run_manifest.json"
+    path.write_bytes(path.read_bytes() + b"\n")
+
+
+def test_a_manifest_changed_while_the_run_is_opened_is_refused(tmp_path, monkeypatch):
+    from morphobricks_preprocessing.run_inputs import RunInputs
+
+    run = _clean_run(tmp_path, axes="YX", shape=(16, 20), mask_types=("Cells",))
+    original = RunInputs.open.__func__
+
+    def open_and_touch(cls, *args, **kwargs):
+        inputs = original(cls, *args, **kwargs)
+        _touch_manifest(run)
+        return inputs
+
+    monkeypatch.setattr(RunInputs, "open", classmethod(open_and_touch))
+    with pytest.raises(PreprocessingCheckError, match="run_manifest.json changed while it was opened"):
+        run_patching_condition_repeat_tree(run.experiment, config=_cell_config(run))
+
+
+def test_a_manifest_changed_during_the_run_is_refused_before_run_config_is_written(tmp_path, monkeypatch):
+    # run_config.json records the manifest's SHA-256 taken at the open; a manifest rewritten
+    # after it (preprocessing run again on the same folder) would make it name another run.
+    import cellpatcher.file_runs as file_runs
+
+    run = _clean_run(tmp_path, axes="YX", shape=(16, 20), mask_types=("Cells",))
+    original = file_runs.run_layout
+
+    def layout_and_touch(fovs):
+        _touch_manifest(run)
+        return original(fovs)
+
+    monkeypatch.setattr(file_runs, "run_layout", layout_and_touch)
+    config = _cell_config(run)
+    config.export.enabled, config.common.output_dir = True, str(tmp_path / "out")
+    with pytest.raises(PreprocessingCheckError, match="run_manifest.json changed during this CellPatcher run"):
+        run_patching_condition_repeat_tree(run.experiment, config=config)
+    assert not list((tmp_path / "out").rglob("run_config.json"))
+    assert not list((tmp_path / "out").rglob("patches.csv"))
+
+
+def test_a_second_open_in_one_call_refuses_a_manifest_changed_since_the_first(tmp_path):
+    from cellpatcher.run_open import open_run
+    from cellpatcher.run_session import statistics_session
+
+    run = _clean_run(tmp_path, axes="YX", shape=(16, 20), mask_types=("Cells",))
+    with statistics_session():
+        open_run(run.output)
+        open_run(run.output)  # the same manifest: opened again
+        _touch_manifest(run)
+        with pytest.raises(PreprocessingCheckError, match="changed since this call first opened it"):
+            open_run(run.output)
+
+
 @pytest.mark.parametrize("version", [3, "2", None])
 def test_a_run_config_of_an_unknown_version_is_refused_by_every_reader(tmp_path, version):
     from cellpatcher import PatchTableError, iter_exported_patches, read_patch_table

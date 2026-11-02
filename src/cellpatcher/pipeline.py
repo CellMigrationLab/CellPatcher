@@ -631,8 +631,9 @@ def _finish_result(
         out_dir.mkdir(parents=True, exist_ok=True)
         if config.export.save_run_config:
             config_path = out_dir / RUN_CONFIG_FILENAME
+            data = run_config_data(config)  # before the file is created: a refusal leaves none
             with config_path.open("w", encoding="utf-8") as f:
-                json.dump(run_config_data(config), f, indent=2, default=str)
+                json.dump(data, f, indent=2, default=str)
             for patch in patches:
                 patch.config_file = RUN_CONFIG_FILENAME
 
