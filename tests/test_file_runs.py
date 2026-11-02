@@ -48,6 +48,8 @@ def test_a_tree_without_a_preprocessing_run_is_refused_with_the_command(tmp_path
     with pytest.raises(PreprocessingCheckError, match=r"(?s)preprocessing_run is not set.*morphobricks-preprocessing run") as refused:
         run_patching_condition_repeat_tree(root, config=CellPatcherConfig(mode="whole_fov"))
     assert [issue.code for issue in refused.value.issues] == ["no_preprocessing_run"]
+    # Since preprocessing rc2 `check` writes a design template, and `run` stops until it is confirmed.
+    assert "morphobricks-preprocessing design --output" in refused.value.issues[0].action
 
 
 def _patches(leaves):

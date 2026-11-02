@@ -69,8 +69,10 @@ if TYPE_CHECKING:
 
 PREPROCESSING_COMMAND = (
     "morphobricks-preprocessing check <experiment> --masks <masks folder>, then "
+    "morphobricks-preprocessing design --output <output folder> --confirm GROUP (or --confirm-all, once the "
+    "repeat groups are comparable), then "
     "morphobricks-preprocessing run <experiment> --axes <roles> --masks <masks folder> "
-    "(leave out --masks without masks)"
+    "(leave out --masks without masks), or the preprocessing notebook"
 )
 
 _DEFAULT_AXES = "YX"
