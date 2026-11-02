@@ -1,10 +1,12 @@
-"""Declared axes against file headers: the preprocessing brick's check_declared_axes (D86, v0.1.2).
+"""Declared axes against file headers: the preprocessing brick's axis check (design v0.4 §3).
 
-CellPatcher keeps no copy of the rule. A declaration may name what a header
-leaves open and never contradict it, except that the named Y and X may be
-declared swapped (owner decision of 31 October 2026): an image is then read
-transposed, and images.csv records it. CellPatcher cannot read a mask
-transposed, so a mask declared swapped is refused.
+CellPatcher keeps no copy of the rule: the declared axes are checked as the
+file's roles with the brick's ``review_axes`` (``check_mapping`` and
+``header_axis_issue``). A
+declaration may name what a header leaves open and never contradict it. Since
+preprocessing v0.4.0 a Y/X swap is refused like any other contradiction:
+nothing is ever read transposed (``check_declared_axes`` and
+``declared_axes_transposed`` were removed).
 """
 
 import csv
@@ -40,39 +42,33 @@ def test_the_shared_rule_is_the_preprocessing_brick_s(tmp_path, monkeypatch):
     import morphobricks_preprocessing
 
     calls = []
-    check = morphobricks_preprocessing.check_declared_axes
+    check = morphobricks_preprocessing.review_axes
 
-    def recording(meta, declared):
-        calls.append((meta.relative_path, declared))
-        return check(meta, declared)
+    def recording(files, mapping):
+        calls.extend((meta.relative_path, mapping.roles_string) for meta in files)
+        return check(files, mapping)
 
-    monkeypatch.setattr(morphobricks_preprocessing, "check_declared_axes", recording)
+    monkeypatch.setattr(morphobricks_preprocessing, "review_axes", recording)
     write_tiff(tmp_path / "exp" / "a.tif", np.zeros((3, 16, 16), dtype=np.uint8), "ZYX")
     run_patching_pipeline(str(tmp_path / "exp"), config=_grid_config("ZYX"))
     assert ("a.tif", "ZYX") in calls
 
 
-def test_y_and_x_declared_swapped_are_read_transposed_and_recorded(tmp_path):
+def test_y_and_x_declared_swapped_are_refused_never_read_transposed(tmp_path):
+    # Before preprocessing v0.4 (CellPatcher v0.1.2), a declaration swapping the header's named
+    # Y and X was accepted and the image read transposed (image_read_transposed). Design v0.4
+    # §3: nothing is ever read transposed; the swap is an error naming every file.
     image = np.arange(3 * 16 * 24, dtype=np.uint16).reshape(3, 16, 24)  # Z, Y, X in the header
     write_tiff(tmp_path / "exp" / "a.tif", image, "ZYX")
     write_tiff(tmp_path / "exp" / "b.tif", image, "ZYX")
     config = _grid_config("ZXY", tmp_path / "out")
     config.common.z_policy = "select"
     config.common.z_index = 1
-    with pytest.warns(UserWarning, match=r"common.image_axes declares Y and X swapped .* 2 image file\(s\) "
-                                         r"\(a.tif, b.tif\): they are read transposed"):
-        result = run_patching_pipeline(str(tmp_path / "exp"), config=config)
-    rows = _image_rows(tmp_path / "out")
-    assert {name: row["image_read_transposed"] for name, row in rows.items()} == {"a.tif": "true", "b.tif": "true"}
-    assert (rows["a.tif"]["image_height"], rows["a.tif"]["image_width"]) == ("24", "16")
-    patch = next(p for p in result.patches if p.image_file == "a.tif" and p.y0 == 8 and p.x0 == 0)
-    array = result.patch_arrays[result.patches.index(patch)]
-    # The rectangle is in the transposed image; the array keeps the declared axis order
-    # (delivery.patch_axes: "XY" here), so read as Y, X it is the transposed image's patch.
-    from cellpatcher.delivery import patch_axes
-
-    assert patch_axes(config, patch) == "XY"
-    np.testing.assert_array_equal(np.transpose(array), image[1].T[8:16, 0:8])
+    with pytest.raises(ValueError, match=r"common.image_axes='ZXY' does not fit the header of 2 image file\(s\): "
+                                         r"a.tif: \[axes_yx_swapped\].* b.tif: \[axes_yx_swapped\]") as error_info:
+        run_patching_pipeline(str(tmp_path / "exp"), config=config)
+    assert "nothing is read transposed" in str(error_info.value)
+    assert not (tmp_path / "out").exists()
 
 
 def test_axes_as_named_are_recorded_as_not_transposed(tmp_path):
@@ -84,20 +80,14 @@ def test_axes_as_named_are_recorded_as_not_transposed(tmp_path):
 
 
 def test_a_mask_declared_swapped_is_refused(tmp_path):
-    # The shared rule accepts a Y/X swap, but CellPatcher takes a label plane's dimensions as
-    # Y, X in their stored order, so it cannot read a mask transposed. Before v0.1.2 the swap
-    # was accepted and the mask read as stored: on a square image, misaligned without a word.
+    # A mask is checked with the same rule as an image: a Y/X swap is refused.
     image, labels, _ = make_synthetic_cell_image_and_labels(shape=(96, 96))
     write_tiff(tmp_path / "exp" / "a.tif", image, "YX")
     write_tiff(tmp_path / "masks" / "a_cells.tif", np.ascontiguousarray(labels.T.astype(np.uint16)), "YX")
-    with pytest.raises(ValueError, match=r"common.mask_axes='XY' declares Y and X swapped relative to the header "
-                                         r"of 1 mask file\(s\): a_cells.tif \(header axes 'YX'\). CellPatcher "
-                                         r"cannot read a mask transposed") as error_info:
+    with pytest.raises(ValueError, match=r"common.mask_axes='XY' does not fit the header of 1 mask file\(s\): "
+                                         r"a_cells.tif: \[axes_yx_swapped\]"):
         run_patching_pipeline(str(tmp_path / "exp"), config=_cell_config("YX", "XY"),
                               mask_folder_path=str(tmp_path / "masks"))
-    # The refusal says how to fix the masks (owner decision of 31 October 2026).
-    assert "To fix the masks, save each one with Y before X" in str(error_info.value)
-    assert "numpy.swapaxes(mask, -1, -2)" in str(error_info.value)
 
 
 @pytest.mark.parametrize("mode", ["cell", "random"])
@@ -115,11 +105,12 @@ def test_an_in_memory_mask_with_x_before_y_is_refused(mode):
 
 def test_a_mask_file_whose_header_names_x_before_y_is_refused(tmp_path):
     # Declared as its header names it, but CellPatcher would still take its first dimension as Y.
+    # The preprocessing pairing refuses it first (mask_layout): masks are never transposed.
     image, labels, _ = make_synthetic_cell_image_and_labels(shape=(32, 32))
     write_tiff(tmp_path / "exp" / "a.tif", image, "YX")
     (tmp_path / "masks").mkdir()
     tifffile.imwrite(tmp_path / "masks" / "a_cells.tif", labels.astype(np.uint16), metadata={"axes": "XY"})
-    with pytest.raises(ValueError, match=r"common.mask_axes='XY' puts X before Y"):
+    with pytest.raises(ValueError, match=r"\[mask_layout\].*Masks are never transposed"):
         run_patching_pipeline(str(tmp_path / "exp"), config=_cell_config("YX", "XY"),
                               mask_folder_path=str(tmp_path / "masks"))
 
@@ -156,7 +147,7 @@ def test_lazy_delivery_refuses_a_mask_declared_swapped(tmp_path):
     patch = run_patching(images=[image], masks=[labels], config=config, image_metadata=named([image])).patches[0]
     config.common.mask_axes = "XY"
     config.extraction.apply_mask = True
-    with pytest.raises(ValueError, match="CellPatcher cannot read a mask transposed"):
+    with pytest.raises(ValueError, match=r"m.tif: \[axes_yx_swapped\]"):
         patch_array(patch, tmp_path / "a.tif", config, mask=tmp_path / "m.tif")
 
 
@@ -183,8 +174,8 @@ def test_an_in_memory_run_records_no_transposition(tmp_path):
 
 
 @pytest.mark.parametrize("header, declared, problem", [
-    ("ZYX", "YZX", "dimension 0 is"),       # anything but a Y/X swap is refused
-    ("ZYX", "TXY", "dimension 0 is"),       # a swap does not excuse another disagreement
+    ("ZYX", "YZX", r"\[axes_contradict_header\]"),
+    ("ZYX", "TXY", r"\[axes_contradict_header\]"),  # a swap does not excuse another disagreement
     ("ZYX", "YX", "2 declared for 3 dimensions"),
 ])
 def test_other_disagreements_are_refused(tmp_path, header, declared, problem):

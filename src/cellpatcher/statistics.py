@@ -1,28 +1,28 @@
 """Link CellPatcher's planes to the plane statistics of the preprocessing brick.
 
-Loads ``plane_histograms.csv`` and the optional ``run_manifest.json`` written by
-`morphobricks-preprocessing <https://github.com/CellMigrationLab/morphobricks-preprocessing>`_
-and runs the checks of ``docs/normalization_contract.md`` §5, which block a
-run before any patch is normalized:
+Reads a clean preprocessing run through the brick's ``RunInputs`` (design
+v0.4 §6) and runs the checks of ``docs/normalization_contract.md`` §5, which
+block a run before any patch is normalized:
 
-- :func:`load_plane_statistics` reads the table and the manifest (given, or
-  found next to the table) and, with a manifest, checks ``csv_sha256``;
-- :func:`check_images` reports every image without rows in one message and,
-  with a manifest, checks each image's size, modification time and axes;
+- :func:`load_plane_statistics` opens the run that wrote
+  ``plane_histograms.csv`` with ``RunInputs.open``, which refuses a run
+  before v0.4.0, a table or design whose SHA-256 is not the manifest's, and
+  an image or mask changed since the run;
+- :func:`check_images` reports every image without rows in one message and
+  checks each image's size, modification time and axes against the manifest;
 - :func:`check_planes` links each patched plane to its row and compares the
   labels, ``dtype``, pixel count, exact finite extrema and finite pixel count.
 
 Reading, histograms, plane identifiers and messages all come from the
 MorphoBricks bricks, core dependencies of CellPatcher: the plane table,
 histograms and plane identifiers from ``morphobricks_normalization`` (where
-the preprocessing brick moved them), images, the manifest and messages from
-``morphobricks_preprocessing``. This module only links and compares. Each
-function raises :class:`PreprocessingUnavailableError` when the installed
-bricks read other file versions than this CellPatcher.
+the preprocessing brick moved them), the run, images and messages from
+``morphobricks_preprocessing``. This module only links and compares.
 """
 
 from __future__ import annotations
 
+import os
 from collections import defaultdict
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
@@ -38,21 +38,12 @@ from cellpatcher.io import SINGLE_CONDITION_LABEL as SINGLE_LABEL
 if TYPE_CHECKING:
     from morphobricks_normalization import PlaneRecord
     from morphobricks_preprocessing import RunManifest, ValidationIssue
+    from morphobricks_preprocessing.run_inputs import RunInputs
 
 # The optional part of the preprocessing brick: its OME-Zarr reader (zarr).
 # The brick itself is a core dependency (CP-6 of the D86 audit), so this extra,
 # named ``preprocessing`` before, is now ``zarr``.
 INSTALL_COMMAND = 'pip install "cellpatcher[zarr]"'
-
-# Versions of plane_histograms.csv and run_manifest.json this CellPatcher reads
-# (contract §1). The installed preprocessing package must read the same ones.
-# Table version 4 has one row per XYC plane (an image at one Z and T), each
-# channel's histogram in its own columns (with the underflow and overflow of
-# the robust histogram range, which the brick's pooling and fitting use), and
-# always writes z and t, so plane_id matches exactly; a channel is found
-# inside its row. Version 3 lacked the underflow and overflow columns.
-SUPPORTED_SCHEMA_VERSION = "4"
-SUPPORTED_MANIFEST_VERSION = "1"
 
 _PLANE_ROLES = ("Z", "C", "T")
 
@@ -60,7 +51,7 @@ _RERUN_ACTION = "Run the preprocessing brick again so its statistics describe th
 
 
 class PreprocessingUnavailableError(ImportError):
-    """The ``zarr`` extra is missing for an OME-Zarr image, or a brick is installed in a version CellPatcher cannot use."""
+    """The ``zarr`` extra is missing for an OME-Zarr image."""
 
 
 class PreprocessingCheckError(ValueError):
@@ -80,43 +71,24 @@ class PreprocessingCheckError(ValueError):
 
 
 def _preprocessing() -> ModuleType:
-    """Return the ``morphobricks_preprocessing`` package, checked for the file versions CellPatcher reads.
+    """Return the ``morphobricks_preprocessing`` package.
 
-    Raises
-    ------
-    PreprocessingUnavailableError
-        If the installed bricks read other versions of ``plane_histograms.csv``
-        or ``run_manifest.json`` than this CellPatcher (an install other than
-        the pinned tags).
+    The file versions it reads are its own: ``RunInputs`` refuses a run it
+    cannot use (design v0.4 §6), so CellPatcher pins no table or manifest
+    version of its own.
     """
     import morphobricks_preprocessing
-    from morphobricks_normalization.csv_io import SCHEMA_VERSION
-    from morphobricks_preprocessing.manifest import MANIFEST_VERSION
 
-    if (SCHEMA_VERSION, MANIFEST_VERSION) != (SUPPORTED_SCHEMA_VERSION, SUPPORTED_MANIFEST_VERSION):
-        raise PreprocessingUnavailableError(
-            f"The installed morphobricks-preprocessing reads plane_histograms.csv version "
-            f"{SCHEMA_VERSION!r} and run_manifest.json version {MANIFEST_VERSION!r}, but this "
-            f"CellPatcher reads version {SUPPORTED_SCHEMA_VERSION!r} of both. Reinstall CellPatcher, "
-            "which installs the versions it is tested with."
-        )
     return morphobricks_preprocessing
 
 
 def require_normalization() -> ModuleType:
-    """Return the ``morphobricks_normalization`` package, checked like :func:`_preprocessing`.
+    """Return the ``morphobricks_normalization`` package.
 
     Plane histograms, the ``plane_histograms.csv`` reader, plane identifiers,
     pooling and normalization parameters moved there from the preprocessing
-    brick, whose old import paths only warn and forward. CellPatcher declares
-    it at the tag the preprocessing brick pins.
-
-    Raises
-    ------
-    PreprocessingUnavailableError
-        As :func:`_preprocessing`.
+    brick. CellPatcher declares it at the tag the preprocessing brick pins.
     """
-    _preprocessing()
     import morphobricks_normalization
 
     return morphobricks_normalization
@@ -291,11 +263,15 @@ class PlaneStatistics:
     records
         Its rows, as ``morphobricks_preprocessing.PlaneRecord`` objects.
     csv_sha256
-        SHA-256 of the table.
+        SHA-256 of the table, as the run's manifest records it.
     manifest
-        The ``run_manifest.json`` used for the extra checks, or None.
+        The run's ``run_manifest.json``, or None (only for statistics built
+        without a run, to link rows).
     manifest_path
         Its path, or None.
+    inputs
+        The run, opened with the preprocessing brick's ``RunInputs``, or None
+        as for ``manifest``.
     """
 
     plane_histograms: Path
@@ -303,6 +279,7 @@ class PlaneStatistics:
     csv_sha256: str
     manifest: RunManifest | None = None
     manifest_path: Path | None = None
+    inputs: RunInputs | None = None
     _by_plane_id: dict[str, PlaneRecord] = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -331,17 +308,23 @@ class PlaneStatistics:
                 yield ChannelRecord(record, c)
 
 
-def load_plane_statistics(plane_histograms, manifest=None) -> PlaneStatistics:
-    """Read ``plane_histograms.csv`` and the optional ``run_manifest.json``.
+def load_plane_statistics(plane_histograms: str | os.PathLike, manifest: str | os.PathLike | None = None) -> PlaneStatistics:
+    """Open the preprocessing run that wrote ``plane_histograms.csv``, through ``RunInputs``.
+
+    The run's output folder is the table's folder. The preprocessing brick's
+    ``RunInputs.open`` reads the table, the design and ``run_manifest.json``
+    there, and refuses a run written before v0.4.0, a table or design whose
+    SHA-256 is not the manifest's, and an image or mask changed or missing
+    since the run (design v0.4 §6). CellPatcher reads no other table,
+    manifest or design than the run's own.
 
     Parameters
     ----------
     plane_histograms
-        Path of the table written by the preprocessing brick.
+        Path of the ``plane_histograms.csv`` written by the preprocessing brick.
     manifest
-        Path of its ``run_manifest.json``. When None, a manifest next to the
-        table is used if there is one; without one, the manifest checks are
-        skipped.
+        Path of its ``run_manifest.json``, or None. Only the run's own manifest,
+        beside the table, can be given.
 
     Returns
     -------
@@ -349,20 +332,14 @@ def load_plane_statistics(plane_histograms, manifest=None) -> PlaneStatistics:
 
     Raises
     ------
-    PreprocessingUnavailableError
-        If the installed bricks read other file versions than this CellPatcher.
     FileNotFoundError
-        If the table, or an explicitly given manifest, does not exist.
+        If the table does not exist.
     PreprocessingCheckError
-        If the table or manifest cannot be read, has an unsupported version,
-        has duplicate planes or no rows, or (with a manifest) the table is
-        not the one the manifest was written with.
+        If the table or manifest is not the run's own, ``RunInputs`` refuses
+        the run, or the table cannot be read, has no rows or duplicate planes.
     """
-    mbp = _preprocessing()
     mbn = require_normalization()
-    from morphobricks_normalization.csv_io import CsvFormatError
-    from morphobricks_preprocessing.manifest import file_sha256
-    from morphobricks_preprocessing.validation import error, plural
+    from morphobricks_preprocessing import MANIFEST_FILENAME
 
     csv_path = Path(plane_histograms).expanduser()
     if not csv_path.is_file():
@@ -371,18 +348,82 @@ def load_plane_statistics(plane_histograms, manifest=None) -> PlaneStatistics:
             f"{mbn.OUTPUT_FILENAME} written by the preprocessing brick, or run the preprocessing "
             "brick on this experiment first."
         )
+    folder = csv_path.parent
+    _refuse_other_file("normalization.plane_histograms", csv_path, folder / mbn.OUTPUT_FILENAME)
+    if manifest is not None:
+        _refuse_other_file("normalization.manifest", Path(manifest).expanduser(), folder / MANIFEST_FILENAME)
+    inputs = open_run(folder)
+    records = inputs.histograms()
+    _refuse_table_rows(csv_path, records)
+    return PlaneStatistics(
+        plane_histograms=csv_path,
+        records=records,
+        csv_sha256=inputs.manifest.csv_sha256,
+        manifest=inputs.manifest,
+        manifest_path=inputs.output_folder / MANIFEST_FILENAME,
+        inputs=inputs,
+    )
+
+
+def open_run(output_folder: str | os.PathLike) -> RunInputs:
+    """Open a clean preprocessing run with the brick's ``RunInputs.open``.
+
+    Raises
+    ------
+    PreprocessingCheckError
+        ``preprocessing_run_refused`` with the brick's reason when ``RunInputs``
+        refuses the run, or ``unreadable_plane_histograms`` when its table
+        cannot be read.
+    """
+    from morphobricks_normalization.csv_io import CsvFormatError
+    from morphobricks_preprocessing.run_inputs import RunInputs, RunInputsError
+    from morphobricks_preprocessing.validation import error
+
+    folder = Path(output_folder).expanduser()
     try:
-        records = tuple(mbn.read_plane_histograms(csv_path))
+        return RunInputs.open(folder)
+    except RunInputsError as exc:
+        raise PreprocessingCheckError([
+            error(
+                "preprocessing_run_refused",
+                f"The preprocessing run in {folder} cannot be used: {exc}",
+                [str(folder)],
+                "Run preprocessing v0.4 on the experiment where it is now, then give CellPatcher "
+                "the plane_histograms.csv of that run.",
+            )
+        ]) from exc
     except CsvFormatError as exc:
         raise PreprocessingCheckError([
             error(
                 "unreadable_plane_histograms",
                 f"The plane histogram table cannot be read: {exc}",
-                [str(csv_path)],
-                f"Give a {mbn.OUTPUT_FILENAME} written by the preprocessing brick (version "
-                f"{SUPPORTED_SCHEMA_VERSION}), or run the preprocessing brick again.",
+                [str(folder)],
+                "Give the plane_histograms.csv the preprocessing brick wrote, or run it again.",
             )
         ]) from exc
+
+
+def _refuse_other_file(setting: str, given: Path, expected: Path) -> None:
+    """Refuse a file *setting* names that is not the preprocessing run's own *expected* file."""
+    from morphobricks_preprocessing.validation import error
+
+    if given.resolve() == expected.resolve():
+        return
+    raise PreprocessingCheckError([
+        error(
+            "not_the_run_output",
+            f"{setting} names {given}, but CellPatcher reads a preprocessing run only through its "
+            f"output folder, where this file is {expected.name}.",
+            [str(given)],
+            f"Give the {expected.name} the preprocessing brick wrote in its output folder, unrenamed "
+            "and in place.",
+        )
+    ])
+
+
+def _refuse_table_rows(csv_path: Path, records: tuple[PlaneRecord, ...]) -> None:
+    """Refuse a table without rows, or with several rows for one plane."""
+    from morphobricks_preprocessing.validation import error, plural
 
     issues = []
     if not records:
@@ -392,7 +433,7 @@ def load_plane_statistics(plane_histograms, manifest=None) -> PlaneStatistics:
             [str(csv_path)],
             "Run the preprocessing brick on this experiment again.",
         ))
-    counts = defaultdict(int)
+    counts: dict[str, int] = defaultdict(int)
     for record in records:
         counts[record.plane_id] += 1
     duplicates = [plane_id for plane_id, count in counts.items() if count > 1]
@@ -405,30 +446,8 @@ def load_plane_statistics(plane_histograms, manifest=None) -> PlaneStatistics:
             duplicates,
             "Use the table the preprocessing brick wrote, without combining or editing it.",
         ))
-
-    csv_sha256 = file_sha256(csv_path)
-    manifest_path = _manifest_path(csv_path, manifest, mbp.MANIFEST_FILENAME)
-    run_manifest = None
-    if manifest_path is not None:
-        run_manifest = _read_manifest(mbp, manifest_path)
-        if run_manifest.csv_sha256 != csv_sha256:
-            issues.append(error(
-                "plane_histograms_changed",
-                f"{csv_path.name} is not the table {manifest_path.name} was written with: it was "
-                "changed or replaced after the preprocessing run.",
-                [str(csv_path), str(manifest_path)],
-                "Give the table and manifest of the same preprocessing run, or run the "
-                "preprocessing brick again.",
-            ))
     if issues:
         raise PreprocessingCheckError(issues)
-    return PlaneStatistics(
-        plane_histograms=csv_path,
-        records=records,
-        csv_sha256=csv_sha256,
-        manifest=run_manifest,
-        manifest_path=manifest_path,
-    )
 
 
 def check_images(
@@ -596,84 +615,33 @@ def check_planes(
     return matched
 
 
-def recorded_image_type(plane_histograms, manifest=None) -> str | None:
-    """The image type the preprocessing run recorded in its ``run_manifest.json``.
+def recorded_image_type(plane_histograms: str | os.PathLike, manifest: str | os.PathLike | None = None) -> str | None:
+    """The image type the preprocessing run recorded, read through ``RunInputs``.
 
-    Reads only the manifest (not the table), so a notebook can show the type as
-    soon as a table is chosen. ``normalization.image_type`` must equal it
-    (normalization brick decision N34).
+    ``normalization.image_type`` must equal it (normalization brick decision
+    N34). The run is opened as :func:`load_plane_statistics` opens it.
 
     Parameters
     ----------
     plane_histograms
-        Path of ``plane_histograms.csv``; its manifest is the one next to it
-        unless ``manifest`` is given.
+        Path of the run's ``plane_histograms.csv``.
     manifest
-        Path of the ``run_manifest.json``, or None to look next to the table.
+        Path of its ``run_manifest.json``, or None; only the run's own.
 
     Returns
     -------
     str or None
-        ``"fluorescence"`` or ``"rgb"``; None without a manifest or when the
-        manifest records no image type (written before the preprocessing brick
-        asked for it), so the configuration decides.
+        ``"fluorescence"`` or ``"rgb"``; None when the run recorded no image
+        type, so the configuration decides.
 
     Raises
     ------
-    PreprocessingUnavailableError
-        If the installed bricks read other file versions than this CellPatcher.
     FileNotFoundError
-        If an explicitly given manifest does not exist.
+        If the table does not exist.
     PreprocessingCheckError
-        If the manifest cannot be read or has an unsupported version.
+        As :func:`load_plane_statistics`.
     """
-    mbp = _preprocessing()
-    csv_path = Path(plane_histograms).expanduser()
-    manifest_path = _manifest_path(csv_path, manifest, mbp.MANIFEST_FILENAME)
-    if manifest_path is None:
-        return None
-    return getattr(_read_manifest(mbp, manifest_path), "image_type", None)
-
-
-def _manifest_path(csv_path: Path, manifest, default_name: str) -> Path | None:
-    if manifest is not None:
-        path = Path(manifest).expanduser()
-        if not path.is_file():
-            raise FileNotFoundError(
-                f"The run manifest {path} does not exist. Give the {default_name} written next to "
-                f"{csv_path.name}, or leave the manifest out to skip its checks."
-            )
-        return path
-    beside = csv_path.parent / default_name
-    return beside if beside.is_file() else None
-
-
-def _read_manifest(mbp: ModuleType, path: Path) -> RunManifest:
-    from morphobricks_preprocessing.validation import error
-
-    try:
-        manifest = mbp.read_manifest(path)
-    except mbp.ManifestFormatError as exc:
-        raise PreprocessingCheckError([
-            error(
-                "unreadable_manifest",
-                f"The run manifest cannot be read: {exc}",
-                [str(path)],
-                f"Give a {mbp.MANIFEST_FILENAME} written by the preprocessing brick (version "
-                f"{SUPPORTED_MANIFEST_VERSION}), or leave the manifest out to skip its checks.",
-            )
-        ]) from exc
-    if manifest.schema_version != SUPPORTED_SCHEMA_VERSION:
-        raise PreprocessingCheckError([
-            error(
-                "unsupported_schema_version",
-                f"The run manifest describes a plane histogram table of version "
-                f"{manifest.schema_version!r}; CellPatcher reads version {SUPPORTED_SCHEMA_VERSION!r}.",
-                [str(path)],
-                "Run the preprocessing brick again with the version CellPatcher is tested with.",
-            )
-        ])
-    return manifest
+    return load_plane_statistics(plane_histograms, manifest).inputs.image_type()
 
 
 def _labels_text(labels) -> str:

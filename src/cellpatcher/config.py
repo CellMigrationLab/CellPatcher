@@ -369,11 +369,11 @@ class NormalizationConfig:
     enabled
         Normalize the patches.
     plane_histograms
-        Path of the preprocessing brick's ``plane_histograms.csv``; needed for
-        every scope except ``"patch"``.
+        The preprocessing brick's ``plane_histograms.csv``, in its output
+        folder, read through its ``RunInputs``; needed except for ``"patch"``.
     manifest
-        Path of its ``run_manifest.json``, for extra checks; None uses the one
-        next to the CSV when there is one.
+        The run's ``run_manifest.json``: None, or the one in the table's
+        folder (another file is refused).
     method
         ``"minmax"``, ``"percentile"`` (default), ``"zscore"`` or
         ``"robust_zscore"`` (MAD x 1.4826); only ``"percentile"`` for
@@ -409,9 +409,9 @@ class NormalizationConfig:
         (``common.extract_arrays=True``); above it the run stops and suggests
         ``cellpatcher.iter_patch_arrays``, which gives one patch at a time.
     experiment_design
-        For ``scope="biological_repeat"``: path of the preprocessing brick's
-        ``experiment_design.csv`` (the repeat groups and their confirmation);
-        None uses the one next to ``plane_histograms``.
+        For ``scope="biological_repeat"``: the run's ``experiment_design.csv``
+        (the repeat groups and their confirmation): None, or the one next to
+        ``plane_histograms`` (another file is refused).
     pooling
         For ``scope="biological_repeat"``: how much each condition weighs in
         its repeat group, ``"pixels"`` (default: each pixel once) or

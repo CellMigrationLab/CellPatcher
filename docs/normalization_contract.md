@@ -50,7 +50,7 @@ brick's
 |---|---|
 | Dependencies | `morphobricks-preprocessing` and `morphobricks-normalization` are core dependencies, pinned to tags in `setup.py`; normalization at the tag the preprocessing tag pins (owner decision D-h, checked by `tests/test_dependency_pins.py`). The `zarr` extra (`pip install "cellpatcher[zarr]"`, formerly `preprocessing`) installs `morphobricks-preprocessing[zarr]` at the same tag, for OME-Zarr images. Histograms, the plane table, plane IDs, pooling and normalization parameters, which moved to the normalization brick, are imported from `morphobricks_normalization`. |
 | Version | Installed from GitHub at a pinned commit or tag, recorded in `setup.py` and raised deliberately. |
-| Formats | Reads `plane_histograms.csv` schema version `2` (every row has `z`, `c` and `t`) and `run_manifest.json` manifest version `1`; any other version is an error. |
+| Formats | Since v0.2.0 (CP-1) the preprocessing run is read through the brick's `RunInputs` (its design v0.4 §6), which needs `run_manifest.json` manifest version `2` (preprocessing v0.4) and the `plane_histograms.csv` version that brick reads; CellPatcher pins no version of its own. Any run `RunInputs` refuses is an error. |
 | Needed for | Normalization (every scope), OME-Zarr images and labels, and plane-by-plane image reading. |
 | Without it | Patching works exactly as today; enabling normalization or giving OME-Zarr input stops the run with an install instruction. |
 | Imported | `read_plane_histograms`, `read_manifest`, `manifest.source_fingerprint`, `make_plane_id`, `group_records`, `compute_plane_histogram`, `PooledHistogram`, `min_max`, `percentile_range`, `z_score`, `robust_z_score`, `NormalizationParameters`, the OME-Zarr reader (`zarr_input`) and the plane readers (`planes`). |
@@ -119,8 +119,8 @@ Rules for `"ngff_labels"`:
 | Input | Required | Detail |
 |---|---|---|
 | `plane_histograms.csv` | For the `biological_repeat` and `image` scopes | Path given in `normalization.plane_histograms`. Not needed for the `patch` scope. |
-| `run_manifest.json` | Never | Given in `normalization.manifest`, or found next to the CSV. An explicitly given path that does not exist is an error. |
-| `experiment_design.csv` | For the `biological_repeat` scope | Given in `normalization.experiment_design`, or found next to the CSV. It is read with the preprocessing brick's shared reader `read_confirmed_design` (its contract §16; since CellPatcher v0.1.2): the file exactly as the brick writes it (no byte-order mark, the columns in order, one value per column in every row, no blank line, no value with outer whitespace, `true`/`false`, ISO `confirmed_on`, valid labels without case-only differences), every repeat group confirmed with one folder per condition, its SHA-256 equal to the manifest's `experiment_design_sha256` when the manifest records one, and every image's condition and biological repeat must be in it. Checked before any image is read. |
+| `run_manifest.json` | With the CSV (since v0.2.0) | The one next to the CSV, in the run's output folder. `normalization.manifest` may only name that file (`not_the_run_output`). |
+| `experiment_design.csv` | For the `biological_repeat` scope | The one next to the CSV, which the run's manifest must record (a run that recorded none is `missing_experiment_design`); `normalization.experiment_design` may only name that file (`not_the_run_output`). It is read with the preprocessing brick's shared reader `read_confirmed_design` (its contract §16; since CellPatcher v0.1.2): the file exactly as the brick writes it (no byte-order mark, the columns in order, one value per column in every row, no blank line, no value with outer whitespace, `true`/`false`, ISO `confirmed_on`, valid labels without case-only differences), every repeat group confirmed with one folder per condition, its SHA-256 equal to the manifest's `experiment_design_sha256`, and every image's condition and biological repeat must be in it. Checked before any image is read. |
 
 Checks before any patch is normalized; every failure blocks the run:
 
@@ -135,17 +135,19 @@ Checks before any patch is normalized; every failure blocks the run:
 An image CellPatcher found without any row in the CSV (excluded or skipped in preprocessing,
 or added later) is reported with all such images in one message.
 
-**With the manifest:** in addition,
+**The run (since v0.2.0):** the table's folder is opened with the preprocessing brick's
+`RunInputs.open`, and any refusal stops the run (`preprocessing_run_refused`): no manifest,
+a manifest before v0.4, a table or design whose SHA-256 is not the manifest's, an image or
+mask of the run changed or missing (which includes an experiment moved since the run). The
+CSV and manifest must be the run's own files, unrenamed (`not_the_run_output`). Then:
 
-- `csv_sha256` equals the SHA-256 of the CSV given;
 - each patched image's `manifest.source_fingerprint()` (size and modification time) equals its
   manifest entry;
 - CellPatcher's image axes give the same role for every axis as the manifest's
   `axis_mapping`;
 - the manifest's `image_type`, when it records one, equals `normalization.image_type`
-  (otherwise `image_type_differs`, checked before any image is read). A manifest without an
-  image type (written before the preprocessing brick asked for it), or no manifest, leaves
-  the choice to the configuration (normalization brick decision N34).
+  (otherwise `image_type_differs`, checked before any image is read). A run that recorded no
+  image type leaves the choice to the configuration (normalization brick decision N34).
 
 ## 6. Methods
 
@@ -271,7 +273,8 @@ In memory, `PatchRegion.normalization_parameters` holds the brick's `Parameters`
 - The serialized config gains a `normalization` section (§13). Loading a `run_config.json`
   without it means normalization off.
 - A top-level `normalization_inputs` object records: `plane_histograms_sha256`,
-  `schema_version`, `manifest_used` (`true`/`false`), `manifest_version` (or `null`) and
+  `schema_version`, `manifest_used` and `manifest_version` (always `true` and the run's
+  manifest version, `"2"`, since v0.2.0; `false`/`null` before, without a manifest) and
   `preprocessing_version`. Paths are not recorded, as they are machine-specific.
 - With the `biological_repeat` scope, `normalization_inputs` also records
   `experiment_design_file` (the file name) and `experiment_design_sha256`.
@@ -303,7 +306,7 @@ In memory, `PatchRegion.normalization_parameters` holds the brick's `Parameters`
 |---|---|---|---|
 | `enabled` | `bool` | `False` | Off keeps current behaviour exactly |
 | `plane_histograms` | `str \| None` | `None` | Path of `plane_histograms.csv` (§5) |
-| `manifest` | `str \| None` | `None` | Path of `run_manifest.json`; `None` looks next to the CSV |
+| `manifest` | `str \| None` | `None` | The run's `run_manifest.json`, next to the CSV; `None` uses it, and another file is refused (§5) |
 | `method` | `str` | `"percentile"` | §6 |
 | `percentile` | `tuple[float, float]` | `(1.0, 99.8)` | Low and high percentiles, `0 ≤ low < high ≤ 100` |
 | `clip` | `tuple[float, float] \| None` | `None` | Limits applied right after normalizing (by the brick's `NormalizationParameters.apply`), before masking and resizing; the same in eager, lazy, exported and raw-on-load delivery |
@@ -312,7 +315,7 @@ In memory, `PatchRegion.normalization_parameters` holds the brick's `Parameters`
 | `patch_region` | `str \| None` | `None` | §8; `None` means `"mask"` in `cell` mode and `"patch"` otherwise |
 | `export_values` | `str` | `"normalized"` | §12: `"normalized"` or `"raw"` |
 | `memory_limit` | `int` | `4 * 1024**3` | Bytes, for eager delivery (§12) |
-| `experiment_design` | `str \| None` | `None` | Path of `experiment_design.csv` (§5); `None` looks next to the CSV |
+| `experiment_design` | `str \| None` | `None` | The run's `experiment_design.csv`, next to the CSV (§5); `None` uses it, and another file is refused |
 | `pooling` | `str` | `"pixels"` | §7: `"pixels"` or `"conditions"` |
 | `image_type` | `str` | `"fluorescence"` | §6: `"fluorescence"` (each channel separately) or `"rgb"` (R, G and B together, `"percentile"` only, `extraction.split_channels=False`); must equal the manifest's image type when it records one (§5) |
 
@@ -329,7 +332,7 @@ and suggests an action, in the preprocessing brick's style. Technical details go
 
 | Severity | Situations |
 |---|---|
-| Error (run blocked) | Extra not installed; CSV missing for a group or image scope; unsupported CSV or manifest version; explicitly given manifest missing; any check of §5 failing; image without CSV rows at a group or image scope; experiment design missing, unreadable, not confirmed, changed since preprocessing, or without an image's repeat (§5); a removed scope (§7); an `image_type` other than the manifest's, `"rgb"` with a method other than `"percentile"` or with `split_channels`, or `"rgb"` images that are not three 8- or 16-bit channels (§5, §6); projection, merged channels or `repeat_to_rgb` under normalization (§3); plane over the memory limit; `"ngff_labels"` on a TIFF image, a missing or ambiguous label name, or a label image whose dimensions do not fit (§4); `"mask"`/`"bbox"` region outside `cell` mode; zero or non-finite scale, or no finite pixels, for a group; deprecated normalization arguments combined with normalization (§15); eager delivery over the memory limit; OME-Zarr input without `zarr` |
+| Error (run blocked) | Extra not installed; CSV missing for a group or image scope; a preprocessing run `RunInputs` refuses, or a CSV, manifest or design other than the run's own (§5); any check of §5 failing; image without CSV rows at a group or image scope; experiment design missing, unreadable, not confirmed, changed since preprocessing, or without an image's repeat (§5); a removed scope (§7); an `image_type` other than the manifest's, `"rgb"` with a method other than `"percentile"` or with `split_channels`, or `"rgb"` images that are not three 8- or 16-bit channels (§5, §6); projection, merged channels or `repeat_to_rgb` under normalization (§3); plane over the memory limit; `"ngff_labels"` on a TIFF image, a missing or ambiguous label name, or a label image whose dimensions do not fit (§4); `"mask"`/`"bbox"` region outside `cell` mode; zero or non-finite scale, or no finite pixels, for a group; deprecated normalization arguments combined with normalization (§15); eager delivery over the memory limit; OME-Zarr input without `zarr` |
 | Warning (run continues) | Patches discarded without spread or finite pixels (§8, D8); approximate parameters; group statistics include background pixels (once per run); the `biological_repeat` scope (removes differences between repeats, keeps those between conditions); a repeat group without images from some condition; use of a deprecated normalization argument |
 
 ## 15. Deprecations

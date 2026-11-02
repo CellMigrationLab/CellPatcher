@@ -245,21 +245,24 @@ def test_the_manifest_image_type_must_match_the_configuration(tmp_path):
         run_patching_pipeline(folder, config=_config(fluorescence_csv, scope="image"))
 
 
-def test_recorded_image_type_reads_only_the_manifest(tmp_path):
+def test_recorded_image_type_is_read_through_run_inputs(tmp_path):
+    # CP-1: the image type is the run's, read through RunInputs. Before, any manifest could be
+    # named for any table, and a table without a manifest gave None.
     folder = tmp_path / "images"
     _write_tiff(folder / "img0.tif", _rgb_images(1)[0])
     rgb_csv = _preprocess(folder, tmp_path / "rgb")
     untyped_csv = _preprocess(folder, tmp_path / "untyped", image_type=None)
 
     assert recorded_image_type(rgb_csv) == "rgb"
+    assert recorded_image_type(rgb_csv, rgb_csv.parent / "run_manifest.json") == "rgb"
     assert recorded_image_type(untyped_csv) is None
-    assert recorded_image_type(untyped_csv, rgb_csv.parent / "run_manifest.json") == "rgb"
+    with pytest.raises(PreprocessingCheckError, match="normalization.manifest names"):
+        recorded_image_type(untyped_csv, rgb_csv.parent / "run_manifest.json")
     lone = tmp_path / "lone" / "plane_histograms.csv"
     lone.parent.mkdir()
     lone.write_bytes(rgb_csv.read_bytes())
-    assert recorded_image_type(lone) is None  # no manifest next to the table
-    with pytest.raises(FileNotFoundError):
-        recorded_image_type(rgb_csv, tmp_path / "missing.json")
+    with pytest.raises(PreprocessingCheckError, match="holds no run_manifest.json"):
+        recorded_image_type(lone)
 
 
 def test_without_an_image_type_in_the_manifest_the_configuration_decides(tmp_path):

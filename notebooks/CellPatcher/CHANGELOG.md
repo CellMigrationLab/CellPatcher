@@ -4,6 +4,31 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased] - The preprocessing run is read through RunInputs (CP-1, preprocessing v0.4.0rc1)
+
+### Changed
+- CellPatcher requires `morphobricks-preprocessing` `v0.4.0rc1` (also in the `zarr` extra; the
+  tag reports version 0.3.4) and opens the run that wrote `plane_histograms.csv` with its
+  `RunInputs` (design v0.4 §6). Refused now (`preprocessing_run_refused`), where before they
+  warned or were read: a table without `run_manifest.json` beside it, any run before
+  preprocessing v0.4 (manifest version 1, which was the only one read before), a table or
+  design changed since the run, an image or mask of the run changed or missing, and an
+  experiment moved since the run (until file runs, CP-2a).
+- `normalization.plane_histograms`, `manifest` and `experiment_design` may only name the run's
+  own files, unrenamed in its output folder (`not_the_run_output`); the `biological_repeat`
+  scope refuses a run that recorded no design (`missing_experiment_design`). The warnings for a
+  missing manifest and a missing design hash are gone.
+- `common.image_axes`/`mask_axes` are checked with the brick's `review_axes`
+  (`check_declared_axes` was removed in v0.4): a Y/X swap is refused (`axes_yx_swapped`) for
+  images too, so nothing is read transposed and `image_read_transposed` is always `false`.
+- Mask pairing: an image named like a mask of another image is refused
+  (`image_named_as_mask`). In a mask folder run the types are the folder's: an OME-Zarr image's
+  own label image is read only with `mask_source="ngff_labels"`, and a label image and a folder
+  mask of one type for one image are `duplicate_mask`.
+- `run_config.json`: `normalization_inputs` keeps its keys; `manifest_version` is `"2"`.
+- Removed: `cellpatcher.normalization.run_inputs` (now `normalization_inputs`) and
+  `cellpatcher.statistics.SUPPORTED_SCHEMA_VERSION`/`SUPPORTED_MANIFEST_VERSION`.
+
 ## [Unreleased] - Declared axes checked with the shared rule; Y and X swapped recorded
 
 ### Changed

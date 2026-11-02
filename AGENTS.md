@@ -328,7 +328,8 @@ Two ways to point CellPatcher at input data:
   without patches; always filled since decision D45) and
   `n_regions`/`n_kept`/`n_normalized` (counts after the patch mode, the
   filters and normalization) and `image_read_transposed` (the image's
-  header Y and X declared swapped, read transposed; v0.1.2). There is no
+  header Y and X declared swapped, read transposed; v0.1.2 only, as
+  a swap is refused since v0.2.0). There is no
   `failed` status: a failing image stops the run with an error before any
   table is written. Every `patches.csv` row joins exactly one `images.csv`
   row on `condition`/`biological_repeat`/`technical_repeat`/`image_id`/
@@ -376,8 +377,10 @@ bricks (core dependencies, pinned tags in `setup.py`), CellPatcher:
 - fills the `source_relative_path` `PatchRegion` field/`patches.csv` column
   in folder and tree runs from each image's path under the root (a linked
   image or folder keeps the link's path, as in the brick);
-- loads `plane_histograms.csv` and the optional `run_manifest.json`
-  (`cellpatcher.statistics`) and runs the checks of contract §5;
+- opens the preprocessing run that wrote `plane_histograms.csv` through
+  the brick's `RunInputs` (v0.2.0, CP-1: table, design and v0.4
+  `run_manifest.json`, all required; `cellpatcher.statistics`) and runs the
+  checks of contract §5;
 - splits Z/T stacks into planes (`common.z_policy`/`t_policy`) and reads
   OME-Zarr images and OME-NGFF label masks (`common.mask_source`) (see
   "Inputs" above);
@@ -398,7 +401,7 @@ manifest by `statistics.recorded_image_type` (follow-up C4). In summary:
 - **Inputs:** CellPatcher reads
   `plane_histograms.csv` from
   [morphobricks-preprocessing](https://github.com/CellMigrationLab/morphobricks-preprocessing)
-(needed for the biological-repeat and image scopes) and, optionally, its `run_manifest.json` for extra checks. It still
+(needed for the biological-repeat and image scopes), read through the brick's `RunInputs` with its `run_manifest.json` (required since v0.2.0). It still
   discovers images with its own folder rules. OME-Zarr images and their
   OME-NGFF `labels/` masks become readable.
 - **Outputs:** optional columns appended to `patches.csv` —

@@ -225,7 +225,7 @@ def test_image_scope_pools_every_z_plane_of_the_image_per_channel(experiment, tm
     saved = json.loads((tmp_path / "out" / RUN_CONFIG_FILENAME).read_text(encoding="utf-8"))
     assert saved["normalization"]["scope"] == "image"
     inputs = saved["normalization_inputs"]
-    assert (inputs["schema_version"], inputs["manifest_used"], inputs["manifest_version"]) == ("4", True, "1")
+    assert (inputs["schema_version"], inputs["manifest_used"], inputs["manifest_version"]) == ("4", True, "2")
     assert len(inputs["plane_histograms_sha256"]) == 64
     assert load_config(tmp_path / "out" / RUN_CONFIG_FILENAME).normalization == config.normalization
     from morphobricks_normalization import NormalizationSettings, __version__
@@ -425,23 +425,20 @@ def test_images_without_rows_are_reported_together(experiment):
     assert issue.paths == ("control/bio1/new.tif", "treated/bio1/later.tif")
 
 
-def test_a_changed_image_is_detected_with_and_without_the_manifest(experiment):
+def test_a_changed_image_is_detected_by_its_fingerprint_and_by_its_pixels(experiment):
     root, stacks, csv_path = experiment
     changed = stacks["treated/bio1/c.tif"].copy()
     changed[1, 0, 0, 0] = 255
     path = root / "treated" / "bio1" / "c.tif"
     stat = path.stat()
     _write_tiff(path, changed, "ZCYX")
-    with pytest.raises(PreprocessingCheckError, match="changed after the preprocessing brick"):
+    with pytest.raises(PreprocessingCheckError, match="changed or missing since the run: treated/bio1/c.tif"):
         run_patching_condition_repeat_tree(root, config=_config(csv_path))
 
-    # Without the manifest: same size and time, but other pixel values.
+    # Same size and time as the run recorded, but other pixel values: check_planes.
     os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns))
-    alone = csv_path.parent.parent / "alone"
-    alone.mkdir()
-    (alone / csv_path.name).write_bytes(csv_path.read_bytes())
     with pytest.raises(PreprocessingCheckError, match="the images changed after the preprocessing run"):
-        run_patching_condition_repeat_tree(root, config=_config(alone / csv_path.name))
+        run_patching_condition_repeat_tree(root, config=_config(csv_path))
 
 
 def test_in_memory_runs_need_source_relative_path_for_csv_scopes(experiment):
@@ -763,12 +760,13 @@ def test_a_missing_or_unconfirmed_design_stops_the_run_before_any_image_is_read(
 
     import morphobricks_preprocessing as mbp
 
+    # CP-1: only the run's own design is read; before, any file could be named.
     unconfirmed = mbp.default_design(mbp.preflight(root).dataset.repeats)
     mbp.write_experiment_design(unconfirmed, tmp_path / "unconfirmed.csv")
     config.normalization.experiment_design = str(tmp_path / "unconfirmed.csv")
-    with pytest.raises(PreprocessingCheckError) as not_confirmed:
+    with pytest.raises(PreprocessingCheckError) as elsewhere:
         run_patching_condition_repeat_tree(root, config=config)
-    assert "design_not_confirmed" in [issue.code for issue in not_confirmed.value.issues]
+    assert [issue.code for issue in elsewhere.value.issues] == ["not_the_run_output"]
 
 
 def test_a_design_changed_after_preprocessing_is_refused(tmp_path):
@@ -779,23 +777,26 @@ def test_a_design_changed_after_preprocessing_is_refused(tmp_path):
     changed = _confirmed_design(root, pairs={("treated", "rep_b"): "rep_a"})
     mbp.write_experiment_design(changed, design_path)
     config = _config(csv_path, image_axes="YX", scope="biological_repeat")
-    with pytest.raises(PreprocessingCheckError) as caught:
+    with pytest.raises(PreprocessingCheckError, match="design experiment_design.csv is not the one the run wrote") as caught:
         run_patching_condition_repeat_tree(root, config=config)
-    assert [issue.code for issue in caught.value.issues] == ["changed_experiment_design"]
+    assert [issue.code for issue in caught.value.issues] == ["preprocessing_run_refused"]
 
 
 def _design_edited(tmp_path, edit):
     """An unpaired experiment whose experiment_design.csv is edited by *edit* (text -> text).
 
-    The manifest's design hash is removed, so only the reader can refuse the edit.
+    The manifest records the edited file's hash, as if the run had written it, so only the
+    reader can refuse the edit.
     """
+    from morphobricks_preprocessing.manifest import file_sha256
+
     root, _, csv_path = _unpaired_experiment(tmp_path)
-    manifest_path = csv_path.parent / "run_manifest.json"
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    manifest.pop("experiment_design_sha256")
-    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
     design_path = csv_path.parent / "experiment_design.csv"
     design_path.write_bytes(edit(design_path.read_bytes().decode("utf-8")).encode("utf-8"))
+    manifest_path = csv_path.parent / "run_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["experiment_design_sha256"] = file_sha256(design_path)
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
     return root, csv_path
 
 
@@ -831,13 +832,14 @@ def test_the_design_reader_is_the_preprocessing_brick_s(tmp_path, monkeypatch):
     assert calls and set(calls) == {manifest["experiment_design_sha256"]}
 
 
-def test_a_missing_design_says_where_cellpatcher_looks(tmp_path):
+def test_a_run_without_a_design_is_refused_at_the_repeat_scope(tmp_path):
     root, _, csv_path = _unpaired_experiment(tmp_path, design=None)
     with pytest.raises(PreprocessingCheckError) as caught:
         run_patching_condition_repeat_tree(root, config=_config(csv_path, image_axes="YX", scope="biological_repeat"))
     (issue,) = caught.value.issues
     assert issue.code == "missing_experiment_design"
-    assert "normalization.experiment_design" in issue.action
+    assert "the preprocessing run recorded no design" in issue.message
+    assert "step 1 of the preprocessing brick" in issue.action
 
 
 def test_repeat_groups_missing_a_condition_are_reported(tmp_path):
@@ -880,41 +882,37 @@ def _messages(run):
     return " ".join(str(w.message) for w in caught)
 
 
-def test_csv_scopes_warn_when_the_inputs_cannot_be_checked(experiment):
-    # Issue #46: without run_manifest.json, the table, size/time and axis checks
-    # are skipped; at the biological_repeat scope a design change goes unseen.
+def test_csv_scopes_refuse_a_table_without_its_manifest(experiment):
+    # Issue #46 warned and went on without run_manifest.json; CP-1 reads the run through
+    # RunInputs, which needs it, so the table, size/time and axis checks always run.
     root, _, csv_path = experiment
     with_manifest = _messages(lambda: run_patching_condition_repeat_tree(
         root, config=_config(csv_path, scope="biological_repeat")
     ))
-    assert "No run_manifest.json" not in with_manifest
+    assert "run_manifest.json" not in with_manifest
     assert "experiment_design_sha256" not in with_manifest
 
     alone = csv_path.parent.parent / "alone"
     alone.mkdir()
     for name in (csv_path.name, "experiment_design.csv"):
         (alone / name).write_bytes((csv_path.parent / name).read_bytes())
-    image_scope = _messages(lambda: run_patching_condition_repeat_tree(root, config=_config(alone / csv_path.name)))
-    assert "No run_manifest.json was found" in image_scope
-    assert "experiment_design_sha256" not in image_scope
-    repeat_scope = _messages(lambda: run_patching_condition_repeat_tree(
-        root, config=_config(alone / csv_path.name, scope="biological_repeat")
-    ))
-    assert "No run_manifest.json was found" in repeat_scope
-    assert "records no experiment_design_sha256 (there is no manifest)" in repeat_scope
+    for scope in ("image", "biological_repeat"):
+        with pytest.raises(PreprocessingCheckError, match="holds no run_manifest.json") as caught:
+            run_patching_condition_repeat_tree(root, config=_config(alone / csv_path.name, scope=scope))
+        assert [issue.code for issue in caught.value.issues] == ["preprocessing_run_refused"]
 
 
-def test_a_manifest_without_the_design_hash_warns_at_the_repeat_scope(experiment):
+def test_a_run_that_recorded_no_design_is_refused_at_the_repeat_scope(experiment):
+    # Before CP-1 the design beside the table was read with a warning when the manifest
+    # recorded no hash for it; now the design is the run's, and a run without one is refused.
     root, _, csv_path = experiment
     manifest_path = csv_path.parent / "run_manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    manifest.pop("experiment_design_sha256")
+    manifest["experiment_design_sha256"] = None
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
-    messages = _messages(lambda: run_patching_condition_repeat_tree(
-        root, config=_config(csv_path, scope="biological_repeat")
-    ))
-    assert "The run manifest records no experiment_design_sha256, so a change" in messages
-    assert "No run_manifest.json" not in messages
+    with pytest.raises(PreprocessingCheckError) as caught:
+        run_patching_condition_repeat_tree(root, config=_config(csv_path, scope="biological_repeat"))
+    assert [issue.code for issue in caught.value.issues] == ["missing_experiment_design"]
 
 
 def _two_object_binary_mask():

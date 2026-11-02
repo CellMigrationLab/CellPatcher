@@ -140,8 +140,8 @@ undone:
 | `Normalization_Offset_C<i>`, `Normalization_Scale_C<i>` | the offset and scale of channel `i`, one pair per channel; a split-channel patch fills only its own channel's pair |
 
 `run_config.json` records the normalization settings and which statistics were used
-(`normalization_inputs`: the CSV's SHA-256, its version, whether a manifest was used, and the
-preprocessing package version), and for the image and patch scopes the normalization brick's
+(`normalization_inputs`: the CSV's SHA-256 and version as the run's manifest records them,
+the manifest version, and the preprocessing package version), and for the image and patch scopes the normalization brick's
 own settings (`normalization_settings`).
 
 ## Getting the patches
@@ -169,6 +169,9 @@ planes and what to do:
 
 | Message | Meaning and fix |
 |---|---|
+| *The preprocessing run in ... cannot be used* (`preprocessing_run_refused`) | The preprocessing brick's `RunInputs` refuses the run (since v0.2.0): no `run_manifest.json` next to the table, a run written before preprocessing v0.4.0, a table or `experiment_design.csv` changed since the run, an image or mask changed or missing since the run, or an experiment moved since the run. Run preprocessing v0.4 on the experiment where it is now. |
+| *normalization.plane_histograms/manifest/experiment_design names ...* (`not_the_run_output`) | Only the run's own files, unrenamed in its output folder, are read. Give that folder's `plane_histograms.csv` (and leave `manifest` and `experiment_design` empty). |
+| *... the preprocessing run recorded no design* (`missing_experiment_design`) | The `biological_repeat` scope needs a run whose experiment design was confirmed (step 1 of the preprocessing brick). |
 | *... image(s) found by CellPatcher have no rows in plane_histograms.csv* | Images were excluded or skipped by the preprocessing brick, or added after it ran. Run the preprocessing again on the same folder, remove those images, or use the patch scope. |
 | *... changed after the preprocessing brick read them* / *... the images changed after the preprocessing run* | An image's size, time or pixel values differ from the statistics. Run the preprocessing again. |
 | *... other condition, biological repeat or technical repeat labels* | CellPatcher and the preprocessing read different folder levels: give both the same experiment folder. |
@@ -181,10 +184,9 @@ planes and what to do:
 
 Warnings (the run continues): parameters that are approximations, background in group
 statistics, the `biological_repeat` scope (what it keeps and removes), repeat groups without
-images from some condition, patches discarded for having no intensity spread, a CSV scope
-without `run_manifest.json` (the table, size, time and axis checks are skipped), and the
-`biological_repeat` scope when the manifest records no `experiment_design_sha256` (a changed
-`experiment_design.csv` cannot be detected).
+images from some condition, and patches discarded for having no intensity spread. Before
+v0.2.0 a CSV scope without `run_manifest.json`, and the `biological_repeat` scope when the
+manifest recorded no `experiment_design_sha256`, only warned; both are refused now (above).
 
 The exact rules are in the [normalization contract](normalization_contract.md); the reasons
 behind them are in the [plan](plan.md).

@@ -2,10 +2,9 @@
 
 The fixtures are simulated experiments whose ``plane_histograms.csv`` and
 ``run_manifest.json`` are written by the real ``morphobricks_preprocessing``
-package. Tests needing it skip when the ``preprocessing`` extra is not installed.
+package (a core dependency), and read back through its ``RunInputs`` (CP-1).
 """
 
-import csv
 import importlib.util
 import json
 import os
@@ -19,7 +18,6 @@ from cellpatcher.orchestration import run_patching_condition_repeat_tree
 from cellpatcher.statistics import (
     INSTALL_COMMAND,
     PreprocessingCheckError,
-    PreprocessingUnavailableError,
     SourcePlane,
     check_images,
     check_planes,
@@ -106,14 +104,6 @@ def test_the_zarr_extra_is_the_install_command():
     assert INSTALL_COMMAND == 'pip install "cellpatcher[zarr]"'
 
 
-def test_other_file_versions_are_refused(monkeypatch):
-    import morphobricks_normalization.csv_io
-
-    monkeypatch.setattr(morphobricks_normalization.csv_io, "SCHEMA_VERSION", "3")
-    with pytest.raises(PreprocessingUnavailableError, match="Reinstall CellPatcher"):
-        load_plane_statistics("plane_histograms.csv")
-
-
 def test_the_package_exports_the_statistics_functions():
     import cellpatcher
 
@@ -146,90 +136,9 @@ def test_load_reads_rows_and_finds_the_manifest_next_to_the_table(stack_experime
 
 
 @needs_preprocessing
-def test_load_without_a_manifest_skips_it(stack_experiment, tmp_path):
-    import morphobricks_normalization as mbn
-
-    _, output = stack_experiment
-    alone = tmp_path / "alone"
-    alone.mkdir()
-    shutil.copy(output / mbn.OUTPUT_FILENAME, alone / mbn.OUTPUT_FILENAME)
-
-    statistics = load_plane_statistics(alone / mbn.OUTPUT_FILENAME)
-    assert statistics.manifest is None
-    assert statistics.manifest_path is None
-
-
-@needs_preprocessing
-def test_load_with_an_explicit_manifest(stack_experiment, tmp_path):
-    import morphobricks_normalization as mbn
-    import morphobricks_preprocessing as mbp
-
-    _, output = stack_experiment
-    elsewhere = tmp_path / "elsewhere.json"
-    shutil.copy(output / mbp.MANIFEST_FILENAME, elsewhere)
-
-    statistics = load_plane_statistics(output / mbn.OUTPUT_FILENAME, manifest=elsewhere)
-    assert statistics.manifest_path == elsewhere
-
-
-@needs_preprocessing
-def test_load_missing_files_are_errors(stack_experiment, tmp_path):
-    import morphobricks_normalization as mbn
-
-    _, output = stack_experiment
+def test_load_missing_table_is_an_error(tmp_path):
     with pytest.raises(FileNotFoundError, match="does not exist"):
         load_plane_statistics(tmp_path / "missing.csv")
-    with pytest.raises(FileNotFoundError, match="run manifest"):
-        load_plane_statistics(output / mbn.OUTPUT_FILENAME, manifest=tmp_path / "missing.json")
-
-
-@needs_preprocessing
-def test_load_detects_a_table_changed_after_the_manifest(stack_experiment):
-    import morphobricks_normalization as mbn
-
-    _, output = stack_experiment
-    csv_path = output / mbn.OUTPUT_FILENAME
-    records = mbn.read_plane_histograms(csv_path)
-    mbn.write_plane_histograms(records[:-1], csv_path)
-
-    with pytest.raises(PreprocessingCheckError, match="changed or replaced") as error_info:
-        load_plane_statistics(csv_path)
-    assert _codes(error_info) == ["plane_histograms_changed"]
-
-
-@needs_preprocessing
-def test_load_rejects_another_table_version(stack_experiment):
-    import morphobricks_normalization as mbn
-
-    _, output = stack_experiment
-    csv_path = output / mbn.OUTPUT_FILENAME
-    # plane_id holds commas, so the rows are edited with the csv module.
-    with open(csv_path, newline="", encoding="utf-8") as f:
-        header, *rows = list(csv.reader(f))
-    for row in rows:
-        row[header.index("schema_version")] = "1"
-    with open(csv_path, "w", newline="", encoding="utf-8") as f:
-        csv.writer(f).writerows([header, *rows])
-
-    with pytest.raises(PreprocessingCheckError, match="schema version") as error_info:
-        load_plane_statistics(csv_path, manifest=None)
-    assert _codes(error_info) == ["unreadable_plane_histograms"]
-
-
-@needs_preprocessing
-def test_load_rejects_another_manifest_version(stack_experiment):
-    import morphobricks_normalization as mbn
-    import morphobricks_preprocessing as mbp
-
-    _, output = stack_experiment
-    manifest_path = output / mbp.MANIFEST_FILENAME
-    data = json.loads(manifest_path.read_text(encoding="utf-8"))
-    data["manifest_version"] = "2"
-    manifest_path.write_text(json.dumps(data), encoding="utf-8")
-
-    with pytest.raises(PreprocessingCheckError, match="not supported") as error_info:
-        load_plane_statistics(output / mbn.OUTPUT_FILENAME)
-    assert _codes(error_info) == ["unreadable_manifest"]
 
 
 # ---------------------------------------------------------------------------
@@ -262,26 +171,30 @@ def test_check_images_reports_all_images_without_rows_in_one_message(stack_exper
     assert "2 images found by CellPatcher have no rows" in str(error_info.value)
 
 
+def _copied_root(root, tmp_path):
+    """A copy of the experiment, files keeping their modification times (CellPatcher's own root)."""
+    copy = tmp_path / "copy"
+    shutil.copytree(root, copy, copy_function=shutil.copy2)
+    return copy
+
+
 @needs_preprocessing
-def test_check_images_detects_a_changed_image_with_the_manifest(stack_experiment):
+def test_check_images_detects_a_changed_image_in_cellpatcher_s_root(stack_experiment, tmp_path):
+    # The run is unchanged where it was recorded; the images CellPatcher reads are checked
+    # against its manifest with the brick's check_sources.
     import morphobricks_normalization as mbn
 
     root, output = stack_experiment
-    image_path = root / "control" / "img1.tif"
+    copy = _copied_root(root, tmp_path)
+    image_path = copy / "control" / "img1.tif"
     stat = image_path.stat()
     os.utime(image_path, ns=(stat.st_atime_ns, stat.st_mtime_ns + 10**9))
     images = {path: "ZYX" for path in STACK_IMAGES}
 
     with pytest.raises(PreprocessingCheckError) as error_info:
-        check_images(load_plane_statistics(output / mbn.OUTPUT_FILENAME), images, experiment_root=root)
+        check_images(load_plane_statistics(output / mbn.OUTPUT_FILENAME), images, experiment_root=copy)
     (issue,) = error_info.value.issues
     assert (issue.code, issue.paths) == ("images_changed", ("control/img1.tif",))
-
-    # Without the manifest there is no size or time to compare.
-    alone = output.parent / "alone"
-    alone.mkdir()
-    shutil.copy(output / mbn.OUTPUT_FILENAME, alone / mbn.OUTPUT_FILENAME)
-    check_images(load_plane_statistics(alone / mbn.OUTPUT_FILENAME), images)
 
 
 @needs_preprocessing
@@ -302,15 +215,16 @@ def test_check_images_detects_other_axis_roles(stack_experiment):
 
 
 @needs_preprocessing
-def test_check_images_reports_a_missing_image(stack_experiment):
+def test_check_images_reports_a_missing_image(stack_experiment, tmp_path):
     # preprocessing check_sources (D86): a vanished image is an issue, not a FileNotFoundError.
     import morphobricks_normalization as mbn
 
     root, output = stack_experiment
-    (root / "control" / "img1.tif").unlink()
+    copy = _copied_root(root, tmp_path)
+    (copy / "control" / "img1.tif").unlink()
     with pytest.raises(PreprocessingCheckError) as error_info:
         check_images(load_plane_statistics(output / mbn.OUTPUT_FILENAME), {p: "ZYX" for p in STACK_IMAGES},
-                     experiment_root=root)
+                     experiment_root=copy)
     (issue,) = error_info.value.issues
     assert (issue.code, issue.paths) == ("images_missing", ("control/img1.tif",))
 
