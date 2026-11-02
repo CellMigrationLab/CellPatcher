@@ -97,10 +97,10 @@ def test_a_file_runs_patches_are_delivered_lazily_through_the_run_where_it_is_no
     moved.parent.mkdir()
     shutil.move(run.experiment, moved)
     shutil.move(run.masks, moved_masks)
-    lazy = dict(
-        ((patch.patch_id, patch.mask_file), array)
+    lazy = {
+        (patch.patch_id, patch.mask_file): array
         for patch, array in iter_run_patch_arrays(patches, config, experiment_root=moved, masks_root=moved_masks)
-    )
+    }
     assert lazy.keys() == eager.keys() and len(lazy) == 8
     assert all(np.array_equal(lazy[key], eager[key]) for key in eager)
     with pytest.raises(ValueError, match="comes from 'ctrl/rep1/z.tif', which is not an image of the preprocessing run"):
