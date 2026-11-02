@@ -22,7 +22,7 @@ from cellpatcher.io import (
 )
 from cellpatcher.orchestration import run_patching_condition_repeat_tree
 from cellpatcher.statistics import PreprocessingUnavailableError
-from tests.helpers import write_ngff
+from tests.helpers import write_ngff, write_ngff_labels
 
 needs_zarr = pytest.mark.skipif(
     importlib.util.find_spec("morphobricks_preprocessing") is None or importlib.util.find_spec("zarr") is None,
@@ -173,6 +173,37 @@ def test_cell_mode_matches_tiff_masks_to_stores(tmp_path):
     assert [(p.image_file, p.mask_file, p.label_id) for p in leaf.result.patches] == [
         ("a.ome.zarr", "a_mask.tif", 1)
     ]
+
+
+@needs_zarr
+@pytest.mark.parametrize("label_name, mask_type, outcome", [
+    ("cells", None, "a_mask.tif"),
+    ("cells", "mask", "a_mask.tif"),
+    ("cells", "cells", "No mask of type 'cells' pairs.*mask_source='ngff_labels'"),
+    ("mask", None, r"\[duplicate_mask\]"),
+])
+def test_tiff_masks_are_paired_beside_the_stores_own_label_images(tmp_path, label_name, mask_type, outcome):
+    # Since preprocessing v0.4, find_masks pairs an OME-Zarr image's own label images too
+    # (design v0.4 §2). A mask folder run reads only the folder's files: a label image is not
+    # a mask type of the folder (before this fix: "the mask folder holds 2 mask types"), and
+    # choosing it is refused instead of looking for the label inside the mask folder. A
+    # label image and a folder mask of the same type for one image are preprocessing's
+    # duplicate_mask.
+    images, masks = tmp_path / "images", tmp_path / "masks"
+    labels = np.zeros((16, 16), dtype=np.uint16)
+    labels[4:9, 4:9] = 1
+    store = write_ngff(images / "control" / "a.ome.zarr", np.ones((16, 16), dtype=np.uint16), "yx")
+    write_ngff_labels(store, {label_name: labels}, "yx")
+    write_array(masks / "control" / "a_mask.tif", labels)
+    config = CellPatcherConfig(mode="cell")
+    config.cell.patch_size = 8
+    config.matching.mask_type = mask_type
+    if outcome.endswith(".tif"):
+        (leaf,) = run_patching_condition_repeat_tree(images, config=config, mask_root_path=masks)
+        assert [(p.mask_file, p.label_id) for p in leaf.result.patches] == [(outcome, 1)]
+    else:
+        with pytest.raises(ValueError, match=outcome):
+            run_patching_condition_repeat_tree(images, config=config, mask_root_path=masks)
 
 
 @needs_zarr

@@ -761,8 +761,8 @@ def header_axes_disagreement(path: str | os.PathLike, declared_axes: str) -> tup
 
     The declared axes are the file's roles, checked with the brick's
     ``review_axes`` (``check_mapping`` and ``header_axis_issue``, design v0.4
-    §3; CellPatcher keeps no copy): they may name what the header leaves open, never
-    contradict an axis it names. A Y/X swap is refused like any contradiction:
+    §3; CellPatcher keeps no copy): they may name what the header leaves
+    open, never contradict an axis it names. A Y/X swap is refused like any contradiction:
     nothing is ever read transposed. OME-Zarr images are matched by role when
     read (:func:`conform_axes`), not here.
 
@@ -784,9 +784,7 @@ def header_axes_disagreement(path: str | os.PathLike, declared_axes: str) -> tup
 def _declared_axes_problem(meta: TiffMetadata, declared: str) -> str | None:
     """Return the errors of the brick's ``review_axes`` for roles *declared* on a TIFF header, or None.
 
-    ``review_axes`` runs ``check_mapping`` and the axis check (``header_axis_issue``) on the
-    file; its warnings (``axes_not_named``: a plain stack read with the declared roles) do
-    not block. An unreadable header, which ``review_axes`` leaves out, is refused here.
+    Its warnings (``axes_not_named``) do not block; an unreadable header, which it leaves out, does.
     """
     from morphobricks_preprocessing import AxisMapping, review_axes
 
@@ -795,10 +793,8 @@ def _declared_axes_problem(meta: TiffMetadata, declared: str) -> str | None:
     if len(declared) != len(meta.axes):
         return f"{meta.relative_path}: {len(declared)} declared for {len(meta.axes)} dimensions ({meta.axes!r})."
     review = review_axes([meta], AxisMapping(meta.axes, tuple(declared)))
-    issues = [issue for issue in review.issues if issue.is_error]
-    if not issues:
-        return None
-    return " ".join(f"{meta.relative_path}: [{issue.code}] {issue.message} {issue.action}" for issue in issues)
+    errors = [issue for issue in review.issues if issue.is_error]
+    return " ".join(f"{meta.relative_path}: [{issue.code}] {issue.message} {issue.action}" for issue in errors) or None
 
 
 def refuse_header_axes(
@@ -955,6 +951,7 @@ def pair_masks(experiment_root, image_files, mask_folder_path, *, mask_type=None
         mask folder holds exactly one type.
     """
     from morphobricks_preprocessing import find_masks
+    from morphobricks_preprocessing.masks import FOLDER
     from morphobricks_preprocessing.metadata import inspect_images
 
     if mask_type is not None and (not isinstance(mask_type, str) or not mask_type.strip()):
@@ -973,7 +970,9 @@ def pair_masks(experiment_root, image_files, mask_folder_path, *, mask_type=None
     ]
     if problems:
         raise ValueError(f"Images and masks cannot be paired: {'; '.join(problems)}. {MASK_LAYOUT_HELP}")
-    types = inventory.types
+    # The mask folder's files only: label images (design v0.4 §2) need mask_source="ngff_labels".
+    folder_files = [f for f in inventory.files if f.source == FOLDER]
+    types = sorted({f.mask_type for f in folder_files})
     if not types:
         raise ValueError(f"No mask in '{mask_folder_path}' pairs with an image. {MASK_LAYOUT_HELP}")
     if mask_type is None:
@@ -986,10 +985,11 @@ def pair_masks(experiment_root, image_files, mask_folder_path, *, mask_type=None
     elif mask_type not in types:
         raise ValueError(
             f"No mask of type {mask_type!r} pairs with an image; the mask folder holds the types "
-            f"{', '.join(types)} (names are compared exactly). {MASK_LAYOUT_HELP}"
+            f"{', '.join(types)} (names are compared exactly; an OME-Zarr image's own label image is read "
+            f"with common.mask_source='ngff_labels'). {MASK_LAYOUT_HELP}"
         )
     _refuse_header_problems(inventory, mask_type)
-    by_image = {f.image: f for f in inventory.files if f.mask_type == mask_type}
+    by_image = {f.image: f for f in folder_files if f.mask_type == mask_type}
     missing = [relative[image] for image in image_files if relative[image] not in by_image]
     if missing:
         raise ValueError(

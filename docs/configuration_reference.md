@@ -180,7 +180,7 @@ The image's folders are its path below the image folder (folder run: none) or th
 
 | Field | Type | Default | Notes |
 |---|---|---|---|
-| `mask_type` | `str \| None` | `None` | The mask type to use (`"cells"` for `img_cells.tif` or `cells/img.tif`). `None` uses the only type in the mask folder and refuses a folder holding several (a type is never chosen for you). |
+| `mask_type` | `str \| None` | `None` | The mask type to use (`"cells"` for `img_cells.tif` or `cells/img.tif`). `None` uses the only type in the mask folder and refuses a folder holding several (a type is never chosen for you). The types are the mask folder's: since v0.2.0 (preprocessing v0.4, which pairs an OME-Zarr image's own label images too) a label image is read only with `common.mask_source="ngff_labels"`, and a label image and a folder mask of the same type for one image are refused (`duplicate_mask`). |
 
 Refused, never resolved by a guess or silently skipped:
 
