@@ -11,7 +11,7 @@ import importlib.util
 import numpy as np
 import pytest
 
-from cellpatcher.config import CellPatcherConfig, CommonConfig
+from cellpatcher.config import CellPatcherConfig
 from cellpatcher.io import write_array
 from cellpatcher.orchestration import run_patching_condition_repeat_tree
 from tests.helpers import file_run_config, preprocess, write_ngff, write_ngff_labels
