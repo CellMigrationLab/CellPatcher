@@ -555,3 +555,13 @@ def test_real_tiff_fixture_cell_apply_mask_torch_dataset():
     sample = ds[0]
     assert tuple(sample["image"].shape) == (3, 32, 32)
     assert "label_id" in sample
+
+
+def test_a_file_path_is_refused_when_the_dataset_is_built(tmp_path):
+    # CP-2b: PatchTorchDataset takes arrays only. Old main read a path itself (common.image_axes
+    # and its own header check) when an item was loaded, inside a DataLoader worker.
+    patch = PatchRegion(patch_id="p", image_id="image_0000", mode="whole_fov", y0=0, y1=4, x0=0, x1=4)
+    with pytest.raises(TypeError, match=r"got the path .*img.tif.*iter_run_patch_arrays"):
+        PatchTorchDataset([tmp_path / "img.tif"], [patch])
+    with pytest.raises(TypeError, match=r"masks of run_patching as arrays; got the path .*m.tif"):
+        PatchTorchDataset([np.zeros((4, 4))], [patch], masks=[str(tmp_path / "m.tif")])

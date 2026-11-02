@@ -9,7 +9,7 @@ import numpy as np
 from cellpatcher._deprecation import upgrade_legacy_repeat_column
 from cellpatcher.axes import axis_index, normalize_axes, require_spatial_axes
 from cellpatcher.config import CellPatcherConfig, CommonConfig, ExtractionConfig
-from cellpatcher.delivery import _normalize_on_load, patch_array, patch_axes
+from cellpatcher.delivery import _normalize_on_load, _refuse_file, patch_array, patch_axes
 from cellpatcher.io import read_array
 from cellpatcher.export import sanitize_filename
 
@@ -142,6 +142,10 @@ class PatchTorchDataset(torch.utils.data.Dataset):
     ):
         """Patches cut lazily from in-memory images, one per item.
 
+        *images* (and *masks*) are arrays: a file path is a ``TypeError`` here, since a folder or
+        tree run's files are read only through its preprocessing run
+        (:func:`cellpatcher.iter_run_patch_arrays`).
+
         Each item is built with :func:`cellpatcher.delivery.patch_array`, so it
         equals the patch eager delivery gives: normalized with the patch's
         recorded parameters when it has them (``config.normalization``). Pass
@@ -155,6 +159,8 @@ class PatchTorchDataset(torch.utils.data.Dataset):
             self._images = [images]
         if len(self._images) == 0:
             raise ValueError("images must contain at least one image.")
+        for image in self._images:  # at construction, not in a DataLoader worker
+            _refuse_file(image, "image")
 
         self._patches = list(patches)
         if config is None:
@@ -179,6 +185,8 @@ class PatchTorchDataset(torch.utils.data.Dataset):
                 self._masks = list(masks)
             else:
                 self._masks = [masks]
+            for mask in self._masks:
+                _refuse_file(mask, "mask")
             if len(self._masks) != len(self._images):
                 raise ValueError("When masks are provided, number of masks must match number of images.")
             self._mask_lookup = {f"image_{idx:04d}": mask for idx, mask in enumerate(self._masks)}
