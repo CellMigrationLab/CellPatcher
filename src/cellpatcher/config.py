@@ -500,16 +500,15 @@ _NOT_GIVEN = object()
 class MatchConfig:
     """Which masks to pair with the images.
 
-    Images and masks are paired with the MorphoBricks preprocessing brick's
-    rule (``morphobricks_preprocessing.find_masks``, issue #45), so every
-    brick pairs the same files: a mask is a TIFF file
+    Images and masks are paired by the preprocessing run (its ``find_masks``,
+    design v0.4 §6), so every brick reads the same pairs: a mask is a TIFF file
     ``<mask type>/<image's folders>/<image name>.tif`` or
-    ``<image's folders>/<image name>_<mask type>.tif`` in the mask folder
-    (:func:`~cellpatcher.io.pair_masks`).
+    ``<image's folders>/<image name>_<mask type>.tif`` in the mask folder, or
+    an OME-Zarr image's label image (its type is its name).
 
     ``mask_type`` names the mask type to use (``"cells"`` for
-    ``img_cells.tif`` or ``cells/img.tif``). None (default) uses the only
-    type in the mask folder, and refuses a folder holding several.
+    ``img_cells.tif`` or ``cells/img.tif``). None (default) uses the run's only
+    type, and refuses a run holding several.
 
     The former options ``strategy``, ``mask_suffixes``, ``case_sensitive``
     and ``ignore_unrequested_masks`` were removed in v0.1.1: given here, set

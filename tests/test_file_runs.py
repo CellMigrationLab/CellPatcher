@@ -143,7 +143,7 @@ def test_file_runs_read_through_run_inputs_only(tmp_path, monkeypatch):
     def refused(*args, **kwargs):
         raise AssertionError("CellPatcher read or paired a file itself")
 
-    for module, name in ((cellpatcher.io, "pair_masks"), (cellpatcher.io, "read_image"), (cellpatcher.io, "read_array"),
+    for module, name in ((cellpatcher.io, "read_image"), (cellpatcher.io, "read_array"),
                          (cellpatcher.io, "refuse_image_header_axes"), (cellpatcher.io, "discover_images"),
                          (cellpatcher.planes, "read_file_plane")):
         monkeypatch.setattr(module, name, refused)

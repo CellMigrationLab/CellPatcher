@@ -390,7 +390,7 @@ def test_the_former_matchers_are_gone():
         assert not hasattr(io, name), name
         assert name not in cellpatcher.__all__
     # CellPatcher's own pairing, removed in v0.2.0 (CP-2b): validation reads the run's pairing.
-    for name in ("validate_image_and_mask_folders",):
+    for name in ("validate_image_and_mask_folders", "pair_masks", "MaskPairing", "discover_folder_images"):
         assert not hasattr(io, name), name
 
 
