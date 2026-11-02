@@ -119,3 +119,78 @@ def test_an_unexpected_error_shows_its_traceback():
     changed = issue_card(RunInputsError("a.tif changed since the run"))
     assert "The preprocessing run cannot be used as it is" in changed and "a.tif changed" in changed
     assert "Please change the settings" not in changed
+
+
+# CP-3b: the normalization parameters per group and the before/after views come back.
+
+
+def _normalized(notebook, scope="image"):
+    notebook.form.normalization.enabled.value = True
+    notebook.form.normalization.scope.value = scope
+    notebook.form.cell.size.value = "fixed"
+    notebook.form.cell.fixed.value = 12
+    notebook.form.cell.exclude_border.value = False
+
+
+def test_show_parameters_per_group_lists_every_group(clean):
+    notebook = _checked(clean)
+    _normalized(notebook)
+    notebook.parameters_button.click()
+    text = notebook.parameters_message.value
+    assert "Parameters per group (4 groups)" in text, text
+    assert "drug/rep1/b.ome.tif" in text and "C1" in text
+    assert "background included" in text  # the normalization warning is shown with the table
+
+
+def test_show_parameters_per_group_says_what_is_missing(clean):
+    notebook = _checked(clean)
+    assert notebook.show_group_parameters() is None
+    assert "Normalization is off" in notebook.parameters_message.value
+    _normalized(notebook, scope="patch")
+    assert notebook.show_group_parameters() is None
+    assert "The patch scope has no parameters per group" in notebook.parameters_message.value
+
+
+def test_a_group_that_cannot_be_normalized_is_shown_in_red():
+    from cellpatcher.notebook_session import GroupParameters
+    from cellpatcher.notebook_ui import parameters_html
+
+    rows = (
+        {"group": "rep1", "channel": 0, "t": 0, "planes": 2, "offset": 10.0, "scale": 90.5, "exact": True},
+        {"group": "rep1", "channel": 1, "t": 0, "planes": 2, "problem": "zero intensity spread"},
+    )
+    text = parameters_html(GroupParameters("minmax", "biological_repeat", rows, ()))
+    assert "Time point" in text and "90.5" in text
+    assert "mb-error" in text and "rep1 (C1): zero intensity spread" in text
+
+
+def test_the_normalized_preview_draws_the_patches_before_and_after(clean, monkeypatch):
+    import cellpatcher.notebook_ui as ui
+
+    drawn = []
+    monkeypatch.setattr(ui, "draw_before_after", drawn.append)
+    notebook = _checked(clean)
+    _normalized(notebook)
+    preview = notebook.show_preview()
+    assert preview is not None, notebook.preview_message.value
+    assert drawn == [preview.before_after] and preview.before_after
+    assert "without and with normalization" in notebook.preview_message.value
+
+
+def test_the_before_after_figure_has_a_patch_and_a_histogram_per_state(clean, monkeypatch):
+    import matplotlib.pyplot as plt
+
+    from cellpatcher.notebook_ui import draw_before_after
+
+    figures = []
+    monkeypatch.setattr(plt, "show", lambda: figures.append(plt.gcf()))
+    notebook = _checked(clean)
+    _normalized(notebook)
+    pairs = notebook.show_preview().before_after
+    figures.clear()
+    draw_before_after(pairs)
+    (figure,) = figures
+    titles = [axis.get_title() for axis in figure.axes]
+    assert len(titles) == 4 * len(pairs)
+    assert titles[:4] == ["label 1, C0: without normalization", "intensities, without normalization",
+                          "label 1, C0: normalized", "intensities, normalized"]

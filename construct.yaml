@@ -38,6 +38,7 @@ extra_files:
 - src/cellpatcher/io.py: CellPatcher/src/cellpatcher/cellpatcher/io.py
 - src/cellpatcher/masking.py: CellPatcher/src/cellpatcher/cellpatcher/masking.py
 - src/cellpatcher/normalization.py: CellPatcher/src/cellpatcher/cellpatcher/normalization.py
+- src/cellpatcher/normalization_review.py: CellPatcher/src/cellpatcher/cellpatcher/normalization_review.py
 - src/cellpatcher/notebook_form.py: CellPatcher/src/cellpatcher/cellpatcher/notebook_form.py
 - src/cellpatcher/notebook_session.py: CellPatcher/src/cellpatcher/cellpatcher/notebook_session.py
 - src/cellpatcher/notebook_ui.py: CellPatcher/src/cellpatcher/cellpatcher/notebook_ui.py
