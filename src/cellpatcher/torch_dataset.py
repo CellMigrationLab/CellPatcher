@@ -7,7 +7,7 @@ import warnings
 import numpy as np
 
 from cellpatcher._deprecation import upgrade_legacy_repeat_column
-from cellpatcher.axes import axis_index, normalize_axes, require_spatial_axes
+from cellpatcher.axes import axis_index, normalize_axes, refuse_transposed_inputs, require_spatial_axes
 from cellpatcher.config import CellPatcherConfig, CommonConfig, ExtractionConfig
 from cellpatcher.delivery import _normalize_on_load, _refuse_file, patch_array, patch_axes
 from cellpatcher.io import read_array
@@ -170,6 +170,8 @@ class PatchTorchDataset(torch.utils.data.Dataset):
                 extraction=extraction if extraction is not None else ExtractionConfig(),
             )
         self._config = config
+        # X before Y is refused here, as a file path is, not when an item is loaded in a worker.
+        refuse_transposed_inputs(config.common.image_axes, config.common.mask_axes, self._images, masks)
         self._image_axes = config.common.image_axes
         self._mask_axes = config.common.mask_axes
         self._extraction = config.extraction
