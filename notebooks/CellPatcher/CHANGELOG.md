@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.2.0rc1] - 2026-11-02
+
+### Changed
+- Version updated from 0.0.6 to 0.2.0rc1
+
+**Commit Details:**
+- Hash: [`3b420930`](https://github.com/CellMigrationLab/CellPatcher/commit/3b420930fccf9731836659ebbaf62b29f235146b)
+- Author: guijacquemet
+- Date: 2026-11-02 12:42:52 +0200
+- Message: Merge pull request #71 from CellMigrationLab/claude/cp-3-notebook-docs-installers
+
+CP-3: notebook, docs, installers and code standards for v0.2.0 (preprocessing v0.4.0rc2), with the independent review's fixes. v0.2.0rc1 is tagged after CP-3b.
+
+---
 ## [0.2.0rc1] - Preprocessing v0.4.0rc2, unrecorded files refused, the v0.2 notebook (CP-3)
 
 The first release candidate of v0.2.0, after CP-1 to CP-3 (see the sections below for CP-1,
