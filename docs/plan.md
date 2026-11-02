@@ -515,14 +515,19 @@ from GitHub at a pinned version) **[D1]**.
   `image_axes` with X before Y are refused like masks (and by the object scan), and the
   MorphoBricks code standards (`tools/check.py`, a shrink-only baseline) are adopted.
   *CP-3b (owner decisions of 2026-11-02), a follow-up PR **before** tagging `v0.2.0rc1`:*
-  `CellPatcher_Pytorch.ipynb` and `CellPatcher_Strategy_Examples.ipynb` get the LabConstrictor
-  treatment of the main notebook (no `GITHUB_TOKEN`, an install pinned to `RELEASE_TAG`, the
-  Colab guard, `# @title` cells, tests); the main notebook's "show parameters per group" table
-  and before/after normalization histograms come back, computed in the package (no computing
-  in notebook cells). Release candidates get no installer (pip and Colab only; the release
-  script refuses an `rc` version); the installer's package layout (the package copied to
-  `src/cellpatcher/cellpatcher/`, which `setup.py` does not find) is fixed before the final
-  `v0.2.0` installers. Then tag `v0.2.0rc1`.
+  *Done.* `CellPatcher_Pytorch.ipynb` and `CellPatcher_Strategy_Examples.ipynb` get the
+  LabConstrictor treatment of the main notebook (no `GITHUB_TOKEN`, an install pinned to
+  `RELEASE_TAG`, the shared Colab-guarded Step 0, `# @title` cells calling the package, tests
+  that run them in a kernel): the strategy examples preview each strategy on an image of the
+  preprocessing run (`cellpatcher.notebook_examples`), the PyTorch notebook loads an export as a
+  batch (`cellpatcher.torch_session`). The main notebook's "show parameters per group" table and
+  before/after normalization histograms are back, computed in the package
+  (`notebook_session.group_parameters_of_run`, `Preview.before_after`,
+  `cellpatcher.normalization_review` with the normalization brick's histogram). Release
+  candidates get no installer (pip and Colab only; the release script refuses an `rc`
+  version); the installer's package layout (the package copied to `src/cellpatcher/cellpatcher/`
+  by this repository's stale copy of the template, which `setup.py` did not find) is read by
+  `setup.py` too, tested for both layouts. Then tag `v0.2.0rc1`.
 - **Planned after preprocessing v0.4.0 is final: the preprocessing steps inside the CellPatcher
   notebook** (owner decision of 2026-11-02). Preprocessing is the essential first step, so the
   CellPatcher notebook should eventually include it, but not while preprocessing's notebook is
