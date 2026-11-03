@@ -10,6 +10,9 @@ when a preprocessing run was read, a ``preprocessing`` section:
   when the file is written: :func:`cellpatcher.run_open.refuse_changed_manifest`);
 - for a folder or tree run, ``layout``: the order of the arrays CellPatcher built from the roles
   the run recorded (T, Z, C, then Y, X; ``image`` and ``mask``), which delivers exported patches.
+  Each image is read in its own roles (audit A-M1); when the images' layouts differ, ``image``
+  and ``mask`` are the axes any of them has and ``images`` maps each image's path to its own
+  ``image`` and ``mask`` layout (:func:`delivery_config` reads a patch's from there).
 
 A folder or tree run does not record ``common.image_axes``, ``mask_axes`` or the labels: they
 are the run's, not settings (each patch's labels are in ``patches.csv``), so the file loads back
@@ -41,7 +44,7 @@ from cellpatcher.config import (
 )
 from cellpatcher.normalization import CSV_SCOPES, normalization_inputs, run_settings
 from cellpatcher.run_open import refuse_changed_manifest
-from cellpatcher.run_session import recalled
+from cellpatcher.run_session import recalled, recalled_layouts
 
 RUN_CONFIG_VERSION = 2
 READ_VERSIONS = (1, RUN_CONFIG_VERSION)
@@ -101,6 +104,9 @@ def _preprocessing_section(config: CellPatcherConfig) -> dict | None:
     section: dict[str, Any] = {"run": str(run), "manifest_sha256": sha256}
     if file_run:
         section["layout"] = {"image": common.image_axes, "mask": common.mask_axes}
+        images = recalled_layouts(run) or {}
+        if any(layout != section["layout"] for layout in images.values()):
+            section["layout"]["images"] = images
     return section
 
 
@@ -169,11 +175,12 @@ def _without_removed_settings(common: Mapping, where: str) -> dict:
     return common
 
 
-def delivery_config(data: Mapping, where: str) -> CellPatcherConfig:
+def delivery_config(data: Mapping, where: str, source: str | None = None) -> CellPatcherConfig:
     """Return the config of a ``run_config.json`` for delivering its exported patches.
 
     A folder or tree run's arrays are in its recorded ``preprocessing.layout``, put back into
-    ``common.image_axes``/``mask_axes`` (the axes of its patches). A run normalized at a scope
+    ``common.image_axes``/``mask_axes`` (the axes of its patches): the layout of the image at
+    *source* (a patch's ``source_relative_path``) when the run recorded one per image. A run normalized at a scope
     removed since (``condition``, ``technical_repeat``; normalization brick N29) still loads: its
     parameters are in ``patches.csv``, and only the patch axes are needed.
     """
@@ -183,5 +190,6 @@ def delivery_config(data: Mapping, where: str) -> CellPatcherConfig:
     config = config_from_dict(data, where)
     layout = (data.get("preprocessing") or {}).get("layout")
     if layout is not None:
+        layout = (layout.get("images") or {}).get(source, layout)
         config.common.image_axes, config.common.mask_axes = layout["image"], layout["mask"]
     return config

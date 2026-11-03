@@ -41,20 +41,18 @@ from cellpatcher.pipeline import (
     PatchingResult,
     _patch_planes,
     check_config_identity,
-    run_patching,
 )
-from cellpatcher.planes import splits_planes
 from cellpatcher.run_open import _refuse_other_file, open_run, statistics_of
 from cellpatcher.run_reading import (
+    fov_layout,
     iter_fov_planes,
     mask_file_name,
+    mask_layout,
     mask_record,
-    read_fov,
     read_fov_mask,
-    run_layout,
-    run_mask_layout,
+    union_layout,
 )
-from cellpatcher.run_session import keep_in_session, remember
+from cellpatcher.run_session import keep_in_session, remember, remember_layouts
 from cellpatcher.statistics import (
     PlaneStatistics,
     PreprocessingCheckError,
@@ -87,27 +85,46 @@ class FileRun:
     ----------
     inputs
         The run, opened with ``RunInputs.open``.
-    layout
-        The canonical layout of every image's array (:func:`cellpatcher.run_reading.run_layout`).
+    layouts
+        Each image's canonical layout, keyed by its path (:func:`cellpatcher.run_reading.fov_layout`):
+        its own roles, whatever the other images of the run have (audit A-M1).
     mask_type
         The mask type read, or None without masks.
-    mask_axes
-        The canonical layout of every mask's array (``"YX"`` without masks;
-        :func:`cellpatcher.run_reading.run_mask_layout`).
+    mask_layouts
+        Each image's mask layout, keyed by the image's path
+        (:func:`cellpatcher.run_reading.mask_layout`); empty without masks.
     statistics
         The run's table for a CSV normalization scope, else None.
     """
 
     inputs: RunInputs
-    layout: str
+    layouts: Mapping[str, str]
     mask_type: str | None
-    mask_axes: str
+    mask_layouts: Mapping[str, str]
     statistics: PlaneStatistics | None
 
     @property
     def fovs(self) -> tuple[Fov, ...]:
         """Every image of the run, sorted by path."""
         return self.inputs.fovs()
+
+    @property
+    def layout(self) -> str:
+        """The T, Z and C axes any image's layout has, then ``YX`` (recorded in ``run_config.json``)."""
+        return union_layout(self.layouts.values())
+
+    @property
+    def mask_axes(self) -> str:
+        """The T and Z any mask's layout has, then ``YX`` (``"YX"`` without masks)."""
+        return union_layout(self.mask_layouts.values())
+
+    def image_layout(self, fov: Fov) -> str:
+        """Return the canonical layout *fov* is read in."""
+        return self.layouts[fov.relative_path]
+
+    def mask_layout(self, fov: Fov) -> str:
+        """Return the layout *fov*'s mask is read in (``"YX"`` without masks)."""
+        return self.mask_layouts.get(fov.relative_path, _DEFAULT_AXES)
 
 
 def refuse_file_run_settings(config: CellPatcherConfig, where: str) -> None:
@@ -208,14 +225,15 @@ def open_file_run(
     fovs = inputs.fovs()
     if not fovs:
         raise ValueError(f"The preprocessing run in {inputs.output_folder} has no images.")
-    layout = run_layout(fovs)
+    layouts = {fov.relative_path: fov_layout(fov, config.common) for fov in fovs}
     mask_type = _mask_type(config.matching.mask_type, inputs, f"mode={config.mode!r}") if use_masks else None
-    mask_axes = _DEFAULT_AXES
+    mask_layouts = {}
     if mask_type is not None:
-        mask_axes = run_mask_layout([_record(inputs, fov, mask_type) for fov in fovs])
+        mask_layouts = {fov.relative_path: mask_layout(_record(inputs, fov, mask_type)) for fov in fovs}
         _check_object_set(config, mask_type)
-    statistics = _csv_statistics(config, inputs, layout)
-    return FileRun(inputs, layout, mask_type, mask_axes, statistics)
+    remember_layouts(config.common.preprocessing_run, layouts, mask_layouts)
+    statistics = _csv_statistics(config, inputs, layouts)
+    return FileRun(inputs, layouts, mask_type, mask_layouts, statistics)
 
 
 def _mask_type(wanted: str | None, inputs: RunInputs, reader: str) -> str:
@@ -262,7 +280,9 @@ def _check_object_set(config: CellPatcherConfig, mask_type: str) -> None:
         validate_object_set(object_set_from_mask_type(mask_type), name=f"The object set from mask type {mask_type!r}")
 
 
-def _csv_statistics(config: CellPatcherConfig, inputs: RunInputs, layout: str) -> PlaneStatistics | None:
+def _csv_statistics(
+    config: CellPatcherConfig, inputs: RunInputs, layouts: Mapping[str, str]
+) -> PlaneStatistics | None:
     """Check a CSV normalization scope against the opened run, before any image is read.
 
     The run's own table, image type and (for ``biological_repeat``) design; every image must
@@ -278,7 +298,7 @@ def _csv_statistics(config: CellPatcherConfig, inputs: RunInputs, layout: str) -
     if settings.scope == "biological_repeat":
         load_experiment_design(settings, statistics)
     rows_only = PlaneStatistics(statistics.plane_histograms, statistics.records, statistics.csv_sha256)
-    check_images(rows_only, {fov.relative_path: layout for fov in inputs.fovs()})
+    check_images(rows_only, dict(layouts))
     return statistics
 
 
@@ -335,32 +355,39 @@ def run_config_for(config: CellPatcherConfig, run: FileRun, labels: Sequence[str
 def patch_fovs(run: FileRun, fovs: Sequence[Fov], config: CellPatcherConfig) -> PatchingResult:
     """Patch images of the run with *config* (from :func:`run_config_for`), reading them through ``RunInputs``.
 
-    With ``z_policy``/``t_policy`` splitting planes, one image is read at a time and only its
-    chosen planes; otherwise every image is read whole, as before.
+    One image is read at a time, in its own layout (:meth:`FileRun.image_layout`), and only the
+    planes ``z_policy``/``t_policy`` choose; with ``"keep"`` for both, the whole image is its one
+    plane. Each image is patched as it would be alone, so its ``patch_id`` and rectangles do not
+    depend on the other images of the run (audit A-M1).
     """
-    common = config.common
     metadata = [fov_metadata(run, fov, config) for fov in fovs]
-    if splits_planes(common):
-        return _patch_planes(config, _plane_sources(run, fovs, metadata, config))
-    images = [read_fov(run.inputs, fov, run.layout)[0] for fov in fovs]
-    masks = None if run.mask_type is None else [read_run_mask(run, fov) for fov in fovs]
-    return run_patching(images=images, masks=masks, config=config, image_metadata=metadata)
+    return _patch_planes(config, _plane_sources(run, fovs, metadata, config))
 
 
 def _plane_sources(run: FileRun, fovs: Sequence[Fov], metadata: Sequence[dict], config: CellPatcherConfig) -> Iterator:
     """Yield ``(metadata, planes)`` per image, reading one image (and its mask) at a time."""
     common = config.common
-    for fov, meta in zip(fovs, metadata):
+    for fov, meta in zip(fovs, metadata, strict=True):
         mask = None if run.mask_type is None else read_run_mask(run, fov)
         planes = iter_fov_planes(
-            run.inputs, fov, run.layout, mask, run.mask_axes, common, single_planes=config.normalization.enabled
+            run.inputs,
+            fov,
+            run.image_layout(fov),
+            mask,
+            run.mask_layout(fov),
+            common,
+            single_planes=config.normalization.enabled,
         )
         yield meta, planes
 
 
-def read_run_mask(run: FileRun, fov: Fov) -> np.ndarray:
-    """Read an image's mask of the run's type, through ``RunInputs.read_mask``, in the run's mask layout."""
-    return read_fov_mask(run.inputs, fov, _record(run.inputs, fov, run.mask_type), run.mask_axes)
+def read_run_mask(run: FileRun, fov: Fov, layout: str | None = None) -> np.ndarray:
+    """Read an image's mask of the run's type, through ``RunInputs.read_mask``.
+
+    In *layout*, or the mask's own (:meth:`FileRun.mask_layout`) when None.
+    """
+    record = _record(run.inputs, fov, run.mask_type)
+    return read_fov_mask(run.inputs, fov, record, run.mask_layout(fov) if layout is None else layout)
 
 
 def fov_metadata(run: FileRun, fov: Fov, config: CellPatcherConfig) -> dict:

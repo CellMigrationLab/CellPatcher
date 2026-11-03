@@ -546,7 +546,7 @@ def test_a_mask_type_object_set_is_refused_before_any_read(tmp_path, monkeypatch
     """Issue #42: the object set from the run's mask type is checked before any image or mask
     is read. A mask type always gives a valid name today (object_set_from_mask_type replaces
     other characters), so the refusal is forced to show *when* it is checked."""
-    from cellpatcher import file_runs
+    from cellpatcher import file_runs, run_reading
 
     def no_read(*args, **kwargs):
         raise AssertionError("a file was read before the object_set refusal")
@@ -555,7 +555,7 @@ def test_a_mask_type_object_set_is_refused_before_any_read(tmp_path, monkeypatch
     write_array(images / "img.tif", _image(0))
     write_array(masks / "img_cells.tif", _labels(0))
     monkeypatch.setattr(file_runs, "object_set_from_mask_type", lambda mask_type: "bad/name")
-    monkeypatch.setattr(file_runs, "read_fov", no_read)
+    monkeypatch.setattr(run_reading, "read_fov", no_read)
     monkeypatch.setattr(file_runs, "read_fov_mask", no_read)
     config = _cell_config()
     config.common.z_policy = planes

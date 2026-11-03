@@ -189,8 +189,10 @@ CellPatcher-specific conventions:
   opens it with `RunInputs.open` with the image folder/root and masks folder
   given (a moved or copied experiment is checked and read where it is now),
   patches the run's FOVs with their recorded keys, and reads images and masks
-  with `RunInputs.read_plane`/`read_mask` (`cellpatcher.run_reading`) in one
-  canonical layout per run (T, Z, C, then Y, X). No CellPatcher-side axis,
+  with `RunInputs.read_plane`/`read_mask` (`cellpatcher.run_reading`) in each
+  image's own canonical layout (its T, Z, C roles, then Y, X; owner decision of
+  2026-11-03, audit A-M1: an axis is in an image's plane choices and `patch_id`
+  only if that image has the role, as in MorphoFeature). No CellPatcher-side axis,
   pairing or calibration logic is used for them; `common.image_axes`/`mask_axes`
   other than `"YX"`, labels other than `"single"` and
   `normalization.experiment_root`/`masks_root` are refused with a migration

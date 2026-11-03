@@ -8,7 +8,8 @@ manifest, and the brick checks each file again whenever it is read, so within
 a call nothing is read unchecked.
 
 The call also keeps what ``run_config.json`` records about the run (:func:`remember`): the
-SHA-256 of its manifest when it was opened, and whether it was read as a folder or tree run.
+SHA-256 of its manifest when it was opened, whether it was read as a folder or tree run, and
+each image's layout (:func:`remember_layouts`).
 
 Nothing is kept beyond the call: the next call opens the run again, so an
 image or mask changed in between, patched or not, is refused then (design
@@ -20,7 +21,7 @@ after the first open was not checked again.
 from __future__ import annotations
 
 import functools
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
 from pathlib import Path
@@ -29,7 +30,10 @@ from typing import TYPE_CHECKING, ParamSpec, TypeVar
 if TYPE_CHECKING:
     from cellpatcher.statistics import PlaneStatistics
 
-_SESSION: ContextVar[dict[str, PlaneStatistics | str] | None] = ContextVar("cellpatcher_run_session", default=None)
+_Layouts = dict[str, dict[str, str]]
+_SESSION: ContextVar[dict[str, PlaneStatistics | str | _Layouts] | None] = ContextVar(
+    "cellpatcher_run_session", default=None
+)
 _P = ParamSpec("_P")
 _R = TypeVar("_R")
 
@@ -104,3 +108,24 @@ def recalled(kind: str, output_folder: str | Path) -> str | None:
         return None
     value = session.get(f"{kind}:{Path(output_folder).expanduser().resolve()}")
     return value if isinstance(value, str) else None
+
+
+def remember_layouts(output_folder: str | Path, images: Mapping[str, str], masks: Mapping[str, str]) -> None:
+    """Record each image's layout and mask layout (keyed by image path) of the file run in *output_folder*.
+
+    Outside :func:`statistics_session` nothing is kept.
+    """
+    session = _SESSION.get()
+    if session is not None:
+        session[f"layouts:{Path(output_folder).expanduser().resolve()}"] = {
+            path: {"image": layout, "mask": masks.get(path, "YX")} for path, layout in sorted(images.items())
+        }
+
+
+def recalled_layouts(output_folder: str | Path) -> dict[str, dict[str, str]] | None:
+    """Return the layouts :func:`remember_layouts` recorded in this call for the run in *output_folder*, or None."""
+    session = _SESSION.get()
+    if session is None:
+        return None
+    value = session.get(f"layouts:{Path(output_folder).expanduser().resolve()}")
+    return value if isinstance(value, dict) else None

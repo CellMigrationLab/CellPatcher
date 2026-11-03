@@ -5,7 +5,7 @@ The images of a folder or tree run are files, and since v0.2.0 (CP-2b, design v0
 read only through the clean preprocessing run the patches were made from: the run is opened with
 ``RunInputs.open`` (where the experiment and masks folder are now), each patch's image is the run's
 image at its ``source_relative_path`` with its recorded FOV key, and only the patch's plane is read
-with ``RunInputs.read_plane``, its mask with ``RunInputs.read_mask``, in the run's layout. Nothing
+with ``RunInputs.read_plane``, its mask with ``RunInputs.read_mask``, in the image's own layout. Nothing
 here names an axis, pairs a mask or reads a file itself.
 """
 
@@ -76,13 +76,14 @@ def iter_run_patch_arrays(
     mask: tuple[str, np.ndarray] | None = None
     for patch in patches:
         fov = _patch_fov(fovs, patch)
-        choice = patch_plane_choice(patch, run.layout, delivered.common)
-        plane, axes = read_fov(run.inputs, fov, run.layout, choice)
+        layout = run.image_layout(fov)
+        choice = patch_plane_choice(patch, layout, delivered.common)
+        plane, axes = read_fov(run.inputs, fov, layout, choice)
         mask_plane, mask_axes = None, None
         if run.mask_type is not None:
             if mask is None or mask[0] != fov.relative_path:
                 mask = (fov.relative_path, read_run_mask(run, fov))  # one image's mask in memory at a time
-            mask_plane, mask_axes = select_mask_plane(mask[1], run.mask_axes, choice)
+            mask_plane, mask_axes = select_mask_plane(mask[1], run.mask_layout(fov), choice)
         yield patch, _finish_patch(patch, plane, axes, mask_plane, mask_axes, delivered)
 
 

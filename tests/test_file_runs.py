@@ -334,13 +334,13 @@ def test_a_manifest_changed_during_the_run_is_refused_before_run_config_is_writt
     from cellpatcher import file_runs
 
     run = _clean_run(tmp_path, axes="YX", shape=(16, 20), mask_types=("Cells",))
-    original = file_runs.run_layout
+    original = file_runs.fov_layout
 
-    def layout_and_touch(fovs):
+    def layout_and_touch(fov, common):
         _touch_manifest(run)
-        return original(fovs)
+        return original(fov, common)
 
-    monkeypatch.setattr(file_runs, "run_layout", layout_and_touch)
+    monkeypatch.setattr(file_runs, "fov_layout", layout_and_touch)
     config = _cell_config(run)
     config.export.enabled, config.common.output_dir = True, str(tmp_path / "out")
     with pytest.raises(PreprocessingCheckError, match="run_manifest.json changed during this CellPatcher run"):
@@ -393,9 +393,10 @@ def test_another_table_than_the_run_s_is_refused(tmp_path):
     assert [issue.code for issue in refused.value.issues] == ["not_the_run_output"]
 
 
-def test_masks_with_and_without_depth_share_the_run_s_layout(tmp_path):
-    # A three-plane image with a ZYX mask beside a one-plane image with a 2-D mask: the run's
-    # mask layout is ZYX, and the 2-D mask is its image's one plane (never a guessed plane).
+def test_masks_with_and_without_depth_are_each_read_in_their_own_layout(tmp_path):
+    # A three-plane image with a ZYX mask beside a one-plane image with a 2-D mask. Each image and
+    # mask is read in its own roles (audit A-M1): the 2-D image has no Z, so its patches have no
+    # plane index (before, the run's ZYX layout gave it z0=0 and z000 in its patch_id).
     from tests.helpers import file_run_config, write_tiff
 
     root, masks = tmp_path / "exp", tmp_path / "masks"
@@ -411,7 +412,7 @@ def test_masks_with_and_without_depth_share_the_run_s_layout(tmp_path):
     file_run_config(config, root, "ZYX", masks=masks, missing_as_singleton=True)
     (leaf,) = run_patching_condition_repeat_tree(root, mask_root_path=masks, config=config)
     found = sorted((p.image_file, p.z0, p.label_id) for p in leaf.result.patches)
-    assert found == [("a.tif", 0, 1), ("a.tif", 1, 2), ("a.tif", 2, 3), ("b.tif", 0, 2)]
+    assert found == [("a.tif", 0, 1), ("a.tif", 1, 2), ("a.tif", 2, 3), ("b.tif", None, 2)]
 
 
 def test_a_moved_experiment_s_combined_run_config_is_written_from_the_call_s_run(tmp_path):

@@ -6,15 +6,16 @@ here names an axis of a file, pairs a mask or reads a calibration: an image's ax
 roles the run recorded for it (:attr:`Fov.roles`), and a mask's are those the run recorded
 for that mask (its ``roles``, and ``shared`` for a stated 2-D mask serving every plane).
 
-The arrays handed to the patching core are in one canonical layout, built from those roles:
-the run's T, Z and C axes in that order (:func:`run_layout`), then Y and X, as
-``RunInputs.read_image`` orders them. Nothing is read transposed or reordered
-other than by role.
+The arrays handed to the patching core are in a canonical layout built from each image's own
+roles (:func:`fov_layout`): its T, Z and C axes in that order, then Y and X, as
+``RunInputs.read_image`` orders them. Nothing is read transposed or reordered other than by
+role, and an image's layout, plane choices and ``patch_id`` never depend on the other images of
+the run (owner decision of 2026-11-03, audit A-M1; the rule MorphoFeature's run planes follow).
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING
 
@@ -36,17 +37,43 @@ if TYPE_CHECKING:
 _STACK_ROLES = "TZC"
 
 
+def fov_layout(fov: Fov, common: CommonConfig) -> str:
+    """Return the canonical layout of one image's array: its own T, Z and C roles in that order, then ``YX``.
+
+    An axis is in it only if *that image* has the role, whatever the other images of the run
+    have, so the image's plane choices and ``patch_id`` are the same alone and in any run
+    (audit A-M1; MorphoFeature's ``_planes`` follows the same rule). A T or Z role of length 1
+    that ``t_policy``/``z_policy`` keeps (``"keep"``) is left out: its one plane is the image, and
+    a kept axis never enters ``patch_id``. Under any other policy it stays, so the plane is
+    named (``z000``) as MorphoFeature names it.
+    """
+    lengths = {"T": fov.t_count, "Z": fov.z_count}
+    policies = {"T": common.t_policy, "Z": common.z_policy}
+    roles = set(fov.roles)
+    return "".join(
+        role
+        for role in _STACK_ROLES
+        if role in roles and (role == "C" or lengths[role] > 1 or policies[role] != "keep")
+    ) + "YX"
+
+
 def run_layout(fovs: Sequence[Fov]) -> str:
-    """Return the canonical layout of every image array of a run: T, Z, C in that order, then ``YX``.
+    """Return the T, Z and C axes some image of the run has, in that order, then ``YX``: a summary only.
 
     T or Z is in it when an image has more than one plane along it, C when an image has a
-    channel role. An image without one of these axes has length 1 along it in its array (its
-    one plane), never a guessed plane.
+    channel role. It summarizes the run (which plane policies matter); each image is read in
+    its own :func:`fov_layout`.
     """
     counts = {"T": lambda fov: fov.t_count, "Z": lambda fov: fov.z_count, "C": lambda fov: 2}
     return "".join(
         role for role in _STACK_ROLES if any(role in fov.roles and counts[role](fov) > 1 for fov in fovs)
     ) + "YX"
+
+
+def union_layout(layouts: Iterable[str]) -> str:
+    """Return the T, Z and C axes any of *layouts* has, in canonical order, then ``YX``."""
+    found = set("".join(layouts))
+    return "".join(role for role in _STACK_ROLES if role in found) + "YX"
 
 
 def _plane_shape(fov: Fov, layout: str) -> tuple[int, ...]:
@@ -66,7 +93,7 @@ def read_fov(inputs: RunInputs, fov: Fov, layout: str, choice: PlaneChoice | Non
     inputs, fov
         The opened run and one of its images.
     layout
-        The run's canonical layout (:func:`run_layout`).
+        The image's canonical layout (:func:`fov_layout`).
     choice
         The T and Z planes to read (an index, a projection over every plane, or None for every
         plane); None reads the whole image.
@@ -128,7 +155,7 @@ def mask_layout(record: Mapping) -> str:
 
 
 def read_fov_mask(inputs: RunInputs, fov: Fov, record: Mapping, layout: str) -> np.ndarray:
-    """Read an image's recorded mask through ``RunInputs.read_mask``, in the run's mask *layout*.
+    """Read an image's recorded mask through ``RunInputs.read_mask``, in the mask *layout*.
 
     A stated shared 2-D mask is read once; a mask with depth slices or time points is read
     plane by plane, the brick checking each plane's labels. An axis of *layout* the mask does
@@ -150,8 +177,8 @@ def read_fov_mask(inputs: RunInputs, fov: Fov, record: Mapping, layout: str) -> 
 
 
 def run_mask_layout(records: Sequence[Mapping]) -> str:
-    """Return the canonical layout of every mask array of a run: the T and Z any mask has, then ``YX``."""
-    return "".join(role for role in "TZ" if any(role in mask_layout(record) for record in records)) + "YX"
+    """Return the T and Z any recorded mask of a run has, then ``YX`` (the object scan reads every mask in it)."""
+    return union_layout(mask_layout(record) for record in records)
 
 
 def mask_file_name(record: Mapping) -> str:
