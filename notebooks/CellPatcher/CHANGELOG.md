@@ -18,9 +18,84 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Pin preprocessing v0.4.0rc4; prepare v0.2.0rc2
 
 ---
-## Unreleased: each image of a file run is read in its own roles (audit round 2, A-M1)
+## [0.2.0rc3] - Preprocessing v0.4.0rc5, normalization v0.3.3
 
-### Changed
+This release candidate pins preprocessing `v0.4.0rc5` and normalization `v0.3.3` (#78) and carries
+the audit round 2 fixes (#77) and the cross-brick test's Z/T mask message (#76), described below.
+As for the earlier release candidates, no installer is built for it: install it with pip or on
+Google Colab (`docs/developer_notes.md`).
+
+### Summary
+- **`patch_id` changes** for 2-D images in mixed runs (a `YX` image beside `ZYX` images loses
+  `z000`) and for OME-Zarr images with T or Z of length 1 under `t_policy`/`z_policy` `"all"`,
+  `"first"` and `"select"` (they gain `t0000`/`z000`; under `"keep"` they stay out). Ids of runs
+  whose images share their roles are unchanged (#77, A-M1).
+- `run_config.json`'s `preprocessing.layout` records each image's own layout (`images`) when the
+  layouts of a run differ (#77, A-M1).
+- `discover_condition_repeat_folders` is deprecated (#77, A-m4).
+- The design of an unfinished but valid preprocessing publication is read (#77, A-m2); a cell-mode
+  run with Z or T masks names `z_policy`/`t_policy` (#76, F7).
+- Dependencies: preprocessing `v0.4.0rc5`, normalization `v0.3.3` (#78).
+
+### Changed (#78)
+- CellPatcher requires `morphobricks-preprocessing` `v0.4.0rc5` (core and `zarr` extra; was
+  `v0.4.0rc4`) and `morphobricks-normalization` `v0.3.3` (was `v0.3.2`), the tag preprocessing
+  `v0.4.0rc5` pins (owner decision D-h). `__version__` and `setup.py` are `0.2.0rc3` (`main` after
+  rc2 still reported `0.2.0rc2`), and every notebook installs `v0.2.0rc3` (`RELEASE_TAG`,
+  `current_version`, `notebook_latest_versions.yaml`).
+- **A `patches.csv` row is read at the scope its run recorded.** Normalization `v0.3.3`
+  (its #37) refuses parameter columns whose `normalization_scope` differs from the settings'
+  scope; CellPatcher read every row with the default `"image"` scope, so rows of the
+  `biological_repeat` and `patch` scopes could no longer be read back (`read_patch_table`,
+  `iter_exported_patches`, raw files normalized on load). It now passes the scope of the row's
+  `run_config.json` (`"image"` when that names none).
+- **Raw patches of the removed `condition` and `technical_repeat` scopes still normalize on
+  load.** Normalization `v0.3.3` refuses these scopes as unknown. As CellPatcher's policy has
+  been since they were removed (contract §7, normalization brick N29), their rows are read from
+  their own offset and scale columns: with the brick's column reader, as image-scope columns,
+  keeping their recorded scope, which must be the run's. Nothing is refitted or substituted.
+- `run_config.json` records `normalization_inputs.manifest_version` `"3"` for a preprocessing
+  run with `--verify-content` (preprocessing `v0.4.0rc5`), `"2"` otherwise; both are read through
+  `RunInputs` and give the same patches (`tests/test_run_inputs.py`).
+
+### Migration notes (from rc2)
+- **Re-run mixed file runs** (2-D beside 3-D images) and runs of OME-Zarr images with T or Z of
+  length 1 under `"all"`, `"first"` or `"select"` to get the new ids; patches exported before keep
+  theirs. Code that joins patches across the two versions by `patch_id` must not mix them.
+- **Read back a run with the `run_config.json` it wrote.** A row whose `normalization_scope`
+  differs from that file's scope is now refused (`ValueError` naming both), never read as the
+  run's; a table whose rows or `run_config.json` were edited by hand may be refused.
+- **Bricks that pin CellPatcher** pin `v0.2.0rc3` together with preprocessing `v0.4.0rc5` and
+  normalization `v0.3.3`: pip refuses two different direct URLs for one package, so `v0.2.0rc2`
+  (preprocessing `v0.4.0rc4`, normalization `v0.3.2`) cannot be installed beside them.
+- Replace `discover_condition_repeat_folders` with a preprocessing run's `RunInputs` (`fovs()`,
+  `read_mask`), or `run_patching_condition_repeat_tree` with `common.preprocessing_run`.
+
+### What preprocessing rc5 and normalization v0.3.3 change for CellPatcher users
+CellPatcher reads every file run through `RunInputs` and discovers images with the brick's
+`discover_experiment`, so the brick's new refusals reach CellPatcher runs with the brick's reason
+(preprocessing `CHANGELOG.md` at `79dd68e`, normalization `README.md` "Migrating to v0.3.3" at
+`320f304`):
+- **Mount points** below the experiment or masks folder (`mounted_folder`) are refused by
+  discovery and by `RunInputs` (`preprocessing_run_refused`). Copy the files into the experiment,
+  or select the mounted folder itself.
+- **`position_id`** is required in a version 2 manifest, equal to the image's name without its
+  extension (D85), the `position_id` CellPatcher gives every patch; runs written by rc1 to rc4
+  open unchanged, a hand-edited manifest may not.
+- **Strict runs** (`--verify-content`) have manifest version 3, read as above; rc4 and earlier
+  refuse them, so a strict run needs CellPatcher `v0.2.0rc3`.
+- CellPatcher reads neither the mask report (`mask_relationships.json`, whose tie count
+  `ambiguous_parent` is new in report version 3) nor the intensity warnings (the new
+  `channel_without_finite_pixels`): the preprocessing run shows them. The warning
+  `hard_linked_file` is not repeated by CellPatcher either. Cell mode reads the masks the run
+  paired; nothing changes for its patches.
+- Normalization `v0.3.3` gives bit-identical parameters for valid statistics and refuses corrupt
+  or ambiguous ones (a `plane_histograms.csv` with no rows or a repeated `plane_id`, plane `z` or
+  `t` that are not whole numbers 0 or above, a non-finite offset or a scale not above 0).
+
+### Each image of a file run is read in its own roles (#77, audit round 2, A-M1)
+
+#### Changed
 - **`patch_id` changes for 2-D images in mixed runs.** A folder or tree run read every image in
   one layout per run: Z (or T) when *any* image had more than one plane along it. A `YX` image
   patched beside a `ZYX` image therefore got `z0=0` and `z000` in its `patch_id`, other random
@@ -45,9 +120,9 @@ Pin preprocessing v0.4.0rc4; prepare v0.2.0rc2
   as it calls CellPatcher at MorphoFeature 4f25a79, run in every job: MorphoFeature is private, so CI
   cannot install it).
 
-## Unreleased: the design of an unfinished publication is read (audit round 2, A-m2)
+### The design of an unfinished publication is read (#77, audit round 2, A-m2)
 
-### Fixed
+#### Fixed
 - `normalization.scope="biological_repeat"` read `<output>/experiment_design.csv` itself, so a
   preprocessing run whose publication was unfinished but valid (the manifest's design still in
   `<output>/.publish`, which `RunInputs.open` accepts) was refused with `changed_experiment_design`.
@@ -55,9 +130,9 @@ Pin preprocessing v0.4.0rc4; prepare v0.2.0rc2
   and still read with `read_confirmed_design` against the manifest's SHA-256. Test in
   `tests/test_design_publication.py`.
 
-## Unreleased: `discover_condition_repeat_folders` is deprecated (audit round 2, A-m4)
+### `discover_condition_repeat_folders` is deprecated (#77, audit round 2, A-m4)
 
-### Deprecated
+#### Deprecated
 - `cellpatcher.discover_condition_repeat_folders` emits a `DeprecationWarning` and will be removed.
   Its `mask_folder` mirrors each leaf under `mask_root_path` (`mask_root/<leaf>`), a pairing the
   preprocessing run does not use, and no CellPatcher run calls it since CP-2a. It is a listed public
@@ -66,9 +141,9 @@ Pin preprocessing v0.4.0rc4; prepare v0.2.0rc2
   `run_patching_condition_repeat_tree` and `common.preprocessing_run`. Test in
   `tests/test_deprecations.py`.
 
-## Unreleased: the Z/T mask message names the real options (cross-brick test F7)
+### The Z/T mask message names the real options (#76, cross-brick test F7)
 
-### Fixed
+#### Fixed
 - A cell-mode run whose masks have a Z or T axis (e.g. a `ZCYX` file run with `ZYX` masks) and
   the default `common.z_policy="keep"` failed with "mask_channel is required ... Set
   config.mask_channel and config.common.mask_axes", but a file run refuses `common.mask_axes`
