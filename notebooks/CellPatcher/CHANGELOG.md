@@ -18,6 +18,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Pin preprocessing v0.4.0rc4; prepare v0.2.0rc2
 
 ---
+## Unreleased: the Z/T mask message names the real options (cross-brick test F7)
+
+### Fixed
+- A cell-mode run whose masks have a Z or T axis (e.g. a `ZCYX` file run with `ZYX` masks) and
+  the default `common.z_policy="keep"` failed with "mask_channel is required ... Set
+  config.mask_channel and config.common.mask_axes", but a file run refuses `common.mask_axes`
+  and `mask_channel` selects a label channel, not a plane. The message now names the mask axes
+  and shape and the options that work: `common.z_policy`/`common.t_policy` (`"all"`, `"first"`,
+  `"select"`), or 2-D (`YX`) masks (in a file run, the preprocessing run's masks). Behaviour is
+  unchanged: the same inputs are refused, before any patch. Tests in
+  `tests/test_plane_policies.py`.
+
 ## [0.2.0rc2] - Preprocessing v0.4.0rc4
 
 Owner decision of 2026-11-03: every brick is aligned on preprocessing `v0.4.0rc4` through

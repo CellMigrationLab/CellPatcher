@@ -10,6 +10,24 @@ from cellpatcher.strategies.base import BasePatchStrategy, _spatial_shape_from_a
 from cellpatcher.types import PatchRegion
 
 
+def _refuse_plane_axes(mask_axes: str, labels: np.ndarray) -> None:
+    """Refuse labels with a Z or T axis, naming ``z_policy``/``t_policy`` (or 2-D masks).
+
+    A Z or T axis is not a label channel, so ``mask_channel`` cannot pick a plane, and a file
+    run refuses ``common.mask_axes`` (its masks are read in the roles the run recorded).
+    """
+    planes = [axis for axis in "TZ" if len(mask_axes) == labels.ndim and axis in mask_axes]
+    if planes:
+        policies = " and ".join(f"common.{axis.lower()}_policy" for axis in planes)
+        raise ValueError(
+            f"The labels (axes '{mask_axes}', shape {labels.shape}) have "
+            f"{' and '.join(planes)} planes, but cell mode needs one 2-D (YX) label plane per "
+            f"patch. Set {policies} (e.g. 'all' for one patch per plane, or 'first'/'select' "
+            "for one plane), or give 2-D (YX) masks (in a file run: the preprocessing run's "
+            "masks). mask_channel selects a label channel (C), not a plane."
+        )
+
+
 class CellSegmentationStrategy(BasePatchStrategy):
     mode = "cell"
     # Coordinates are generated in Y/X patch space and clipped to image bounds.
@@ -111,6 +129,7 @@ class CellSegmentationStrategy(BasePatchStrategy):
         return selected.astype(np.int32, copy=False), False
 
     def _select_label_plane(self, labels):
+        """Return the one 2-D label plane of *labels* (its ``mask_channel``), or refuse them."""
         # A plain 2D label array needs no channel handling at all.
         arr = np.asarray(labels)
         if arr.ndim == 2:
@@ -119,6 +138,7 @@ class CellSegmentationStrategy(BasePatchStrategy):
             raise ValueError(f"labels must be at least 2D, got ndim={arr.ndim}.")
         # arr.ndim > 2: a channel (or other extra) axis must be resolved
         # down to 2D explicitly -- there's no safe default to guess here.
+        _refuse_plane_axes(self.mask_axes, arr)
         if self.config.mask_channel is None:
             raise ValueError(
                 "mask_channel is required for multidimensional labels. "

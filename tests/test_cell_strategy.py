@@ -380,8 +380,8 @@ def test_cell_strategy_mask_axes_length_mismatch_raises():
 
 
 def test_cell_strategy_4d_labels_produces_non_2d_selected_raises():
-    """4D labels with TCYX axes → channel selection returns 3D → raises."""
+    """4D labels with TCYX axes → channel selection would leave T → raises, naming t_policy."""
     labels = np.zeros((2, 2, 5, 5), dtype=int)  # TCYX: T=2, C=2, Y=5, X=5
     s = CellSegmentationStrategy(CellConfig(mask_channel=0), mask_axes="TCYX")
-    with pytest.raises(ValueError, match="3D"):
+    with pytest.raises(ValueError, match="have T planes.*Set common.t_policy"):
         s.generate_regions(image_shape=(5, 5), labels=labels)
