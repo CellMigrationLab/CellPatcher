@@ -205,7 +205,10 @@ parameters, always per channel.
 - The `condition` and `technical_repeat` scopes were removed on 2026-10-28, without a
   deprecation period (normalization brick N29): a configuration or `run_config.json` naming
   them is refused. Raw patches exported with them still normalize on load, from their
-  `patches.csv` columns. Until then `biological_repeat` meant one group per condition and
+  `patches.csv` columns: CellPatcher reads them itself, with the brick's column reader, as it
+  does `;`-separated rows (the normalization brick refuses a removed scope since v0.3.3), and
+  never refits or substitutes them. Each row keeps its recorded scope, which must be the scope
+  of its `run_config.json`. Until then `biological_repeat` meant one group per condition and
   repeat, named `<condition>/<biological_repeat>`.
 - `normalization.per_time_point=True` adds `t` to the key; `::t=<t>` is appended to
   `normalization_group`.
@@ -307,7 +310,10 @@ In memory, `PatchRegion.normalization_parameters` holds the brick's `Parameters`
   suggesting the lazy iterator.
 - Loading raw files normalizes with the row's parameter columns (§10: the brick's
   `Parameters.from_columns`, or the `;`-separated columns of earlier tables) and never
-  recomputes parameters.
+  recomputes parameters. The columns are read with the settings of the row's
+  `run_config.json`, its scope included (`"image"` when it names none): since normalization
+  v0.3.3 (its #37) a row whose `normalization_scope` differs from that scope is refused; rows
+  of a removed scope are read as §7 says.
 
 ## 13. Configuration
 

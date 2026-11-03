@@ -247,8 +247,6 @@
     "src/cellpatcher/normalization.py normalization_inputs: # Ruff findings non-imperative-mood": 1,
     "src/cellpatcher/normalization.py normalize: # Ruff findings line-too-long": 1,
     "src/cellpatcher/normalization.py normalize: # Ruff findings missing-type-function-argument": 7,
-    "src/cellpatcher/normalization.py parameters_from_row: # Ruff findings missing-return-type-undocumented-public-function": 1,
-    "src/cellpatcher/normalization.py parameters_from_row: # Ruff findings non-imperative-mood": 1,
     "src/cellpatcher/normalization.py resolved_patch_region: # Ruff findings missing-type-function-argument": 1,
     "src/cellpatcher/normalization.py run_settings: # Ruff findings line-too-long": 1,
     "src/cellpatcher/normalization.py run_settings: # Ruff findings missing-type-function-argument": 1,

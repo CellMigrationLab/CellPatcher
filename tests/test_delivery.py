@@ -256,3 +256,24 @@ def test_torch_datasets_give_the_same_arrays(experiment, tmp_path, name):
     files = ExportedPatchTorchDataset(out / "patches.csv", axes=axes, tensor_config=tensors)
     from_files = {(item["patch"]["source_relative_path"], item["patch_id"]): item["image"].numpy() for item in files}
     _same({k: v.reshape(eager[k].shape) for k, v in from_files.items()}, eager, exact=(name == "grid"))
+
+
+def test_a_row_is_read_at_the_scope_its_run_recorded():
+    # Normalization v0.3.3 (#37) refuses a row whose scope differs from the settings', and every row of
+    # a removed scope (N29); CellPatcher reads those with their own values and scope, never refitted.
+    from cellpatcher.normalization import parameters_from_row
+
+    row = {"patch_id": "p", "normalization_method": "min-max", "normalization_scope": "condition",
+           "normalization_group": "control", "normalization_exact": "true",
+           "Normalization_Offset_C0": "1.5", "Normalization_Scale_C0": "3.0"}
+    removed = parameters_from_row(row, {"method": "minmax", "scope": "condition"})
+    assert (removed.scope, removed.group, removed.offset, removed.scale) == ("condition", "control", (1.5,), (3.0,))
+    for scope in ("image", "technical_repeat"):
+        with pytest.raises(ValueError, match="normalization_scope"):
+            parameters_from_row(row, {"method": "minmax", "scope": scope})
+    image_row = {**row, "normalization_scope": "image", "normalization_group": "a.tif"}
+    with pytest.raises(ValueError, match="its run normalized at 'condition'"):
+        parameters_from_row(image_row, {"method": "minmax", "scope": "condition"})
+    with pytest.raises(ValueError, match="normalization_scope"):
+        parameters_from_row(image_row, {"method": "minmax", "scope": "biological_repeat"})
+    assert parameters_from_row(image_row, {"method": "minmax"}).scope == "image"  # the configuration's default

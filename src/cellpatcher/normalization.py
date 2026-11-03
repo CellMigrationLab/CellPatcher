@@ -251,44 +251,44 @@ def run_settings(config) -> dict | None:
     return fit_settings(settings).to_dict()
 
 
-def parameters_from_row(row: Mapping, settings: Mapping):
-    """The brick ``Parameters`` recorded in a ``patches.csv`` row, or None when it has none.
+def parameters_from_row(row: Mapping, settings: Mapping) -> object | None:
+    """Read the brick ``Parameters`` of a ``patches.csv`` row, at its run's scope (brick #37); None if it has none.
 
-    *settings* is the ``normalization`` section of the row's
-    ``run_config.json``. A row with ``Normalization_Offset_C<i>`` and
-    ``Normalization_Scale_C<i>`` columns is read with the brick's
-    ``Parameters.from_columns``. A row of an earlier table, with
-    ``;``-separated ``normalization_offset``/``normalization_scale``, is
-    converted here (normalization brick decision N47): one value per channel
-    of the patch, or for a split channel the one value of channel ``c``.
+    *settings*: the row's ``run_config.json`` ``normalization``. ``Normalization_*_C<i>`` columns at a scope removed
+    since (N29), which the brick refuses, are read as image-scope ones, keeping their recorded scope (it must be the
+    run's) and values (contract §7). ``;``-separated columns of an earlier table are converted here (N47).
+
+    Raises
+    ------
+    ValueError
+        If the row's scope is not its run's, or its parameters cannot be read.
     """
+    from cellpatcher.config import REMOVED_NORMALIZATION_SCOPES
+
     mbn = require_normalization()
-    has_pairs = any(
-        str(name).startswith(("Normalization_Offset_C", "Normalization_Scale_C")) and value not in (None, "")
-        for name, value in row.items()
-    )
-    if has_pairs:
+    prefixes = ("Normalization_Offset_C", "Normalization_Scale_C")
+    if any(str(name).startswith(prefixes) and value not in (None, "") for name, value in row.items()):
+        scope = settings.get("scope", "image")
+        removed = scope in REMOVED_NORMALIZATION_SCOPES
+        if removed and (recorded := row.get("normalization_scope")) != scope:
+            raise ValueError(f"Column normalization_scope is {recorded!r}, but its run normalized at {scope!r}.")
         brick = mbn.NormalizationSettings(
-            image_type=settings.get("image_type", "fluorescence"),
-            method=settings.get("method", "percentile"),
-            percentile=tuple(settings.get("percentile", (1.0, 99.8))),
+            image_type=settings.get("image_type", "fluorescence"), method=settings.get("method", "percentile"),
+            percentile=tuple(settings.get("percentile", (1.0, 99.8))), scope="image" if removed else scope,
         )
-        return mbn.Parameters.from_columns(row, brick)
+        parameters = mbn.Parameters.from_columns({**row, "normalization_scope": "image"} if removed else row, brick)
+        return replace(parameters, scope=scope)
     if not row.get("normalization_offset"):
         return None
     offsets = [float(value) for value in str(row["normalization_offset"]).split(";")]
     scales = [float(value) for value in str(row.get("normalization_scale") or "").split(";")]
     if len(offsets) != len(scales):
         raise ValueError(f"{row.get('patch_id')}: {len(offsets)} normalization offsets but {len(scales)} scales.")
-    c = row.get("c")
+    channels = (int(row["c"]),) if len(offsets) == 1 and row.get("c") not in (None, "") else None  # a split channel
     return mbn.Parameters(
-        method=row.get("normalization_method") or "",
-        scope=row.get("normalization_scope") or "",
-        group=row.get("normalization_group") or None,
-        exact=row.get("normalization_exact") in (True, "true", "True"),
-        offset=tuple(offsets),
-        scale=tuple(scales),
-        channels=(int(c),) if len(offsets) == 1 and c not in (None, "") else None,
+        method=row.get("normalization_method") or "", scope=row.get("normalization_scope") or "",
+        group=row.get("normalization_group") or None, exact=row.get("normalization_exact") in (True, "true", "True"),
+        offset=tuple(offsets), scale=tuple(scales), channels=channels,
     )
 
 
