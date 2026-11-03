@@ -137,7 +137,10 @@ def load_experiment_design(settings: NormalizationConfig, statistics: PlaneStati
     file whose SHA-256 the run's manifest records, read with the brick's one
     shared reader, ``read_confirmed_design`` (contract §16; CellPatcher keeps
     no reader of its own), exactly as the brick writes it, every repeat group
-    confirmed with one folder per condition.
+    confirmed with one folder per condition. It is found as ``RunInputs`` finds
+    it, with the brick's ``published_path``: the output folder's file, or the
+    copy an unfinished but valid publication holds (audit A-m2; before, only
+    ``<output>/experiment_design.csv`` was read, so such a run was refused).
 
     Returns
     -------
@@ -154,7 +157,8 @@ def load_experiment_design(settings: NormalizationConfig, statistics: PlaneStati
         ``repeat_group_conflict``, ``design_not_confirmed``,
         ``changed_experiment_design``).
     """
-    from morphobricks_preprocessing.design import DesignCheckError, read_confirmed_design
+    from morphobricks_preprocessing.design import DESIGN_FILENAME, DesignCheckError, read_confirmed_design
+    from morphobricks_preprocessing.run.generation import published_path
     from morphobricks_preprocessing.validation import error
 
     path = experiment_design_path(settings)
@@ -170,8 +174,9 @@ def load_experiment_design(settings: NormalizationConfig, statistics: PlaneStati
                 "biological repeats), then run the preprocessing brick again.",
             )
         ])
+    path = published_path(path.parent, DESIGN_FILENAME, expected)
     try:
-        return read_confirmed_design(path, expected_sha256=expected)
+        return read_confirmed_design(path, expected_sha256=expected)  # the SHA-256 check stays here
     except DesignCheckError as exc:
         raise PreprocessingCheckError(exc.issues) from exc
 
