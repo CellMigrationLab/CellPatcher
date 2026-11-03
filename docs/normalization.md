@@ -14,7 +14,7 @@ before.
 
 ## The workflow
 
-1. **Install** CellPatcher: the preprocessing (v0.4.0rc2) and normalization bricks are core
+1. **Install** CellPatcher: the preprocessing (v0.4.0rc4) and normalization bricks are core
    dependencies. OME-Zarr images need the optional extra `pip install "cellpatcher[zarr]"` (the
    notebook's first cell installs it on Google Colab).
 2. **Run the preprocessing notebook** (or `morphobricks-preprocessing check`, `design`, `run`)

@@ -95,7 +95,7 @@ def test_the_installed_preprocessing_is_the_pinned_tag():
 class _Installed:
     """A distribution with the given ``direct_url.json`` text (None: no file)."""
 
-    version = "0.4.0rc2"
+    version = "0.4.0rc4"
 
     def __init__(self, direct_url):
         self._direct_url = direct_url

@@ -8,7 +8,7 @@ Since v0.2.0 CellPatcher reads image and mask files only through a run of the
 [MorphoBricks preprocessing brick](https://github.com/CellMigrationLab/morphobricks-preprocessing)
 (v0.4): run its notebook (or its `check`, `design` and `run` commands) on your experiment first,
 then point CellPatcher to the run's output folder. What changed, with the migration notes for the
-other bricks, is in the [CHANGELOG](notebooks/CellPatcher/CHANGELOG.md) (v0.2.0rc1).
+other bricks, is in the [CHANGELOG](notebooks/CellPatcher/CHANGELOG.md) (v0.2.0rc1 and v0.2.0rc2).
 
 - **Normal user / manual workflow:** open `notebooks/CellPatcher/CellPatcher.ipynb` and give it the preprocessing run's output folder.
 - **Choosing a patching strategy:** open `notebooks/CellPatcher_Strategy_Examples/CellPatcher_Strategy_Examples.ipynb`: each strategy on one image of your preprocessing run, nothing written.
@@ -114,7 +114,7 @@ Open the notebook in Colab:
 **A release, anywhere (Google Colab included):**
 
 ```bash
-pip install "cellpatcher[notebook,zarr] @ git+https://github.com/CellMigrationLab/CellPatcher.git@v0.2.0rc1"
+pip install "cellpatcher[notebook,zarr] @ git+https://github.com/CellMigrationLab/CellPatcher.git@v0.2.0rc2"
 ```
 
 The notebook's first cell does this on Colab (pinned to its `RELEASE_TAG`), mounts Google Drive and
