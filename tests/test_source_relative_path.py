@@ -141,13 +141,16 @@ def test_split_channel_patches_keep_it(tmp_path):
 
 
 def _linked_tree(tmp_path):
-    # Images stored elsewhere, gathered into a <condition>/<biological_repeat>
-    # tree of links: a file link per image, and a linked repeat folder.
-    store = tmp_path / "store"
+    # Images stored in a hidden folder of the experiment, gathered into a
+    # <condition>/<biological_repeat> tree of links: a file link per image, and a
+    # linked repeat folder. Since preprocessing v0.4.0rc4 links are followed only
+    # inside the experiment folder (link_outside_folder), so the store is inside it;
+    # discovery ignores the dot-folder itself, so each image is found once.
+    root = tmp_path / "experiment"
+    store = root / ".raw"
     _write_image(store / "plate1" / "a.tif", value=1.0)
     _write_image(store / "plate1" / "b.tif", value=2.0)
     _write_image(store / "plate2" / "c.tif", value=3.0)
-    root = tmp_path / "experiment"
     (root / "control" / "2026_01_01").mkdir(parents=True)
     for name in ("a.tif", "b.tif"):
         (root / "control" / "2026_01_01" / name).symlink_to(store / "plate1" / name)
@@ -186,13 +189,43 @@ def test_tree_of_links_records_the_path_under_the_root(tmp_path):
 
 
 def test_folder_of_links_uses_the_file_names(tmp_path):
-    root = _linked_tree(tmp_path)
-    result = run_folder(root / "control" / "2026_01_01", config=_grid_config())
+    # The folder is the experiment here, so its links' targets are in its own hidden folder.
+    folder = tmp_path / "plate"
+    for name, value in (("a.tif", 1.0), ("b.tif", 2.0)):
+        _write_image(folder / ".raw" / name, value=value)
+        (folder / name).symlink_to(folder / ".raw" / name)
+    result = run_folder(folder, config=_grid_config())
     assert {patch.source_relative_path for patch in result.patches} == {"a.tif", "b.tif"}
 
 
 def test_a_broken_image_link_is_refused_not_skipped(tmp_path):
     root = _linked_tree(tmp_path)
-    (root / "control" / "2026_01_01" / "lost.tif").symlink_to(tmp_path / "store" / "missing.tif")
+    (root / "control" / "2026_01_01" / "lost.tif").symlink_to(root / ".raw" / "missing.tif")
     with pytest.raises(AssertionError, match="lost.tif"):  # the preprocessing run refuses it (CP-2a)
         preprocess(root)
+
+
+def test_an_image_link_out_of_the_experiment_is_refused(tmp_path):
+    # Preprocessing v0.4.0rc4: a link whose target is outside the experiment folder is
+    # never followed (link_outside_folder), so the run that CellPatcher needs is refused.
+    root = _linked_tree(tmp_path)
+    _write_image(tmp_path / "elsewhere" / "far.tif", value=4.0)
+    (root / "control" / "2026_01_01" / "far.tif").symlink_to(tmp_path / "elsewhere" / "far.tif")
+    with pytest.raises(AssertionError, match=r"(?s)leads outside it.*control/2026_01_01/far\.tif ->"):
+        preprocess(root)
+
+
+def test_a_file_run_refuses_a_link_out_added_after_the_run(tmp_path):
+    # RunInputs (preprocessing v0.4.0rc4) refuses a run whose experiment gained a link out of
+    # it, and CellPatcher stops with the brick's reason, never patching around it.
+    from cellpatcher.orchestration import run_patching_condition_repeat_tree
+    from cellpatcher.statistics import PreprocessingCheckError
+
+    root = _linked_tree(tmp_path)
+    config = _grid_config()
+    config.common.preprocessing_run = str(preprocess(root))
+    _write_image(tmp_path / "elsewhere" / "far.tif", value=4.0)
+    (root / "control" / "2026_01_01" / "far.tif").symlink_to(tmp_path / "elsewhere" / "far.tif")
+    with pytest.raises(PreprocessingCheckError, match=r"control/2026_01_01/far\.tif ->") as refused:
+        run_patching_condition_repeat_tree(root, config=config)
+    assert [issue.code for issue in refused.value.issues] == ["preprocessing_run_refused"]

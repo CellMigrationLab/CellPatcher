@@ -9,6 +9,7 @@ import csv
 import importlib.util
 import json
 import os
+import shutil
 import warnings
 
 import numpy as np
@@ -122,13 +123,16 @@ def test_a_tree_of_links_matches_the_brick_statistics(experiment, tmp_path):
     # The same images reached through a tree of links (a file link, a linked
     # folder): the brick and CellPatcher record the same path for each image,
     # so every patched plane finds its row, with the manifest's file checks.
+    # Since preprocessing v0.4.0rc4 links are followed only inside the experiment
+    # folder, so the images are stored in its hidden .raw folder (never discovered).
     stored, stacks, _ = experiment
     linked = tmp_path / "linked"
+    shutil.copytree(stored, linked / ".raw")
     (linked / "control" / "bio1").mkdir(parents=True)
     for name in ("a.tif", "b.tif"):
-        (linked / "control" / "bio1" / name).symlink_to(stored / "control" / "bio1" / name)
+        (linked / "control" / "bio1" / name).symlink_to(linked / ".raw" / "control" / "bio1" / name)
     (linked / "treated").mkdir()
-    (linked / "treated" / "bio1").symlink_to(stored / "treated" / "bio1", target_is_directory=True)
+    (linked / "treated" / "bio1").symlink_to(linked / ".raw" / "treated" / "bio1", target_is_directory=True)
     csv_path = _preprocess(linked, tmp_path / "linked_preprocessing", "ZCYX")
 
     results = _tree(linked, _config(csv_path))
