@@ -432,7 +432,6 @@
     "src/cellpatcher/strategies/cell.py _label_connected_components: private function of # lines without a docstring": 25,
     "src/cellpatcher/strategies/cell.py _select_label_plane: # Ruff findings missing-return-type-private-function": 1,
     "src/cellpatcher/strategies/cell.py _select_label_plane: # Ruff findings missing-type-function-argument": 1,
-    "src/cellpatcher/strategies/cell.py _select_label_plane: private function of # lines without a docstring": 34,
     "src/cellpatcher/strategies/cell.py generate_regions: # Ruff findings complex-structure": 1,
     "src/cellpatcher/strategies/cell.py generate_regions: # Ruff findings missing-type-function-argument": 3,
     "src/cellpatcher/strategies/cell.py generate_regions: # Ruff findings too-many-statements": 1,

@@ -319,3 +319,40 @@ def test_lazy_delivery_of_a_file_reads_its_planes_through_the_run(tmp_path):
     lazy = [array for _, array in iter_run_patch_arrays(result.patches, config)]
     assert len(lazy) == len(result.patch_arrays) > 3
     assert all(np.array_equal(lazy_array, eager) for lazy_array, eager in zip(lazy, result.patch_arrays))
+
+
+def _zcyx_run_with_zyx_masks(tmp_path):
+    image_folder, mask_folder = tmp_path / "exp", tmp_path / "masks"
+    image = np.random.default_rng(0).integers(0, 100, (3, 2, 32, 32), dtype=np.uint16)
+    write_tiff(image_folder / "a.tif", image, "ZCYX")
+    mask = np.zeros((3, 32, 32), dtype=np.uint16)
+    mask[:, 5:15, 5:15] = 1
+    write_tiff(mask_folder / "a_cells.tif", mask, "ZYX")
+    return image_folder, mask_folder
+
+
+def test_a_file_run_with_z_masks_and_z_policy_keep_names_z_policy_not_mask_axes(tmp_path):
+    # Cross-brick test F7 (2026-11-03): the message named mask_channel and common.mask_axes,
+    # which a file run refuses; the real options are z_policy/t_policy or 2-D masks.
+    image_folder, mask_folder = _zcyx_run_with_zyx_masks(tmp_path)
+    config = _cell_config(image_axes="YX", mask_axes="YX")  # z_policy is the default "keep"
+    with pytest.raises(ValueError, match=r"axes 'ZYX'.* have Z planes.*Set common.z_policy") as caught:
+        preprocessed_folder(image_folder, config=config, mask_folder_path=mask_folder, axes="ZCYX")
+    assert "mask_axes" not in str(caught.value)
+    assert "preprocessing run's masks" in str(caught.value)
+
+
+@pytest.mark.parametrize("policy", ["all", "first"])
+def test_the_z_policy_the_message_names_patches_that_run(tmp_path, policy):
+    image_folder, mask_folder = _zcyx_run_with_zyx_masks(tmp_path)
+    config = _cell_config(image_axes="YX", mask_axes="YX", z_policy=policy)
+    result = preprocessed_folder(image_folder, config=config, mask_folder_path=mask_folder, axes="ZCYX")
+    assert len(result.patches) == (3 if policy == "all" else 1)
+
+
+def test_in_memory_t_and_z_masks_with_keep_name_both_policies():
+    masks = [np.ones((2, 3, 16, 16), dtype=np.int32)]
+    config = _cell_config(image_axes="TZYX", mask_axes="TZYX")
+    with pytest.raises(ValueError, match=r"have T and Z planes.*common.t_policy and common.z_policy"):
+        run_patching(images=[np.zeros((2, 3, 16, 16), np.float32)], masks=masks, config=config,
+                     image_metadata=named([None]))
