@@ -862,15 +862,15 @@ def test_raw_patches_of_a_removed_scope_still_normalize_on_load(experiment, tmp_
     results = _tree(root, config, combine_metadata=True)
     delivered = {p.patch_id: a for leaf in results for p, a in zip(leaf.result.patches, leaf.result.patch_arrays)}
 
-    # The same files as a run at the removed condition scope would have left them.
-    run_config = tmp_path / "out" / RUN_CONFIG_FILENAME
+    # The same files as a run at the removed condition scope would have left them, rows included (#37).
+    run_config, table = tmp_path / "out" / RUN_CONFIG_FILENAME, tmp_path / "out" / "patches.csv"
     saved = json.loads(run_config.read_text(encoding="utf-8"))
-    saved["normalization"]["scope"] = "condition"
-    run_config.write_text(json.dumps(saved), encoding="utf-8")
+    run_config.write_text(json.dumps({**saved, "normalization": {**saved["normalization"], "scope": "condition"}}))
     with pytest.raises(ValueError, match="The 'condition' scope was removed"):
         load_config(run_config)
-    loaded = list(iter_exported_patches(tmp_path / "out" / "patches.csv"))
-    assert len(loaded) == len(delivered)
+    table.write_text(table.read_text(encoding="utf-8").replace(",image,", ",condition,"), encoding="utf-8")
+    loaded = list(iter_exported_patches(table))
+    assert len(loaded) == len(delivered) and {row["normalization_scope"] for row, _ in loaded} == {"condition"}
     for row, array in loaded:
         np.testing.assert_array_equal(array, delivered[row["patch_id"]])
 

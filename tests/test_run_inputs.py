@@ -167,3 +167,39 @@ def test_a_clean_run_normalizes_a_tree_run_through_run_inputs(tmp_path):
     assert {patch.source_relative_path for patch in patches} == {
         fov.relative_path for fov in statistics.inputs.fovs()
     }
+
+
+def test_a_strict_run_s_version_3_manifest_patches_as_the_default_run(stack_experiment, tmp_path):
+    # Preprocessing v0.4.0rc5: a --verify-content run writes manifest version 3 (the default run
+    # still writes 2). CellPatcher reads it through RunInputs, records "3" in run_config.json and
+    # gives the same normalized patches.
+    import morphobricks_preprocessing as mbp
+    import numpy as np
+
+    from cellpatcher.config import NormalizationConfig
+
+    root, default_output = stack_experiment
+    strict_output = tmp_path / "strict"
+    result = mbp.run_experiment(
+        root, mbp.AxisMapping("ZYX", "ZYX"), output_folder=strict_output, mode=mbp.RunMode(verify_content=True)
+    )
+    assert result.written, [str(issue) for issue in result.issues]
+    delivered, recorded = {}, {}
+    for name, output in (("default", default_output), ("strict", strict_output)):
+        config = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=8))
+        config.common.extract_arrays, config.common.z_policy = True, "all"
+        config.common.preprocessing_run, config.common.output_dir = str(output), str(tmp_path / f"{name}_patches")
+        config.export.enabled = True
+        config.normalization = NormalizationConfig(enabled=True, plane_histograms=str(output / "plane_histograms.csv"))
+        results = run_patching_condition_repeat_tree(root, config=config, combine_metadata=True)
+        delivered[name] = {
+            (patch.source_relative_path, patch.patch_id): array
+            for leaf in results
+            for patch, array in zip(leaf.result.patches, leaf.result.patch_arrays, strict=True)
+        }
+        saved = json.loads((tmp_path / f"{name}_patches" / "run_config.json").read_text(encoding="utf-8"))
+        recorded[name] = saved["normalization_inputs"]["manifest_version"]
+    assert recorded == {"default": "2", "strict": "3"}
+    assert delivered["strict"].keys() == delivered["default"].keys() and delivered["default"]
+    for key, array in delivered["default"].items():
+        np.testing.assert_array_equal(delivered["strict"][key], array)
