@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.2.0rc2] - 2026-11-03
+
+### Changed
+- Version updated from 0.2.0rc1 to 0.2.0rc2
+
+**Commit Details:**
+- Hash: [`af70da9c`](https://github.com/CellMigrationLab/CellPatcher/commit/af70da9c99f5019bc258045969610e52f05ac3e7)
+- Author: guijacquemet
+- Date: 2026-11-03 07:29:01 +0200
+- Message: Merge pull request #75 from CellMigrationLab/claude/pin-preprocessing-rc4
+
+Pin preprocessing v0.4.0rc4; prepare v0.2.0rc2
+
+---
 ## [0.2.0rc2] - Preprocessing v0.4.0rc4
 
 Owner decision of 2026-11-03: every brick is aligned on preprocessing `v0.4.0rc4` through
