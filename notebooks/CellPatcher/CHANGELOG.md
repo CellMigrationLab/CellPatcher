@@ -37,7 +37,8 @@ Pin preprocessing v0.4.0rc4; prepare v0.2.0rc2
   changes (a kept axis of length 1 stays out of the arrays and ids).
 - `run_config.json`'s `preprocessing.layout` maps each image's path to its own `image` and `mask`
   layout (`images`) when the images' layouts differ, and exported patches are normalized on load in
-  their own image's axes. A run of one layout is recorded as before.
+  their own image's axes; a row whose `source_relative_path` names none of those images is refused
+  (its axes are unknown), never given the run's union of axes. A run of one layout is recorded as before.
 - Every image of a file run is patched one at a time (the path plane policies already took), so
   `z_policy="keep"` reads one image at a time too. Tests in `tests/test_mixed_run_layouts.py`
   (from the audit probes p1 and p3, with a parity check against MorphoFeature's `cut_patch_set`

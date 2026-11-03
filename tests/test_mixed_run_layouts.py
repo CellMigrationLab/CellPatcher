@@ -206,3 +206,41 @@ def test_ids_equal_morphofeature_cut_patch_set_ids(tmp_path, mode):
             )
             expected += [descriptor.patch_id for descriptor in cut_patch_set(patch_set, plane)["set"]]
     assert sorted(p.patch_id for p in result.patches) == sorted(expected)
+
+
+def test_lazy_delivery_masks_each_patch_in_its_own_images_mask_layout(tmp_path):
+    # A 2-D mask beside per-plane masks of a stack: lazy delivery selects each patch's mask plane
+    # in its own image's mask layout (YX for the 2-D image), not the run's union (ZYX).
+    root = _experiment(tmp_path / "exp", with_stack=True)
+    flat_labels = np.zeros((32, 32), np.uint16)
+    flat_labels[2:10, 3:12], flat_labels[15:25, 14:28] = 1, 2
+    stack_labels = np.stack([np.roll(flat_labels, z, axis=0) for z in range(3)])
+    write_tiff(tmp_path / "masks" / "cells" / "ctrl" / "rep1" / "a.tif", flat_labels, "YX")
+    write_tiff(tmp_path / "masks" / "cells" / "ctrl" / "rep1" / "b.tif", stack_labels, "ZYX")
+    config = _config("cell", z_policy="all")
+    config.cell.patch_size, config.cell.exclude_border = 12, False
+    config.extraction.apply_mask = True
+    file_run_config(config, root, "ZYX", missing_as_singleton=True, masks=tmp_path / "masks")
+    result = run_patching_pipeline(root, config=config, mask_folder_path=tmp_path / "masks")
+    assert {p.position_id for p in result.patches} == {"a", "b"}
+    lazy = list(iter_run_patch_arrays(result.patches, config))
+    assert [patch.patch_id for patch, _ in lazy] == [p.patch_id for p in result.patches]
+    for (_, array), eager in zip(lazy, result.patch_arrays, strict=True):
+        np.testing.assert_array_equal(array, eager)
+
+
+def test_a_patch_of_no_recorded_image_is_refused_not_given_the_union_layout(tmp_path):
+    # With a layout per image recorded, a row whose source_relative_path names none of them has
+    # no known axes: the run's union (ZYX) would be a guess for a 2-D image's patch.
+    from cellpatcher.run_config_file import delivery_config
+
+    config = _config(z_policy="all")
+    config.normalization.enabled, config.normalization.scope = True, "image"
+    config.normalization.export_values = "raw"
+    config.export.enabled, config.common.output_dir = True, str(tmp_path / "out")
+    _run(tmp_path, "mixed", config, with_stack=True)
+    saved = json.loads((tmp_path / "out" / "run_config.json").read_text(encoding="utf-8"))
+    assert delivery_config(saved, "run_config.json", "ctrl/rep1/a.tif").common.image_axes == "YX"
+    for source in (None, "ctrl/rep1/c.tif"):
+        with pytest.raises(ValueError, match="records each image's layout"):
+            delivery_config(saved, "run_config.json", source)

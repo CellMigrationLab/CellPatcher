@@ -183,6 +183,12 @@ def delivery_config(data: Mapping, where: str, source: str | None = None) -> Cel
     *source* (a patch's ``source_relative_path``) when the run recorded one per image. A run normalized at a scope
     removed since (``condition``, ``technical_repeat``; normalization brick N29) still loads: its
     parameters are in ``patches.csv``, and only the patch axes are needed.
+
+    Raises
+    ------
+    ValueError
+        If the run recorded a layout per image and *source* is not one of its images: the run's
+        union of axes is not that patch's layout, so none is guessed.
     """
     normalization = data.get("normalization")
     if isinstance(normalization, Mapping) and normalization.get("scope") in REMOVED_NORMALIZATION_SCOPES:
@@ -190,6 +196,13 @@ def delivery_config(data: Mapping, where: str, source: str | None = None) -> Cel
     config = config_from_dict(data, where)
     layout = (data.get("preprocessing") or {}).get("layout")
     if layout is not None:
-        layout = (layout.get("images") or {}).get(source, layout)
+        images = layout.get("images")
+        if images is not None:
+            if source not in images:
+                raise ValueError(
+                    f"{where} records each image's layout, and {source!r} is not one of its images: "
+                    "the patch's axes are unknown (is its source_relative_path missing or edited?)."
+                )
+            layout = images[source]
         config.common.image_axes, config.common.mask_axes = layout["image"], layout["mask"]
     return config
