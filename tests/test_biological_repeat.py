@@ -33,6 +33,10 @@ from cellpatcher.types import PatchRegion
 from tests.helpers import named
 from tests.helpers import preprocessed_tree as _tree
 
+# discover_condition_repeat_folders is deprecated (audit round 2, A-m4); its warning is checked in
+# tests/test_deprecations.py, and these tests check its results while it remains.
+pytestmark = pytest.mark.filterwarnings("ignore:discover_condition_repeat_folders is deprecated:DeprecationWarning")
+
 
 def _run(config):
     """Patch one in-memory image named a.tif (config labels apply to in-memory runs; file runs

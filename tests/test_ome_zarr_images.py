@@ -33,6 +33,11 @@ needs_zarr = pytest.mark.skipif(
     reason="needs the 'zarr' extra",
 )
 
+# discover_condition_repeat_folders is deprecated (audit round 2, A-m4); its warning is checked in
+# tests/test_deprecations.py, and these tests check its results while it remains.
+pytestmark = pytest.mark.filterwarnings("ignore:discover_condition_repeat_folders is deprecated:DeprecationWarning")
+
+
 def _fake_store(path):
     """A folder that is named like an OME-Zarr image (enough for discovery)."""
     (path / "0").mkdir(parents=True)

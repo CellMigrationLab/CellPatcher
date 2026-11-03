@@ -264,6 +264,14 @@ def discover_images(root_path, *, mask_folder_path=None):
     return result
 
 
+DISCOVER_DEPRECATION = (
+    "discover_condition_repeat_folders is deprecated and will be removed: its mask_folder mirrors each leaf "
+    "under mask_root_path, a pairing the preprocessing run does not use. Read the images, FOV keys and masks "
+    "of a preprocessing run instead (morphobricks_preprocessing RunInputs.open(run).fovs() and read_mask), or "
+    "patch them with run_patching_condition_repeat_tree and common.preprocessing_run."
+)
+
+
 def discover_condition_repeat_folders(
     root_path,
     *,
@@ -271,6 +279,13 @@ def discover_condition_repeat_folders(
     supported_extensions=None,
 ) -> list[ConditionRepeatFolder]:
     """Discover the ``<condition>/<biological_repeat>[/<technical_repeat>]`` image folders under *root_path*.
+
+    .. deprecated:: 0.2.0
+        Emits a ``DeprecationWarning`` and will be removed (audit round 2, A-m4): its
+        ``mask_folder`` mirrors each leaf under *mask_root_path*, a pairing the preprocessing
+        brick does not use, and no CellPatcher run uses it. A file run reads the images, FOV keys
+        and masks of a preprocessing run (``RunInputs.open(run).fovs()``, ``read_mask``;
+        :func:`cellpatcher.run_patching_condition_repeat_tree` with ``common.preprocessing_run``).
 
     (The function keeps its historical ``condition_repeat`` name.) The
     folders are found by the preprocessing brick's ``discover_experiment``
@@ -303,6 +318,7 @@ def discover_condition_repeat_folders(
     *supported_extensions* is no longer supported: the images are the
     brick's (TIFF and OME-Zarr). Any value other than None is refused.
     """
+    warnings.warn(DISCOVER_DEPRECATION, DeprecationWarning, stacklevel=2)
     if supported_extensions is not None:
         raise ValueError(
             "discover_condition_repeat_folders(supported_extensions=...) is no longer supported: images are "

@@ -70,7 +70,8 @@ These rules override other implementation preferences.
 * **Never break public interfaces** without explicit user approval:
   `run_patching`, `run_patching_pipeline`, `run_patching_condition_repeat_tree`,
   config dataclasses, `read_array`, `validate_image_and_mask_folders`,
-  `discover_condition_repeat_folders`, `scan_cell_patch_size`,
+  `discover_condition_repeat_folders` (deprecated since 2026-11-03, audit A-m4:
+  it warns until it is removed; nothing in CellPatcher uses it), `scan_cell_patch_size`,
   `prepare_image_for_patching`, `iter_image_planes_for_patching`. Other
   repos (and notebooks) import these.
 * **Keep public pipeline functionality usable from three contexts:** Jupyter
@@ -298,10 +299,10 @@ Two ways to point CellPatcher at input data:
   were set with `CellPatcherConfig.common.condition`/`.biological_repeat`.
 - `run_patching_condition_repeat_tree(image_root_path, ...)` — the
   `<condition>/<biological_repeat_YYYY_MM_DD>[/<technical_repeat>]/` layout
-  from §6, walked
-  automatically via `discover_condition_repeat_folders`/`io.py` (both
-  functions keep their historical `condition_repeat` names; the level they
-  read below each condition is the biological repeat). Also accepts a
+  from §6, as the preprocessing run recorded it (its FOV keys; since CP-2a
+  nothing is walked by CellPatcher, and the deprecated
+  `discover_condition_repeat_folders` is not used; both keep their historical
+  `condition_repeat` names; the level below each condition is the biological repeat). Also accepts a
   condition folder holding images directly with **no biological-repeat
   subfolder**; that case is treated as a single implicit biological repeat,
   labeled `cellpatcher.SINGLE_BIOLOGICAL_REPEAT_LABEL` (`"single"`; the

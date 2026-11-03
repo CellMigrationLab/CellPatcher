@@ -53,6 +53,17 @@ Pin preprocessing v0.4.0rc4; prepare v0.2.0rc2
   and still read with `read_confirmed_design` against the manifest's SHA-256. Test in
   `tests/test_design_publication.py`.
 
+## Unreleased: `discover_condition_repeat_folders` is deprecated (audit round 2, A-m4)
+
+### Deprecated
+- `cellpatcher.discover_condition_repeat_folders` emits a `DeprecationWarning` and will be removed.
+  Its `mask_folder` mirrors each leaf under `mask_root_path` (`mask_root/<leaf>`), a pairing the
+  preprocessing run does not use, and no CellPatcher run calls it since CP-2a. It is a listed public
+  interface (AGENTS.md), so it keeps its results until removal. Read a preprocessing run's images,
+  FOV keys and masks instead (`RunInputs.open(run).fovs()`, `read_mask`), or patch them with
+  `run_patching_condition_repeat_tree` and `common.preprocessing_run`. Test in
+  `tests/test_deprecations.py`.
+
 ## Unreleased: the Z/T mask message names the real options (cross-brick test F7)
 
 ### Fixed
