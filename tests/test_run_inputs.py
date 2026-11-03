@@ -193,7 +193,9 @@ def test_a_strict_run_s_version_3_manifest_patches_as_the_default_run(stack_expe
         config.normalization = NormalizationConfig(enabled=True, plane_histograms=str(output / "plane_histograms.csv"))
         results = run_patching_condition_repeat_tree(root, config=config, combine_metadata=True)
         delivered[name] = {
-            (p.source_relative_path, p.patch_id): a for leaf in results for p, a in zip(leaf.result.patches, leaf.result.patch_arrays)
+            (patch.source_relative_path, patch.patch_id): array
+            for leaf in results
+            for patch, array in zip(leaf.result.patches, leaf.result.patch_arrays, strict=True)
         }
         saved = json.loads((tmp_path / f"{name}_patches" / "run_config.json").read_text(encoding="utf-8"))
         recorded[name] = saved["normalization_inputs"]["manifest_version"]
