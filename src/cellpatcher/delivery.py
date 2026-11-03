@@ -186,7 +186,9 @@ def _normalize_on_load(row: Mapping, array: np.ndarray, run_config: Mapping | No
     patch = _row_patch(row)
     clip = settings.get("clip")
     return PatchNormalization(parameters).apply(
-        array, patch_axes(delivery_config(run_config, "run_config.json"), patch), clip=tuple(clip) if clip else None
+        array,
+        patch_axes(delivery_config(run_config, "run_config.json", patch.source_relative_path), patch),
+        clip=tuple(clip) if clip else None,
     )
 
 
@@ -286,6 +288,7 @@ def _row_patch(row: Mapping):
 
     return SimpleNamespace(
         patch_id=row.get("patch_id"),
+        source_relative_path=row.get("source_relative_path") or None,
         z0=number("z0"),
         t=number("t"),
         c=number("c"),

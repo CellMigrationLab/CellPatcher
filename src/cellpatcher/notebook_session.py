@@ -71,7 +71,8 @@ class RunSummary:
     channels
         The channel names of the first image (``C0``, ``C1``, ... when it names none).
     layout
-        The canonical layout of the run's image arrays (:func:`cellpatcher.run_reading.run_layout`).
+        The T, Z and C axes some image of the run has (:func:`cellpatcher.run_reading.run_layout`); each
+        image is read in its own roles.
     mask_types
         The mask types the run recorded.
     image_type
@@ -304,7 +305,7 @@ def scan_object_sizes(config: CellPatcherConfig, summary: RunSummary) -> CellPat
         run = open_file_run(
             config, summary.experiment_argument, summary.masks_argument, use_masks=True, where="The object scan"
         )
-        masks = [read_run_mask(run, fov) for fov in run.fovs]
+        masks = [read_run_mask(run, fov, run.mask_axes) for fov in run.fovs]  # one layout for the scan
     shapes = [mask.shape for mask in masks]
     return scan_cell_patch_size(shapes, masks, config=config.cell, image_axes=run.mask_axes, mask_axes=run.mask_axes)
 

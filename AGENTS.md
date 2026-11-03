@@ -70,7 +70,8 @@ These rules override other implementation preferences.
 * **Never break public interfaces** without explicit user approval:
   `run_patching`, `run_patching_pipeline`, `run_patching_condition_repeat_tree`,
   config dataclasses, `read_array`, `validate_image_and_mask_folders`,
-  `discover_condition_repeat_folders`, `scan_cell_patch_size`,
+  `discover_condition_repeat_folders` (deprecated since 2026-11-03, audit A-m4:
+  it warns until it is removed; nothing in CellPatcher uses it), `scan_cell_patch_size`,
   `prepare_image_for_patching`, `iter_image_planes_for_patching`. Other
   repos (and notebooks) import these.
 * **Keep public pipeline functionality usable from three contexts:** Jupyter
@@ -189,8 +190,10 @@ CellPatcher-specific conventions:
   opens it with `RunInputs.open` with the image folder/root and masks folder
   given (a moved or copied experiment is checked and read where it is now),
   patches the run's FOVs with their recorded keys, and reads images and masks
-  with `RunInputs.read_plane`/`read_mask` (`cellpatcher.run_reading`) in one
-  canonical layout per run (T, Z, C, then Y, X). No CellPatcher-side axis,
+  with `RunInputs.read_plane`/`read_mask` (`cellpatcher.run_reading`) in each
+  image's own canonical layout (its T, Z, C roles, then Y, X; owner decision of
+  2026-11-03, audit A-M1: an axis is in an image's plane choices and `patch_id`
+  only if that image has the role, as in MorphoFeature). No CellPatcher-side axis,
   pairing or calibration logic is used for them; `common.image_axes`/`mask_axes`
   other than `"YX"`, labels other than `"single"` and
   `normalization.experiment_root`/`masks_root` are refused with a migration
@@ -296,10 +299,10 @@ Two ways to point CellPatcher at input data:
   were set with `CellPatcherConfig.common.condition`/`.biological_repeat`.
 - `run_patching_condition_repeat_tree(image_root_path, ...)` — the
   `<condition>/<biological_repeat_YYYY_MM_DD>[/<technical_repeat>]/` layout
-  from §6, walked
-  automatically via `discover_condition_repeat_folders`/`io.py` (both
-  functions keep their historical `condition_repeat` names; the level they
-  read below each condition is the biological repeat). Also accepts a
+  from §6, as the preprocessing run recorded it (its FOV keys; since CP-2a
+  nothing is walked by CellPatcher, and the deprecated
+  `discover_condition_repeat_folders` is not used; both keep their historical
+  `condition_repeat` names; the level below each condition is the biological repeat). Also accepts a
   condition folder holding images directly with **no biological-repeat
   subfolder**; that case is treated as a single implicit biological repeat,
   labeled `cellpatcher.SINGLE_BIOLOGICAL_REPEAT_LABEL` (`"single"`; the

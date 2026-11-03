@@ -282,14 +282,15 @@ def test_a_file_run_refuses_declared_image_axes(tmp_path):
 
 
 def test_a_run_mixing_stacks_and_single_planes_patches_both(tmp_path):
-    # One layout per run (CP-2a): Z is there because one image has three planes; the 2-D image
-    # is its one plane, z=0. Former code: both read with common.image_axes="ZYX".
+    # Each image is read in its own roles (audit A-M1): the 2-D image has no Z, so its patches
+    # have no plane index, as when it is patched alone. Before, one layout per run (CP-2a) gave it
+    # z=0 because the other image has three planes.
     root = tmp_path / "raw"
     write_tiff(root / "a_cond" / "r1" / "a.tif", _stack(), "ZYX")
     write_tiff(root / "b_cond" / "r1" / "b.tif", _stack((1, 16, 16)), "ZYX")
     config = file_run_config(_grid_config("YX", z_policy="all"), root, "ZYX", missing_as_singleton=True)
     leaves = run_patching_condition_repeat_tree(str(root), config=config)
-    assert [sorted({p.z0 for p in leaf.result.patches}) for leaf in leaves] == [[0, 1, 2], [0]]
+    assert [sorted({p.z0 for p in leaf.result.patches}, key=str) for leaf in leaves] == [[0, 1, 2], [None]]
 
 
 def test_a_plain_stack_without_axis_metadata_keeps_its_declared_axes(tmp_path):

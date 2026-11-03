@@ -133,28 +133,27 @@ def experiment_design_path(settings: NormalizationConfig) -> Path:
 def load_experiment_design(settings: NormalizationConfig, statistics: PlaneStatistics) -> ConfirmedDesign:
     """Read and check the experiment design of the ``biological_repeat`` scope, before any image is read.
 
-    The design is the preprocessing run's own, opened with ``RunInputs``: the
-    file whose SHA-256 the run's manifest records, read with the brick's one
-    shared reader, ``read_confirmed_design`` (contract §16; CellPatcher keeps
-    no reader of its own), exactly as the brick writes it, every repeat group
+    The design is the preprocessing run's own, found as ``RunInputs`` finds it (the brick's ``published_path``:
+    the output folder's file, or the copy an unfinished but valid publication holds; audit A-m2): the file whose
+    SHA-256 the run's manifest records, read with the brick's one shared reader, ``read_confirmed_design``
+    (contract §16; CellPatcher keeps no reader of its own), exactly as the brick writes it, every repeat group
     confirmed with one folder per condition.
 
     Returns
     -------
     morphobricks_preprocessing.ConfirmedDesign
-        Its ``path``, ``sha256`` and ``repeat_groups``
-        (``{(condition, biological_repeat): repeat group}``, the pairing the
-        normalization brick's ``scope_groups`` takes).
+        Its ``path``, ``sha256`` and ``repeat_groups`` (``{(condition, biological_repeat): repeat group}``,
+        the pairing the normalization brick's ``scope_groups`` takes).
 
     Raises
     ------
     PreprocessingCheckError
-        ``missing_experiment_design`` when the run recorded no design, or the
-        reader's errors (``unreadable_experiment_design``,
-        ``repeat_group_conflict``, ``design_not_confirmed``,
+        ``missing_experiment_design`` when the run recorded no design, or the reader's errors
+        (``unreadable_experiment_design``, ``repeat_group_conflict``, ``design_not_confirmed``,
         ``changed_experiment_design``).
     """
-    from morphobricks_preprocessing.design import DesignCheckError, read_confirmed_design
+    from morphobricks_preprocessing.design import DESIGN_FILENAME, DesignCheckError, read_confirmed_design
+    from morphobricks_preprocessing.run.generation import published_path
     from morphobricks_preprocessing.validation import error
 
     path = experiment_design_path(settings)
@@ -171,7 +170,7 @@ def load_experiment_design(settings: NormalizationConfig, statistics: PlaneStati
             )
         ])
     try:
-        return read_confirmed_design(path, expected_sha256=expected)
+        return read_confirmed_design(published_path(path.parent, DESIGN_FILENAME, expected), expected_sha256=expected)
     except DesignCheckError as exc:
         raise PreprocessingCheckError(exc.issues) from exc
 

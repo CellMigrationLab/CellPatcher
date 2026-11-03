@@ -17,14 +17,14 @@ from cellpatcher.pipeline import RUN_CONFIG_FILENAME, run_patching
 from tests.helpers import make_synthetic_cell_image_and_labels, named
 from tests.helpers import preprocessed_tree as _tree
 
+pytestmark = pytest.mark.filterwarnings("ignore:discover_condition_repeat_folders is deprecated:DeprecationWarning")
+
 
 def _write_image(path, shape=(16, 16)):
     write_array(path, np.ones(shape, dtype=np.float32))
 
 
-# ---------------------------------------------------------------------------
-# discover_condition_repeat_folders
-# ---------------------------------------------------------------------------
+# discover_condition_repeat_folders: deprecated (audit A-m4; warning checked in test_deprecations.py)
 
 
 def test_discover_explicit_repeat_subfolders(tmp_path):

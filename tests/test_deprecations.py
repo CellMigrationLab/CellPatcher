@@ -167,3 +167,18 @@ def test_the_live_dataset_records_channel_repeat_and_keeps_any_channel_count(tor
     for shape, axes, repeat in (((8, 8), "YX", 3), ((1, 8, 8), "CYX", 3), ((3, 8, 8), "CYX", 1)):
         item = PatchTorchDataset(np.ones(shape, dtype=np.uint16), [patch], image_axes=axes, tensor_config=rgb)[0]
         assert np.asarray(item["image"]).shape == (3, 4, 4) and item["channel_repeat"] == repeat
+
+
+def test_discover_condition_repeat_folders_is_deprecated_and_still_works(tmp_path):
+    # Audit round 2, A-m4: the helper pairs masks by mask_root/<leaf>, a rule the preprocessing
+    # brick does not use, and no run uses it. It is public (AGENTS.md §2), so it warns before it
+    # is removed, and keeps its results meanwhile.
+    from cellpatcher import discover_condition_repeat_folders
+    from cellpatcher.io import write_array
+
+    write_array(tmp_path / "images" / "ctrl" / "rep1" / "a.tif", np.ones((8, 8), np.uint16))
+    (tmp_path / "masks").mkdir()
+    with pytest.warns(DeprecationWarning, match="discover_condition_repeat_folders is deprecated.*preprocessing run"):
+        (leaf,) = discover_condition_repeat_folders(tmp_path / "images", mask_root_path=tmp_path / "masks")
+    assert (leaf.condition, leaf.biological_repeat, leaf.technical_repeat) == ("ctrl", "rep1", "single")
+    assert leaf.mask_folder == tmp_path / "masks" / "ctrl" / "rep1"

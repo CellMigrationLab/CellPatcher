@@ -18,6 +18,54 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Pin preprocessing v0.4.0rc4; prepare v0.2.0rc2
 
 ---
+## Unreleased: each image of a file run is read in its own roles (audit round 2, A-M1)
+
+### Changed
+- **`patch_id` changes for 2-D images in mixed runs.** A folder or tree run read every image in
+  one layout per run: Z (or T) when *any* image had more than one plane along it. A `YX` image
+  patched beside a `ZYX` image therefore got `z0=0` and `z000` in its `patch_id`, other random
+  rectangles with `seed_scope="plane"` and `(1, h, w)` arrays under `z_policy="keep"`, and
+  `z_policy="select"` refused the run. Owner decision of 2026-11-03: an axis is in an image's plane
+  choices and ids only if *that image* has the role, whatever else is in the run (the rule
+  MorphoFeature's run planes follow). Such an image now gets the ids, rectangles and arrays it gets
+  alone (`ctrl/rep1/single/a/grid-...`, `z0` empty), equal to MorphoFeature's `cut_patch_set` ids,
+  and `z_policy="select"` applies only to the images with Z. Ids of runs whose images share their
+  roles do not change. Re-run a mixed run to get the new ids; patches exported before keep theirs.
+- An OME-Zarr image records T and Z of length 1: a `t_policy`/`z_policy` that chooses planes
+  (`"all"`, `"first"`, `"select"`) now names them (`t0000`, `z000`), as MorphoFeature does; before,
+  they were left out because no image had more than one plane along them. Under `"keep"` nothing
+  changes (a kept axis of length 1 stays out of the arrays and ids).
+- `run_config.json`'s `preprocessing.layout` maps each image's path to its own `image` and `mask`
+  layout (`images`) when the images' layouts differ, and exported patches are normalized on load in
+  their own image's axes; a row whose `source_relative_path` names none of those images is refused
+  (its axes are unknown), never given the run's union of axes. A run of one layout is recorded as before.
+- Every image of a file run is patched one at a time (the path plane policies already took), so
+  `z_policy="keep"` reads one image at a time too. Tests in `tests/test_mixed_run_layouts.py`
+  (from the audit probes p1 and p3, with a parity check against MorphoFeature's `cut_patch_set`
+  as it calls CellPatcher at MorphoFeature 4f25a79, run in every job: MorphoFeature is private, so CI
+  cannot install it).
+
+## Unreleased: the design of an unfinished publication is read (audit round 2, A-m2)
+
+### Fixed
+- `normalization.scope="biological_repeat"` read `<output>/experiment_design.csv` itself, so a
+  preprocessing run whose publication was unfinished but valid (the manifest's design still in
+  `<output>/.publish`, which `RunInputs.open` accepts) was refused with `changed_experiment_design`.
+  The design is now found with the preprocessing brick's `published_path`, as `RunInputs` finds it,
+  and still read with `read_confirmed_design` against the manifest's SHA-256. Test in
+  `tests/test_design_publication.py`.
+
+## Unreleased: `discover_condition_repeat_folders` is deprecated (audit round 2, A-m4)
+
+### Deprecated
+- `cellpatcher.discover_condition_repeat_folders` emits a `DeprecationWarning` and will be removed.
+  Its `mask_folder` mirrors each leaf under `mask_root_path` (`mask_root/<leaf>`), a pairing the
+  preprocessing run does not use, and no CellPatcher run calls it since CP-2a. It is a listed public
+  interface (AGENTS.md), so it keeps its results until removal. Read a preprocessing run's images,
+  FOV keys and masks instead (`RunInputs.open(run).fovs()`, `read_mask`), or patch them with
+  `run_patching_condition_repeat_tree` and `common.preprocessing_run`. Test in
+  `tests/test_deprecations.py`.
+
 ## Unreleased: the Z/T mask message names the real options (cross-brick test F7)
 
 ### Fixed
