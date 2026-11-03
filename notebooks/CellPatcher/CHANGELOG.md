@@ -51,7 +51,7 @@ Pin preprocessing v0.4.0rc4; prepare v0.2.0rc2
   `<output>/.publish`, which `RunInputs.open` accepts) was refused with `changed_experiment_design`.
   The design is now found with the preprocessing brick's `published_path`, as `RunInputs` finds it,
   and still read with `read_confirmed_design` against the manifest's SHA-256. Test in
-  `tests/test_normalization.py`.
+  `tests/test_design_publication.py`.
 
 ## Unreleased: the Z/T mask message names the real options (cross-brick test F7)
 
