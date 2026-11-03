@@ -48,7 +48,8 @@ Google Colab (`docs/developer_notes.md`).
   scope; CellPatcher read every row with the default `"image"` scope, so rows of the
   `biological_repeat` and `patch` scopes could no longer be read back (`read_patch_table`,
   `iter_exported_patches`, raw files normalized on load). It now passes the scope of the row's
-  `run_config.json` (`"image"` when that names none).
+  `run_config.json` (`"image"` when that names none). Rows of earlier tables, with `;`-separated
+  `normalization_offset`/`normalization_scale`, which CellPatcher converts itself, are checked the same way.
 - **Raw patches of the removed `condition` and `technical_repeat` scopes still normalize on
   load.** Normalization `v0.3.3` refuses these scopes as unknown. As CellPatcher's policy has
   been since they were removed (contract §7, normalization brick N29), their rows are read from

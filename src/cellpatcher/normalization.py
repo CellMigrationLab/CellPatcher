@@ -256,7 +256,7 @@ def parameters_from_row(row: Mapping, settings: Mapping) -> object | None:
 
     *settings*: the row's ``run_config.json`` ``normalization``. ``Normalization_*_C<i>`` columns at a scope removed
     since (N29), which the brick refuses, are read as image-scope ones, keeping their recorded scope (it must be the
-    run's) and values (contract §7). ``;``-separated columns of an earlier table are converted here (N47).
+    run's) and values (contract §7). ``;``-separated columns of earlier tables (N47): converted, scope checked.
 
     Raises
     ------
@@ -267,19 +267,19 @@ def parameters_from_row(row: Mapping, settings: Mapping) -> object | None:
 
     mbn = require_normalization()
     prefixes = ("Normalization_Offset_C", "Normalization_Scale_C")
-    if any(str(name).startswith(prefixes) and value not in (None, "") for name, value in row.items()):
-        scope = settings.get("scope", "image")
-        removed = scope in REMOVED_NORMALIZATION_SCOPES
-        if removed and (recorded := row.get("normalization_scope")) != scope:
-            raise ValueError(f"Column normalization_scope is {recorded!r}, but its run normalized at {scope!r}.")
+    pairs = any(str(name).startswith(prefixes) and value not in (None, "") for name, value in row.items())
+    if not pairs and not row.get("normalization_offset"):
+        return None
+    removed = (scope := settings.get("scope", "image")) in REMOVED_NORMALIZATION_SCOPES
+    if (removed or not pairs) and (recorded := row.get("normalization_scope")) != scope:
+        raise ValueError(f"Column normalization_scope is {recorded!r}, but its run normalized at {scope!r}.")
+    if pairs:
         brick = mbn.NormalizationSettings(
             image_type=settings.get("image_type", "fluorescence"), method=settings.get("method", "percentile"),
             percentile=tuple(settings.get("percentile", (1.0, 99.8))), scope="image" if removed else scope,
         )
         parameters = mbn.Parameters.from_columns({**row, "normalization_scope": "image"} if removed else row, brick)
         return replace(parameters, scope=scope)
-    if not row.get("normalization_offset"):
-        return None
     offsets = [float(value) for value in str(row["normalization_offset"]).split(";")]
     scales = [float(value) for value in str(row.get("normalization_scale") or "").split(";")]
     if len(offsets) != len(scales):
