@@ -9,7 +9,6 @@ import csv
 import importlib.util
 import json
 import os
-import shutil
 import warnings
 
 import numpy as np
@@ -120,15 +119,12 @@ def _patches_by_image(results):
 
 
 def test_a_tree_of_links_matches_the_brick_statistics(experiment, tmp_path):
-    # The same images reached through a tree of links (a file link, a linked
-    # folder): the brick and CellPatcher record the same path for each image,
-    # so every patched plane finds its row, with the manifest's file checks.
-    # Since preprocessing v0.4.0rc4 links are followed only inside the experiment
-    # folder, so the images are stored in its hidden .raw folder (never discovered).
+    # The same images through a tree of links (file links, a linked folder) inside the experiment (since
+    # preprocessing v0.4.0rc4): the brick and CellPatcher record one path per image, so each plane finds its row.
     stored, stacks, _ = experiment
     linked = tmp_path / "linked"
-    shutil.copytree(stored, linked / ".raw")
     (linked / "control" / "bio1").mkdir(parents=True)
+    stored.rename(linked / ".raw")  # a hidden folder, never discovered: each image is found once, through its link
     for name in ("a.tif", "b.tif"):
         (linked / "control" / "bio1" / name).symlink_to(linked / ".raw" / "control" / "bio1" / name)
     (linked / "treated").mkdir()

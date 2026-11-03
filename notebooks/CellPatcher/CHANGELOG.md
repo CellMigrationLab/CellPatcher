@@ -4,12 +4,54 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
-## [0.2.0] - Unreleased: no silent rescale or channel repetition in the torch adapters (CP-4)
+## [0.2.0rc2] - Preprocessing v0.4.0rc4
+
+Owner decision of 2026-11-03: every brick is aligned on preprocessing `v0.4.0rc4` through
+CellPatcher `v0.2.0rc2`. This release candidate also carries CP-4 and the LabConstrictor template
+sync below. As for `v0.2.0rc1`, no installer is built for it: install it with pip or on Google
+Colab (`docs/developer_notes.md`).
+
+### Changed
+- CellPatcher requires `morphobricks-preprocessing` `v0.4.0rc4` (core and `zarr` extra; was
+  `v0.4.0rc2`). Its normalization pin is unchanged (`v0.3.2`). Every notebook installs
+  `v0.2.0rc2` (`RELEASE_TAG`, `current_version`, `notebook_latest_versions.yaml`).
+- Bricks that pin CellPatcher pin `v0.2.0rc2` together with preprocessing `v0.4.0rc4`: pip
+  refuses two different direct URLs for one package, so `v0.2.0rc1` (preprocessing `v0.4.0rc2`)
+  cannot be installed beside preprocessing `v0.4.0rc4`.
+
+### What preprocessing rc3 and rc4 change for CellPatcher users
+CellPatcher reads every file run through `RunInputs`, so the brick's new refusals reach
+CellPatcher runs as `preprocessing_run_refused`, with the brick's reason; no CellPatcher code
+changed for them (preprocessing `CHANGELOG.md` and `docs/migration-0.3-to-0.4.md` at `c6d8aff`):
+- **Links** in the experiment and masks folders are followed only inside them: a link out of the
+  folder is `link_outside_folder`, one file reached by two paths `linked_twice`, a loop
+  `link_loop`. A tree of links that gathers images stored elsewhere must now hold its targets
+  inside the experiment, for example in a hidden `.raw/` folder, which discovery skips
+  (`docs/configuration_reference.md`, "Trees of links"). A link out added after the run is
+  refused by `RunInputs` too.
+- **OME-Zarr** images recorded by preprocessing `v0.4.0rc3` or earlier have no file inventory in
+  their fingerprint: `RunInputs` refuses such runs. Run preprocessing again after upgrading.
+  OME-NGFF 0.1 and 0.2 stores, and stores without `axes`, are `unreadable_ome_zarr`.
+- **Named-axis copies**: conversion records of version 1 (`v0.4.0rc3` or earlier) are refused;
+  convert again into a new folder.
+- **Masks folder**: an experiment, named-axis copies or the output folder inside the masks folder
+  is refused, also by `RunInputs.open` for a run recorded that way.
+- `RunInputs.read_plane`/`read_mask` refuse a `z` or `t` outside the image (`IndexError`);
+  CellPatcher only reads the planes the run recorded, so nothing changes for its runs.
+- Pixel sizes: a header size without a length unit is unknown. CellPatcher reads no pixel size,
+  so nothing changes for its patches.
+
+### Tests
+- The link-tree tests store their targets in the experiment's `.raw/` folder, and two new tests
+  check that a link out of the experiment stops preprocessing and, added after the run, the
+  CellPatcher file run (`tests/test_source_relative_path.py`).
+
+### No silent rescale or channel repetition in the torch adapters (CP-4)
 
 Owner decision of 2026-11-02 (the CP-3b review's question): the torch adapters' defaults change
-before the final `v0.2.0`; `v0.2.0rc1` ships with the old ones.
+before the final `v0.2.0`; `v0.2.0rc1` ships with the old ones, `v0.2.0rc2` with the new ones.
 
-### Breaking
+#### Breaking
 - **`PatchTensorConfig.scale_policy` has no default.** `PatchTensorConfig()`, a config without
   `scale_policy`, `patch_array_to_tensor(..., config=None)` and `PatchTorchDataset`/
   `ExportedPatchTorchDataset` without `tensor_config` raise a `TypeError` naming the choices:
@@ -42,7 +84,7 @@ MorphoFeature `main` `4e6970f`: documentation only (`AGENTS.md` line 247,
 audit's PT08 row (line 121) still describes the old default RGB repetition.
 MorphoRelate `ea19bb0`, fiberfeatures `362f1ba`, MorphoObjects `2080ff5`: no use.
 
-### Changed
+#### Changed
 - `docs/api_examples.md`, `docs/quick_start.md`: every `PatchTensorConfig` names its
   `scale_policy` (`"none"`), and the RGB examples their `channel_policy`; contract §3 and §15 and
   `docs/plan.md` §6.8 record the decision.
