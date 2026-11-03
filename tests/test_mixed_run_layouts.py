@@ -180,31 +180,56 @@ def _fov(output):
     return fov
 
 
-@pytest.mark.skipif(importlib.util.find_spec("morphofeature") is None, reason="needs MorphoFeature (parity check)")
+def _morphofeature_planes(fov):
+    """MorphoFeature's ``run_config._planes`` (MorphoFeature 4f25a79): None for an axis the image lacks."""
+    times = range(fov.t_count) if "T" in fov.roles else [None]
+    depths = range(fov.z_count) if "Z" in fov.roles else [None]
+    return [(t, z) for t in times for z in depths]
+
+
+def _morphofeature_cut(fov, t, z, mode):
+    """The ids MorphoFeature's ``patch_sets.cut_patch_set`` (4f25a79) gets for one plane.
+
+    It calls ``run_patching`` on a YX plane with the FOV key's labels in ``CommonConfig`` and
+    ``position_id``, ``t`` and ``z`` (those not None) in ``image_metadata``. Mirrored here so the
+    check runs in every job (MorphoFeature is private, so CI cannot install it); the same check
+    against the real ``cut_patch_set`` gave equal ids in the PR #77 review.
+    """
+    from cellpatcher import CommonConfig, GridConfig, RandomConfig, run_patching
+
+    condition, biological_repeat, technical_repeat, position_id = fov.key
+    config = CellPatcherConfig(mode=mode)
+    config.common = CommonConfig(
+        image_axes="YX", mask_axes="YX", condition=condition,
+        biological_repeat=biological_repeat, technical_repeat=technical_repeat,
+    )
+    config.grid = GridConfig(tile_size=16)
+    config.random = RandomConfig(patch_size=8, n_patches=3, seed=7, seed_scope="plane")
+    metadata = {"position_id": position_id, "t": t, "z": z}
+    result = run_patching(
+        images=[np.broadcast_to(np.uint8(0), (32, 32))],
+        config=config,
+        image_metadata=[{key: value for key, value in metadata.items() if value is not None}],
+    )
+    return [patch.patch_id for patch in result.patches]
+
+
 @pytest.mark.parametrize("mode", ["grid", "random"])
 def test_ids_equal_morphofeature_cut_patch_set_ids(tmp_path, mode):
     # MorphoFeature cuts each plane of its run (t and z only for an axis the image has) with
     # cut_patch_set; a CellPatcher file run of the same images gives the same ids.
     from morphobricks_preprocessing.run_inputs import RunInputs
-    from morphofeature.channels import ChannelCatalogue
-    from morphofeature.feature_requests import FovInput
-    from morphofeature.identity import FovKey
-    from morphofeature.patch_sets import PatchSet, cut_patch_set
-    from morphofeature.run_config import _planes
 
     config = _config(mode, z_policy="all")
     config.random.seed_scope = "plane"
     result = _run(tmp_path, "mixed", config, with_stack=True)
-    patch_set = PatchSet(name="set", mode=mode, side=16 if mode == "grid" else 8)
-    if mode == "random":
-        patch_set = PatchSet(name="set", mode=mode, side=8, n=3, seed=7, seed_scope="plane")
-    expected = []
-    for fov in RunInputs.open(config.common.preprocessing_run).fovs():
-        for t, z in _planes(fov):
-            plane = FovInput(
-                FovKey(*fov.key), np.zeros((1, 32, 32), np.uint16), ChannelCatalogue({"c0": 0}), t=t, z=z
-            )
-            expected += [descriptor.patch_id for descriptor in cut_patch_set(patch_set, plane)["set"]]
+    expected = [
+        patch_id
+        for fov in RunInputs.open(config.common.preprocessing_run).fovs()
+        for t, z in _morphofeature_planes(fov)
+        for patch_id in _morphofeature_cut(fov, t, z, mode)
+    ]
+    assert len(expected) == (16 if mode == "grid" else 12)
     assert sorted(p.patch_id for p in result.patches) == sorted(expected)
 
 

@@ -42,7 +42,8 @@ Pin preprocessing v0.4.0rc4; prepare v0.2.0rc2
 - Every image of a file run is patched one at a time (the path plane policies already took), so
   `z_policy="keep"` reads one image at a time too. Tests in `tests/test_mixed_run_layouts.py`
   (from the audit probes p1 and p3, with a parity check against MorphoFeature's `cut_patch_set`
-  when MorphoFeature is installed).
+  as it calls CellPatcher at MorphoFeature 4f25a79, run in every job: MorphoFeature is private, so CI
+  cannot install it).
 
 ## Unreleased: the design of an unfinished publication is read (audit round 2, A-m2)
 
