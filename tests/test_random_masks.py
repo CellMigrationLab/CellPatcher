@@ -207,3 +207,15 @@ def test_morphofeature_cuts_the_file_runs_random_patches_with_and_without_masks(
     half = RandomConfig(patch_size=8, n_patches=10, seed=7, seed_scope=scope, min_mask_fraction=0.5)
     filtered = _cut_patch_set(half, _masks()["block"])
     assert _file_run(root, run, half, masks) == filtered != expected
+
+
+@pytest.mark.parametrize("value", [False, True, np.True_, np.False_, "0", "0.5", np.nan, np.inf, -np.inf, -0.1, 1.5])
+def test_min_mask_fraction_refuses_booleans_strings_and_non_finite_values(value):
+    """``True`` is not 1, ``False`` is not an explicit 0, and a string or NaN is not a fraction."""
+    with pytest.raises(ValueError, match="min_mask_fraction"):
+        RandomConfig(min_mask_fraction=value)
+
+
+@pytest.mark.parametrize("value", [None, 0, 0.0, 1, 0.5, np.float64(0.25), np.int64(1)])
+def test_min_mask_fraction_accepts_none_and_numbers_in_zero_to_one(value):
+    assert RandomConfig(min_mask_fraction=value).min_mask_fraction is value
