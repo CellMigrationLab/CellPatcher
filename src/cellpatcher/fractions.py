@@ -9,12 +9,32 @@ one summed-area table per mask and image. Cell patches also carry
 
 from __future__ import annotations
 
+import math
 import re
+from numbers import Real
 
 import numpy as np
 
 OWN_OBJECT = "own_object"
 _NAME = re.compile(r"[A-Za-z0-9._-]+")
+
+
+def check_unit_fraction(value: object, name: str) -> None:
+    """Refuse a setting that is not a real number in [0, 1]; ``None`` means unset.
+
+    ``bool`` and ``np.bool_`` are refused (``True`` is not 1.0 and ``False`` is not an explicit
+    0), as are strings, NaN and infinities. Ints and floats (and NumPy numbers) pass.
+
+    Raises
+    ------
+    ValueError
+        With ``name`` when ``value`` is not ``None`` or a finite real number in [0, 1].
+    """
+    if value is None:
+        return
+    is_number = isinstance(value, Real) and not isinstance(value, (bool, np.bool_))
+    if not is_number or not math.isfinite(value) or not 0 <= value <= 1:
+        raise ValueError(f"{name} must be None or a number with 0 <= {name} <= 1; got {value!r}.")
 
 
 def check_fraction_masks(fraction_masks, image_list, image_axes: str) -> list[dict]:

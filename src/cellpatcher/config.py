@@ -10,6 +10,7 @@ from cellpatcher.io import (
     REMOVED_MATCHING_OPTIONS,
     refuse_removed_matching,
 )
+from cellpatcher.fractions import check_unit_fraction
 from cellpatcher.ids import validate_object_set
 from cellpatcher.planes import validate_plane_policies
 
@@ -126,8 +127,7 @@ class RandomConfig:
             raise ValueError("n_patches must be > 0.")
         if self.seed_scope not in SEED_SCOPES:
             raise ValueError(f"seed_scope must be one of {list(SEED_SCOPES)}; got {self.seed_scope!r}.")
-        if self.min_mask_fraction is not None and not 0.0 <= self.min_mask_fraction <= 1.0:
-            raise ValueError("min_mask_fraction must satisfy 0 <= min_mask_fraction <= 1.")
+        check_unit_fraction(self.min_mask_fraction, "min_mask_fraction")
 
 
 @dataclass
