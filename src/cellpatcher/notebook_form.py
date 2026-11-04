@@ -292,11 +292,8 @@ class SettingsForm:
             cell=self.cell.config(dataset_size),
             grid=GridConfig(tile_size=self.grid_size.value, overlap=self.grid_overlap.value,
                             include_partial=self.grid_partial.value),
-            # "Sample only inside the masks": a draw with at least one mask pixel (F8: a mask
-            # filters only with min_mask_fraction > 0).
             random=RandomConfig(patch_size=self.random_size.value, n_patches=self.random_count.value,
-                                seed=self.random_seed.value,
-                                min_mask_fraction=self.random_masks.value / self.random_size.value**2),
+                                seed=self.random_seed.value),
             filters=FilterConfig(min_mean_intensity=self.min_mean.value or None),
             extraction=ExtractionConfig(
                 output_size=self.output_size.value or None,

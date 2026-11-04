@@ -577,8 +577,8 @@ columns: `patch_id`, `image_id`, `mode`, `y0`/`y1`/`x0`/`x1`, `height`/
   `SeedSequence` (never Python's `hash()`, never the run index), so the
   rectangles do not depend on run order either. Nor on a sampling mask that
   excludes nothing (v0.2.0, matrix finding F8): every draw takes `y0` then `x0`
-  from that stream whatever the mask; at `random.min_mask_fraction` 0 a mask
-  filters no draw, and above 0 the patches are the stream's draws reaching the
+  from that stream whatever the mask; with `random.min_mask_fraction` unset a draw needs
+  one mask pixel (as before), an explicit 0 makes the mask filter no draw, and above 0 the patches are the stream's draws reaching the
   fraction, in order (`cellpatcher.strategies.random`).
 - `object_set` — cell mode only: `image_metadata["object_set"]`, else
   `common.object_set`, else the mask's own name in folder/tree runs (the

@@ -23,39 +23,44 @@ Pin preprocessing v0.4.0rc4; prepare v0.2.0rc2
 The cross-brick matrix run of 2026-11-03 (finding F8) found that a random-mode run given a mask
 with `min_mask_fraction=0` cut other rectangles than the same run without one: at 0 every draw
 without a mask pixel was rejected (the "any overlap" rule), and each rejected draw shifted the
-draws after it. MorphoFeature cuts random sets without a mask, so its `patch_id`s matched a
+draws after it. Owner decision: a mask with no fraction keeps the any-overlap rule (today's
+results); an explicit 0 means the mask removes nothing. MorphoFeature cuts random sets without a mask, so its `patch_id`s matched a
 CellPatcher run only when that run had no mask either.
 
 ### Changed
+- **`RandomConfig.min_mask_fraction` defaults to `None` (was `0.0`).** `None` is the any-overlap
+  rule (a draw needs one mask pixel); an explicit `0` is a mask that excludes nothing.
 - **Random rectangles depend only on the seed, the FOV key and plane (`random.seed_scope`), the
   plane's shape, the patch size and a mask filter that excludes draws.** The draw sequence is
   documented in `cellpatcher.strategies.random`: one stream, `numpy.random.default_rng(seed)` with
   the image's seed (`ids.random_seed`, unchanged); every draw takes `y0` and then `x0`, whatever
-  the mask. At `min_mask_fraction == 0` a mask excludes nothing: the first `n_patches` draws are
+  the mask. At an explicit `min_mask_fraction=0` a mask excludes nothing: the first `n_patches` draws are
   the patches, the same with and without a mask (the mask is still checked: 2-D, the plane's
   shape). At a fraction above 0 the patches are the stream's draws whose share of mask pixels
   reaches it, in order; a rejected draw is still consumed. Only then can a plane run out of
   attempts (`SamplingExhaustedError`, as before).
-- A mask given with `min_mask_fraction == 0` gives a `UserWarning` that it excludes no rectangle.
-- The notebooks' "Sample only inside the masks" sets `min_mask_fraction = 1 / patch_size**2`
-  (at least one mask pixel), so the notebooks cut the rectangles they cut before.
+- A mask given with an explicit `min_mask_fraction=0` gives a `UserWarning` that it excludes no
+  rectangle.
 
 ### Unchanged (checked bit for bit against `main` 40a68b1)
 - Every run without a mask: the same `patches.csv`, `images.csv`, `run_config.json` and patch
   files, in memory and in file runs, for every seed scope and plane policy.
+- **Every run with a mask and no `min_mask_fraction` (the default, the notebooks' "Sample only
+  inside the masks" included)**: the same rectangles and `patch_id`s as before.
 - Every run with a mask and `min_mask_fraction > 0`: a draw reaching a positive fraction always
   had a mask pixel, so the former rule rejected nothing more.
 
 ### Migration notes
-- **`patch_id`s and rectangles change for random runs given a mask at `min_mask_fraction` 0**
-  (`run_patching(..., masks=...)`, a random file run with a masks folder or `matching.mask_type`,
-  a MorphoFeature random set with a `sampling_mask` and no fraction). Their rectangles are now
+- **`patch_id`s and rectangles change for random runs given a mask and an explicit
+  `min_mask_fraction=0`** (`run_patching(..., masks=...)`, a random file run with a masks folder or
+  `matching.mask_type`, a MorphoFeature random set with a `sampling_mask` whose fraction is passed
+  as 0). Their rectangles are now
   those of the run without the mask, and may lie outside it. Re-run them; patches exported before
   keep their ids, and code that joins patches across the two versions must not mix them.
-- **To keep the former rule**, set `random.min_mask_fraction = 1 / patch_size**2`: it keeps
+- **To keep the former rule**, leave `min_mask_fraction` unset (or set `1 / patch_size**2`): it keeps
   exactly the draws with at least one mask pixel and gives the former rectangles and ids bit for
   bit (`tests/test_random_masks.py`). Any other positive fraction filters as before.
-- An empty mask at fraction 0 no longer raises `SamplingExhaustedError`; it filters nothing.
+- An empty mask at an explicit 0 no longer raises `SamplingExhaustedError`; it filters nothing.
 - A random file run given a masks folder with two mask types still needs `matching.mask_type`:
   the mask is read (its `mask_file` is recorded) even when it excludes nothing.
 

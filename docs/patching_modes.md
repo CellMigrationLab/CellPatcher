@@ -78,7 +78,7 @@ Key parameters:
 - `patch_size`
 - `n_patches`
 - `seed`
-- optional sampling mask (`masks=...`) with `min_mask_fraction`: the least share of each patch in the mask. At `0` (the default) the mask excludes nothing and the rectangles are those without it; `1 / patch_size**2` keeps every patch touching the mask
+- optional sampling mask (`masks=...`) with `min_mask_fraction`: the least share of each patch in the mask. Unset (the default), any overlap is accepted; an explicit `0` means the mask excludes nothing and the rectangles are those without it
 
 Common pitfalls:
 

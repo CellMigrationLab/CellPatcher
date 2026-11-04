@@ -108,16 +108,16 @@ class RandomConfig:
     same rectangles (a position followed over time).
 
     ``min_mask_fraction`` (with a sampling mask) is the least share of a
-    draw's pixels in the mask's foreground. 0 (default): a mask excludes no
-    draw (F8, v0.2.0; ``1 / patch_size**2`` keeps draws touching the mask, the
-    former rule). Draw sequence: :mod:`cellpatcher.strategies.random`.
+    draw's pixels in the mask's foreground. ``None`` (the default, F8): any
+    overlap; an explicit ``0``: the mask excludes no draw. Draw sequence:
+    :mod:`cellpatcher.strategies.random`.
     """
 
     patch_size: int = 128
     n_patches: int = 100
     seed: int | None = 0
     seed_scope: str = "plane_channel"
-    min_mask_fraction: float = 0.0
+    min_mask_fraction: float | None = None
 
     def __post_init__(self) -> None:
         if self.patch_size <= 0:
@@ -126,7 +126,7 @@ class RandomConfig:
             raise ValueError("n_patches must be > 0.")
         if self.seed_scope not in SEED_SCOPES:
             raise ValueError(f"seed_scope must be one of {list(SEED_SCOPES)}; got {self.seed_scope!r}.")
-        if not 0.0 <= self.min_mask_fraction <= 1.0:
+        if self.min_mask_fraction is not None and not 0.0 <= self.min_mask_fraction <= 1.0:
             raise ValueError("min_mask_fraction must satisfy 0 <= min_mask_fraction <= 1.")
 
 

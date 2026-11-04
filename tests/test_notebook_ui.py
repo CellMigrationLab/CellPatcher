@@ -54,17 +54,6 @@ def test_the_config_is_a_file_run_of_the_checked_run(clean):
     assert config.matching.mask_type is None  # grid reads no masks
 
 
-def test_sampling_inside_the_masks_keeps_draws_with_a_mask_pixel(clean):
-    """F8: a mask filters random draws only with min_mask_fraction > 0; the checkbox sets 1 / size**2."""
-    notebook = _checked(clean)
-    notebook.form.mode.value = "random"
-    notebook.form.random_size.value = 16
-    assert notebook.config().random.min_mask_fraction == 0
-    notebook.form.random_masks.value = True
-    config = notebook.config()
-    assert (config.random.min_mask_fraction, config.matching.mask_type) == (1 / 16**2, "Cells")
-
-
 def test_preview_and_export_through_the_buttons(clean, tmp_path):
     notebook = _checked(clean)
     notebook.form.cell.size.value = "fixed"

@@ -8,10 +8,13 @@ The draw sequence (since v0.2.0, matrix finding F8):
    ``x0 = rng.integers(0, W - P + 1)`` (``H``, ``W`` the plane's Y/X size, ``P`` the
    patch size). The stream depends only on the seed, the plane's shape and the patch size,
    never on a mask.
-3. ``min_mask_fraction == 0``: the first ``n_patches`` draws are the patches. A sampling
+3. ``min_mask_fraction`` explicitly ``0``: the first ``n_patches`` draws are the patches. A sampling
    mask is checked (2-D, the plane's shape) but excludes nothing, so the rectangles are
    the same with and without one.
-4. ``min_mask_fraction > 0`` (needs a mask): the draws are taken in stream order and a
+4. ``min_mask_fraction`` ``None`` (the default) with a mask: a draw is kept when it overlaps the
+   mask by at least one pixel (the rule before the option existed, as a fraction of
+   ``1 / patch_size**2`` would give). Without a mask every draw is kept.
+5. ``min_mask_fraction > 0`` (needs a mask): the draws are taken in stream order and a
    draw is kept when its share of mask pixels is at least the fraction; the patches are
    the first ``n_patches`` kept draws. A rejected draw is still consumed, so the patches
    are the draws of the mask-free stream that pass the filter, in order. After
@@ -34,15 +37,14 @@ from cellpatcher.strategies.base import BasePatchStrategy, _spatial_shape_from_a
 from cellpatcher.types import PatchRegion
 
 ZERO_FRACTION_WARNING = (
-    "random mode: min_mask_fraction is 0, so the sampling mask excludes no rectangle and the "
-    "rectangles are those drawn without a mask (since CellPatcher 0.2.0). Set min_mask_fraction "
-    "> 0 to sample inside the mask; 1 / patch_size**2 keeps every draw with at least one mask "
-    "pixel, the rule of earlier versions."
+    "random mode: min_mask_fraction is explicitly 0, so the sampling mask excludes no rectangle and the "
+    "rectangles are those drawn without a mask (since CellPatcher 0.2.0). Leave min_mask_fraction "
+    "unset to keep the draws that overlap the mask, or set it > 0 to sample inside the mask."
 )
 """The warning of a sampling mask given with ``min_mask_fraction == 0``: it filters nothing."""
 
 
-def _sampling_mask(labels: object, fraction: float, shape: tuple[int, int]) -> np.ndarray | None:
+def _sampling_mask(labels: object, fraction: float | None, shape: tuple[int, int]) -> np.ndarray | None:
     """Return the boolean sampling mask, or None when it can exclude no draw.
 
     Parameters
@@ -50,23 +52,23 @@ def _sampling_mask(labels: object, fraction: float, shape: tuple[int, int]) -> n
     labels
         The sampling mask (any array whose nonzero pixels are foreground), or None.
     fraction
-        ``RandomConfig.min_mask_fraction``.
+        ``RandomConfig.min_mask_fraction`` (None: any overlap).
     shape
         The plane's ``(height, width)``.
 
     Returns
     -------
     numpy.ndarray or None
-        The mask as booleans when *fraction* > 0, else None (the mask is checked only, and
+        The mask as booleans unless *fraction* is 0, else None (the mask is checked only, and
         a ``UserWarning`` says that it excludes nothing).
 
     Raises
     ------
     ValueError
-        If *fraction* > 0 without a mask, or the mask is not 2-D of the plane's shape.
+        If *fraction* is > 0 without a mask, or the mask is not 2-D of the plane's shape.
     """
     if labels is None:
-        if fraction > 0:
+        if fraction:
             raise ValueError("min_mask_fraction needs a sampling mask (masks=...) in random mode.")
         return None
     mask = np.asarray(labels).astype(bool)
@@ -74,7 +76,7 @@ def _sampling_mask(labels: object, fraction: float, shape: tuple[int, int]) -> n
         raise ValueError("labels sampling mask must be 2D for random mode.")
     if mask.shape != shape:
         raise ValueError(f"labels shape {mask.shape} must match image YX shape {shape}.")
-    if fraction > 0:
+    if fraction != 0:
         return mask
     warnings.warn(ZERO_FRACTION_WARNING, UserWarning, stacklevel=3)
     return None
@@ -152,19 +154,20 @@ class RandomPatchStrategy(BasePatchStrategy):
             raise ValueError(
                 f"patch_size ({size}) must be <= image spatial dimensions Y={shape[0]}, X={shape[1]}."
             )
-        fraction = float(self.config.min_mask_fraction)
+        fraction = self.config.min_mask_fraction
         mask = _sampling_mask(labels, fraction, shape)
         corners = self._kept_corners(np.random.default_rng(self.config.seed), shape, mask, fraction)
         return [_region(y0, x0, size, shape, image_id, self.mode) for y0, x0 in corners]
 
     def _kept_corners(
-        self, rng: np.random.Generator, shape: tuple[int, int], mask: np.ndarray | None, fraction: float
+        self, rng: np.random.Generator, shape: tuple[int, int], mask: np.ndarray | None, fraction: float | None
     ) -> list[tuple[int, int]]:
         """Return the top-left corners of the first ``n_patches`` kept draws of *rng*'s stream.
 
         Every draw takes ``y0`` and then ``x0`` from *rng*, whether it is kept or not. Without
         *mask* every draw is kept; with it, a draw whose share of mask pixels is below
-        *fraction* is dropped, and after ``max(1000, 50 * n_patches)`` draws the plane is refused.
+        *fraction* (any overlap when None) is dropped, and after ``max(1000, 50 * n_patches)``
+        draws the plane is refused.
         """
         size, n_patches = int(self.config.patch_size), int(self.config.n_patches)
         y_max, x_max = shape[0] - size, shape[1] - size
@@ -183,6 +186,11 @@ class RandomPatchStrategy(BasePatchStrategy):
             y0 = int(rng.integers(0, y_max + 1))
             x0 = int(rng.integers(0, x_max + 1))
             attempts += 1
-            if mask is None or mask[y0:y0 + size, x0:x0 + size].mean() >= fraction:
+            if mask is None or self._reaches(mask[y0:y0 + size, x0:x0 + size], fraction):
                 corners.append((y0, x0))
         return corners
+
+    @staticmethod
+    def _reaches(window: np.ndarray, fraction: float | None) -> bool:
+        """Return whether a draw's mask *window* overlaps (None) or reaches *fraction* of the mask."""
+        return bool(window.any()) if fraction is None else bool(window.mean() >= fraction)

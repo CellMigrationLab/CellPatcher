@@ -601,8 +601,8 @@ def test_pipeline_random_seed_produces_reproducible_patches():
 
 def test_pipeline_random_with_sampling_mask_stays_in_masked_region():
     cfg = CellPatcherConfig(mode="random", random=RandomConfig(patch_size=6, n_patches=10, seed=7))
-    cfg.random.min_mask_fraction = 1 / 6**2  # every draw touching the mask (F8: 0 filters nothing)
-    image, mask = np.zeros((32, 32)), np.zeros((32, 32), dtype=bool)
+    image = np.zeros((32, 32))
+    mask = np.zeros((32, 32), dtype=bool)
     mask[10:20, 10:20] = True
     result = run_patching(images=image, masks=mask, config=cfg, image_metadata=named(image))
     for p in result.patches:
