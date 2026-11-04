@@ -114,6 +114,7 @@ def test_random_mode_samples_inside_the_labels(tmp_path):
     _image(tmp_path, shape=(32, 32), labels={"cells": _labels((32, 32), [(1, 20, 20)])})
     config = CellPatcherConfig(mode="random")
     config.random.patch_size, config.random.n_patches = 3, 5
+    config.random.min_mask_fraction = 1 / 3**2  # at least one label pixel (F8)
     config.matching.mask_type = "cells"  # random mode reads masks when asked
 
     (leaf,) = _tree(tmp_path, config)

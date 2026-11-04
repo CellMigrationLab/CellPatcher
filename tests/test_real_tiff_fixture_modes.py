@@ -168,7 +168,8 @@ def test_real_tiff_random_mode_unconstrained():
 
 def test_real_tiff_random_mode_label_constrained():
     image, labels = load_real_tiff_fixture()
-    cfg = CellPatcherConfig(mode="random", random=RandomConfig(patch_size=16, n_patches=4, seed=42))
+    random = RandomConfig(patch_size=16, n_patches=4, seed=42, min_mask_fraction=1 / 16**2)  # touching the mask
+    cfg = CellPatcherConfig(mode="random", random=random)
     cfg.common.image_axes = "YX"
     cfg.common.mask_axes = "YX"
     cfg.common.extract_arrays = True

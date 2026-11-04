@@ -47,7 +47,7 @@ def test_random_strategy_patch_size_larger_than_image_raises():
 def test_random_strategy_mask_restricts_sampling():
     mask = np.zeros((30, 30), dtype=bool)
     mask[10:15, 10:15] = True
-    s = RandomPatchStrategy(RandomConfig(patch_size=6, n_patches=5, seed=0))
+    s = RandomPatchStrategy(RandomConfig(patch_size=6, n_patches=5, seed=0, min_mask_fraction=1 / 6**2))
     patches = s.generate_regions(image_shape=(30, 30), labels=mask)
     for p in patches:
         assert np.any(mask[p.y0:p.y1, p.x0:p.x1])
@@ -61,7 +61,7 @@ def test_random_strategy_mask_shape_mismatch_raises():
 
 def test_random_strategy_impossible_mask_raises():
     mask = np.zeros((20, 20), dtype=bool)
-    s = RandomPatchStrategy(RandomConfig(patch_size=5, n_patches=3, seed=0))
+    s = RandomPatchStrategy(RandomConfig(patch_size=5, n_patches=3, seed=0, min_mask_fraction=1 / 5**2))
     with pytest.raises(ValueError):
         s.generate_regions(image_shape=(20, 20), labels=mask)
 

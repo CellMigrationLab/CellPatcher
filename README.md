@@ -46,7 +46,7 @@ other bricks, is in the [CHANGELOG](notebooks/CellPatcher/CHANGELOG.md) (v0.2.0r
   - `"plane_channel"` is the default and today's behaviour: the seed includes the `t`, `z` and `c` the image's metadata gives (channels split with `split_channels` share their region's rectangles either way);
   - `"plane"`: the seed leaves out `c`, so channels given as separate images get the same rectangles;
   - `"position"`: every plane of a position gets the same rectangles.
-- `random.min_mask_fraction` is the least share of a draw's pixels that must lie in the sampling mask. The default, 0, accepts any overlap.
+- `random.min_mask_fraction` is the least share of a draw's pixels that must lie in the sampling mask. At the default, 0, a mask excludes nothing: the rectangles are those of a run without it (since 0.2.0, matrix finding F8; `1 / patch_size**2` keeps the draws with at least one mask pixel, the former rule).
 - `whole_fov.square_cover=True` adds the squares covering the FOV for square-input models: mode `whole_fov_square`, id `<parent>/sq<N>`, with `parent_id`.
 
 Every region also records:

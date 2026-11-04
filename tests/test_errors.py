@@ -21,7 +21,8 @@ def test_refusals_are_exported_and_stay_value_errors():
 
 
 def test_random_sampling_exhaustion_is_a_typed_refusal():
-    config = CellPatcherConfig(mode="random", random=RandomConfig(patch_size=5, n_patches=3, seed=0))
+    random = RandomConfig(patch_size=5, n_patches=3, seed=0, min_mask_fraction=1 / 5**2)
+    config = CellPatcherConfig(mode="random", random=random)
     image = np.zeros((20, 20), dtype=np.uint8)
     empty_mask = np.zeros((20, 20), dtype=bool)
     with pytest.raises(SamplingExhaustedError) as info:

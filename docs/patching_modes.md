@@ -78,12 +78,12 @@ Key parameters:
 - `patch_size`
 - `n_patches`
 - `seed`
-- optional sampling mask (`masks=...`)
+- optional sampling mask (`masks=...`) with `min_mask_fraction`: the least share of each patch in the mask. At `0` (the default) the mask excludes nothing and the rectangles are those without it; `1 / patch_size**2` keeps every patch touching the mask
 
 Common pitfalls:
 
 - Very sparse masks can make valid sampling difficult.
-- If the sampling mask is too sparse (or all `False`), random mode can fail after too many attempts to find valid patches.
+- If the sampling mask is too sparse (or all `False`) for `min_mask_fraction > 0`, random mode can fail after too many attempts to find valid patches (`SamplingExhaustedError`).
 - No `seed` means non-deterministic outputs.
 - Duplicate patches are valid behavior.
 

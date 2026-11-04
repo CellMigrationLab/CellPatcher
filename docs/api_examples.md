@@ -103,7 +103,9 @@ sampling_mask = labels > 0
 config = CellPatcherConfig(
     mode="random",
     common=CommonConfig(image_axes="YX", mask_axes="YX", extract_arrays=True),
-    random=RandomConfig(patch_size=64, n_patches=16, seed=42),
+    # The mask excludes draws only with min_mask_fraction > 0; 1 / 64**2 keeps every
+    # patch with at least one mask pixel (at 0 the mask would change nothing).
+    random=RandomConfig(patch_size=64, n_patches=16, seed=42, min_mask_fraction=1 / 64**2),
 )
 
 result = run_patching(images=image, masks=sampling_mask, config=config, image_metadata=[{"position_id": "fov1"}])

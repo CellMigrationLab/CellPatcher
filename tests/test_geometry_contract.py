@@ -97,14 +97,14 @@ def test_every_draw_reaches_the_minimum_mask_fraction(fraction):
     assert all(tissue[p.y0:p.y1, p.x0:p.x1].mean() >= fraction for p in patches)
 
 
-def test_zero_minimum_keeps_the_any_overlap_rule():
+def test_zero_minimum_filters_nothing():
+    """F8: at 0 the mask excludes no draw (tests/test_random_masks.py has the full contract)."""
     tissue = _tissue()
-    before = _run("random", np.zeros((80, 80)), masks=tissue, random=RandomConfig(patch_size=16, seed=3))
-    after = _run(
-        "random", np.zeros((80, 80)), masks=tissue, random=RandomConfig(patch_size=16, seed=3, min_mask_fraction=0)
-    )
-    assert _rectangles(before) == _rectangles(after)
-    assert min(tissue[p.y0:p.y1, p.x0:p.x1].mean() for p in before) < 0.25  # partial overlaps exist
+    random = RandomConfig(patch_size=16, seed=3, min_mask_fraction=0)
+    with pytest.warns(UserWarning, match="excludes no rectangle"):
+        masked = _run("random", np.zeros((80, 80)), masks=tissue, random=random)
+    assert _rectangles(masked) == _rectangles(_run("random", np.zeros((80, 80)), random=random))
+    assert min(tissue[p.y0:p.y1, p.x0:p.x1].mean() for p in masked) == 0  # draws outside the mask stay
 
 
 def test_minimum_mask_fraction_needs_a_mask_and_a_valid_value():

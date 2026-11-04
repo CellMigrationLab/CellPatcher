@@ -108,8 +108,9 @@ class RandomConfig:
     same rectangles (a position followed over time).
 
     ``min_mask_fraction`` (with a sampling mask) is the least share of a
-    draw's pixels that must lie in the mask's foreground. 0 (the default)
-    keeps the behaviour before the option existed: any overlap is accepted.
+    draw's pixels in the mask's foreground. 0 (default): a mask excludes no
+    draw (F8, v0.2.0; ``1 / patch_size**2`` keeps draws touching the mask, the
+    former rule). Draw sequence: :mod:`cellpatcher.strategies.random`.
     """
 
     patch_size: int = 128
