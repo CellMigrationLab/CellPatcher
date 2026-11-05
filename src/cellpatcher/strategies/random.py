@@ -33,6 +33,7 @@ import numpy as np
 
 from cellpatcher.config import RandomConfig
 from cellpatcher.errors import SamplingExhaustedError
+from cellpatcher.setting_checks import check_random_settings
 from cellpatcher.strategies.base import BasePatchStrategy, _spatial_shape_from_axes
 from cellpatcher.types import PatchRegion
 
@@ -139,11 +140,13 @@ class RandomPatchStrategy(BasePatchStrategy):
         Raises
         ------
         ValueError
-            If the patch size or count is not positive, the patch is larger than the plane,
+            If ``min_mask_fraction`` is not ``None`` or a number in [0, 1] (a bool, text, NaN), the
+            patch size or count is not positive, the patch is larger than the plane,
             or the mask is missing (fraction > 0), not 2-D or of another shape.
         SamplingExhaustedError
             If fewer than ``n_patches`` draws reach ``min_mask_fraction`` within the attempt cap.
         """
+        check_random_settings(self.config)  # the config is mutable: re-checked where it is used
         shape = _spatial_shape_from_axes(image_shape, axes=axes)
         size, n_patches = int(self.config.patch_size), int(self.config.n_patches)
         if size <= 0:

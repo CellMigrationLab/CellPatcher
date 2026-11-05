@@ -41,6 +41,7 @@ from cellpatcher.resize import normalize_output_size, resize_patches
 from cellpatcher.strategies.base import _spatial_shape_from_axes
 from cellpatcher.strategies.cell import CellSegmentationStrategy
 from cellpatcher.strategies.grid import GridStrategy
+from cellpatcher.setting_checks import check_run_settings
 from cellpatcher.strategies.random import RandomPatchStrategy
 from cellpatcher.strategies.whole_fov import WholeFOVStrategy
 from cellpatcher.types import ImageRecord, PatchRegion
@@ -914,10 +915,10 @@ def run_patching(images=None, masks=None, config=None, image_metadata=None, frac
         If required arguments are missing for the chosen mode, or if
         images/masks counts do not match.
     """
-    if config is None:
-        config = CellPatcherConfig()
+    config = CellPatcherConfig() if config is None else config
     if not isinstance(config, CellPatcherConfig):
         raise TypeError("config must be a CellPatcherConfig instance.")
+    check_run_settings(config)
     if config.normalization.enabled:
         validate_normalization(config)
         if not splits_planes(config.common) and images is not None:
@@ -1009,12 +1010,10 @@ def run_patching(images=None, masks=None, config=None, image_metadata=None, frac
             mask_list = [masks]
 
         patches: list[PatchRegion] = []
-        # Each image (plane) is sampled with a seed derived from the run seed
-        # and its identity (position_id, t, z, c), so a run is deterministic
-        # (same seed -> same patches), different images get different
-        # samples, and an image gets the same rectangles wherever it is in
-        # the run (cellpatcher.ids.random_seed). image_metadata is filled
-        # with every image's position_id above.
+        # Each image (plane) is sampled with a seed derived from the run seed and its identity
+        # (position_id, t, z, c), so a run is deterministic, different images get different samples,
+        # and an image gets the same rectangles wherever it is in the run (cellpatcher.ids.random_seed).
+        # image_metadata is filled with every image's position_id above.
         for idx, (image, mask) in enumerate(zip(image_list, mask_list)):
             image_id = f"image_{idx:04d}"
             labels = _image_labels(config, image_metadata[idx])
