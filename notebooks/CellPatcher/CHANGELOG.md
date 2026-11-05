@@ -18,6 +18,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Pin preprocessing v0.4.0rc4; prepare v0.2.0rc2
 
 ---
+## [0.2.0] - Preprocessing v0.4.0, normalization v0.3.4, strict settings
+
+The v0.2.0 release. It pins preprocessing `v0.4.0` and normalization `v0.3.4`, the tag preprocessing
+`v0.4.0` pins (owner decision D-h), and carries the changes since `v0.2.0rc3` described below.
+Everything described under `0.2.0rc1` to `0.2.0rc3` applies to this release.
+
+### Summary
+- Dependencies: preprocessing `v0.4.0` (core and `zarr` extra; was `v0.4.0rc5`), normalization
+  `v0.3.4` (was `v0.3.3`). `__version__`, `setup.py` and every notebook (`RELEASE_TAG`,
+  `current_version`, `notebook_latest_versions.yaml`) are `0.2.0`.
+- **2-D planes only.** Preprocessing `v0.4.0` refuses images with Z > 1 (Z = 1 is allowed; T > 1
+  needs masks with the same T). CellPatcher reads runs only through that brick, so a Z-stack must be
+  projected by preprocessing first. The tests that built fresh Z > 1 runs now use Z = 1 or T > 1
+  equivalents, or assert the refusal (#83; removing the dead Z code is post-release work).
+- **Strict settings (#82, #84).** No scientific setting is coerced any more: `True`/`False`, text,
+  NaN and infinity are refused where a number or a flag is expected, for every section of the
+  configuration (`mode`, common, cell, random, whole_fov, grid, filters, export, extraction,
+  matching and normalization), at construction and again where a run uses the setting
+  (`run_patching`, `iter_patch_arrays`, `scan_cell_objects`, and the folder and tree routes before
+  any file is read). Integer settings accept Python and NumPy integers, never floats such as `16.0`.
+  `min_mask_fraction` follows the same rule (#80). `cell.mask_channel` is `None` or an integer >= 0
+  (`True`, `"1"` and `1.9` used to select channel 1).
+- `NormalizationConfig.percentile` and `clip` keep the numbers as given; they are no longer cast to
+  `float`. Some error messages changed.
+- The fitted cell `side` is an integer (checked; preprocessing and the strict settings refuse `64.0`).
+
+### Migration
+- Code or a saved `run_config.json` that passed a float (`patch_size=64.0`), a bool or text for a
+  numeric setting now raises `ValueError` naming the setting; pass an integer or a number.
+- Experiments with Z > 1 must be projected (or reduced to Z = 1) by preprocessing `v0.4.0` before
+  CellPatcher reads them.
+- Bricks that pin CellPatcher pin `v0.2.0` together with preprocessing `v0.4.0` and normalization
+  `v0.3.4`: pip refuses two different direct URLs for one package.
+
+---
 ## [Unreleased] - A sampling mask filters random draws only when it excludes them (matrix finding F8, for 0.2.0)
 
 The cross-brick matrix run of 2026-11-03 (finding F8) found that a random-mode run given a mask
