@@ -37,7 +37,7 @@ STACK_LABELS = {
     "treated/bio1/wellA/field.tif": ("treated", "bio1", "wellA"),
     "treated/bio1/wellB/field.tif": ("treated", "bio1", "wellB"),
 }
-Z_PLANES = 3
+T_PLANES = 3
 
 
 def _write_tiff(path, array, axes):
@@ -58,12 +58,12 @@ def _preprocess(root, output, axes):
 
 @pytest.fixture
 def stack_experiment(tmp_path):
-    """Three uint16 Z-stacks (ZYX) and their preprocessing outputs."""
+    """Three uint16 time series (TYX) and their preprocessing outputs."""
     root = tmp_path / "experiment"
     rng = np.random.default_rng(0)
     for relative_path in STACK_IMAGES:
-        _write_tiff(root / relative_path, rng.integers(1, 4000, (Z_PLANES, 20, 24), dtype=np.uint16), "ZYX")
-    output = _preprocess(root, tmp_path / "preprocessing", "ZYX")
+        _write_tiff(root / relative_path, rng.integers(1, 4000, (T_PLANES, 20, 24), dtype=np.uint16), "TYX")
+    output = _preprocess(root, tmp_path / "preprocessing", "TYX")
     return root, output
 
 
@@ -76,9 +76,9 @@ def _read_stack(root, relative_path):
 def _stack_planes(root, relative_paths=STACK_IMAGES):
     for relative_path in relative_paths:
         stack = _read_stack(root, relative_path)
-        for z in range(stack.shape[0]):
-            plane = SourcePlane(relative_path, *STACK_LABELS[relative_path], z=z, axis_lengths={"Z": stack.shape[0]})
-            yield plane, stack[z]
+        for t in range(stack.shape[0]):
+            plane = SourcePlane(relative_path, *STACK_LABELS[relative_path], t=t, axis_lengths={"T": stack.shape[0]})
+            yield plane, stack[t]
 
 
 def _codes(error_info):
@@ -127,12 +127,12 @@ def test_load_reads_rows_and_finds_the_manifest_next_to_the_table(stack_experime
     _, output = stack_experiment
     statistics = load_plane_statistics(output / mbn.OUTPUT_FILENAME)
 
-    assert len(statistics.records) == len(STACK_IMAGES) * Z_PLANES
+    assert len(statistics.records) == len(STACK_IMAGES) * T_PLANES
     assert statistics.source_relative_paths == frozenset(STACK_IMAGES)
     assert statistics.manifest_path == output / mbp.MANIFEST_FILENAME
     assert statistics.manifest is not None
     assert statistics.csv_sha256 == file_sha256(output / mbn.OUTPUT_FILENAME)
-    assert len(statistics.records_for_image("control/img1.tif")) == Z_PLANES
+    assert len(statistics.records_for_image("control/img1.tif")) == T_PLANES
 
 
 @needs_preprocessing
@@ -152,7 +152,7 @@ def test_check_images_passes_for_the_preprocessed_images(stack_experiment):
 
     root, output = stack_experiment
     statistics = load_plane_statistics(output / mbn.OUTPUT_FILENAME)
-    check_images(statistics, {path: "ZYX" for path in STACK_IMAGES}, experiment_root=root)
+    check_images(statistics, {path: "TYX" for path in STACK_IMAGES}, experiment_root=root)
 
 
 @needs_preprocessing
@@ -161,7 +161,7 @@ def test_check_images_reports_all_images_without_rows_in_one_message(stack_exper
 
     root, output = stack_experiment
     statistics = load_plane_statistics(output / mbn.OUTPUT_FILENAME)
-    images = {path: "ZYX" for path in (*STACK_IMAGES, "control/new.tif", "treated/bio1/wellA/later.tif")}
+    images = {path: "TYX" for path in (*STACK_IMAGES, "control/new.tif", "treated/bio1/wellA/later.tif")}
 
     with pytest.raises(PreprocessingCheckError) as error_info:
         check_images(statistics, images, experiment_root=root)
@@ -189,7 +189,7 @@ def test_check_images_detects_a_changed_image_in_cellpatcher_s_root(stack_experi
     image_path = copy / "control" / "img1.tif"
     stat = image_path.stat()
     os.utime(image_path, ns=(stat.st_atime_ns, stat.st_mtime_ns + 10**9))
-    images = {path: "ZYX" for path in STACK_IMAGES}
+    images = {path: "TYX" for path in STACK_IMAGES}
 
     with pytest.raises(PreprocessingCheckError) as error_info:
         check_images(load_plane_statistics(output / mbn.OUTPUT_FILENAME), images, experiment_root=copy)
@@ -203,7 +203,7 @@ def test_check_images_detects_other_axis_roles(stack_experiment):
 
     root, output = stack_experiment
     statistics = load_plane_statistics(output / mbn.OUTPUT_FILENAME)
-    images = {path: "ZYX" for path in STACK_IMAGES}
+    images = {path: "TYX" for path in STACK_IMAGES}
     images["control/img1.tif"] = "CYX"
 
     with pytest.raises(PreprocessingCheckError) as error_info:
@@ -211,7 +211,7 @@ def test_check_images_detects_other_axis_roles(stack_experiment):
     (issue,) = error_info.value.issues
     assert issue.code == "axis_mapping_mismatch"
     assert issue.paths == ("control/img1.tif",)
-    assert "control/img1.tif: given CYX, preprocessing ZYX" in issue.message
+    assert "control/img1.tif: given CYX, preprocessing TYX" in issue.message
 
 
 @needs_preprocessing
@@ -223,7 +223,7 @@ def test_check_images_reports_a_missing_image(stack_experiment, tmp_path):
     copy = _copied_root(root, tmp_path)
     (copy / "control" / "img1.tif").unlink()
     with pytest.raises(PreprocessingCheckError) as error_info:
-        check_images(load_plane_statistics(output / mbn.OUTPUT_FILENAME), {p: "ZYX" for p in STACK_IMAGES},
+        check_images(load_plane_statistics(output / mbn.OUTPUT_FILENAME), {p: "TYX" for p in STACK_IMAGES},
                      experiment_root=copy)
     (issue,) = error_info.value.issues
     assert (issue.code, issue.paths) == ("images_missing", ("control/img1.tif",))
@@ -239,22 +239,22 @@ def test_check_images_compares_the_axes_of_an_ome_zarr_image(tmp_path):
     from tests.helpers import write_ngff
 
     root = tmp_path / "experiment"
-    write_ngff(root / "control" / "a.ome.zarr", np.arange(192, dtype=np.uint16).reshape(3, 8, 8) + 1, "zyx")
-    output = _preprocess(root, tmp_path / "preprocessing", "ZYX")
+    write_ngff(root / "control" / "a.ome.zarr", np.arange(192, dtype=np.uint16).reshape(3, 8, 8) + 1, "tyx")
+    output = _preprocess(root, tmp_path / "preprocessing", "TYX")
     statistics = load_plane_statistics(output / mbn.OUTPUT_FILENAME)
     # common.image_axes may differ from the store's order: CellPatcher matches by role.
-    check_images(statistics, {"control/a.ome.zarr": "ZXY"}, experiment_root=root)
+    check_images(statistics, {"control/a.ome.zarr": "TXY"}, experiment_root=root)
 
     manifest_path = output / "run_manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    manifest["files"][0]["roles"] = ["T", "Y", "X"]
+    manifest["files"][0]["roles"] = ["Z", "Y", "X"]
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
     with pytest.raises(PreprocessingCheckError) as error_info:
-        check_images(load_plane_statistics(output / mbn.OUTPUT_FILENAME), {"control/a.ome.zarr": "ZYX"},
+        check_images(load_plane_statistics(output / mbn.OUTPUT_FILENAME), {"control/a.ome.zarr": "TYX"},
                      experiment_root=root)
     (issue,) = error_info.value.issues
     assert issue.code == "axis_mapping_mismatch"
-    assert "control/a.ome.zarr: given ZYX, preprocessing TYX" in issue.message
+    assert "control/a.ome.zarr: given TYX, preprocessing ZYX" in issue.message
 
 
 @needs_preprocessing
@@ -264,7 +264,7 @@ def test_check_images_needs_the_root_with_a_manifest(stack_experiment):
     _, output = stack_experiment
     statistics = load_plane_statistics(output / mbn.OUTPUT_FILENAME)
     with pytest.raises(ValueError, match="experiment_root"):
-        check_images(statistics, {"control/img1.tif": "ZYX"})
+        check_images(statistics, {"control/img1.tif": "TYX"})
 
 
 # ---------------------------------------------------------------------------
@@ -273,7 +273,7 @@ def test_check_images_needs_the_root_with_a_manifest(stack_experiment):
 
 
 @needs_preprocessing
-def test_check_planes_links_every_z_plane_to_its_row(stack_experiment):
+def test_check_planes_links_every_t_plane_to_its_row(stack_experiment):
     import morphobricks_normalization as mbn
 
     root, output = stack_experiment
@@ -281,7 +281,7 @@ def test_check_planes_links_every_z_plane_to_its_row(stack_experiment):
 
     records = check_planes(statistics, _stack_planes(root))
     assert [record.plane_id for record in records] == [
-        f"{path}::z={z},t=0" for path in STACK_IMAGES for z in range(Z_PLANES)
+        f"{path}::z=0,t={t}" for path in STACK_IMAGES for t in range(T_PLANES)
     ]
     # Each match is one channel of its row (schema version 4: a row holds every channel).
     assert {record.c for record in records} == {0}
@@ -312,13 +312,13 @@ def test_check_planes_detects_changed_pixels_without_a_manifest(stack_experiment
     statistics = load_plane_statistics(output / mbn.OUTPUT_FILENAME, manifest=None)
     path = "treated/bio1/wellB/field.tif"
     stack = _read_stack(root, path)
-    stack[1, 0, 0] = 65000  # a new maximum in plane z=1
-    plane = SourcePlane(path, *STACK_LABELS[path], z=1, axis_lengths={"Z": Z_PLANES})
+    stack[1, 0, 0] = 65000  # a new maximum in plane t=1
+    plane = SourcePlane(path, *STACK_LABELS[path], t=1, axis_lengths={"T": T_PLANES})
 
     with pytest.raises(PreprocessingCheckError, match="the images changed") as error_info:
         check_planes(statistics, [(plane, stack[1])])
     (issue,) = error_info.value.issues
-    assert (issue.code, issue.paths) == ("pixel_values_changed", (f"{path}::z=1,t=0 c=0",))
+    assert (issue.code, issue.paths) == ("pixel_values_changed", (f"{path}::z=0,t=1 c=0",))
 
 
 @needs_preprocessing
@@ -330,8 +330,8 @@ def test_check_planes_compares_dtype_size_and_labels(stack_experiment):
     path = "control/img1.tif"
     stack = _read_stack(root, path)
 
-    def plane(z, condition="control"):
-        return SourcePlane(path, condition, "single", "single", z=z, axis_lengths={"Z": Z_PLANES})
+    def plane(t, condition="control"):
+        return SourcePlane(path, condition, "single", "single", t=t, axis_lengths={"T": T_PLANES})
 
     with pytest.raises(PreprocessingCheckError) as error_info:
         check_planes(statistics, [
@@ -341,9 +341,9 @@ def test_check_planes_compares_dtype_size_and_labels(stack_experiment):
         ])
     issues = {issue.code: issue.paths for issue in error_info.value.issues}
     assert issues == {
-        "label_mismatch": (f"{path}::z=2,t=0 c=0 (CellPatcher treated/single/single, table control/single/single)",),
+        "label_mismatch": (f"{path}::z=0,t=2 c=0 (CellPatcher treated/single/single, table control/single/single)",),
         "dtype_mismatch": (f"{path}::z=0,t=0 c=0 (CellPatcher float32, table uint16)",),
-        "pixel_count_mismatch": (f"{path}::z=1,t=0 c=0 (CellPatcher 240 pixels, table 480)",),
+        "pixel_count_mismatch": (f"{path}::z=0,t=1 c=0 (CellPatcher 240 pixels, table 480)",),
     }
 
 
@@ -354,7 +354,7 @@ def test_check_planes_reports_planes_without_rows(stack_experiment):
     root, output = stack_experiment
     statistics = load_plane_statistics(output / mbn.OUTPUT_FILENAME)
     stack = _read_stack(root, "control/img1.tif")
-    plane = SourcePlane("control/img2.tif", "control", "single", "single", z=0, axis_lengths={"Z": Z_PLANES})
+    plane = SourcePlane("control/img2.tif", "control", "single", "single", t=0, axis_lengths={"T": T_PLANES})
 
     with pytest.raises(PreprocessingCheckError, match="1 plane has no row") as error_info:
         check_planes(statistics, [(plane, stack[0])])
@@ -463,7 +463,7 @@ def test_check_planes_compares_position_id(stack_experiment):
 
     def plane(position_id):
         return SourcePlane(
-            path, "control", "single", "single", z=0, axis_lengths={"Z": Z_PLANES}, position_id=position_id
+            path, "control", "single", "single", t=0, axis_lengths={"T": T_PLANES}, position_id=position_id
         )
 
     assert len(check_planes(statistics, [(plane("img1"), stack[0])])) == 1

@@ -46,15 +46,15 @@ def test_y_and_x_declared_swapped_are_refused_never_read_transposed(tmp_path):
     # Before preprocessing v0.4 (CellPatcher v0.1.2), a declaration swapping the header's named
     # Y and X was accepted and the image read transposed (image_read_transposed). Design v0.4
     # §3: nothing is ever read transposed; the swap is an error naming every file.
-    image = np.arange(3 * 16 * 24, dtype=np.uint16).reshape(3, 16, 24)  # Z, Y, X in the header
-    write_tiff(tmp_path / "exp" / "a.tif", image, "ZYX")
-    write_tiff(tmp_path / "exp" / "b.tif", image, "ZYX")
+    image = np.arange(3 * 16 * 24, dtype=np.uint16).reshape(3, 16, 24)  # T, Y, X in the header
+    write_tiff(tmp_path / "exp" / "a.tif", image, "TYX")
+    write_tiff(tmp_path / "exp" / "b.tif", image, "TYX")
     # A file run (CP-2a) declares nothing: the declaration is refused, and the image is read
     # in the roles the preprocessing run recorded, Y before X. Lazy delivery no longer reads a
     # file with declared axes (CP-2b), so no CellPatcher-side declaration of a file remains.
-    config = file_run_config(_grid_config("ZXY", tmp_path / "out"), tmp_path / "exp", "ZYX")
-    config.common.z_policy, config.common.z_index = "select", 1
-    with pytest.raises(ValueError, match=r"common.image_axes='ZXY': each image's \(and mask's\) axes are the roles"):
+    config = file_run_config(_grid_config("TXY", tmp_path / "out"), tmp_path / "exp", "TYX")
+    config.common.t_policy, config.common.t_index = "select", 1
+    with pytest.raises(ValueError, match=r"common.image_axes='TXY': each image's \(and mask's\) axes are the roles"):
         run_patching_pipeline(str(tmp_path / "exp"), config=config)
     assert not (tmp_path / "out").exists()
     config.common.image_axes = "YX"
@@ -66,10 +66,10 @@ def test_y_and_x_declared_swapped_are_refused_never_read_transposed(tmp_path):
 def test_the_image_table_has_no_transposition_column(tmp_path):
     # images.csv had a last column image_read_transposed (v0.1.2), always false or empty since
     # preprocessing v0.4 refuses every Y/X swap; removed in v0.2.0 (CP-2b).
-    write_tiff(tmp_path / "exp" / "a.tif", np.zeros((3, 16, 24), dtype=np.uint8), "ZYX")
+    write_tiff(tmp_path / "exp" / "a.tif", np.zeros((3, 16, 24), dtype=np.uint8), "TYX")
     config = _grid_config("YX", tmp_path / "out")
-    config.common.z_policy = "all"
-    preprocessed_folder(tmp_path / "exp", config=config, axes="ZYX")
+    config.common.t_policy = "all"
+    preprocessed_folder(tmp_path / "exp", config=config, axes="TYX")
     images = [np.zeros((16, 16), dtype=np.uint8)]
     run_patching(images=images, config=_grid_config("YX", tmp_path / "memory"), image_metadata=named(images))
     for out in (tmp_path / "out", tmp_path / "memory"):

@@ -216,16 +216,16 @@ def test_file_runs_read_through_run_inputs_only(tmp_path, monkeypatch):
                          (cellpatcher.io, "refuse_image_header_axes"), (cellpatcher.io, "refuse_mask_header_axes"),
                          (cellpatcher.planes, "read_file_plane"), (cellpatcher.planes, "iter_file_planes")):
         assert not hasattr(module, name), name
-    run = _clean_run(tmp_path, axes="ZCYX", shape=(3, 2, 16, 20), mask_types=())
+    run = _clean_run(tmp_path, axes="TCYX", shape=(3, 2, 16, 20), mask_types=())
     config = CellPatcherConfig(mode="grid")
     config.grid.tile_size = 8
     config.common.preprocessing_run, config.common.extract_arrays = str(run.output), True
-    for z_policy in ("keep", "all"):
-        config.common.z_policy = z_policy
+    for t_policy in ("keep", "all"):
+        config.common.t_policy = t_policy
         leaves = run_patching_condition_repeat_tree(run.experiment, config=config)
         patch, array = leaves[0].result.patches[0], leaves[0].result.patch_arrays[0]
-        source = tifffile.imread(run.experiment / patch.source_relative_path)  # Z, C, Y, X as written
-        expected = source[:, :, :8, :8] if z_policy == "keep" else source[patch.z0, :, :8, :8]
+        source = tifffile.imread(run.experiment / patch.source_relative_path)  # T, C, Y, X as written
+        expected = source[:, :, :8, :8] if t_policy == "keep" else source[patch.t, :, :8, :8]
         assert np.array_equal(array, expected)
 
 
@@ -394,24 +394,24 @@ def test_another_table_than_the_run_s_is_refused(tmp_path):
 
 
 def test_masks_with_and_without_depth_are_each_read_in_their_own_layout(tmp_path):
-    # A three-plane image with a ZYX mask beside a one-plane image with a 2-D mask. Each image and
-    # mask is read in its own roles (audit A-M1): the 2-D image has no Z, so its patches have no
-    # plane index (before, the run's ZYX layout gave it z0=0 and z000 in its patch_id).
+    # A three-time-point image with a TYX mask beside a one-plane image with a 2-D mask. Each image and
+    # mask is read in its own roles (audit A-M1): the 2-D image has no T, so its patches have no
+    # plane index (before, the run's TYX layout gave it t=0 and t0000 in its patch_id).
     from tests.helpers import file_run_config, write_tiff
 
     root, masks = tmp_path / "exp", tmp_path / "masks"
     labels = np.zeros((3, 16, 16), np.uint16)
-    for z in range(3):
-        labels[z, 2 + 3 * z:5 + 3 * z, 2:5] = z + 1
-    write_tiff(root / "ctrl" / "r1" / "a.tif", np.ones((3, 16, 16), np.uint16), "ZYX")
-    write_tiff(masks / "cells" / "ctrl" / "r1" / "a.tif", labels, "ZYX")
+    for t in range(3):
+        labels[t, 2 + 3 * t:5 + 3 * t, 2:5] = t + 1
+    write_tiff(root / "ctrl" / "r1" / "a.tif", np.ones((3, 16, 16), np.uint16), "TYX")
+    write_tiff(masks / "cells" / "ctrl" / "r1" / "a.tif", labels, "TYX")
     write_tiff(root / "ctrl" / "r1" / "b.tif", np.ones((16, 16), np.uint16), "YX")
     write_tiff(masks / "cells" / "ctrl" / "r1" / "b.tif", labels[1], "YX")
     config = CellPatcherConfig(mode="cell")
-    config.cell.patch_size, config.cell.exclude_border, config.common.z_policy = 6, False, "all"
-    file_run_config(config, root, "ZYX", masks=masks, missing_as_singleton=True)
+    config.cell.patch_size, config.cell.exclude_border, config.common.t_policy = 6, False, "all"
+    file_run_config(config, root, "TYX", masks=masks, missing_as_singleton=True)
     (leaf,) = run_patching_condition_repeat_tree(root, mask_root_path=masks, config=config)
-    found = sorted((p.image_file, p.z0, p.label_id) for p in leaf.result.patches)
+    found = sorted((p.image_file, p.t, p.label_id) for p in leaf.result.patches)
     assert found == [("a.tif", 0, 1), ("a.tif", 1, 2), ("a.tif", 2, 3), ("b.tif", None, 2)]
 
 

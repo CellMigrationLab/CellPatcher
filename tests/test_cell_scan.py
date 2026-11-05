@@ -171,6 +171,26 @@ def test_recommended_size_methods_and_unknown():
         summary.recommended_size("unknown")
 
 
+def test_the_fitted_side_is_a_python_int_that_the_strict_settings_accept():
+    # The fitted cell side feeds CellConfig(patch_size=...): preprocessing and the strict settings
+    # refuse 64.0, so every route must give a Python int, even for the float statistics.
+    labels = np.zeros((10, 10), dtype=np.int32)
+    labels[1:3, 1:3] = 1  # 2
+    labels[4:9, 4:8] = 2  # 5
+    labels[0:1, 6:9] = 3  # touches the border: excluded
+    summary = scan_cell_patch_size(image_shapes=(10, 10), labels_list=labels, config=CellConfig(exclude_border=True))
+    for method in ("max", "median", "mean", "p90", "p95"):
+        size = summary.recommended_size(method)
+        assert type(size) is int, method
+        CellConfig(patch_size=size)
+    records = scan_cell_objects(image_shape=(10, 10), labels=labels, config=CellConfig(exclude_border=False))
+    assert all(type(record.square_size) is int for record in records)
+    from cellpatcher import object_sides
+
+    sides = object_sides(labels)
+    assert sides == {1: 2, 2: 5} and all(type(label) is int and type(side) is int for label, side in sides.items())
+
+
 def test_yxc_image_axes():
     image_shape = (6, 7, 3)
     labels = np.zeros((6, 7), dtype=np.int32)

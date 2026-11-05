@@ -20,14 +20,14 @@ from tests.test_statistics import STACK_IMAGES, _codes, _preprocess, _write_tiff
 
 @pytest.fixture
 def stack_experiment(tmp_path):
-    """Three uint16 Z-stacks (ZYX) and their preprocessing outputs, as in ``test_statistics``."""
+    """Three uint16 time series (TYX) and their preprocessing outputs, as in ``test_statistics``."""
     import numpy as np
 
     root = tmp_path / "experiment"
     rng = np.random.default_rng(0)
     for relative_path in STACK_IMAGES:
-        _write_tiff(root / relative_path, rng.integers(1, 4000, (3, 20, 24), dtype=np.uint16), "ZYX")
-    return root, _preprocess(root, tmp_path / "preprocessing", "ZYX")
+        _write_tiff(root / relative_path, rng.integers(1, 4000, (3, 20, 24), dtype=np.uint16), "TYX")
+    return root, _preprocess(root, tmp_path / "preprocessing", "TYX")
 
 
 def test_cellpatcher_pins_no_table_or_manifest_version_of_its_own():
@@ -181,13 +181,13 @@ def test_a_strict_run_s_version_3_manifest_patches_as_the_default_run(stack_expe
     root, default_output = stack_experiment
     strict_output = tmp_path / "strict"
     result = mbp.run_experiment(
-        root, mbp.AxisMapping("ZYX", "ZYX"), output_folder=strict_output, mode=mbp.RunMode(verify_content=True)
+        root, mbp.AxisMapping("TYX", "TYX"), output_folder=strict_output, mode=mbp.RunMode(verify_content=True)
     )
     assert result.written, [str(issue) for issue in result.issues]
     delivered, recorded = {}, {}
     for name, output in (("default", default_output), ("strict", strict_output)):
         config = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=8))
-        config.common.extract_arrays, config.common.z_policy = True, "all"
+        config.common.extract_arrays, config.common.t_policy = True, "all"
         config.common.preprocessing_run, config.common.output_dir = str(output), str(tmp_path / f"{name}_patches")
         config.export.enabled = True
         config.normalization = NormalizationConfig(enabled=True, plane_histograms=str(output / "plane_histograms.csv"))

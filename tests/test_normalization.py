@@ -65,12 +65,12 @@ def _preprocess(root, output, axes, design="confirmed", histogram_settings=None)
     return result.csv_path
 
 
-def _config(csv_path, *, mode="grid", image_axes="ZCYX", scope="image", method="minmax", **normalization):
+def _config(csv_path, *, mode="grid", image_axes="TCYX", scope="image", method="minmax", **normalization):
     config = CellPatcherConfig(mode=mode, grid=GridConfig(tile_size=8))
     config.common.image_axes = image_axes
     config.common.extract_arrays = True
-    if "Z" in image_axes:
-        config.common.z_policy = "all"
+    if "T" in image_axes:
+        config.common.t_policy = "all"
     config.normalization = NormalizationConfig(
         enabled=True, plane_histograms=None if csv_path is None else str(csv_path), method=method, scope=scope,
         **normalization,
@@ -92,7 +92,7 @@ def _read_csv(path):
         return list(reader.fieldnames or []), list(reader)
 
 
-# Three images: two Z-stacks of two channels in control, one in treated.
+# Three images: two time series of two channels in control, one in treated.
 IMAGES = {
     "control/bio1/a.tif": ("control", "bio1", "single"),
     "control/bio1/b.tif": ("control", "bio1", "single"),
@@ -107,11 +107,11 @@ def experiment(tmp_path):
     stacks = {}
     for index, path in enumerate(IMAGES):
         # Channel 1 is brighter, so channels get different parameters.
-        stack = rng.integers(0, 100, (2, 2, 16, 16), dtype=np.uint8)  # Z, C, Y, X
+        stack = rng.integers(0, 100, (2, 2, 16, 16), dtype=np.uint8)  # T, C, Y, X
         stack[:, 1] += 100 + 20 * index
-        _write_tiff(root / path, stack, "ZCYX")
+        _write_tiff(root / path, stack, "TCYX")
         stacks[path] = stack
-    return root, stacks, _preprocess(root, tmp_path / "preprocessing", "ZCYX")
+    return root, stacks, _preprocess(root, tmp_path / "preprocessing", "TCYX")
 
 
 def _patches_by_image(results):
@@ -129,7 +129,7 @@ def test_a_tree_of_links_matches_the_brick_statistics(experiment, tmp_path):
         (linked / "control" / "bio1" / name).symlink_to(linked / ".raw" / "control" / "bio1" / name)
     (linked / "treated").mkdir()
     (linked / "treated" / "bio1").symlink_to(linked / ".raw" / "treated" / "bio1", target_is_directory=True)
-    csv_path = _preprocess(linked, tmp_path / "linked_preprocessing", "ZCYX")
+    csv_path = _preprocess(linked, tmp_path / "linked_preprocessing", "TCYX")
 
     results = _tree(linked, _config(csv_path))
 
@@ -203,8 +203,8 @@ def test_image_scope_pools_every_z_plane_of_the_image_per_channel(experiment, tm
     for leaf in results:
         for patch, array in zip(leaf.result.patches, leaf.result.patch_arrays):
             stack = stacks[patch.source_relative_path]
-            lows, highs = stack.min(axis=(0, 2, 3)), stack.max(axis=(0, 2, 3))  # per channel, all Z
-            raw = stack[patch.z0, :, patch.y0:patch.y1, patch.x0:patch.x1].astype(np.float64)
+            lows, highs = stack.min(axis=(0, 2, 3)), stack.max(axis=(0, 2, 3))  # per channel, all T
+            raw = stack[patch.t, :, patch.y0:patch.y1, patch.x0:patch.x1].astype(np.float64)
             expected = (raw - lows[:, None, None]) / (highs - lows)[:, None, None]
             assert array.dtype == np.float32
             np.testing.assert_allclose(array, expected, rtol=1e-6)
@@ -392,13 +392,13 @@ def test_filters_see_raw_values_and_mask_fill_is_in_normalized_units():
     assert np.isnan(array).any() and np.nanmin(array) >= -0.01 and np.nanmax(array) <= 1.01
 
 
-def test_keep_and_projections_are_refused_under_normalization(experiment):
+def test_keep_is_refused_under_normalization(experiment):
+    # Was "keep and projections" over Z: Z>1 is refused (preprocessing v0.4.0), T has no projection.
     root, _, csv_path = experiment
-    for policy in ("keep", "max"):
-        config = _config(csv_path)
-        config.common.z_policy = policy
-        with pytest.raises(ValueError, match="Normalization needs one plane per patch"):
-            _tree(root, config)
+    config = _config(csv_path)
+    config.common.t_policy = "keep"
+    with pytest.raises(ValueError, match="Normalization needs one plane per patch"):
+        _tree(root, config)
 
 
 def test_normalization_off_leaves_arrays_and_columns_unchanged(experiment):
@@ -420,7 +420,7 @@ def test_images_added_after_the_run_are_refused(experiment):
     # With preprocessing rc1 an image added since the run was left out without a word (CP-2a); since rc2
     # RunInputs.open refuses it (tests/test_unrecorded_files.py).
     root, stacks, csv_path = experiment
-    _write_tiff(root / "control" / "bio1" / "new.tif", stacks["control/bio1/a.tif"], "ZCYX")
+    _write_tiff(root / "control" / "bio1" / "new.tif", stacks["control/bio1/a.tif"], "TCYX")
     with pytest.raises(PreprocessingCheckError, match=r"control/bio1/new.tif\) that the preprocessing run did not"):
         _tree(root, _config(csv_path))
 
@@ -431,7 +431,7 @@ def test_a_changed_image_is_detected_by_its_fingerprint_and_by_its_pixels(experi
     changed[1, 0, 0, 0] = 255
     path = root / "treated" / "bio1" / "c.tif"
     stat = path.stat()
-    _write_tiff(path, changed, "ZCYX")
+    _write_tiff(path, changed, "TCYX")
     with pytest.raises(PreprocessingCheckError, match="changed or missing since the run: treated/bio1/c.tif"):
         _tree(root, _config(csv_path))
 
@@ -609,7 +609,7 @@ def test_the_brick_gives_the_parameters_and_arrays_of_the_earlier_code(experimen
             assert patch.normalization_parameters.scale == tuple(p.scale for p in old)
             assert patch.normalization_method == old[0].method
             stack = stacks[patch.source_relative_path]
-            raw = stack[patch.z0, :, patch.y0 : patch.y1, patch.x0 : patch.x1]
+            raw = stack[patch.t, :, patch.y0 : patch.y1, patch.x0 : patch.x1]
             expected = np.stack([p.apply(raw[c], clip=(0.0, 1.0), dtype=np.float32) for c, p in enumerate(old)])
             np.testing.assert_array_equal(array, expected)
 

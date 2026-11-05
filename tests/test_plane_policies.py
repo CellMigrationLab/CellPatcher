@@ -225,36 +225,38 @@ def test_apply_mask_uses_the_matching_label_plane():
 def test_folder_run_exports_one_file_and_row_per_plane(tmp_path):
     # The header names the axes: a three-plane stack without them could be read as RGB.
     for name in ("a.tif", "b.tif"):
-        write_tiff(tmp_path / "images" / name, _stack(), "ZYX")
-    config = _grid_config("YX", z_policy="all")  # a file run reads the roles the run recorded (CP-2a)
+        write_tiff(tmp_path / "images" / name, _stack(), "TYX")
+    config = _grid_config("YX", t_policy="all")  # a file run reads the roles the run recorded (CP-2a)
     config.export.enabled = True
     config.common.output_dir = str(tmp_path / "out")
 
-    result = preprocessed_folder(tmp_path / "images", config=config, axes="ZYX")
+    result = preprocessed_folder(tmp_path / "images", config=config, axes="TYX")
 
     assert len(result.exported_files) == 2 * 3 * 4
     with open(tmp_path / "out" / "patches.csv", newline="", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
     assert len({row["patch_file"] for row in rows}) == len(rows)
-    assert {(row["image_file"], row["z0"]) for row in rows} == {
-        (name, str(z)) for name in ("a.tif", "b.tif") for z in range(3)
+    assert {(row["image_file"], row["t"]) for row in rows} == {
+        (name, str(t)) for name in ("a.tif", "b.tif") for t in range(3)
     }
-    assert rows[0]["patch_id"] == "single/single/single/a/z000/grid-y0-x0-h8-w8"
-    assert rows[0]["patch_file"] == "single_single_single_a_z000_grid-y0-x0-h8-w8.tif"
+    assert rows[0]["patch_id"] == "single/single/single/a/t0000/grid-y0-x0-h8-w8"
+    assert rows[0]["patch_file"] == "single_single_single_a_t0000_grid-y0-x0-h8-w8.tif"
     saved = json.loads((tmp_path / "out" / RUN_CONFIG_FILENAME).read_text(encoding="utf-8"))
-    assert saved["common"]["z_policy"] == "all"
+    assert saved["common"]["t_policy"] == "all"
 
 
 def test_a_mask_whose_header_disagrees_with_its_image_has_no_clean_run(tmp_path):
     # A ZYX mask (its ImageJ header names Z) for a TYX image would have its depth slices read
     # as time points. Since CP-2a masks are read in the roles the preprocessing run recorded,
-    # and the run refuses this pair, so no file run reads it.
+    # and the run refuses this pair, so no file run reads it. (Preprocessing v0.4.0 refuses the
+    # Z-stack mask itself.)
     image_folder, mask_folder = tmp_path / "exp", tmp_path / "masks"
     write_tiff(image_folder / "a.tif", np.random.default_rng(0).integers(0, 100, (3, 32, 32), dtype=np.uint16), "TYX")
     mask = np.zeros((3, 32, 32), dtype=np.uint16)
     mask[:, 5:15, 5:15] = 1
     write_tiff(mask_folder / "a_cells.tif", mask, "ZYX")
-    with pytest.raises(AssertionError, match="does not have the depth slices and time points of its image"):
+    refusal = r"does not have the time points \(T\) and depth slices \(Z\) of its image"
+    with pytest.raises(AssertionError, match=refusal):
         preprocess(image_folder, "TYX", masks=mask_folder)
 
 
@@ -271,26 +273,26 @@ def test_mask_axes_that_agree_with_the_mask_header_are_accepted(tmp_path):
 
 
 def test_a_file_run_refuses_declared_image_axes(tmp_path):
-    # A ZYX image (its ImageJ header names Z) declared TYX would have its depth slices read as
-    # time points; declared CYX, as channels. Since CP-2a a file run declares nothing: it reads
+    # A TYX image (its ImageJ header names T) declared ZYX would have its time points read as
+    # depth slices; declared CYX, as channels. Since CP-2a a file run declares nothing: it reads
     # the roles the preprocessing run recorded and refuses the setting (migration message).
-    write_tiff(tmp_path / "exp" / "a.tif", _stack(), "ZYX")
-    for declared, policy in (("TYX", {"t_policy": "all"}), ("CYX", {})):
-        config = file_run_config(_grid_config(image_axes=declared, **policy), tmp_path / "exp", "ZYX")
+    write_tiff(tmp_path / "exp" / "a.tif", _stack(), "TYX")
+    for declared, policy in (("ZYX", {"z_policy": "all"}), ("CYX", {})):
+        config = file_run_config(_grid_config(image_axes=declared, **policy), tmp_path / "exp", "TYX")
         with pytest.raises(ValueError, match=rf"common.image_axes='{declared}': each image's \(and mask's\) axes"):
             run_patching_pipeline(str(tmp_path / "exp"), config=config)
 
 
 def test_a_run_mixing_stacks_and_single_planes_patches_both(tmp_path):
-    # Each image is read in its own roles (audit A-M1): the 2-D image has no Z, so its patches
+    # Each image is read in its own roles (audit A-M1): the 2-D image has no T, so its patches
     # have no plane index, as when it is patched alone. Before, one layout per run (CP-2a) gave it
-    # z=0 because the other image has three planes.
+    # t=0 because the other image has three planes.
     root = tmp_path / "raw"
-    write_tiff(root / "a_cond" / "r1" / "a.tif", _stack(), "ZYX")
-    write_tiff(root / "b_cond" / "r1" / "b.tif", _stack((1, 16, 16)), "ZYX")
-    config = file_run_config(_grid_config("YX", z_policy="all"), root, "ZYX", missing_as_singleton=True)
+    write_tiff(root / "a_cond" / "r1" / "a.tif", _stack(), "TYX")
+    write_tiff(root / "b_cond" / "r1" / "b.tif", _stack((1, 16, 16)), "TYX")
+    config = file_run_config(_grid_config("YX", t_policy="all"), root, "TYX", missing_as_singleton=True)
     leaves = run_patching_condition_repeat_tree(str(root), config=config)
-    assert [sorted({p.z0 for p in leaf.result.patches}, key=str) for leaf in leaves] == [[0, 1, 2], [None]]
+    assert [sorted({p.t for p in leaf.result.patches}, key=str) for leaf in leaves] == [[0, 1, 2], [None]]
 
 
 def test_a_plain_stack_without_axis_metadata_keeps_its_declared_axes(tmp_path):
@@ -322,32 +324,33 @@ def test_lazy_delivery_of_a_file_reads_its_planes_through_the_run(tmp_path):
     assert all(np.array_equal(lazy_array, eager) for lazy_array, eager in zip(lazy, result.patch_arrays))
 
 
-def _zcyx_run_with_zyx_masks(tmp_path):
+def _tcyx_run_with_tyx_masks(tmp_path):
     image_folder, mask_folder = tmp_path / "exp", tmp_path / "masks"
     image = np.random.default_rng(0).integers(0, 100, (3, 2, 32, 32), dtype=np.uint16)
-    write_tiff(image_folder / "a.tif", image, "ZCYX")
+    write_tiff(image_folder / "a.tif", image, "TCYX")
     mask = np.zeros((3, 32, 32), dtype=np.uint16)
     mask[:, 5:15, 5:15] = 1
-    write_tiff(mask_folder / "a_cells.tif", mask, "ZYX")
+    write_tiff(mask_folder / "a_cells.tif", mask, "TYX")
     return image_folder, mask_folder
 
 
-def test_a_file_run_with_z_masks_and_z_policy_keep_names_z_policy_not_mask_axes(tmp_path):
+def test_a_file_run_with_t_masks_and_t_policy_keep_names_t_policy_not_mask_axes(tmp_path):
     # Cross-brick test F7 (2026-11-03): the message named mask_channel and common.mask_axes,
-    # which a file run refuses; the real options are z_policy/t_policy or 2-D masks.
-    image_folder, mask_folder = _zcyx_run_with_zyx_masks(tmp_path)
-    config = _cell_config(image_axes="YX", mask_axes="YX")  # z_policy is the default "keep"
-    with pytest.raises(ValueError, match=r"axes 'ZYX'.* have Z planes.*Set common.z_policy") as caught:
-        preprocessed_folder(image_folder, config=config, mask_folder_path=mask_folder, axes="ZCYX")
+    # which a file run refuses; the real options are z_policy/t_policy or 2-D masks. (Converted to
+    # T: preprocessing v0.4.0 refuses Z>1, so the Z form of this message cannot be reached.)
+    image_folder, mask_folder = _tcyx_run_with_tyx_masks(tmp_path)
+    config = _cell_config(image_axes="YX", mask_axes="YX")  # t_policy is the default "keep"
+    with pytest.raises(ValueError, match=r"axes 'TYX'.* have T planes.*Set common.t_policy") as caught:
+        preprocessed_folder(image_folder, config=config, mask_folder_path=mask_folder, axes="TCYX")
     assert "mask_axes" not in str(caught.value)
     assert "preprocessing run's masks" in str(caught.value)
 
 
 @pytest.mark.parametrize("policy", ["all", "first"])
-def test_the_z_policy_the_message_names_patches_that_run(tmp_path, policy):
-    image_folder, mask_folder = _zcyx_run_with_zyx_masks(tmp_path)
-    config = _cell_config(image_axes="YX", mask_axes="YX", z_policy=policy)
-    result = preprocessed_folder(image_folder, config=config, mask_folder_path=mask_folder, axes="ZCYX")
+def test_the_t_policy_the_message_names_patches_that_run(tmp_path, policy):
+    image_folder, mask_folder = _tcyx_run_with_tyx_masks(tmp_path)
+    config = _cell_config(image_axes="YX", mask_axes="YX", t_policy=policy)
+    result = preprocessed_folder(image_folder, config=config, mask_folder_path=mask_folder, axes="TCYX")
     assert len(result.patches) == (3 if policy == "all" else 1)
 
 

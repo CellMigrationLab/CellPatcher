@@ -4,7 +4,7 @@ Owner decision of 2026-11-03: an axis is in an image's plane choices and ``patch
 *that image* has the role, the rule MorphoFeature's run planes follow (``run_config._planes``).
 Before, ``run_layout`` gave every image of a run Z (or T) when any image had more than one plane
 along it: a YX image patched beside a ZYX image got ``z000`` in its ids, other random rectangles
-with ``seed_scope="plane"``, and ``z_policy="select"`` refused the run (audit probes p1 and p3).
+with ``seed_scope="plane"``, and ``t_policy="select"`` refused the run (audit probes p1 and p3).
 """
 
 import importlib.util
@@ -28,10 +28,10 @@ _STACK = _RNG.integers(0, 1000, (3, 32, 32)).astype(np.uint16)
 
 
 def _experiment(root, *, with_stack):
-    """The probe's experiment: ``ctrl/rep1/a`` (YX), and with *with_stack* ``ctrl/rep1/b`` (ZYX)."""
+    """The probe's experiment: ``ctrl/rep1/a`` (YX), and with *with_stack* ``ctrl/rep1/b`` (TYX)."""
     write_tiff(root / "ctrl" / "rep1" / "a.tif", _FLAT, "YX")
     if with_stack:
-        write_tiff(root / "ctrl" / "rep1" / "b.tif", _STACK, "ZYX")
+        write_tiff(root / "ctrl" / "rep1" / "b.tif", _STACK, "TYX")
     return root
 
 
@@ -46,9 +46,9 @@ def _config(mode="grid", **common):
 
 
 def _run(tmp_path, name, config, *, with_stack):
-    """Patch the probe's experiment alone (YX only) or mixed (YX beside ZYX); return the result."""
+    """Patch the probe's experiment alone (YX only) or mixed (YX beside TYX); return the result."""
     root = _experiment(tmp_path / name / "exp", with_stack=with_stack)
-    axes = "ZYX" if with_stack else "YX"
+    axes = "TYX" if with_stack else "YX"
     file_run_config(config, root, axes, missing_as_singleton=True)
     return run_patching_pipeline(root, config=config)
 
@@ -65,9 +65,9 @@ def _of(result, position):
 
 @pytest.mark.parametrize("policy", ["keep", "all", "first"])
 def test_a_2d_image_gets_the_same_patches_alone_and_beside_a_stack(tmp_path, policy):
-    # Probe p1: in the mixed run the 2-D image's ids were ctrl/rep1/single/a/z000/grid-... .
-    alone = _run(tmp_path, "alone", _config(z_policy=policy), with_stack=False)
-    mixed = _run(tmp_path, "mixed", _config(z_policy=policy), with_stack=True)
+    # Probe p1: in the mixed run the 2-D image's ids were ctrl/rep1/single/a/t0000/grid-... .
+    alone = _run(tmp_path, "alone", _config(t_policy=policy), with_stack=False)
+    mixed = _run(tmp_path, "mixed", _config(t_policy=policy), with_stack=True)
     (alone_rows, alone_arrays), (mixed_rows, mixed_arrays) = _of(alone, "a"), _of(mixed, "a")
     assert mixed_rows == alone_rows
     assert [row[0] for row in alone_rows] == [
@@ -80,57 +80,57 @@ def test_a_2d_image_gets_the_same_patches_alone_and_beside_a_stack(tmp_path, pol
     if policy == "keep":  # a kept axis never enters patch_id
         assert stack_ids[0] == "ctrl/rep1/single/b/grid-y0-x0-h16-w16"
     else:
-        assert stack_ids[0] == "ctrl/rep1/single/b/z000/grid-y0-x0-h16-w16"
+        assert stack_ids[0] == "ctrl/rep1/single/b/t0000/grid-y0-x0-h16-w16"
 
 
 def test_random_rectangles_of_a_plane_seed_do_not_depend_on_the_other_images(tmp_path):
-    # seed_scope="plane" seeds each plane from its identity (t, z): z=0 given to the 2-D image in
+    # seed_scope="plane" seeds each plane from its identity (t, z): t=0 given to the 2-D image in
     # a mixed run drew other rectangles than the image alone.
     configs = {}
     for name in ("alone", "mixed"):
-        configs[name] = _config("random", z_policy="all")
+        configs[name] = _config("random", t_policy="all")
         configs[name].random.seed_scope = "plane"
     alone = _run(tmp_path, "alone", configs["alone"], with_stack=False)
     mixed = _run(tmp_path, "mixed", configs["mixed"], with_stack=True)
     assert _of(mixed, "a")[0] == _of(alone, "a")[0]
     assert len(_of(alone, "a")[0]) == 3
-    assert all(row[2] is None and "/z" not in row[0] for row in _of(mixed, "a")[0])
+    assert all(row[3] is None and "/t0" not in row[0] for row in _of(mixed, "a")[0])
 
 
-def test_z_select_applies_only_to_the_images_with_z(tmp_path):
-    # Probe p3: z_policy="select" with z_index=2 refused the mixed run ("z_index=2 is outside the
-    # images, which have 1 planes along Z"), as the 2-D image was read with Z of length 1.
-    result = _run(tmp_path, "mixed", _config(z_policy="select", z_index=2), with_stack=True)
+def test_t_select_applies_only_to_the_images_with_t(tmp_path):
+    # Probe p3: t_policy="select" with t_index=2 refused the mixed run ("t_index=2 is outside the
+    # images, which have 1 planes along T"), as the 2-D image was read with T of length 1.
+    result = _run(tmp_path, "mixed", _config(t_policy="select", t_index=2), with_stack=True)
     assert sorted({p.patch_id.rsplit("/", 1)[0] for p in result.patches}) == [
         "ctrl/rep1/single/a",
-        "ctrl/rep1/single/b/z002",
+        "ctrl/rep1/single/b/t0002",
     ]
     (array,) = [a for p, a in zip(result.patches, result.patch_arrays, strict=True) if p.patch_id.endswith(
-        "b/z002/grid-y0-x0-h16-w16"
+        "b/t0002/grid-y0-x0-h16-w16"
     )]
     np.testing.assert_array_equal(array, _STACK[2, :16, :16])
 
 
-def test_a_z_index_outside_the_stack_is_still_refused(tmp_path):
-    with pytest.raises(ValueError, match="z_index=3 is outside the images, which have 3 planes along Z"):
-        _run(tmp_path, "mixed", _config(z_policy="select", z_index=3), with_stack=True)
+def test_a_t_index_outside_the_stack_is_still_refused(tmp_path):
+    with pytest.raises(ValueError, match="t_index=3 is outside the images, which have 3 planes along T"):
+        _run(tmp_path, "mixed", _config(t_policy="select", t_index=3), with_stack=True)
 
 
 def test_raw_export_and_lazy_delivery_of_a_mixed_run_give_the_eager_arrays(tmp_path):
     # run_config.json records each image's layout when they differ, so a patch exported with raw
     # values is normalized on load in its own image's axes.
-    config = _config(z_policy="all")
+    config = _config(t_policy="all")
     config.normalization.enabled, config.normalization.scope = True, "image"
     config.normalization.export_values = "raw"
     config.export.enabled, config.common.output_dir = True, str(tmp_path / "out")
     result = _run(tmp_path, "mixed", config, with_stack=True)
     saved = json.loads((tmp_path / "out" / "run_config.json").read_text(encoding="utf-8"))
     assert saved["preprocessing"]["layout"] == {
-        "image": "ZYX",
+        "image": "TYX",
         "mask": "YX",
         "images": {
             "ctrl/rep1/a.tif": {"image": "YX", "mask": "YX"},
-            "ctrl/rep1/b.tif": {"image": "ZYX", "mask": "YX"},
+            "ctrl/rep1/b.tif": {"image": "TYX", "mask": "YX"},
         },
     }
     eager = dict(zip((p.patch_id for p in result.patches), result.patch_arrays, strict=True))
@@ -143,7 +143,7 @@ def test_raw_export_and_lazy_delivery_of_a_mixed_run_give_the_eager_arrays(tmp_p
 
 
 def test_a_run_of_one_layout_records_no_per_image_layouts(tmp_path):
-    config = _config(z_policy="all")
+    config = _config(t_policy="all")
     config.export.enabled, config.common.output_dir = True, str(tmp_path / "out")
     _run(tmp_path, "alone", config, with_stack=False)
     saved = json.loads((tmp_path / "out" / "run_config.json").read_text(encoding="utf-8"))
@@ -220,7 +220,7 @@ def test_ids_equal_morphofeature_cut_patch_set_ids(tmp_path, mode):
     # cut_patch_set; a CellPatcher file run of the same images gives the same ids.
     from morphobricks_preprocessing.run_inputs import RunInputs
 
-    config = _config(mode, z_policy="all")
+    config = _config(mode, t_policy="all")
     config.random.seed_scope = "plane"
     result = _run(tmp_path, "mixed", config, with_stack=True)
     expected = [
@@ -235,17 +235,17 @@ def test_ids_equal_morphofeature_cut_patch_set_ids(tmp_path, mode):
 
 def test_lazy_delivery_masks_each_patch_in_its_own_images_mask_layout(tmp_path):
     # A 2-D mask beside per-plane masks of a stack: lazy delivery selects each patch's mask plane
-    # in its own image's mask layout (YX for the 2-D image), not the run's union (ZYX).
+    # in its own image's mask layout (YX for the 2-D image), not the run's union (TYX).
     root = _experiment(tmp_path / "exp", with_stack=True)
     flat_labels = np.zeros((32, 32), np.uint16)
     flat_labels[2:10, 3:12], flat_labels[15:25, 14:28] = 1, 2
-    stack_labels = np.stack([np.roll(flat_labels, z, axis=0) for z in range(3)])
+    stack_labels = np.stack([np.roll(flat_labels, t, axis=0) for t in range(3)])
     write_tiff(tmp_path / "masks" / "cells" / "ctrl" / "rep1" / "a.tif", flat_labels, "YX")
-    write_tiff(tmp_path / "masks" / "cells" / "ctrl" / "rep1" / "b.tif", stack_labels, "ZYX")
-    config = _config("cell", z_policy="all")
+    write_tiff(tmp_path / "masks" / "cells" / "ctrl" / "rep1" / "b.tif", stack_labels, "TYX")
+    config = _config("cell", t_policy="all")
     config.cell.patch_size, config.cell.exclude_border = 12, False
     config.extraction.apply_mask = True
-    file_run_config(config, root, "ZYX", missing_as_singleton=True, masks=tmp_path / "masks")
+    file_run_config(config, root, "TYX", missing_as_singleton=True, masks=tmp_path / "masks")
     result = run_patching_pipeline(root, config=config, mask_folder_path=tmp_path / "masks")
     assert {p.position_id for p in result.patches} == {"a", "b"}
     lazy = list(iter_run_patch_arrays(result.patches, config))
@@ -256,10 +256,10 @@ def test_lazy_delivery_masks_each_patch_in_its_own_images_mask_layout(tmp_path):
 
 def test_a_patch_of_no_recorded_image_is_refused_not_given_the_union_layout(tmp_path):
     # With a layout per image recorded, a row whose source_relative_path names none of them has
-    # no known axes: the run's union (ZYX) would be a guess for a 2-D image's patch.
+    # no known axes: the run's union (TYX) would be a guess for a 2-D image's patch.
     from cellpatcher.run_config_file import delivery_config
 
-    config = _config(z_policy="all")
+    config = _config(t_policy="all")
     config.normalization.enabled, config.normalization.scope = True, "image"
     config.normalization.export_values = "raw"
     config.export.enabled, config.common.output_dir = True, str(tmp_path / "out")
