@@ -115,8 +115,8 @@ class CellControls:
         return [self.size, self.fixed, self.exclude_border, self.min_area, self.max_area, self.apply_mask,
                 self.components]
 
-    def config(self, dataset_size: Callable[[str], int]) -> CellConfig:
-        """Return the cell settings; *dataset_size* gives the size of a dataset statistic."""
+    def config(self, dataset_size: Callable[[str], int | str]) -> CellConfig:
+        """Return the cell settings; *dataset_size* gives a dataset statistic's size (``"auto"``: none yet)."""
         choice = self.size.value
         size: int | str = choice if choice == "auto" else self.fixed.value
         if choice not in {"auto", "fixed"}:
@@ -277,7 +277,7 @@ class SettingsForm:
         """Return whether the chosen settings read masks."""
         return self.mode.value == "cell" or (self.mode.value == "random" and self.random_masks.value)
 
-    def config(self, summary: RunSummary, dataset_size: Callable[[str], int]) -> CellPatcherConfig:
+    def config(self, summary: RunSummary, dataset_size: Callable[[str], int | str]) -> CellPatcherConfig:
         """Return the settings as a file-run ``CellPatcherConfig`` for *summary*'s run.
 
         Raises

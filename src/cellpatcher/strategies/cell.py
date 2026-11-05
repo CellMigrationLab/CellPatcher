@@ -6,6 +6,7 @@ import numpy as np
 from cellpatcher.axes import axis_index, normalize_axes, refuse_transposed_mask_axes
 from cellpatcher.config import CellConfig
 from cellpatcher.errors import LabelRangeError
+from cellpatcher.setting_checks import check_cell_settings
 from cellpatcher.strategies.base import BasePatchStrategy, _spatial_shape_from_axes
 from cellpatcher.types import PatchRegion
 
@@ -170,6 +171,7 @@ class CellSegmentationStrategy(BasePatchStrategy):
         return selected
 
     def generate_regions(self, *, image_shape, labels=None, image_id=None, axes: str = "YX") -> list[PatchRegion]:
+        check_cell_settings(self.config)  # the config is mutable: re-checked where it is used
         image_h, image_w = _spatial_shape_from_axes(image_shape, axes=axes)
 
         if labels is None:
@@ -214,14 +216,8 @@ class CellSegmentationStrategy(BasePatchStrategy):
             # 'auto' sizes the patch to just cover the object's own bounding
             # box (a square large enough for its longer side); otherwise
             # every object gets the same fixed patch size.
-            if self.config.patch_size == "auto":
-                patch_size = int(max(obj_h, obj_w))
-            elif isinstance(self.config.patch_size, int):
-                patch_size = int(self.config.patch_size)
-            else:
-                raise ValueError("patch_size must be 'auto' or a positive integer.")
-            if patch_size <= 0:
-                raise ValueError("patch_size must be > 0.")
+            # (check_cell_settings has checked that a fixed size is an integer >= 1.)
+            patch_size = int(max(obj_h, obj_w)) if self.config.patch_size == "auto" else int(self.config.patch_size)
 
             if self.config.center_on == "centroid":
                 center_y = float(np.mean(ys))

@@ -53,6 +53,7 @@ from cellpatcher.run_reading import (
     union_layout,
 )
 from cellpatcher.run_session import keep_in_session, remember, remember_layouts
+from cellpatcher.setting_checks import check_run_settings
 from cellpatcher.statistics import (
     PlaneStatistics,
     PreprocessingCheckError,
@@ -219,6 +220,7 @@ def open_file_run(
         For a setting a file run does not read, or masks that cannot be used.
     """
     refuse_file_run_settings(config, where)
+    check_run_settings(config)
     check_config_identity(config)
     inputs = open_run(config.common.preprocessing_run, experiment_root=experiment_root, masks_root=masks_root)
     remember("file_run", config.common.preprocessing_run, "folder or tree run")

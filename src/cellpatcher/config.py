@@ -1,18 +1,27 @@
-import math
 from dataclasses import InitVar, dataclass, field
 from numbers import Integral
 
 from cellpatcher._deprecation import accept_deprecated_repeat
+from cellpatcher.ids import validate_object_set
 from cellpatcher.io import (
+    REMOVED_MATCHING_OPTIONS,
     SINGLE_BIOLOGICAL_REPEAT_LABEL,
     SINGLE_CONDITION_LABEL,
     SINGLE_TECHNICAL_REPEAT_LABEL,
-    REMOVED_MATCHING_OPTIONS,
     refuse_removed_matching,
 )
-from cellpatcher.fractions import check_unit_fraction
-from cellpatcher.ids import validate_object_set
 from cellpatcher.planes import validate_plane_policies
+from cellpatcher.setting_checks import (
+    check_cell_settings,
+    check_common_flags,
+    check_extraction_settings,
+    check_filter_settings,
+    check_grid_settings,
+    check_normalization_ranges,
+    check_random_settings,
+    check_whole_fov_settings,
+)
+
 
 @accept_deprecated_repeat
 @dataclass
@@ -51,6 +60,7 @@ class CommonConfig:
     object_set: str | None = None
 
     def __post_init__(self) -> None:
+        check_common_flags(self)
         validate_plane_policies(self)
         validate_object_set(self.object_set)
 
@@ -87,10 +97,7 @@ class CellConfig:
             raise ValueError("center_on must be either 'centroid' or 'bbox_center'.")
         if self.binary_mask_policy not in BINARY_MASK_POLICIES:
             raise ValueError("binary_mask_policy must be either 'single_object' or 'connected_components'.")
-        if self.min_area < 1:
-            raise ValueError("min_area must be >= 1.")
-        if self.max_area is not None and self.max_area < self.min_area:
-            raise ValueError("max_area must be >= min_area when provided.")
+        check_cell_settings(self)
 
 
 SEED_SCOPES = ("plane_channel", "plane", "position")
@@ -121,13 +128,9 @@ class RandomConfig:
     min_mask_fraction: float | None = None
 
     def __post_init__(self) -> None:
-        if self.patch_size <= 0:
-            raise ValueError("patch_size must be > 0.")
-        if self.n_patches <= 0:
-            raise ValueError("n_patches must be > 0.")
         if self.seed_scope not in SEED_SCOPES:
             raise ValueError(f"seed_scope must be one of {list(SEED_SCOPES)}; got {self.seed_scope!r}.")
-        check_unit_fraction(self.min_mask_fraction, "min_mask_fraction")
+        check_random_settings(self)
 
 
 @dataclass
@@ -143,6 +146,9 @@ class WholeFOVConfig:
     """
 
     square_cover: bool = False
+
+    def __post_init__(self) -> None:
+        check_whole_fov_settings(self)
 
 
 GRID_PARTIAL_MODES = ("flush", "clipped")
@@ -160,10 +166,7 @@ class GridConfig:
     partial_mode: str = "flush"
 
     def __post_init__(self) -> None:
-        if self.tile_size <= 0:
-            raise ValueError("tile_size must be > 0.")
-        if not (0 <= self.overlap < 1):
-            raise ValueError("overlap must satisfy 0 <= overlap < 1.")
+        check_grid_settings(self)
         self.check_partial_mode()
 
     def check_partial_mode(self) -> None:
@@ -191,14 +194,7 @@ class FilterConfig:
     min_mean_intensity: float | None = None
 
     def __post_init__(self) -> None:
-        if self.min_foreground_fraction is not None:
-            value = float(self.min_foreground_fraction)
-            if value < 0 or value > 1:
-                raise ValueError("min_foreground_fraction must be in [0, 1].")
-        if self.min_mean_intensity is not None and not isinstance(self.min_mean_intensity, (int, float)):
-            raise ValueError("min_mean_intensity must be a scalar number or None.")
-        if self.foreground_threshold is not None and not isinstance(self.foreground_threshold, (int, float, str)):
-            raise ValueError("foreground_threshold must be None, a scalar number, or a string.")
+        check_filter_settings(self)
 
 
 @dataclass
@@ -240,25 +236,8 @@ class ExtractionConfig:
         if self.pad_mode not in {"clip", "constant"}:
             raise ValueError("pad_mode must be either 'clip' or 'constant'.")
 
-        # output_size accepts three shapes: None (no resize), a single int
-        # (square output), or an explicit (height, width) pair.
-        if self.output_size is not None:
-            if isinstance(self.output_size, int):
-                if self.output_size <= 0:
-                    raise ValueError("output_size int must be > 0.")
-            elif isinstance(self.output_size, (tuple, list)) and len(self.output_size) == 2:
-                h, w = int(self.output_size[0]), int(self.output_size[1])
-                if h <= 0 or w <= 0:
-                    raise ValueError("output_size tuple/list values must be > 0.")
-            else:
-                raise ValueError("output_size must be None, a positive int, or tuple/list of two positive ints.")
-
-        if not isinstance(self.resize_order, int) or self.resize_order < 0:
-            raise ValueError("resize_order must be an int >= 0.")
-        if not isinstance(self.apply_mask, bool):
-            raise ValueError("apply_mask must be a bool.")
-        if not isinstance(self.mask_fill_value, (int, float)):
-            raise ValueError("mask_fill_value must be a scalar number.")
+        # output_size: None (no resize), an int (square) or a (height, width) pair of ints.
+        check_extraction_settings(self)
         channel_selection(self.split_channels)
 
     def split_channel_indices(self, channel_count: int) -> tuple[int, ...]:
@@ -458,22 +437,11 @@ class NormalizationConfig:
             )
         if not isinstance(self.per_time_point, bool):
             raise ValueError("normalization.per_time_point must be a bool.")
+        check_normalization_ranges(self)
         # A JSON round trip turns the tuple into a list.
-        try:
-            low, high = (float(value) for value in self.percentile)
-        except (TypeError, ValueError):
-            raise ValueError("normalization.percentile must be two numbers (low, high).") from None
-        if not 0 <= low < high <= 100:
-            raise ValueError(f"normalization.percentile must satisfy 0 <= low < high <= 100; got ({low}, {high}).")
-        self.percentile = (low, high)
+        self.percentile = tuple(float(value) for value in self.percentile)
         if self.clip is not None:
-            try:
-                low, high = (float(value) for value in self.clip)
-            except (TypeError, ValueError):
-                raise ValueError("normalization.clip must be None or two numbers (low, high).") from None
-            if not (math.isfinite(low) and math.isfinite(high) and low < high):
-                raise ValueError(f"normalization.clip must be finite with low < high; got ({low}, {high}).")
-            self.clip = (low, high)
+            self.clip = tuple(float(value) for value in self.clip)
         if self.export_values not in EXPORT_VALUES:
             raise ValueError(
                 f"normalization.export_values must be one of {list(EXPORT_VALUES)}; got {self.export_values!r}."
