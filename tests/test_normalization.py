@@ -393,8 +393,7 @@ def test_filters_see_raw_values_and_mask_fill_is_in_normalized_units():
 
 
 def test_keep_is_refused_under_normalization(experiment):
-    # Was "keep and projections" over Z; preprocessing v0.4.0 refuses Z>1, and T has no projection policy
-    # (t_policy is keep/all/first/select), so "keep" over T is the case that remains.
+    # Was "keep and projections" over Z: Z>1 is refused (preprocessing v0.4.0), T has no projection.
     root, _, csv_path = experiment
     config = _config(csv_path)
     config.common.t_policy = "keep"

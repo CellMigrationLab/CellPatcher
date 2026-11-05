@@ -255,7 +255,8 @@ def test_a_mask_whose_header_disagrees_with_its_image_has_no_clean_run(tmp_path)
     mask = np.zeros((3, 32, 32), dtype=np.uint16)
     mask[:, 5:15, 5:15] = 1
     write_tiff(mask_folder / "a_cells.tif", mask, "ZYX")
-    with pytest.raises(AssertionError, match=r"does not have the time points \(T\) and depth slices \(Z\) of its image"):
+    refusal = r"does not have the time points \(T\) and depth slices \(Z\) of its image"
+    with pytest.raises(AssertionError, match=refusal):
         preprocess(image_folder, "TYX", masks=mask_folder)
 
 

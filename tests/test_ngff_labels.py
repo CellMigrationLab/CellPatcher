@@ -88,7 +88,8 @@ def test_label_planes_follow_the_image_planes_and_a_shared_2d_label_is_refused(t
     refusal = "does not have the time points \\(T\\) and depth slices \\(Z\\) of its image"
     with pytest.raises(AssertionError, match=refusal):
         preprocess(shared_root, "TYX")
-    with pytest.raises(AssertionError, match="one 2-D mask shared by every plane of its image. That option was removed"):
+    removed = "one 2-D mask shared by every plane of its image. That option was removed"
+    with pytest.raises(AssertionError, match=removed):
         preprocess(shared_root, "TYX", mask_axes={"cells": "YX"})
 
 
