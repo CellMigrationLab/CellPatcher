@@ -263,7 +263,7 @@ def parameters_from_row(row: Mapping, settings: Mapping) -> object | None:
     ValueError
         If the row's scope is not its run's, or its parameters cannot be read.
     """
-    from cellpatcher.config import REMOVED_NORMALIZATION_SCOPES
+    from cellpatcher.setting_checks import REMOVED_NORMALIZATION_SCOPES
 
     mbn = require_normalization()
     prefixes = ("Normalization_Offset_C", "Normalization_Scale_C")
@@ -770,7 +770,7 @@ def _label_plane(mask, mask_axes: str, mask_channel) -> np.ndarray:
     if "C" in axes and array.shape[axes.index("C")] != 1:
         if mask_channel is None:
             raise ValueError("Masks with several channels need cell.mask_channel to choose the label channel.")
-        array = np.take(array, int(mask_channel), axis=axes.index("C"))
+        array = np.take(array, mask_channel, axis=axes.index("C"))
         axes = axes.replace("C", "")
     return _label_to_2d(array, axes)
 

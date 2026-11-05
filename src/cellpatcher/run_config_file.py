@@ -29,7 +29,6 @@ from pathlib import Path
 from typing import Any
 
 from cellpatcher.config import (
-    REMOVED_NORMALIZATION_SCOPES,
     CellConfig,
     CellPatcherConfig,
     CommonConfig,
@@ -45,6 +44,7 @@ from cellpatcher.config import (
 from cellpatcher.normalization import CSV_SCOPES, normalization_inputs, run_settings
 from cellpatcher.run_open import refuse_changed_manifest
 from cellpatcher.run_session import recalled, recalled_layouts
+from cellpatcher.setting_checks import REMOVED_NORMALIZATION_SCOPES
 
 RUN_CONFIG_VERSION = 2
 READ_VERSIONS = (1, RUN_CONFIG_VERSION)

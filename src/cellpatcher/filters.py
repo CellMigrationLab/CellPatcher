@@ -3,7 +3,7 @@ import numpy as np
 from cellpatcher.config import FilterConfig
 from cellpatcher.extract import extract_patch
 from cellpatcher.fractions import check_real_number
-from cellpatcher.setting_checks import check_filter_settings
+from cellpatcher.setting_checks import check_filter_settings, check_threshold_text
 
 
 def compute_threshold(image, threshold):
@@ -20,31 +20,22 @@ def compute_threshold(image, threshold):
         return None
     if not isinstance(threshold, str):
         check_real_number(threshold, "threshold")  # a bool, NaN or a list is not a threshold
-        return float(threshold)
-    if isinstance(threshold, str):
-        # String thresholds are resolved against `image`'s own statistics
-        # rather than being fixed numbers, so the same config works across
-        # images with different intensity ranges.
-        t = threshold.strip().lower()
-        if t == "mean":
-            return float(np.mean(arr))
-        if t == "median":
-            return float(np.median(arr))
-        if t == "otsu":
-            try:
-                from skimage.filters import threshold_otsu
-            except ImportError as exc:
-                raise ImportError("foreground_threshold='otsu' requires scikit-image.") from exc
-            return float(threshold_otsu(arr))
-        if t.startswith("percentile:"):
-            try:
-                value = float(t.split(":", 1)[1])
-            except ValueError as exc:
-                raise ValueError("Invalid percentile threshold format. Use 'percentile:<0-100>'.") from exc
-            if value < 0 or value > 100:
-                raise ValueError("Percentile threshold must be in [0, 100].")
-            return float(np.percentile(arr, value))
-        raise ValueError(f"Unsupported threshold string: {threshold}")
+        return threshold
+    # String thresholds are resolved against `image`'s own statistics rather than being fixed
+    # numbers, so the same config works across images with different intensity ranges.
+    percentile = check_threshold_text(threshold)
+    if percentile is not None:
+        return float(np.percentile(arr, percentile))
+    spec = threshold.strip().lower()
+    if spec == "mean":
+        return float(np.mean(arr))
+    if spec == "median":
+        return float(np.median(arr))
+    try:
+        from skimage.filters import threshold_otsu
+    except ImportError as exc:
+        raise ImportError("foreground_threshold='otsu' requires scikit-image.") from exc
+    return float(threshold_otsu(arr))
 
 
 def foreground_fraction(patch, threshold) -> float:
@@ -89,7 +80,7 @@ def filter_regions(image, regions, config: FilterConfig, *, axes: str = "YX", pa
         patch = extract_patch(image, region, axes=axes, pad_mode=pad_mode, constant_values=constant_values)
 
         if config.min_mean_intensity is not None:
-            if float(np.mean(patch)) < float(config.min_mean_intensity):
+            if float(np.mean(patch)) < config.min_mean_intensity:
                 continue
 
         if config.min_foreground_fraction is not None:

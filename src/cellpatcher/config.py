@@ -1,8 +1,9 @@
+from __future__ import annotations
+
 from dataclasses import InitVar, dataclass, field
-from numbers import Integral
 
 from cellpatcher._deprecation import accept_deprecated_repeat
-from cellpatcher.ids import validate_object_set
+from cellpatcher.fractions import check_choice
 from cellpatcher.io import (
     REMOVED_MATCHING_OPTIONS,
     SINGLE_BIOLOGICAL_REPEAT_LABEL,
@@ -10,14 +11,18 @@ from cellpatcher.io import (
     SINGLE_TECHNICAL_REPEAT_LABEL,
     refuse_removed_matching,
 )
-from cellpatcher.planes import validate_plane_policies
 from cellpatcher.setting_checks import (
+    MODES,
+    channel_selection,
     check_cell_settings,
-    check_common_flags,
+    check_common_settings,
+    check_export_settings,
     check_extraction_settings,
     check_filter_settings,
     check_grid_settings,
-    check_normalization_ranges,
+    check_match_settings,
+    check_normalization_settings,
+    check_partial_mode,
     check_random_settings,
     check_whole_fov_settings,
 )
@@ -60,12 +65,7 @@ class CommonConfig:
     object_set: str | None = None
 
     def __post_init__(self) -> None:
-        check_common_flags(self)
-        validate_plane_policies(self)
-        validate_object_set(self.object_set)
-
-
-BINARY_MASK_POLICIES = ("single_object", "connected_components")
+        check_common_settings(self)
 
 
 @dataclass
@@ -93,14 +93,7 @@ class CellConfig:
     binary_mask_policy: str = "single_object"
 
     def __post_init__(self) -> None:
-        if self.center_on not in {"centroid", "bbox_center"}:
-            raise ValueError("center_on must be either 'centroid' or 'bbox_center'.")
-        if self.binary_mask_policy not in BINARY_MASK_POLICIES:
-            raise ValueError("binary_mask_policy must be either 'single_object' or 'connected_components'.")
         check_cell_settings(self)
-
-
-SEED_SCOPES = ("plane_channel", "plane", "position")
 
 
 @dataclass
@@ -128,8 +121,6 @@ class RandomConfig:
     min_mask_fraction: float | None = None
 
     def __post_init__(self) -> None:
-        if self.seed_scope not in SEED_SCOPES:
-            raise ValueError(f"seed_scope must be one of {list(SEED_SCOPES)}; got {self.seed_scope!r}.")
         check_random_settings(self)
 
 
@@ -151,9 +142,6 @@ class WholeFOVConfig:
         check_whole_fov_settings(self)
 
 
-GRID_PARTIAL_MODES = ("flush", "clipped")
-
-
 @dataclass
 class GridConfig:
     tile_size: int = 128
@@ -167,7 +155,6 @@ class GridConfig:
 
     def __post_init__(self) -> None:
         check_grid_settings(self)
-        self.check_partial_mode()
 
     def check_partial_mode(self) -> None:
         """Refuse an unknown ``partial_mode``, or ``"clipped"`` without ``include_partial``.
@@ -176,15 +163,7 @@ class GridConfig:
         construction (``apply_overrides``, attribute assignment) skip
         ``__post_init__``.
         """
-        if self.partial_mode not in GRID_PARTIAL_MODES:
-            raise ValueError(
-                f"partial_mode must be one of {GRID_PARTIAL_MODES}; got {self.partial_mode!r}."
-            )
-        if self.partial_mode == "clipped" and not self.include_partial:
-            raise ValueError(
-                "partial_mode='clipped' chooses which edge tiles include_partial adds; "
-                "set include_partial=True with it (include_partial=False keeps full tiles only)."
-            )
+        check_partial_mode(self)
 
 
 @dataclass
@@ -208,14 +187,7 @@ class ExportConfig:
     save_run_config: bool = True
 
     def __post_init__(self) -> None:
-        if not isinstance(self.enabled, bool):
-            raise ValueError("enabled must be a bool.")
-        if not isinstance(self.save_metadata_csv, bool):
-            raise ValueError("save_metadata_csv must be a bool.")
-        if not isinstance(self.save_run_config, bool):
-            raise ValueError("save_run_config must be a bool.")
-        if str(self.image_format).lower() not in {"tif", "tiff", "npy"}:
-            raise ValueError("image_format must be one of: 'tif', 'tiff', 'npy'.")
+        check_export_settings(self)
 
 
 @dataclass
@@ -233,12 +205,8 @@ class ExtractionConfig:
     split_channels: bool | list[int] = False
 
     def __post_init__(self) -> None:
-        if self.pad_mode not in {"clip", "constant"}:
-            raise ValueError("pad_mode must be either 'clip' or 'constant'.")
-
         # output_size: None (no resize), an int (square) or a (height, width) pair of ints.
         check_extraction_settings(self)
-        channel_selection(self.split_channels)
 
     def split_channel_indices(self, channel_count: int) -> tuple[int, ...]:
         """The channels that get a single-channel patch of their own, for an image with *channel_count* channels.
@@ -262,59 +230,6 @@ class ExtractionConfig:
                 "Select channels the images have, or True for every channel."
             )
         return selection
-
-
-def channel_selection(split_channels) -> tuple[int, ...] | None:
-    """The channel indices a list ``split_channels`` selects, sorted; None for True or False.
-
-    Raises
-    ------
-    ValueError
-        If *split_channels* is neither a bool nor a non-empty list of distinct
-        non-negative channel indices.
-    """
-    if isinstance(split_channels, bool):
-        return None
-    if (
-        not isinstance(split_channels, (list, tuple))
-        or not split_channels
-        or any(isinstance(channel, bool) or not isinstance(channel, Integral) or channel < 0
-               for channel in split_channels)
-    ):
-        raise ValueError(
-            "split_channels must be a bool or a non-empty list of channel indices (0, 1, ...): True gives one "
-            "patch per channel, a list one patch per selected channel, False one multichannel patch; got "
-            f"{split_channels!r}."
-        )
-    if len(set(split_channels)) != len(split_channels):
-        raise ValueError(f"split_channels lists a channel more than once: {list(split_channels)!r}.")
-    return tuple(sorted(int(channel) for channel in split_channels))
-
-
-NORMALIZATION_METHODS = ("minmax", "percentile", "zscore", "robust_zscore")
-NORMALIZATION_SCOPES = ("biological_repeat", "image", "patch")
-# Removed without a deprecation period (normalization brick decision N29).
-REMOVED_NORMALIZATION_SCOPES = ("condition", "technical_repeat")
-POOLING_WEIGHTS = ("pixels", "conditions")
-IMAGE_TYPES = ("fluorescence", "rgb")
-# StarDist's percentile normalization is the one RGB method (normalization brick decision N33).
-RGB_METHODS = ("percentile",)
-PATCH_REGIONS = ("mask", "bbox", "patch")
-EXPORT_VALUES = ("normalized", "raw")
-
-
-def unknown_scope_message(scope) -> str:
-    """The message for a ``normalization.scope`` that does not exist, as the normalization brick words it."""
-    message = (
-        f"Scope '{scope}' does not exist. Choose 'biological_repeat' (one biological repeat across all "
-        "conditions), 'image' or 'patch'."
-    )
-    if scope in REMOVED_NORMALIZATION_SCOPES:
-        message += (
-            f" The '{scope}' scope was removed (October 2026): normalizing per {scope.replace('_', ' ')} "
-            "removed real differences between them. Raw patches exported with it still normalize on load."
-        )
-    return message
 
 
 @dataclass
@@ -410,44 +325,11 @@ class NormalizationConfig:
     image_type: str = "fluorescence"
 
     def __post_init__(self) -> None:
-        if not isinstance(self.enabled, bool):
-            raise ValueError("normalization.enabled must be a bool.")
-        if self.method not in NORMALIZATION_METHODS:
-            raise ValueError(f"normalization.method must be one of {list(NORMALIZATION_METHODS)}; got {self.method!r}.")
-        if self.scope not in NORMALIZATION_SCOPES:
-            raise ValueError(f"normalization.scope: {unknown_scope_message(self.scope)}")
-        if self.pooling not in POOLING_WEIGHTS:
-            raise ValueError(
-                f"normalization.pooling must be 'pixels' (each pixel counts once) or 'conditions' (each "
-                f"condition weighs the same); got {self.pooling!r}."
-            )
-        if self.image_type not in IMAGE_TYPES:
-            raise ValueError(
-                f"normalization.image_type must be 'fluorescence' (each channel normalized separately) or 'rgb' "
-                f"(colour images); got {self.image_type!r}."
-            )
-        if self.image_type == "rgb" and self.method not in RGB_METHODS:
-            raise ValueError(
-                "normalization.image_type='rgb' is normalized with StarDist's percentile method only, which scales "
-                f"the three colour channels together; got method={self.method!r}. Use method='percentile'."
-            )
-        if self.patch_region is not None and self.patch_region not in PATCH_REGIONS:
-            raise ValueError(
-                f"normalization.patch_region must be one of {list(PATCH_REGIONS)} or None; got {self.patch_region!r}."
-            )
-        if not isinstance(self.per_time_point, bool):
-            raise ValueError("normalization.per_time_point must be a bool.")
-        check_normalization_ranges(self)
-        # A JSON round trip turns the tuple into a list.
-        self.percentile = tuple(float(value) for value in self.percentile)
+        check_normalization_settings(self)
+        # A JSON round trip turns the tuple into a list; the numbers themselves are kept as given.
+        self.percentile = tuple(self.percentile)
         if self.clip is not None:
-            self.clip = tuple(float(value) for value in self.clip)
-        if self.export_values not in EXPORT_VALUES:
-            raise ValueError(
-                f"normalization.export_values must be one of {list(EXPORT_VALUES)}; got {self.export_values!r}."
-            )
-        if isinstance(self.memory_limit, bool) or not isinstance(self.memory_limit, int) or self.memory_limit <= 0:
-            raise ValueError(f"normalization.memory_limit must be a positive int (bytes); got {self.memory_limit!r}.")
+            self.clip = tuple(self.clip)
 
 
 # The default of the removed options below: "not given".
@@ -473,6 +355,7 @@ class MatchConfig:
     later or found in an old ``run_config.json``, they are refused by name
     with a ``ValueError`` saying to use ``mask_type``.
     """
+
     mask_type: str | None = None
     strategy: InitVar[object] = _NOT_GIVEN
     mask_suffixes: InitVar[object] = _NOT_GIVEN
@@ -484,8 +367,7 @@ class MatchConfig:
         refuse_removed_matching(
             "MatchConfig", {name: value for name, value in given.items() if value is not _NOT_GIVEN}
         )
-        if self.mask_type is not None and (not isinstance(self.mask_type, str) or not self.mask_type.strip()):
-            raise ValueError(f"matching.mask_type must be None or a non-empty name; got {self.mask_type!r}.")
+        check_match_settings(self)
 
     def __setattr__(self, name, value) -> None:
         # The former options are not fields: setting one after construction
@@ -563,6 +445,4 @@ class CellPatcherConfig:
     normalization: NormalizationConfig = field(default_factory=NormalizationConfig)
 
     def __post_init__(self) -> None:
-        valid_modes = {"cell", "random", "whole_fov", "grid"}
-        if self.mode not in valid_modes:
-            raise ValueError(f"mode must be one of {sorted(valid_modes)}.")
+        check_choice(self.mode, MODES, "mode")

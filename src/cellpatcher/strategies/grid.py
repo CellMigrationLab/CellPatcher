@@ -49,8 +49,7 @@ class GridStrategy(BasePatchStrategy):
         # to 1 shrinks the stride so consecutive tiles increasingly overlap.
         stride = max(1, round(tile_size * (1 - self.config.overlap)))
 
-        # Checked first: an invalid mode is refused whatever the image size (#48 review).
-        self.config.check_partial_mode()
+        # check_grid_settings (above) refused an invalid partial_mode whatever the image size (#48 review).
         if not self.config.include_partial and (tile_size > height or tile_size > width):
             return []
 

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import math
 import re
+from collections.abc import Sequence
 from numbers import Integral, Real
 
 import numpy as np
@@ -67,6 +68,18 @@ def check_integer(value: object, name: str, *, minimum: int | None = None) -> No
     if not is_integer or (minimum is not None and value < minimum):
         floor = "" if minimum is None else f" >= {minimum}"
         raise ValueError(f"{name} must be an integer{floor}; got {value!r}.")
+
+
+def check_choice(value: object, choices: Sequence[str], name: str) -> None:
+    """Refuse a setting that is not text equal to one of *choices* (a number, list or None is refused, not matched).
+
+    Raises
+    ------
+    ValueError
+        With ``name`` and the choices when ``value`` is not a ``str`` among them.
+    """
+    if not isinstance(value, str) or value not in choices:
+        raise ValueError(f"{name} must be one of {list(choices)}; got {value!r}.")
 
 
 def check_strict_bool(value: object, name: str) -> None:

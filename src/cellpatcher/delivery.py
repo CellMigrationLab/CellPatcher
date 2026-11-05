@@ -41,6 +41,7 @@ from cellpatcher.normalization import PatchNormalization, parameters_from_row
 from cellpatcher.planes import apply_plane_choice, patch_plane_choice, select_mask_plane
 from cellpatcher.resize import resize_patch
 from cellpatcher.run_config_file import delivery_config, run_config_version
+from cellpatcher.setting_checks import check_run_settings
 
 if TYPE_CHECKING:
     from cellpatcher.config import CellPatcherConfig
@@ -121,6 +122,7 @@ def iter_patch_arrays(
     tuple
         ``(patch, array)``; each array equals the one eager delivery gives.
     """
+    check_run_settings(config)  # the config is mutable: re-checked where it is used
     common = config.common
     plane_cache: dict = {}
     mask_cache: dict = {}

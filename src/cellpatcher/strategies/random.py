@@ -148,7 +148,7 @@ class RandomPatchStrategy(BasePatchStrategy):
         """
         check_random_settings(self.config)  # the config is mutable: re-checked where it is used
         shape = _spatial_shape_from_axes(image_shape, axes=axes)
-        size, n_patches = int(self.config.patch_size), int(self.config.n_patches)
+        size, n_patches = self.config.patch_size, self.config.n_patches
         if size <= 0:
             raise ValueError("patch_size must be > 0.")
         if n_patches <= 0:
@@ -172,7 +172,7 @@ class RandomPatchStrategy(BasePatchStrategy):
         *fraction* (any overlap when None) is dropped, and after ``max(1000, 50 * n_patches)``
         draws the plane is refused.
         """
-        size, n_patches = int(self.config.patch_size), int(self.config.n_patches)
+        size, n_patches = self.config.patch_size, self.config.n_patches
         y_max, x_max = shape[0] - size, shape[1] - size
         max_attempts = max(1000, n_patches * 50)
         corners: list[tuple[int, int]] = []
