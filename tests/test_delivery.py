@@ -48,15 +48,15 @@ def experiment(tmp_path_factory):
     root, masks = base / "experiment", base / "masks"
     rng = np.random.default_rng(0)
     for index, path in enumerate(IMAGES):
-        stack = rng.integers(0, 200, (2, 2, 24, 24), dtype=np.uint8)  # Z, C, Y, X
+        stack = rng.integers(0, 200, (2, 2, 24, 24), dtype=np.uint8)  # T, C, Y, X
         stack[:, 1] += 40
-        _write_tiff(root / path, stack, "ZCYX")
+        _write_tiff(root / path, stack, "TCYX")
         labels = np.zeros((2, 24, 24), dtype=np.uint16)
         labels[0, 3:9, 3:11] = 1
         labels[1, 12:20, 10:17] = 2 + index
-        _write_tiff(masks / "cells" / path, labels, "ZYX")  # preprocessing layout: <mask type>/<image path>
+        _write_tiff(masks / "cells" / path, labels, "TYX")  # preprocessing layout: <mask type>/<image path>
     result = mbp.run_experiment(
-        root, mbp.AxisMapping("ZCYX", "ZCYX"), output_folder=base / "preprocessing", masks_folder=masks
+        root, mbp.AxisMapping("TCYX", "TCYX"), output_folder=base / "preprocessing", masks_folder=masks
     )
     assert result.written
     return root, masks, result.csv_path
@@ -64,7 +64,7 @@ def experiment(tmp_path_factory):
 
 def _grid_config(csv_path):
     config = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=8))
-    config.common.image_axes, config.common.z_policy = "ZCYX", "all"
+    config.common.image_axes, config.common.t_policy = "TCYX", "all"
     config.normalization = NormalizationConfig(enabled=True, plane_histograms=str(csv_path), method="percentile")
     return config
 
@@ -72,7 +72,7 @@ def _grid_config(csv_path):
 def _cell_config(csv_path):
     config = CellPatcherConfig(mode="cell")
     config.cell.patch_size, config.cell.exclude_border = 10, False
-    config.common.image_axes, config.common.mask_axes, config.common.z_policy = "ZCYX", "ZYX", "all"
+    config.common.image_axes, config.common.mask_axes, config.common.t_policy = "TCYX", "TYX", "all"
     config.extraction.apply_mask, config.extraction.mask_fill_value = True, float("nan")
     config.extraction.output_size, config.extraction.split_channels = 6, True
     config.normalization = NormalizationConfig(enabled=True, plane_histograms=str(csv_path), method="zscore")
@@ -169,7 +169,7 @@ def test_files_raw_files_and_the_lazy_iterator_equal_eager_delivery(experiment, 
     for leaf in leaves:
         image_paths = list_supported_files(leaf.image_folder)
         mask_paths = list_supported_files(masks / "cells" / leaf.relative_folder) if config.mode == "cell" else None
-        images = [tifffile.imread(path) for path in image_paths]  # stored ZCYX, the in-memory config's axes
+        images = [tifffile.imread(path) for path in image_paths]  # stored TCYX, the in-memory config's axes
         mask_arrays = [tifffile.imread(path) for path in mask_paths] if mask_paths else None  # stored ZYX
         for patch in leaf.result.patches:
             mask = mask_arrays[int(patch.image_id[-4:])] if mask_arrays else None
@@ -192,7 +192,7 @@ def test_raw_files_keep_the_source_dtype_when_only_cropped(experiment, tmp_path)
     stored = tifffile.imread(tmp_path / "out" / leaf.relative_folder / patch.patch_file)
     source = tifffile.imread(root / patch.source_relative_path)
     assert stored.dtype == np.uint8
-    np.testing.assert_array_equal(stored, source[patch.z0, :, patch.y0:patch.y1, patch.x0:patch.x1])
+    np.testing.assert_array_equal(stored, source[patch.t, :, patch.y0:patch.y1, patch.x0:patch.x1])
     saved = json.loads((tmp_path / "out" / leaf.relative_folder / "run_config.json").read_text(encoding="utf-8"))
     assert saved["normalization"]["export_values"] == "raw"
 
@@ -239,7 +239,7 @@ def test_torch_datasets_give_the_same_arrays(experiment, tmp_path, name):
 
     from_images = {}
     for leaf in _run(root, masks, config):
-        images = [tifffile.imread(p) for p in list_supported_files(leaf.image_folder)]  # stored ZCYX
+        images = [tifffile.imread(p) for p in list_supported_files(leaf.image_folder)]  # stored TCYX
         mask_list = (
             [tifffile.imread(p) for p in list_supported_files(masks / "cells" / leaf.relative_folder)]  # stored ZYX
             if config.mode == "cell" else None
