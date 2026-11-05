@@ -5,17 +5,71 @@ The config dataclasses are mutable and documented as edited in place
 an assignment after construction. The checks here are shared by ``__post_init__`` and by every
 route that executes a run, and use the helpers of :mod:`cellpatcher.fractions` (never ``float()``,
 ``int()`` or ``bool()``, which turn ``True`` into 1.0 and ``"0.5"`` into 0.5).
+
+Every scientific setting of every section is checked here, whatever the mode:
+:func:`check_run_settings` is the one entry point of the routes that execute a run, and each
+section's ``__post_init__`` calls the same ``check_*_settings`` function.
 """
 
 from __future__ import annotations
 
+import operator
 from collections.abc import Sequence
+from numbers import Integral
+from pathlib import PurePath
 
-from cellpatcher.fractions import check_integer, check_real_number, check_strict_bool, check_unit_fraction
+from cellpatcher.fractions import (
+    check_choice,
+    check_integer,
+    check_real_number,
+    check_strict_bool,
+    check_unit_fraction,
+)
+from cellpatcher.ids import validate_object_set
+from cellpatcher.planes import validate_plane_policies
+
+MODES = ("cell", "random", "whole_fov", "grid")
+CENTER_ON = ("centroid", "bbox_center")
+BINARY_MASK_POLICIES = ("single_object", "connected_components")
+SEED_SCOPES = ("plane_channel", "plane", "position")
+GRID_PARTIAL_MODES = ("flush", "clipped")
+PAD_MODES = ("clip", "constant")
+IMAGE_FORMATS = ("tif", "tiff", "npy")
+NORMALIZATION_METHODS = ("minmax", "percentile", "zscore", "robust_zscore")
+NORMALIZATION_SCOPES = ("biological_repeat", "image", "patch")
+# Removed without a deprecation period (normalization brick decision N29).
+REMOVED_NORMALIZATION_SCOPES = ("condition", "technical_repeat")
+POOLING_WEIGHTS = ("pixels", "conditions")
+IMAGE_TYPES = ("fluorescence", "rgb")
+# StarDist's percentile normalization is the one RGB method (normalization brick decision N33).
+RGB_METHODS = ("percentile",)
+PATCH_REGIONS = ("mask", "bbox", "patch")
+EXPORT_VALUES = ("normalized", "raw")
+
+
+def unknown_scope_message(scope: object) -> str:
+    """Return the message for a ``normalization.scope`` that does not exist, as the normalization brick words it."""
+    message = (
+        f"Scope '{scope}' does not exist. Choose 'biological_repeat' (one biological repeat across all "
+        "conditions), 'image' or 'patch'."
+    )
+    if scope in REMOVED_NORMALIZATION_SCOPES:
+        message += (
+            f" The '{scope}' scope was removed (October 2026): normalizing per {scope.replace('_', ' ')} "
+            "removed real differences between them. Raw patches exported with it still normalize on load."
+        )
+    return message
+
+
+def _check_path(value: object, name: str) -> None:
+    """Refuse a path setting that is not None, text or a ``pathlib`` path."""
+    if value is not None and not isinstance(value, (str, PurePath)):
+        raise ValueError(f"{name} must be None or a path; got {value!r}.")
 
 
 def check_random_settings(random: object) -> None:
-    """Refuse a ``RandomConfig`` with a non-integer size, count or seed, or a bad ``min_mask_fraction``."""
+    """Refuse a ``RandomConfig`` with a bad ``seed_scope``, a non-integer size, count or seed, or a bad fraction."""
+    check_choice(random.seed_scope, SEED_SCOPES, "seed_scope")
     check_integer(random.patch_size, "patch_size", minimum=1)
     check_integer(random.n_patches, "n_patches", minimum=1)
     if random.seed is not None:
@@ -24,12 +78,49 @@ def check_random_settings(random: object) -> None:
 
 
 def check_grid_settings(grid: object) -> None:
-    """Refuse a ``GridConfig`` with a non-integer ``tile_size``, an ``overlap`` outside [0, 1) or a non-bool flag."""
+    """Refuse a ``GridConfig`` with a non-integer ``tile_size``, a bad ``overlap``, flag or ``partial_mode``."""
     check_integer(grid.tile_size, "tile_size", minimum=1)
     check_real_number(grid.overlap, "overlap")
     if not 0 <= grid.overlap < 1:
         raise ValueError(f"overlap must satisfy 0 <= overlap < 1; got {grid.overlap!r}.")
     check_strict_bool(grid.include_partial, "include_partial")
+    check_partial_mode(grid)
+
+
+def check_partial_mode(grid: object) -> None:
+    """Refuse an unknown ``partial_mode``, or ``"clipped"`` without ``include_partial``."""
+    check_choice(grid.partial_mode, GRID_PARTIAL_MODES, "partial_mode")
+    if grid.partial_mode == "clipped" and not grid.include_partial:
+        raise ValueError(
+            "partial_mode='clipped' chooses which edge tiles include_partial adds; "
+            "set include_partial=True with it (include_partial=False keeps full tiles only)."
+        )
+
+
+def check_threshold_text(text: str, name: str = "foreground_threshold") -> float | None:
+    """Return the percentile of ``"percentile:<0-100>"``, None for a named statistic; refuse other text.
+
+    The named statistics are ``"mean"``, ``"median"`` and ``"otsu"``.
+
+    The one reader of the text threshold grammar: the number after ``percentile:`` is parsed from
+    its text here (a value of the setting is never converted), and NaN or a value outside [0, 100]
+    is refused.
+    """
+    spec = text.strip().lower()
+    if spec in ("mean", "median", "otsu"):
+        return None
+    if not spec.startswith("percentile:"):
+        raise ValueError(
+            f"Unsupported threshold string: {text!r} ({name} is a number, 'mean', 'median', 'otsu' or "
+            "'percentile:<0-100>')."
+        )
+    try:
+        percentile = float(spec.split(":", 1)[1])
+    except ValueError:
+        raise ValueError(f"Invalid percentile threshold format in {name}. Use 'percentile:<0-100>'.") from None
+    if not 0 <= percentile <= 100:
+        raise ValueError(f"Percentile threshold of {name} must be in [0, 100].")
+    return percentile
 
 
 def check_filter_settings(filters: object) -> None:
@@ -37,13 +128,23 @@ def check_filter_settings(filters: object) -> None:
     check_unit_fraction(filters.min_foreground_fraction, "min_foreground_fraction")
     if filters.min_mean_intensity is not None:
         check_real_number(filters.min_mean_intensity, "min_mean_intensity")
-    if filters.foreground_threshold is not None and not isinstance(filters.foreground_threshold, str):
+    if isinstance(filters.foreground_threshold, str):
+        check_threshold_text(filters.foreground_threshold)
+    elif filters.foreground_threshold is not None:
         check_real_number(filters.foreground_threshold, "foreground_threshold")
 
 
 def check_cell_settings(cell: object) -> None:
-    """Refuse a ``CellConfig`` with a fixed size or area bound that is no integer, or a non-bool ``exclude_border``."""
-    if cell.patch_size != "auto":
+    """Refuse a ``CellConfig`` with a bad choice, ``mask_channel``, size or area bound, or ``exclude_border``.
+
+    ``mask_channel`` is None or an integer >= 0 (an ``int`` or NumPy integer, never a bool, text or
+    a float such as 1.9); that it is a channel of the mask is checked where the mask is read.
+    """
+    check_choice(cell.center_on, CENTER_ON, "center_on")
+    check_choice(cell.binary_mask_policy, BINARY_MASK_POLICIES, "binary_mask_policy")
+    if cell.mask_channel is not None:
+        check_integer(cell.mask_channel, "mask_channel", minimum=0)
+    if not isinstance(cell.patch_size, str) or cell.patch_size != "auto":
         check_integer(cell.patch_size, "patch_size", minimum=1)
     check_integer(cell.min_area, "min_area", minimum=1)
     if cell.max_area is not None:
@@ -51,8 +152,36 @@ def check_cell_settings(cell: object) -> None:
     check_strict_bool(cell.exclude_border, "exclude_border")
 
 
+def channel_selection(split_channels: object) -> tuple[int, ...] | None:
+    """Return the channel indices a list ``split_channels`` selects, sorted; None for True or False.
+
+    Raises
+    ------
+    ValueError
+        If *split_channels* is neither a bool nor a non-empty list of distinct
+        non-negative channel indices (an ``int`` or NumPy integer each, never a bool).
+    """
+    if isinstance(split_channels, bool):
+        return None
+    if (
+        not isinstance(split_channels, (list, tuple))
+        or not split_channels
+        or any(isinstance(channel, bool) or not isinstance(channel, Integral) or channel < 0
+               for channel in split_channels)
+    ):
+        raise ValueError(
+            "split_channels must be a bool or a non-empty list of channel indices (0, 1, ...): True gives one "
+            "patch per channel, a list one patch per selected channel, False one multichannel patch; got "
+            f"{split_channels!r}."
+        )
+    if len(set(split_channels)) != len(split_channels):
+        raise ValueError(f"split_channels lists a channel more than once: {list(split_channels)!r}.")
+    return tuple(sorted(operator.index(channel) for channel in split_channels))
+
+
 def check_extraction_settings(extraction: object) -> None:
-    """Refuse an ``ExtractionConfig`` with a non-integer output size or order, or a non-number fill."""
+    """Refuse an ``ExtractionConfig`` with a bad ``pad_mode``, size, order, flag, fill or channel selection."""
+    check_choice(extraction.pad_mode, PAD_MODES, "pad_mode")
     size = extraction.output_size
     if size is not None:
         if isinstance(size, (tuple, list)) and len(size) == 2:
@@ -66,6 +195,24 @@ def check_extraction_settings(extraction: object) -> None:
     check_strict_bool(extraction.apply_mask, "apply_mask")
     check_real_number(extraction.constant_values, "constant_values", finite=False)
     check_real_number(extraction.mask_fill_value, "mask_fill_value", finite=False)
+    channel_selection(extraction.split_channels)
+
+
+def check_export_settings(export: object) -> None:
+    """Refuse an ``ExportConfig`` with a flag that is not literally ``True`` or ``False``, or a bad ``image_format``."""
+    check_strict_bool(export.enabled, "enabled")
+    check_strict_bool(export.save_metadata_csv, "save_metadata_csv")
+    check_strict_bool(export.save_run_config, "save_run_config")
+    if not isinstance(export.image_format, str):
+        raise ValueError(f"image_format must be one of: 'tif', 'tiff', 'npy'; got {export.image_format!r}.")
+    check_choice(export.image_format.lower(), IMAGE_FORMATS, "image_format")
+
+
+def check_match_settings(matching: object) -> None:
+    """Refuse a ``MatchConfig`` whose ``mask_type`` is neither None nor a non-empty name."""
+    mask_type = matching.mask_type
+    if mask_type is not None and (not isinstance(mask_type, str) or not mask_type.strip()):
+        raise ValueError(f"matching.mask_type must be None or a non-empty name; got {mask_type!r}.")
 
 
 def _number_pair(value: object, name: str, form: str) -> tuple[float, float]:
@@ -88,28 +235,80 @@ def check_normalization_ranges(normalization: object) -> None:
             raise ValueError(f"normalization.clip must be finite with low < high; got ({low}, {high}).")
 
 
+def _check_normalization_choices(normalization: object) -> None:
+    """Refuse a ``NormalizationConfig`` text setting outside its choices, or an RGB method that is not percentile."""
+    check_choice(normalization.method, NORMALIZATION_METHODS, "normalization.method")
+    if not isinstance(normalization.scope, str) or normalization.scope not in NORMALIZATION_SCOPES:
+        raise ValueError(f"normalization.scope: {unknown_scope_message(normalization.scope)}")
+    check_choice(normalization.pooling, POOLING_WEIGHTS, "normalization.pooling")
+    if not isinstance(normalization.image_type, str) or normalization.image_type not in IMAGE_TYPES:
+        raise ValueError(
+            "normalization.image_type must be 'fluorescence' (each channel normalized separately) or 'rgb' "
+            f"(colour images); got {normalization.image_type!r}."
+        )
+    if normalization.image_type == "rgb" and normalization.method not in RGB_METHODS:
+        raise ValueError(
+            "normalization.image_type='rgb' is normalized with StarDist's percentile method only, which scales "
+            f"the three colour channels together; got method={normalization.method!r}. Use method='percentile'."
+        )
+    if normalization.patch_region is not None:
+        check_choice(normalization.patch_region, PATCH_REGIONS, "normalization.patch_region")
+    check_choice(normalization.export_values, EXPORT_VALUES, "normalization.export_values")
+
+
+def check_normalization_settings(normalization: object) -> None:
+    """Refuse a ``NormalizationConfig`` with any setting that is not what its field says, enabled or not.
+
+    Flags are literally ``True`` or ``False``, ``memory_limit`` is an integer >= 1 (bytes), the
+    ranges are numbers (:func:`check_normalization_ranges`) and the rest are choices or paths.
+    """
+    check_strict_bool(normalization.enabled, "normalization.enabled")
+    check_strict_bool(normalization.per_time_point, "normalization.per_time_point")
+    _check_normalization_choices(normalization)
+    check_normalization_ranges(normalization)
+    check_integer(normalization.memory_limit, "normalization.memory_limit", minimum=1)
+    for name in ("plane_histograms", "manifest", "experiment_root", "masks_root", "experiment_design"):
+        _check_path(getattr(normalization, name), f"normalization.{name}")
+
+
 def check_whole_fov_settings(whole_fov: object) -> None:
     """Refuse a ``WholeFOVConfig`` whose ``square_cover`` is not literally ``True`` or ``False``."""
     check_strict_bool(whole_fov.square_cover, "square_cover")
 
 
-def check_common_flags(common: object) -> None:
-    """Refuse a ``CommonConfig`` whose ``extract_arrays`` is not literally ``True`` or ``False``."""
+def check_common_settings(common: object) -> None:
+    """Refuse a ``CommonConfig`` with a non-bool flag, non-text axes, bad plane policy or object set.
+
+    The axes strings are read against the arrays' dimensions where a run uses them. The identity
+    labels (``condition``, ``biological_repeat``, ``technical_repeat``) are checked, never
+    converted, by ``_run_labels`` in ``pipeline.py`` where a run stamps or reads them: a
+    ``run_config.json`` holding a bad one still loads, and the run refuses it with the folder message.
+    """
     check_strict_bool(common.extract_arrays, "extract_arrays")
+    for name in ("image_axes", "mask_axes"):
+        if not isinstance(getattr(common, name), str):
+            raise ValueError(f"{name} must be an axes string such as 'YX'; got {getattr(common, name)!r}.")
+    _check_path(common.output_dir, "output_dir")
+    _check_path(common.preprocessing_run, "preprocessing_run")
+    validate_plane_policies(common)
+    validate_object_set(common.object_set)
 
 
 def check_run_settings(config: object) -> None:
-    """Re-check the scientific settings of a ``CellPatcherConfig`` before a run uses them.
+    """Re-check every scientific setting of a ``CellPatcherConfig`` before a run uses them.
 
-    Called by ``run_patching`` and by the folder and tree routes (``open_file_run``) before any
-    file is read, so a setting edited after construction is refused as at construction. Every
-    section is checked, whatever the mode.
+    Called by ``run_patching``, ``iter_patch_arrays``, ``patch_array`` and the folder and tree routes
+    (``open_file_run``) before any file is read, so a setting edited after construction is
+    refused as at construction. Every section is checked, whatever the mode.
     """
-    check_common_flags(config.common)
+    check_choice(config.mode, MODES, "mode")
+    check_common_settings(config.common)
     check_whole_fov_settings(config.whole_fov)
     check_random_settings(config.random)
     check_grid_settings(config.grid)
     check_filter_settings(config.filters)
     check_cell_settings(config.cell)
+    check_export_settings(config.export)
     check_extraction_settings(config.extraction)
-    check_normalization_ranges(config.normalization)
+    check_match_settings(config.matching)
+    check_normalization_settings(config.normalization)

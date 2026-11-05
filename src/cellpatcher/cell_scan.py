@@ -13,6 +13,7 @@ from cellpatcher.axes import (
 )
 from cellpatcher.config import CellConfig
 from cellpatcher.object_geometry import object_boxes
+from cellpatcher.setting_checks import check_cell_settings
 from cellpatcher.strategies.cell import CellSegmentationStrategy
 
 
@@ -139,6 +140,7 @@ def scan_cell_objects(*, image_shape, labels, image_id=None, config=None, image_
         One record per non-zero label, sorted by label id.
     """
     local_config = config if config is not None else CellConfig()
+    check_cell_settings(local_config)  # the config is mutable: re-checked where it is used
     # In-memory arrays take Y before X only (design v0.4 §6): the sizes of a mask declared with
     # X first would be those of the transposed mask (bbox_height its width), so it is refused.
     refuse_transposed_image_axes(image_axes)

@@ -1,5 +1,6 @@
 import warnings
 from collections import deque
+from operator import index
 
 import numpy as np
 
@@ -156,7 +157,7 @@ class CellSegmentationStrategy(BasePatchStrategy):
                 "which is required for multidimensional label channel selection."
             )
         c_size = arr.shape[c_axis]
-        ch = int(self.config.mask_channel)
+        ch = self.config.mask_channel  # None or an integer >= 0 (check_cell_settings)
         if ch < 0 or ch >= c_size:
             raise ValueError(
                 f"mask_channel {ch} is out of bounds for C axis of size {c_size} "
@@ -216,8 +217,9 @@ class CellSegmentationStrategy(BasePatchStrategy):
             # 'auto' sizes the patch to just cover the object's own bounding
             # box (a square large enough for its longer side); otherwise
             # every object gets the same fixed patch size.
-            # (check_cell_settings has checked that a fixed size is an integer >= 1.)
-            patch_size = int(max(obj_h, obj_w)) if self.config.patch_size == "auto" else int(self.config.patch_size)
+            # (check_cell_settings has checked that a fixed size is an integer >= 1; index
+            # gives a NumPy integer as an int, so the patch coordinates are Python ints.)
+            patch_size = max(obj_h, obj_w) if self.config.patch_size == "auto" else index(self.config.patch_size)
 
             if self.config.center_on == "centroid":
                 center_y = float(np.mean(ys))

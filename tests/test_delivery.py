@@ -214,7 +214,7 @@ def test_eager_delivery_stops_above_the_memory_limit(experiment, tmp_path):
 def test_delivery_settings_are_validated():
     with pytest.raises(ValueError, match="export_values must be one of"):
         NormalizationConfig(export_values="both")
-    with pytest.raises(ValueError, match="memory_limit must be a positive int"):
+    with pytest.raises(ValueError, match="memory_limit must be an integer >= 1"):
         NormalizationConfig(memory_limit=0)
 
 
