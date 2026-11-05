@@ -79,56 +79,59 @@ def read_planes(monkeypatch):
 
 
 @needs_preprocessing
-@pytest.mark.parametrize("policies", [{"z_policy": "all"}, {"z_policy": "select", "z_index": 2}])
+@pytest.mark.parametrize("policies", [{"t_policy": "all"}, {"t_policy": "select", "t_index": 2}])
 def test_tiff_planes_equal_the_in_memory_run(tmp_path, read_planes, policies):
-    stacks = [_stack((3, 2, 16, 16), seed) for seed in range(2)]  # Z, C, Y, X
+    stacks = [_stack((3, 2, 16, 16), seed) for seed in range(2)]  # T, C, Y, X
     for name, stack in zip(("a.tif", "b.tif"), stacks):
-        _write_tiff(tmp_path / "exp" / name, stack, "ZCYX")
-    config = _config("ZCYX", **policies)
+        _write_tiff(tmp_path / "exp" / name, stack, "TCYX")
+    config = _config("TCYX", **policies)
 
-    folder = _folder(tmp_path / "exp", config, "ZCYX")
+    folder = _folder(tmp_path / "exp", config, "TCYX")
     memory = run_patching(images=stacks, config=config, image_metadata=[{"image_file": n} for n in ("a.tif", "b.tif")])
     _same_result(folder, memory)
     # Only the chosen planes were read, every channel at once.
-    planes = 3 if policies["z_policy"] == "all" else 1
+    planes = 3 if policies["t_policy"] == "all" else 1
     assert len(read_planes) == 2 * planes
 
 
 @needs_preprocessing
-def test_t_and_z_split_from_a_tiff_with_a_kept_channel(tmp_path, read_planes):
-    stack = _stack((2, 3, 2, 8, 8))  # T, Z, C, Y, X
-    _write_tiff(tmp_path / "exp" / "a.tif", stack, "TZCYX")
-    config = _config("TZCYX", z_policy="all", t_policy="first")
+def test_t_split_from_a_tiff_with_a_kept_channel(tmp_path, read_planes):
+    # Was T and Z split together (TZCYX). Preprocessing v0.4.0 refuses Z>1 and a stored Z of length 1 is
+    # not an axis of the file, so only the T split (here "first") remains for a kept channel.
+    stack = _stack((2, 2, 8, 8))  # T, C, Y, X
+    _write_tiff(tmp_path / "exp" / "a.tif", stack, "TCYX")
+    config = _config("TCYX", t_policy="first")
 
-    folder = _folder(tmp_path / "exp", config, "TZCYX")
+    folder = _folder(tmp_path / "exp", config, "TCYX")
     _same_result(folder, run_patching(images=stack, config=config, image_metadata=[{"image_file": "a.tif"}]))
-    assert sorted(read_planes) == [(z, 0) for z in range(3)]
+    assert sorted(read_planes) == [(0, 0)]
 
 
 @needs_preprocessing
 def test_random_planes_match_between_folder_and_memory_runs(tmp_path, read_planes):
     stacks = [_stack((2, 32, 32), seed) for seed in range(3)]
     for index, stack in enumerate(stacks):
-        _write_tiff(tmp_path / "exp" / f"{index}.tif", stack, "ZYX")
-    config = _config("ZYX", mode="random", z_policy="all")
+        _write_tiff(tmp_path / "exp" / f"{index}.tif", stack, "TYX")
+    config = _config("TYX", mode="random", t_policy="all")
     config.random.patch_size, config.random.n_patches = 4, 2
 
-    folder = _folder(tmp_path / "exp", config, "ZYX")
+    folder = _folder(tmp_path / "exp", config, "TYX")
     memory = run_patching(images=stacks, config=config, image_metadata=[{"image_file": f"{i}.tif"} for i in range(3)])
     _same_result(folder, memory)
 
 
 @needs_preprocessing
-def test_keep_and_projections_read_every_plane(tmp_path, read_planes):
+def test_keep_reads_every_plane(tmp_path, read_planes):
+    # Was "keep and projections" over Z; Z>1 is refused by preprocessing v0.4.0 and T has no projection
+    # policy, so "keep" over T is the case that remains.
     stack = _stack((3, 16, 16))
-    _write_tiff(tmp_path / "exp" / "a.tif", stack, "ZYX")
-    for policy in ("keep", "max"):
-        config = _config("ZYX", z_policy=policy)
-        _same_result(
-            _folder(tmp_path / "exp", config, "ZYX"),
-            run_patching(images=stack, config=config, image_metadata=[{"image_file": "a.tif"}]),
-        )
-    assert read_planes == [(z, 0) for z in range(3)] * 2
+    _write_tiff(tmp_path / "exp" / "a.tif", stack, "TYX")
+    config = _config("TYX", t_policy="keep")
+    _same_result(
+        _folder(tmp_path / "exp", config, "TYX"),
+        run_patching(images=stack, config=config, image_metadata=[{"image_file": "a.tif"}]),
+    )
+    assert read_planes == [(0, t) for t in range(3)]
 
 
 @needs_preprocessing
@@ -139,8 +142,8 @@ def test_a_plane_over_the_memory_limit_is_an_error(tmp_path, monkeypatch):
     def too_large(*args, **kwargs):
         raise mbp.PlaneMemoryError("Reading one plane of a.tif whole needs about 2 GiB of working memory.")
 
-    _write_tiff(tmp_path / "exp" / "a.tif", _stack((3, 16, 16)), "ZYX")
-    config = file_run_config(_config("YX", z_policy="all"), tmp_path / "exp", "ZYX")
+    _write_tiff(tmp_path / "exp" / "a.tif", _stack((3, 16, 16)), "TYX")
+    config = file_run_config(_config("YX", t_policy="all"), tmp_path / "exp", "TYX")
     monkeypatch.setattr(RunInputs, "read_plane", too_large)
     with pytest.raises(ValueError, match="needs each plane whole in memory.*2 GiB"):
         run_patching_pipeline(tmp_path / "exp", config=config)
@@ -148,11 +151,11 @@ def test_a_plane_over_the_memory_limit_is_an_error(tmp_path, monkeypatch):
 
 @needs_zarr
 def test_ome_zarr_planes_are_read_in_the_canonical_axis_order(tmp_path, read_planes):
-    data = _stack((2, 3, 16, 16))  # stored C, Z, Y, X; read Z, C, Y, X by role (CP-2a)
-    write_ngff(tmp_path / "exp" / "a.ome.zarr", data, "czyx")
-    config = _config("ZCYX", z_policy="all")
+    data = _stack((2, 3, 16, 16))  # stored C, T, Y, X; read T, C, Y, X by role (CP-2a)
+    write_ngff(tmp_path / "exp" / "a.ome.zarr", data, "ctyx")
+    config = _config("TCYX", t_policy="all")
 
-    folder = _folder(tmp_path / "exp", config, "CZYX")
-    as_zcyx = np.transpose(data, (1, 0, 2, 3))
-    _same_result(folder, run_patching(images=as_zcyx, config=config, image_metadata=[{"image_file": "a.ome.zarr"}]))
+    folder = _folder(tmp_path / "exp", config, "CTYX")
+    as_tcyx = np.transpose(data, (1, 0, 2, 3))
+    _same_result(folder, run_patching(images=as_tcyx, config=config, image_metadata=[{"image_file": "a.ome.zarr"}]))
     assert len(read_planes) == 3
