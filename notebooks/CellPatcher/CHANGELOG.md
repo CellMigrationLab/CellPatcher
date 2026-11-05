@@ -18,7 +18,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Pin preprocessing v0.4.0rc4; prepare v0.2.0rc2
 
 ---
-## [Unreleased] - A sampling mask filters random draws only when it excludes them (matrix finding F8, for 0.2.0)
+## [0.2.0] - v0.2.0 (5 November 2026)
+
+Final release of the v0.2 line (CP-1 to CP-6, the release candidates `0.2.0rc1` to `0.2.0rc3`
+below, and the F8 change that follows). It pins preprocessing `v0.4.0` and normalization `v0.3.4`,
+installed from their tags (`setup.py`, checked by `tests/test_dependency_pins.py`).
+
+### Preprocessing v0.4.0 analyses 2-D planes only
+- Preprocessing `v0.4.0` refuses a run on an image with Z > 1 (`z_stack_not_supported`) and no
+  longer has the stated shared 2-D mask (`shared_mask_not_supported`); an image with T > 1 needs
+  masks with the same T. CellPatcher's tests that built preprocessing runs with Z > 1 or a shared
+  mask now use T-matched masks or assert the refusal. No library behaviour changed.
+- CellPatcher's own in-memory Z plane policies are unchanged; their removal is planned after this
+  release (#83).
+
+## A sampling mask filters random draws only when it excludes them (matrix finding F8, for 0.2.0)
 
 The cross-brick matrix run of 2026-11-03 (finding F8) found that a random-mode run given a mask
 with `min_mask_fraction=0` cut other rectangles than the same run without one: at 0 every draw

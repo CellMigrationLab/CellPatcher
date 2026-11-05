@@ -358,7 +358,7 @@ def test_torch_notebook_loads_an_export_in_a_kernel(clean, tmp_path):
 
 @EVERY
 def test_step_1_sends_users_to_preprocessing_first(name):
-    # Owner decision (2026-11-02): until preprocessing v0.4.0 is final the notebooks do not embed
+    # Owner decision (2026-11-02): the notebooks do not embed
     # the preprocessing steps; the step that opens a run says plainly to run the preprocessing
     # notebook or CLI first. The PyTorch notebook reads a CellPatcher export, not a run.
     if name == "CellPatcher_Pytorch":
