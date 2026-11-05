@@ -2,6 +2,8 @@ import numpy as np
 
 from cellpatcher.config import FilterConfig
 from cellpatcher.extract import extract_patch
+from cellpatcher.fractions import check_real_number
+from cellpatcher.setting_checks import check_filter_settings
 
 
 def compute_threshold(image, threshold):
@@ -16,7 +18,8 @@ def compute_threshold(image, threshold):
     arr = np.asarray(image)
     if threshold is None:
         return None
-    if isinstance(threshold, (int, float)):
+    if not isinstance(threshold, str):
+        check_real_number(threshold, "threshold")  # a bool, NaN or a list is not a threshold
         return float(threshold)
     if isinstance(threshold, str):
         # String thresholds are resolved against `image`'s own statistics
@@ -42,7 +45,6 @@ def compute_threshold(image, threshold):
                 raise ValueError("Percentile threshold must be in [0, 100].")
             return float(np.percentile(arr, value))
         raise ValueError(f"Unsupported threshold string: {threshold}")
-    raise ValueError("threshold must be None, a scalar number, or a supported string.")
 
 
 def foreground_fraction(patch, threshold) -> float:
@@ -66,6 +68,7 @@ def filter_regions(image, regions, config: FilterConfig, *, axes: str = "YX", pa
     - foreground fraction is computed over all values of each extracted patch.
     Users needing channel-specific behavior should pass a projected/selected image.
     """
+    check_filter_settings(config)  # the config is mutable: re-checked where it is used
     # No filters configured: skip extracting every patch just to keep all of
     # them.
     if (
@@ -74,11 +77,6 @@ def filter_regions(image, regions, config: FilterConfig, *, axes: str = "YX", pa
         and config.min_mean_intensity is None
     ):
         return list(regions)
-
-    if config.min_foreground_fraction is not None:
-        frac = float(config.min_foreground_fraction)
-        if frac < 0 or frac > 1:
-            raise ValueError("min_foreground_fraction must be in [0, 1].")
 
     # Resolve the threshold once against the full image, rather than
     # per-patch, so every region is judged against the same reference.
@@ -100,7 +98,7 @@ def filter_regions(image, regions, config: FilterConfig, *, axes: str = "YX", pa
             effective_threshold = threshold
             if effective_threshold is None:
                 effective_threshold = float(np.mean(np.asarray(image)))
-            if foreground_fraction(patch, effective_threshold) < float(config.min_foreground_fraction):
+            if foreground_fraction(patch, effective_threshold) < config.min_foreground_fraction:
                 continue
 
         kept.append(region)

@@ -1,4 +1,5 @@
 from cellpatcher.config import WholeFOVConfig
+from cellpatcher.setting_checks import check_whole_fov_settings
 from cellpatcher.strategies.base import BasePatchStrategy, _spatial_shape_from_axes
 from cellpatcher.types import PatchRegion
 
@@ -23,6 +24,7 @@ class WholeFOVStrategy(BasePatchStrategy):
         self.config = config if config is not None else WholeFOVConfig()
 
     def generate_regions(self, *, image_shape, labels=None, image_id=None, axes: str = "YX") -> list[PatchRegion]:
+        check_whole_fov_settings(self.config)  # the config is mutable: re-checked where it is used
         y_size, x_size = _spatial_shape_from_axes(image_shape, axes=axes)
 
         patch_id = "whole_fov"

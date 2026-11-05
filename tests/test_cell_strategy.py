@@ -147,9 +147,12 @@ def test_default_center_on_matches_notebook_bbox_center_behavior():
 def test_invalid_patch_size_raises():
     labels = np.zeros((5, 5), dtype=int)
     labels[2:3, 2:3] = 1
-    s = CellSegmentationStrategy(CellConfig(exclude_border=False, patch_size="bad"))
-    with pytest.raises(ValueError):
-        s.generate_regions(image_shape=(5, 5), labels=labels)
+    config = CellConfig(exclude_border=False)
+    config.patch_size = "bad"  # edited after construction: the strategy re-checks it
+    with pytest.raises(ValueError, match="patch_size"):
+        CellSegmentationStrategy(config).generate_regions(image_shape=(5, 5), labels=labels)
+    with pytest.raises(ValueError, match="patch_size"):
+        CellConfig(exclude_border=False, patch_size="bad")
 
 
 def test_min_area_and_max_area_filters():
@@ -355,12 +358,15 @@ def test_1d_labels_raises():
 # ---------------------------------------------------------------------------
 
 def test_cell_strategy_patch_size_zero_raises():
-    """patch_size=0 passed directly to strategy should raise (not caught by CellConfig)."""
+    """patch_size=0 is refused by CellConfig and, edited in afterwards, by the strategy."""
     labels = np.zeros((5, 5), dtype=int)
     labels[2, 2] = 1
-    s = CellSegmentationStrategy(CellConfig(exclude_border=False, patch_size=0))
     with pytest.raises(ValueError, match="patch_size"):
-        s.generate_regions(image_shape=(5, 5), labels=labels)
+        CellConfig(exclude_border=False, patch_size=0)
+    config = CellConfig(exclude_border=False)
+    config.patch_size = 0
+    with pytest.raises(ValueError, match="patch_size"):
+        CellSegmentationStrategy(config).generate_regions(image_shape=(5, 5), labels=labels)
 
 
 def test_cell_strategy_empty_labels_raises():

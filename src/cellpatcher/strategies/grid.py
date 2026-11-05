@@ -1,4 +1,5 @@
 from cellpatcher.config import GridConfig
+from cellpatcher.setting_checks import check_grid_settings
 from cellpatcher.strategies.base import BasePatchStrategy, _spatial_shape_from_axes
 from cellpatcher.types import PatchRegion
 
@@ -39,11 +40,10 @@ class GridStrategy(BasePatchStrategy):
         return sorted(set(starts))
 
     def generate_regions(self, *, image_shape, labels=None, image_id=None, axes: str = "YX") -> list[PatchRegion]:
+        check_grid_settings(self.config)  # the config is mutable: re-checked where it is used
         height, width = _spatial_shape_from_axes(image_shape, axes=axes)
 
-        tile_size = int(self.config.tile_size)
-        if tile_size <= 0:
-            raise ValueError("tile_size must be > 0.")
+        tile_size = self.config.tile_size
 
         # overlap=0 gives stride == tile_size (tiles touch); overlap closer
         # to 1 shrinks the stride so consecutive tiles increasingly overlap.

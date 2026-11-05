@@ -325,7 +325,7 @@ class CellPatcherNotebook:
 
     def config_for_scan(self) -> CellPatcherConfig:
         """Return the settings with a per-object size, to scan objects before a dataset size exists."""
-        return self.form.config(self._summary(), lambda _: 0)
+        return self.form.config(self._summary(), lambda _: "auto")
 
     def _summary(self) -> RunSummary:
         """Return the opened run, or refuse before step 1."""

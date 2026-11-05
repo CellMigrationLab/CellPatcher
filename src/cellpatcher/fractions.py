@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import math
 import re
-from numbers import Real
+from numbers import Integral, Real
 
 import numpy as np
 
@@ -35,6 +35,50 @@ def check_unit_fraction(value: object, name: str) -> None:
     is_number = isinstance(value, Real) and not isinstance(value, (bool, np.bool_))
     if not is_number or not math.isfinite(value) or not 0 <= value <= 1:
         raise ValueError(f"{name} must be None or a number with 0 <= {name} <= 1; got {value!r}.")
+
+
+def check_real_number(value: object, name: str, *, finite: bool = True) -> None:
+    """Refuse a setting that is not a real number (a finite one unless ``finite=False``).
+
+    ``bool`` and ``np.bool_`` (``True`` is not 1.0), strings, NaN and infinities are refused; ints
+    and floats (and NumPy numbers) pass; NaN and infinities pass only with ``finite=False`` (a fill
+    value). Nothing is converted with ``float()``.
+
+    Raises
+    ------
+    ValueError
+        With ``name`` when ``value`` is not a (finite) real number.
+    """
+    if not isinstance(value, Real) or isinstance(value, (bool, np.bool_)) or (finite and not math.isfinite(value)):
+        raise ValueError(f"{name} must be a {'finite ' if finite else ''}number; got {value!r}.")
+
+
+def check_integer(value: object, name: str, *, minimum: int | None = None) -> None:
+    """Refuse a setting that is not an integer >= *minimum* (no minimum when it is None).
+
+    ``bool``, floats such as 16.0 and text are refused.
+
+    Raises
+    ------
+    ValueError
+        With ``name`` when ``value`` is not an ``int`` (or NumPy integer) >= *minimum*.
+    """
+    is_integer = isinstance(value, Integral) and not isinstance(value, (bool, np.bool_))
+    if not is_integer or (minimum is not None and value < minimum):
+        floor = "" if minimum is None else f" >= {minimum}"
+        raise ValueError(f"{name} must be an integer{floor}; got {value!r}.")
+
+
+def check_strict_bool(value: object, name: str) -> None:
+    """Refuse a setting that is not literally ``True`` or ``False`` (``np.bool_``, 0, 1 and text are refused).
+
+    Raises
+    ------
+    ValueError
+        With ``name`` when ``value`` is not a ``bool``.
+    """
+    if not isinstance(value, bool):
+        raise ValueError(f"{name} must be True or False; got {value!r}.")
 
 
 def check_fraction_masks(fraction_masks, image_list, image_axes: str) -> list[dict]:
