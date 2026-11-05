@@ -84,6 +84,7 @@ def patch_array(
         The patch, normalized (float32) when the patch records a
         normalization, with :func:`patch_axes`.
     """
+    check_run_settings(config)  # the config is mutable: re-checked where it is used
     common = config.common
     choice = patch_plane_choice(patch, common.image_axes, common)
     plane, axes = _image_plane(image, choice, config)

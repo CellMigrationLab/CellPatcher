@@ -326,10 +326,12 @@ class NormalizationConfig:
 
     def __post_init__(self) -> None:
         check_normalization_settings(self)
-        # A JSON round trip turns the tuple into a list; the numbers themselves are kept as given.
-        self.percentile = tuple(self.percentile)
+        # A JSON round trip turns the tuple into a list. The numbers were checked above (a bool, text
+        # or NaN is refused), so float() only stores a valid number as a Python float: run_config.json
+        # then records 1.0, not 1 or the text "1.0" of a NumPy float32 (json.dump with default=str).
+        self.percentile = tuple(float(value) for value in self.percentile)
         if self.clip is not None:
-            self.clip = tuple(self.clip)
+            self.clip = tuple(float(value) for value in self.clip)
 
 
 # The default of the removed options below: "not given".

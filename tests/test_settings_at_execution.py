@@ -16,7 +16,9 @@ from cellpatcher import (
     CellConfig,
     CellPatcherConfig,
     NormalizationConfig,
+    compute_threshold,
     iter_patch_arrays,
+    patch_array,
     run_patching,
     scan_cell_objects,
 )
@@ -267,6 +269,64 @@ def test_a_setting_of_the_wrong_type_edited_after_construction_is_refused_by_laz
     patches = run_patching(images=[IMAGE], config=_valid_config(), image_metadata=META).patches
     with pytest.raises(ValueError, match=name.rpartition(".")[2].split("_")[0]):
         next(iter_patch_arrays(patches, [IMAGE], _with_setting(name, value)))
+
+
+@pytest.mark.parametrize(("name", "value"), DELIVERY_CASES, ids=repr)
+def test_a_setting_of_the_wrong_type_edited_after_construction_is_refused_by_patch_array(name, value):
+    # Former code: patch_array (one patch, lazily) used the edited setting without a check.
+    patches = run_patching(images=[IMAGE], config=_valid_config(), image_metadata=META).patches
+    with pytest.raises(ValueError, match=name.rpartition(".")[2].split("_")[0]):
+        patch_array(patches[0], IMAGE, _with_setting(name, value))
+
+
+def test_a_mask_channel_edited_after_construction_is_refused_by_patch_array():
+    config = _cell_config(1)
+    config.extraction.apply_mask = True
+    labels = _two_channel_labels()
+    patch = run_patching(images=[IMAGE], masks=[labels], config=config, image_metadata=META).patches[0]
+    config.cell.mask_channel = True  # np.take reads True as channel 1
+    with pytest.raises(ValueError, match="mask_channel"):
+        patch_array(patch, IMAGE, config, mask=labels)
+
+
+def _region_values(config, masks=None):
+    patches = run_patching(images=[IMAGE], masks=masks, config=config, image_metadata=META).patches
+    return [[(name, type(value), value) for name, value in sorted(vars(patch).items())] for patch in patches]
+
+
+def test_numpy_integer_sizes_give_the_patches_of_python_integers():
+    # Former code of this change: an np.int64 patch_size made np.int64 coordinates and np.bool_ flags.
+    labels = _two_channel_labels()[1]
+    for section, settings in (("cell", {"patch_size": 8}), ("random", {"patch_size": 8, "n_patches": 5, "seed": 2})):
+        python = CellPatcherConfig(mode=section)
+        numpy = CellPatcherConfig(mode=section)
+        for name, value in settings.items():
+            setattr(getattr(python, section), name, value)
+            setattr(getattr(numpy, section), name, np.int64(value))
+        masks = [labels] if section == "cell" else None
+        assert _region_values(numpy, masks) == _region_values(python, masks)
+
+
+@pytest.mark.parametrize(
+    ("percentile", "clip"),
+    [
+        ((1, 99), (0, 1)),
+        ((np.float32(1.0), np.int64(99)), (np.float32(0.0), np.float64(1.0))),
+        ([1.0, 99.0], [0.0, 1.0]),
+    ],
+    ids=repr,
+)
+def test_percentile_and_clip_are_recorded_as_python_floats(percentile, clip):
+    # run_config.json is written with json.dump(default=str): an np.float32 became the text "1.0".
+    normalization = NormalizationConfig(percentile=percentile, clip=clip)
+    assert normalization.percentile == (1.0, 99.0) and normalization.clip == (0.0, 1.0)
+    assert all(type(value) is float for value in normalization.percentile + normalization.clip)
+
+
+@pytest.mark.parametrize("threshold", [100, np.int64(100), np.float32(100.0), 100.0], ids=repr)
+def test_a_numeric_threshold_is_returned_as_a_python_float(threshold):
+    value = compute_threshold(IMAGE, threshold)
+    assert type(value) is float and value == 100.0
 
 
 def test_a_valid_config_is_unchanged_by_the_execution_time_checks():

@@ -297,7 +297,7 @@ def check_common_settings(common: object) -> None:
 def check_run_settings(config: object) -> None:
     """Re-check every scientific setting of a ``CellPatcherConfig`` before a run uses them.
 
-    Called by ``run_patching``, ``iter_patch_arrays`` and the folder and tree routes
+    Called by ``run_patching``, ``iter_patch_arrays``, ``patch_array`` and the folder and tree routes
     (``open_file_run``) before any file is read, so a setting edited after construction is
     refused as at construction. Every section is checked, whatever the mode.
     """

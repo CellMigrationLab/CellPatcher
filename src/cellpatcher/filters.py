@@ -20,7 +20,7 @@ def compute_threshold(image, threshold):
         return None
     if not isinstance(threshold, str):
         check_real_number(threshold, "threshold")  # a bool, NaN or a list is not a threshold
-        return threshold
+        return float(threshold)  # a checked number, returned as the float this function documents
     # String thresholds are resolved against `image`'s own statistics rather than being fixed
     # numbers, so the same config works across images with different intensity ranges.
     percentile = check_threshold_text(threshold)
