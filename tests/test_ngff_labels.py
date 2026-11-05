@@ -75,19 +75,21 @@ def test_the_label_image_is_chosen_by_its_type(tmp_path):
         run_patching_condition_repeat_tree(tmp_path, config=config)
 
 
-def test_label_planes_follow_or_are_shared_by_the_image_planes(tmp_path):
-    per_plane = np.stack([_labels((16, 16), [(z + 1, 2 + 4 * z, 2 + 4 * z)]) for z in range(3)])
-    _image(tmp_path, shape=(3, 16, 16), axes="zyx", labels={"cells": per_plane})
-    (leaf,) = _tree(tmp_path, _cell_config(z_policy="all"), "ZYX")
-    assert [(p.z0, p.label_id) for p in leaf.result.patches] == [(0, 1), (1, 2), (2, 3)]
+def test_label_planes_follow_the_image_planes_and_a_shared_2d_label_is_refused(tmp_path):
+    per_plane = np.stack([_labels((16, 16), [(t + 1, 2 + 4 * t, 2 + 4 * t)]) for t in range(3)])
+    _image(tmp_path, shape=(3, 16, 16), axes="tyx", labels={"cells": per_plane})
+    (leaf,) = _tree(tmp_path, _cell_config(t_policy="all"), "TYX")
+    assert [(p.t, p.label_id) for p in leaf.result.patches] == [(0, 1), (1, 2), (2, 3)]
 
-    # One 2-D label plane serves every plane only when stated shared for its type (preprocessing).
+    # Preprocessing v0.4.0 removed the stated shared 2-D mask: one 2-D label plane no longer serves
+    # every time point, stated or not (it was a "shared" option for Z; T needs masks of the same T).
     shared_root = tmp_path / "shared"
-    _image(shared_root, shape=(3, 16, 16), axes="zyx", labels={"cells": per_plane[:1]})
-    with pytest.raises(AssertionError, match="does not have the depth slices and time points of its image"):
-        preprocess(shared_root, "ZYX")
-    (leaf,) = _tree(shared_root, _cell_config(z_policy="all"), "ZYX", mask_axes={"cells": "YX"})
-    assert [(p.z0, p.label_id) for p in leaf.result.patches] == [(0, 1), (1, 1), (2, 1)]
+    _image(shared_root, shape=(3, 16, 16), axes="tyx", labels={"cells": per_plane[:1]})
+    refusal = "does not have the time points \\(T\\) and depth slices \\(Z\\) of its image"
+    with pytest.raises(AssertionError, match=refusal):
+        preprocess(shared_root, "TYX")
+    with pytest.raises(AssertionError, match="one 2-D mask shared by every plane of its image. That option was removed"):
+        preprocess(shared_root, "TYX", mask_axes={"cells": "YX"})
 
 
 def test_a_label_image_that_does_not_fit_has_no_clean_run(tmp_path):

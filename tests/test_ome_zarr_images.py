@@ -211,27 +211,27 @@ def test_ome_zarr_planes_link_to_preprocessing_rows(tmp_path):
 
     root = tmp_path / "experiment"
     data = np.random.default_rng(0).integers(0, 255, (2, 3, 16, 16), dtype=np.uint8)
-    write_ngff(root / "control" / "a.ome.zarr", data, "czyx")
-    result = mbp.run_experiment(root, mbp.AxisMapping("CZYX", "CZYX"), output_folder=tmp_path / "pre")
+    write_ngff(root / "control" / "a.ome.zarr", data, "ctyx")
+    result = mbp.run_experiment(root, mbp.AxisMapping("CTYX", "CTYX"), output_folder=tmp_path / "pre")
     assert result.written, [str(issue) for issue in result.issues]
     statistics = load_plane_statistics(result.csv_path)
 
     config = CellPatcherConfig(mode="whole_fov")
-    config.common.z_policy, config.common.preprocessing_run = "all", str(tmp_path / "pre")
+    config.common.t_policy, config.common.preprocessing_run = "all", str(tmp_path / "pre")
     config.extraction.split_channels = True
     (leaf,) = run_patching_condition_repeat_tree(root, config=config)
     patches = leaf.result.patches
     assert {p.source_relative_path for p in patches} == {"control/a.ome.zarr"}
 
-    check_images(statistics, {"control/a.ome.zarr": "CZYX"}, experiment_root=root)
+    check_images(statistics, {"control/a.ome.zarr": "CTYX"}, experiment_root=root)
     planes = [
         (SourcePlane(p.source_relative_path, p.condition, p.biological_repeat, p.technical_repeat,
-                     z=p.z0, c=p.c, axis_lengths={"C": 2, "Z": 3}), data[p.c, p.z0])
+                     t=p.t, c=p.c, axis_lengths={"C": 2, "T": 3}), data[p.c, p.t])
         for p in patches
     ]
     records = check_planes(statistics, planes)
     assert sorted((r.plane_id, r.c) for r in records) == sorted(
-        (f"control/a.ome.zarr::z={z},t=0", c) for z in range(3) for c in range(2)
+        (f"control/a.ome.zarr::z=0,t={t}", c) for t in range(3) for c in range(2)
     )
 
 
