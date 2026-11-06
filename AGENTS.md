@@ -239,8 +239,9 @@ CellPatcher-specific conventions:
 * Strategies generate strictly 2D Y/X regions. Z/T stacks become planes
   either with `common.z_policy`/`t_policy` in the pipeline
   (`cellpatcher.planes`; default `"keep"` keeps all planes in each patch;
-  a Z projection is not a policy, issue #83: `z_policy="max"`/`"mean"`/`"sum"` raise
-  `ZStackNotSupportedError`, and a file-run image with more than one Z plane is refused with it, as
+  CellPatcher combines no planes, issue #83: `z_policy="max"`/`"mean"`/`"sum"` return the plane of an
+  image with no Z axis or one Z plane unchanged and raise `ZStackNotSupportedError` for more (a Z
+  projection is a recorded step of morphobricks-preprocessing), and a file-run image with more than one Z plane is refused with it, as
   preprocessing v0.4.0 already refuses such an experiment)
   or, for in-memory workflows, with the preprocessing helpers; C/Z/T
   handling is otherwise a separate

@@ -95,20 +95,35 @@ def test_first_and_select_choose_one_plane_without_a_suffix():
 
 
 @pytest.mark.parametrize("policy", ["max", "mean", "sum"])
-def test_a_z_projection_is_refused_by_name(policy):
-    """Issue #83: a projection belongs to preprocessing; z_policy refuses it with a named error."""
-    with pytest.raises(ZStackNotSupportedError, match="projects Z planes.*prepare_image_for_patching"):
-        CommonConfig(z_policy=policy)
-    config = _grid_config()
-    config.common.z_policy = policy  # a setting changed after construction is checked again at the run
+def test_a_projection_of_one_plane_is_accepted_and_changes_nothing(policy):
+    """Owner decision on #86: a projection that combines nothing (no Z axis, or Z=1) is the plane itself."""
+    one = _stack((1, 16, 16))
+    kept = run_patching(images=one, config=_grid_config(), image_metadata=named(one))
+    result = run_patching(images=one, config=_grid_config(z_policy=policy), image_metadata=named(one))
+    assert {p.z0 for p in result.patches} == {None}
+    assert [p.patch_id for p in result.patches] == [p.patch_id for p in kept.patches]
+    assert result.patch_arrays[0].dtype == one.dtype
+    np.testing.assert_array_equal(result.patch_arrays[0], one[0, :8, :8])
+    flat = _stack((16, 16))
+    flat_result = run_patching(images=flat, config=_grid_config("YX", z_policy=policy), image_metadata=named(flat))
+    np.testing.assert_array_equal(flat_result.patch_arrays[0], flat[:8, :8])
+    assert {p.z0 for p in flat_result.patches} == {None}
+
+
+@pytest.mark.parametrize("policy", ["max", "mean", "sum"])
+def test_a_projection_of_depth_planes_is_refused_by_name(policy):
+    """Issue #83: a projection that would combine Z planes belongs to preprocessing."""
     stack = _stack()
-    with pytest.raises(ZStackNotSupportedError, match="projects Z planes"):
-        run_patching(images=stack, config=config, image_metadata=named(stack))
-    with pytest.raises(ZStackNotSupportedError, match="projects Z planes"):
-        run_patching(images=stack[0], config=_grid_config("YX", z_policy=policy), image_metadata=named(stack[0]))
+    message = "would combine 3 Z planes.*recorded projection step in morphobricks-preprocessing"
+    with pytest.raises(ZStackNotSupportedError, match=message) as caught:
+        run_patching(images=stack, config=_grid_config(z_policy=policy), image_metadata=named(stack))
+    assert (caught.value.axis, caught.value.length) == ("Z", 3)
+    with pytest.raises(ZStackNotSupportedError, match="would combine 3 Z planes"):
+        run_patching(images=_stack(), masks=_labels_per_plane(), config=_cell_config(z_policy=policy),
+            image_metadata=named(_stack()))  # formerly "projects the images' Z planes" for masks following the planes
 
 
-def test_a_z_projection_is_a_refusal_not_a_time_policy_error():
+def test_a_z_projection_refusal_is_a_value_error_and_t_has_no_projection():
     assert issubclass(ZStackNotSupportedError, ValueError)
     with pytest.raises(ValueError, match="t_policy must be one of"):
         CommonConfig(t_policy="max")  # unchanged: T never had projections

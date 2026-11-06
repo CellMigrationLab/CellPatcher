@@ -175,7 +175,8 @@ def test_a_file_run_image_with_depth_planes_is_refused_by_name():
     from cellpatcher.errors import ZStackNotSupportedError
     from cellpatcher.run_reading import fov_layout
 
-    with pytest.raises(ZStackNotSupportedError, match=r"a\.tif has 3 Z planes.*2-D planes only") as caught:
+    message = r"a\.tif has 3 Z planes.*2-D planes only.*recorded projection step in morphobricks-preprocessing"
+    with pytest.raises(ZStackNotSupportedError, match=message) as caught:
         fov_layout(_fov(z_count=3), CommonConfig())
     assert (caught.value.axis, caught.value.length) == ("Z", 3)
 

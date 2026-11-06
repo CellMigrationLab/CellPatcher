@@ -25,6 +25,7 @@ from cellpatcher.errors import ZStackNotSupportedError
 from cellpatcher.planes import (
     ImagePlane,
     PlaneChoice,
+    apply_plane_choice,
     plane_choices,
     select_mask_plane,
 )
@@ -57,7 +58,8 @@ def fov_layout(fov: Fov, common: CommonConfig) -> str:
     if fov.z_count > 1:
         raise ZStackNotSupportedError(
             f"{fov.relative_path} has {fov.z_count} Z planes, but MorphoBricks v1 analyses 2-D planes only "
-            "(preprocessing v0.4.0 refuses depth stacks). Patch a 2-D image or a time series (T).",
+            "(preprocessing v0.4.0 refuses depth stacks). A Z projection must be done as a recorded projection "
+            "step in morphobricks-preprocessing before patching.",
             axis="Z",
             length=fov.z_count,
         )
@@ -109,13 +111,14 @@ def read_fov(inputs: RunInputs, fov: Fov, layout: str, choice: PlaneChoice | Non
     layout
         The image's canonical layout (:func:`fov_layout`).
     choice
-        The T and Z planes to read (an index, or None for every plane); None reads the whole image.
+        The T and Z planes to read (an index, a projection of one plane, or None for every plane);
+        None reads the whole image.
 
     Returns
     -------
     tuple
         The pixels, as stored, and their axes: *layout* without the axes *choice* resolved to
-        one plane.
+        one plane (a Z projection is only ever of one plane: more raise ``ZStackNotSupportedError``).
 
     Raises
     ------
@@ -133,7 +136,10 @@ def read_fov(inputs: RunInputs, fov: Fov, layout: str, choice: PlaneChoice | Non
         axis for axis in "TZCYX" if axis in "YX" or (axis in layout and not isinstance(choice.value(axis), int))
     )
     pixels = stack.reshape([size for axis, size in zip("TZCYX", stack.shape) if axis in kept])
-    return pixels, kept
+    projections = PlaneChoice(
+        t=choice.t if isinstance(choice.t, str) else None, z=choice.z if isinstance(choice.z, str) else None, suffix=""
+    )
+    return apply_plane_choice(pixels, kept, projections)
 
 
 def _read_plane(inputs: RunInputs, fov: Fov, z: int, t: int) -> np.ndarray:

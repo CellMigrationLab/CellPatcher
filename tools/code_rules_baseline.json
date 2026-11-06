@@ -371,7 +371,6 @@
     "src/cellpatcher/preprocess.py prepare_labels_for_cell_patching: # Ruff findings missing-type-function-argument": 8,
     "src/cellpatcher/preprocess.py project_axis: # Ruff findings missing-return-type-undocumented-public-function": 1,
     "src/cellpatcher/preprocess.py project_axis: # Ruff findings missing-type-function-argument": 4,
-    "src/cellpatcher/preprocess.py project_axis: # Ruff findings undocumented-public-function": 1,
     "src/cellpatcher/preprocess.py repeat_to_rgb: # Ruff findings missing-return-type-undocumented-public-function": 1,
     "src/cellpatcher/preprocess.py repeat_to_rgb: # Ruff findings missing-type-function-argument": 2,
     "src/cellpatcher/preprocess.py repeat_to_rgb: # Ruff findings undocumented-public-function": 1,
