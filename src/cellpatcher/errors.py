@@ -56,3 +56,20 @@ class LabelRangeError(CellPatcherRefusal):
     def __init__(self, message: str, *, label: int | None = None) -> None:
         super().__init__(message)
         self.label = label
+
+
+class ZStackNotSupportedError(CellPatcherRefusal):
+    """A depth stack that CellPatcher, which works on 2-D planes, will not combine or analyse.
+
+    Raised when ``common.z_policy`` (or the preprocessing helpers' ``z_policy``) asks for a
+    projection (``"max"``, ``"mean"``, ``"sum"``) of an image with more than one Z plane, and when a
+    file run's image has more than one Z plane (preprocessing v0.4.0 already refuses such an
+    experiment; this is the second defence). A projection of no Z axis or of one plane is
+    accepted and changes nothing. A Z projection is a recorded step of morphobricks-preprocessing
+    (owner decision of 5 November 2026, issue #83). Attributes: ``axis`` and ``length``.
+    """
+
+    def __init__(self, message: str, *, axis: str | None = None, length: int | None = None) -> None:
+        super().__init__(message)
+        self.axis = axis
+        self.length = length

@@ -469,10 +469,12 @@ def test_a_supplied_channel_is_refused_with_split_channels(mode, monkeypatch):
         run_patching(images=[image], config=config, image_metadata=[{"position_id": "p1", "c": 5}])
 
 
-@pytest.mark.parametrize("policy", ["max", "mean", "all", "first"])
+@pytest.mark.parametrize("policy", ["all", "first"])
 def test_a_supplied_z_is_refused_with_a_z_policy(policy, monkeypatch):
-    """Re-audit of #41: a projection is no single plane, so a supplied z with z_policy="max"
-    would label it one; any policy but "keep" with a supplied z is refused before seeding."""
+    """Re-audit of #41: any policy but "keep" with a supplied z is refused before seeding.
+
+    (The projections "max" and "mean" were cases here until they were removed, issue #83: they are
+    refused whatever z is supplied, see ``test_plane_policies.py``.)"""
     from cellpatcher import pipeline
 
     def no_seed(*args, **kwargs):

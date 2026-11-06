@@ -3,6 +3,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from cellpatcher.axes import axis_index, normalize_axes, require_spatial_axes
+from cellpatcher.errors import ZStackNotSupportedError
 
 
 @dataclass(frozen=True)
@@ -43,7 +44,34 @@ def select_axis_index(array, axes, axis, index):
     return selected, selected_axes
 
 
+def z_projection_refusal(method: str, length: int) -> ZStackNotSupportedError:
+    """Return the refusal of a Z projection that would combine *length* Z planes (issue #83)."""
+    return ZStackNotSupportedError(
+        f"z_policy={method!r} would combine {length} Z planes, but CellPatcher works on 2-D planes only. "
+        "A Z projection must be done as a recorded projection step in morphobricks-preprocessing before patching.",
+        axis="Z",
+        length=length,
+    )
+
+
+def _single_z_plane(arr: np.ndarray, idx: int, method: str) -> np.ndarray:
+    """Return the one Z plane of *arr* as the name *method* gave it before projections were removed.
+
+    Nothing is combined: the plane is returned unchanged, in the dtype the numpy reduction of one
+    plane gave (``mean`` of an integer plane is float64, ``sum`` of a small integer plane its
+    accumulator type), so a no-op projection stays bitwise identical to what CellPatcher returned.
+    """
+    plane = np.take(arr, 0, axis=idx)
+    reduced = {"max": np.max, "mean": np.mean, "sum": np.sum}[method](np.zeros(1, dtype=arr.dtype))
+    return plane.astype(reduced.dtype, copy=False)
+
+
 def project_axis(array, axes, axis, method):
+    """Take *axis* out of *array*: ``"first"`` plane, or ``"max"``/``"mean"``/``"sum"`` over a C or T axis.
+
+    A Z axis is never projected here (issue #83): with one plane the projection names return it
+    unchanged, with more they raise :class:`~cellpatcher.errors.ZStackNotSupportedError`.
+    """
     arr = np.asarray(array)
     normalized_axes = normalize_axes(axes, arr.ndim)
     axis = str(axis).upper()
@@ -52,6 +80,10 @@ def project_axis(array, axes, axis, method):
         raise ValueError(f"Axis '{axis}' is not present in axes '{normalized_axes}'.")
 
     method = str(method).lower()
+    if axis == "Z" and method in {"max", "mean", "sum"}:
+        if arr.shape[idx] > 1:
+            raise z_projection_refusal(method, arr.shape[idx])
+        return _single_z_plane(arr, idx, method), normalized_axes[:idx] + normalized_axes[idx + 1 :]
     if method == "first":
         out = np.take(arr, 0, axis=idx)
     elif method == "max":

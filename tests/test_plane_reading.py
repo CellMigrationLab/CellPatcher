@@ -159,3 +159,32 @@ def test_ome_zarr_planes_are_read_in_the_canonical_axis_order(tmp_path, read_pla
     as_tcyx = np.transpose(data, (1, 0, 2, 3))
     _same_result(folder, run_patching(images=as_tcyx, config=config, image_metadata=[{"image_file": "a.ome.zarr"}]))
     assert len(read_planes) == 3
+
+
+def _fov(**counts):
+    """The parts of a ``Fov`` that ``fov_layout`` and ``run_layout`` read."""
+    from types import SimpleNamespace
+
+    values = {"relative_path": "a.tif", "roles": ("Z", "C"), "t_count": 1, "z_count": 1, "c_count": 2, **counts}
+    return SimpleNamespace(**values)
+
+
+def test_a_file_run_image_with_depth_planes_is_refused_by_name():
+    """Issue #83: preprocessing v0.4.0 refuses Z>1; the file-run layout is the second defence."""
+    from cellpatcher.config import CommonConfig
+    from cellpatcher.errors import ZStackNotSupportedError
+    from cellpatcher.run_reading import fov_layout
+
+    message = r"a\.tif has 3 Z planes.*2-D planes only.*recorded projection step in morphobricks-preprocessing"
+    with pytest.raises(ZStackNotSupportedError, match=message) as caught:
+        fov_layout(_fov(z_count=3), CommonConfig())
+    assert (caught.value.axis, caught.value.length) == ("Z", 3)
+
+
+def test_a_file_run_image_with_one_depth_plane_is_still_read():
+    from cellpatcher.config import CommonConfig
+    from cellpatcher.run_reading import fov_layout, run_layout
+
+    assert fov_layout(_fov(), CommonConfig()) == "CYX"  # a kept Z of length 1 is not an axis
+    assert fov_layout(_fov(), CommonConfig(z_policy="all")) == "ZCYX"  # a plane policy still names it (z000)
+    assert run_layout([_fov(t_count=2, roles=("T", "Z", "C"))]) == "TCYX"

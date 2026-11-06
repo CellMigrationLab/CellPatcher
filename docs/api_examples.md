@@ -178,10 +178,12 @@ Patching modes are 2D Y/X; for C/Z/T data, see `preprocessing.md`.
 ```python
 from cellpatcher import prepare_image_for_patching, prepare_labels_for_cell_patching
 
+# A Z projection is a recorded step of morphobricks-preprocessing (issue #83); here one plane is chosen.
 image_yx, image_axes = prepare_image_for_patching(
     image_zstack,
     "ZYX",
-    z_policy="max",
+    z_policy="select",
+    z_index=0,
 )
 
 labels_yx, mask_axes = prepare_labels_for_cell_patching(

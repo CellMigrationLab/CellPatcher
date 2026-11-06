@@ -212,3 +212,12 @@ def test_a_patch_without_label_is_numbered_its_id_never_cut(monkeypatch):
     titles = [axis.get_title() for axis in figures[0].axes]
     assert titles[0] == "patch 1: without normalization"
     assert not any("y0-4_x0-4" in title for title in titles)
+
+
+def test_the_plane_controls_have_no_depth_policy():
+    """Issue #83: Z stacks are refused upstream, so the form offers the T policy only."""
+    from cellpatcher.notebook_form import PlaneControls
+
+    controls = PlaneControls.build()
+    assert not hasattr(controls, "z_policy") and not hasattr(controls, "z_index")
+    assert {value for _, value in controls.t_policy.options} == {"keep", "all", "first", "select"}

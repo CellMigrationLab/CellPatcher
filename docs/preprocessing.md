@@ -4,7 +4,7 @@
 
 CellPatcher generates 2D Y/X patch regions. If your image has Z or T axes, choose your lane up front: select/project a single 2D plane before patching, or expand the stack into multiple 2D planes and run the same patching mode on each plane.
 
-**In folder and tree runs** (and `run_patching`), set `config.common.z_policy`/`t_policy` instead of preparing the arrays yourself: `"all"` patches every plane, `"first"`/`"select"` one plane, and for Z `"max"`/`"mean"`/`"sum"` a projection; the default `"keep"` keeps every plane in each patch. Masks follow the image's planes or are shared (see the [config reference](configuration_reference.md#commonconfig)). The helpers below stay available for in-memory workflows.
+**In folder and tree runs** (and `run_patching`), set `config.common.z_policy`/`t_policy` instead of preparing the arrays yourself: `"all"` patches every plane, `"first"`/`"select"` one plane (`"max"`/`"mean"`/`"sum"` accept an image with no Z axis or one Z plane and refuse more: CellPatcher combines no planes, a Z projection is a recorded projection step in morphobricks-preprocessing, issue #83); the default `"keep"` keeps every plane in each patch. Masks follow the image's planes or are shared (see the [config reference](configuration_reference.md#commonconfig)). The helpers below stay available for in-memory workflows.
 
 ## Core idea
 
@@ -18,7 +18,7 @@ CellPatcher generates 2D Y/X patch regions. If your image has Z or T axes, choos
 | Data situation | Recommended helper | Why |
 |---|---|---|
 | 2D `YX` image | Use directly | Already compatible |
-| Z stack, one projected image wanted | `prepare_image_for_patching(..., z_policy="max")` | Explicit projection |
+| Z stack, one projected image wanted | A recorded projection step in morphobricks-preprocessing, then patch the 2-D result | CellPatcher combines no Z planes (issue #83) |
 | Z stack, patch every slice | `iter_image_planes_for_patching(..., z_policy="all")` | One 2D workflow per slice |
 | Multichannel image, keep all channels | Use `image_axes="CYX"` or `"YXC"` | Preserves channel data |
 | Label stack | `prepare_labels_for_cell_patching(..., z_policy="select")` | Labels must resolve to one `YX` plane |
@@ -34,7 +34,6 @@ Use:
 Typical tasks:
 
 - select a single Z/T plane
-- apply max/mean/sum projection on image Z
 - keep/select/project channels
 - repeat grayscale to RGB for model-facing workflows
 - no normalization: the former per-image percentile/min-max normalization (`normalize=`/`percentile=`, `percentile_normalize`/`minmax_normalize`), deprecated since Milestone 3 of the [plan](plan.md), was removed in v0.1.1 (D86): use `config.normalization`, which uses the preprocessing brick's statistics at a chosen scope and records the parameters
@@ -53,10 +52,9 @@ Rules:
 - strict matching for T/Z when iterating `all` planes
 
 Note: `iter_cell_planes_for_patching` supports `z_policy` values `{error, first, select, max, all}`.
-The `"mean"` and `"sum"` Z projection methods are **not** available through this iterator, even for
-the image component. If you need a mean- or sum-projected image alongside per-plane labels, call
-`iter_image_planes_for_patching` (which supports `"mean"` and `"sum"`) and
-`prepare_labels_for_cell_patching` separately on each Z slice.
+`"max"` (and `"mean"`/`"sum"` in the other helpers) is accepted only for an image with no Z axis or one Z
+plane, which it returns unchanged; for several Z planes it raises `ZStackNotSupportedError`: project in
+a recorded step of morphobricks-preprocessing first.
 
 ## Common mistakes
 
