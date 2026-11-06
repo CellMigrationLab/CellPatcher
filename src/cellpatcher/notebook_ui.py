@@ -276,9 +276,8 @@ class CellPatcherNotebook:
             style.card("Patching strategy", [form.mode, form.mask_type, *form.cell.controls(), self.scan_button,
                                              form.grid_size, form.grid_overlap, form.grid_partial, form.random_size,
                                              form.random_count, form.random_seed, form.random_masks]),
-            style.card("Planes", [form.planes.z_policy, form.planes.z_index, form.planes.t_policy,
-                                  form.planes.t_index,
-                                  style.help_text("Shown for images with Z or T planes. Normalization needs one "
+            style.card("Planes", [form.planes.t_policy, form.planes.t_index,
+                                  style.help_text("Shown for images with time points. Normalization needs one "
                                                   "plane per patch.")]),
             style.card("Processing", [form.min_mean, form.output_size, form.pad, form.channels,
                                       style.help_text("Split channels: one patch per selected channel; none "

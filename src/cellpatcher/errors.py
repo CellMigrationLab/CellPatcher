@@ -56,3 +56,19 @@ class LabelRangeError(CellPatcherRefusal):
     def __init__(self, message: str, *, label: int | None = None) -> None:
         super().__init__(message)
         self.label = label
+
+
+class ZStackNotSupportedError(CellPatcherRefusal):
+    """A depth stack, or a Z projection, which MorphoBricks v1 (2-D planes only) does not analyse.
+
+    Raised when ``common.z_policy`` asks for a projection (``"max"``, ``"mean"``, ``"sum"``; a
+    projection belongs to preprocessing, owner decision of 5 November 2026, issue #83) and when a
+    file run's image has more than one Z plane (preprocessing v0.4.0 already refuses such an
+    experiment; this is the second defence). Attributes: ``axis`` and ``length`` (None for a
+    projection).
+    """
+
+    def __init__(self, message: str, *, axis: str | None = None, length: int | None = None) -> None:
+        super().__init__(message)
+        self.axis = axis
+        self.length = length

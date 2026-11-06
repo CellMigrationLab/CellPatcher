@@ -71,7 +71,7 @@ class RunSummary:
     channels
         The channel names of the first image (``C0``, ``C1``, ... when it names none).
     layout
-        The T, Z and C axes some image of the run has (:func:`cellpatcher.run_reading.run_layout`); each
+        The T and C axes some image of the run has (:func:`cellpatcher.run_reading.run_layout`); each
         image is read in its own roles.
     mask_types
         The mask types the run recorded.

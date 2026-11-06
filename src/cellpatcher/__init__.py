@@ -25,7 +25,12 @@ from cellpatcher.config import (
 )
 from cellpatcher.delivery import iter_exported_patches, iter_patch_arrays, load_exported_patch, patch_array
 from cellpatcher.run_delivery import iter_run_patch_arrays
-from cellpatcher.errors import CellPatcherRefusal, LabelRangeError, SamplingExhaustedError
+from cellpatcher.errors import (
+    CellPatcherRefusal,
+    LabelRangeError,
+    SamplingExhaustedError,
+    ZStackNotSupportedError,
+)
 from cellpatcher.file_runs import validate_image_and_mask_folders
 from cellpatcher.export import (
     PatchTableError,
@@ -102,6 +107,7 @@ __all__ = [
     "CellPatcherRefusal",
     "SamplingExhaustedError",
     "LabelRangeError",
+    "ZStackNotSupportedError",
     "run_patching",
     "RUN_CONFIG_FILENAME",
     "SUPPORTED_EXTENSIONS",

@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 
 from cellpatcher.config import CellPatcherConfig, CommonConfig, GridConfig
+from cellpatcher.errors import ZStackNotSupportedError
 from cellpatcher.orchestration import (
     run_patching_condition_repeat_tree,
     run_patching_pipeline,
@@ -93,11 +94,24 @@ def test_first_and_select_choose_one_plane_without_a_suffix():
     np.testing.assert_array_equal(selected.patch_arrays[0], stack[2, :8, :8])
 
 
-def test_projection_has_no_plane_index():
+@pytest.mark.parametrize("policy", ["max", "mean", "sum"])
+def test_a_z_projection_is_refused_by_name(policy):
+    """Issue #83: a projection belongs to preprocessing; z_policy refuses it with a named error."""
+    with pytest.raises(ZStackNotSupportedError, match="projects Z planes.*prepare_image_for_patching"):
+        CommonConfig(z_policy=policy)
+    config = _grid_config()
+    config.common.z_policy = policy  # a setting changed after construction is checked again at the run
     stack = _stack()
-    result = run_patching(images=stack, config=_grid_config(z_policy="max"), image_metadata=named(stack))
-    assert {p.z0 for p in result.patches} == {None}
-    np.testing.assert_array_equal(result.patch_arrays[0], stack.max(axis=0)[:8, :8])
+    with pytest.raises(ZStackNotSupportedError, match="projects Z planes"):
+        run_patching(images=stack, config=config, image_metadata=named(stack))
+    with pytest.raises(ZStackNotSupportedError, match="projects Z planes"):
+        run_patching(images=stack[0], config=_grid_config("YX", z_policy=policy), image_metadata=named(stack[0]))
+
+
+def test_a_z_projection_is_a_refusal_not_a_time_policy_error():
+    assert issubclass(ZStackNotSupportedError, ValueError)
+    with pytest.raises(ValueError, match="t_policy must be one of"):
+        CommonConfig(t_policy="max")  # unchanged: T never had projections
 
 
 def test_images_without_the_axis_are_unchanged():
@@ -198,12 +212,6 @@ def test_a_2d_or_length_one_mask_is_shared_by_every_plane():
 def test_mask_z_length_must_match_or_be_one():
     with pytest.raises(ValueError, match="must have the image's Z length"):
         run_patching(images=_stack(), masks=_labels_per_plane(2), config=_cell_config(z_policy="all"),
-            image_metadata=named(_stack()))
-
-
-def test_a_projection_cannot_use_masks_that_follow_the_planes():
-    with pytest.raises(ValueError, match="projects the images' Z planes"):
-        run_patching(images=_stack(), masks=_labels_per_plane(), config=_cell_config(z_policy="max"),
             image_metadata=named(_stack()))
 
 

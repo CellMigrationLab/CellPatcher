@@ -47,9 +47,6 @@ PLANE_POLICIES = (
     ("One patch per plane", "all"),
     ("First plane", "first"),
     ("One plane (index below)", "select"),
-    ("Maximum projection", "max"),
-    ("Mean projection", "mean"),
-    ("Sum projection", "sum"),
 )
 SCOPES = (
     ("Image: all planes of the patch's image (recommended)", "image"),
@@ -132,36 +129,28 @@ class CellControls:
 
 @dataclass
 class PlaneControls:
-    """The Z and T plane policies (shown when the run's images have Z or T planes)."""
+    """The T plane policy (shown when the run's images have time points; Z stacks are refused, issue #83)."""
 
-    z_policy: widgets.Dropdown
-    z_index: widgets.BoundedIntText
     t_policy: widgets.Dropdown
     t_index: widgets.BoundedIntText
 
     @classmethod
     def build(cls) -> PlaneControls:
         """Return the controls at the defaults of :class:`cellpatcher.CommonConfig`."""
-        time_policies = tuple(option for option in PLANE_POLICIES if option[1] not in {"max", "mean", "sum"})
         return cls(
-            z_policy=_choice("Z (depth) planes", PLANE_POLICIES, "keep"),
-            z_index=_int("Z plane index", 0),
-            t_policy=_choice("T (time) points", time_policies, "keep"),
+            t_policy=_choice("T (time) points", PLANE_POLICIES, "keep"),
             t_index=_int("Time point index", 0),
         )
 
     def show_for(self, layout: str) -> None:
-        """Show the controls of the axes *layout* has."""
-        for axis, controls in (("Z", (self.z_policy, self.z_index)), ("T", (self.t_policy, self.t_index))):
-            for control in controls:
-                style.set_visible(control, axis in layout)
+        """Show the controls when the axes *layout* has time points."""
+        for control in (self.t_policy, self.t_index):
+            style.set_visible(control, "T" in layout)
 
     def common(self, summary: RunSummary) -> CommonConfig:
-        """Return the common settings: the run, the plane policies and nothing about files."""
+        """Return the common settings: the run, the time policy and nothing about files."""
         return CommonConfig(
             preprocessing_run=str(summary.run),
-            z_policy=self.z_policy.value if "Z" in summary.layout else "keep",
-            z_index=self.z_index.value if self.z_policy.value == "select" else None,
             t_policy=self.t_policy.value if "T" in summary.layout else "keep",
             t_index=self.t_index.value if self.t_policy.value == "select" else None,
         )

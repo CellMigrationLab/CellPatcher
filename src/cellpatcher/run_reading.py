@@ -4,7 +4,7 @@ Design v0.4 §6 (CP-2a): a folder or tree run reads every image with ``RunInputs
 and every mask with ``RunInputs.read_mask``, as the preprocessing run recorded them. Nothing
 here names an axis of a file, pairs a mask or reads a calibration: an image's axes are the
 roles the run recorded for it (:attr:`Fov.roles`), and a mask's are those the run recorded
-for that mask (its ``roles``, and ``shared`` for a stated 2-D mask serving every plane).
+for that mask (its ``roles``).
 
 The arrays handed to the patching core are in a canonical layout built from each image's own
 roles (:func:`fov_layout`): its T, Z and C axes in that order, then Y and X, as
@@ -21,10 +21,10 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from cellpatcher.errors import ZStackNotSupportedError
 from cellpatcher.planes import (
     ImagePlane,
     PlaneChoice,
-    apply_plane_choice,
     plane_choices,
     select_mask_plane,
 )
@@ -46,7 +46,21 @@ def fov_layout(fov: Fov, common: CommonConfig) -> str:
     that ``t_policy``/``z_policy`` keeps (``"keep"``) is left out: its one plane is the image, and
     a kept axis never enters ``patch_id``. Under any other policy it stays, so the plane is
     named (``z000``) as MorphoFeature names it.
+
+    Raises
+    ------
+    ZStackNotSupportedError
+        If the image has more than one Z plane: MorphoBricks v1 analyses 2-D planes and preprocessing
+        v0.4.0 refuses such an experiment, so this is the second defence (issue #83), the one
+        guard every file-run image passes at open.
     """
+    if fov.z_count > 1:
+        raise ZStackNotSupportedError(
+            f"{fov.relative_path} has {fov.z_count} Z planes, but MorphoBricks v1 analyses 2-D planes only "
+            "(preprocessing v0.4.0 refuses depth stacks). Patch a 2-D image or a time series (T).",
+            axis="Z",
+            length=fov.z_count,
+        )
     lengths = {"T": fov.t_count, "Z": fov.z_count}
     policies = {"T": common.t_policy, "Z": common.z_policy}
     roles = set(fov.roles)
@@ -58,15 +72,15 @@ def fov_layout(fov: Fov, common: CommonConfig) -> str:
 
 
 def run_layout(fovs: Sequence[Fov]) -> str:
-    """Return the T, Z and C axes some image of the run has, in that order, then ``YX``: a summary only.
+    """Return the T and C axes some image of the run has, in that order, then ``YX``: a summary only.
 
-    T or Z is in it when an image has more than one plane along it, C when an image has a
-    channel role. It summarizes the run (which plane policies matter); each image is read in
-    its own :func:`fov_layout`.
+    T is in it when an image has more than one time point, C when an image has a channel role.
+    It summarizes the run (which plane policies matter); each image is read in its own
+    :func:`fov_layout`.
     """
-    counts = {"T": lambda fov: fov.t_count, "Z": lambda fov: fov.z_count, "C": lambda fov: 2}
+    counts = {"T": lambda fov: fov.t_count, "C": lambda fov: 2}
     return "".join(
-        role for role in _STACK_ROLES if any(role in fov.roles and counts[role](fov) > 1 for fov in fovs)
+        role for role in "TC" if any(role in fov.roles and counts[role](fov) > 1 for fov in fovs)
     ) + "YX"
 
 
@@ -95,14 +109,13 @@ def read_fov(inputs: RunInputs, fov: Fov, layout: str, choice: PlaneChoice | Non
     layout
         The image's canonical layout (:func:`fov_layout`).
     choice
-        The T and Z planes to read (an index, a projection over every plane, or None for every
-        plane); None reads the whole image.
+        The T and Z planes to read (an index, or None for every plane); None reads the whole image.
 
     Returns
     -------
     tuple
         The pixels, as stored, and their axes: *layout* without the axes *choice* resolved to
-        one plane (a projection is computed after reading every plane along its axis).
+        one plane.
 
     Raises
     ------
@@ -120,10 +133,7 @@ def read_fov(inputs: RunInputs, fov: Fov, layout: str, choice: PlaneChoice | Non
         axis for axis in "TZCYX" if axis in "YX" or (axis in layout and not isinstance(choice.value(axis), int))
     )
     pixels = stack.reshape([size for axis, size in zip("TZCYX", stack.shape) if axis in kept])
-    projections = PlaneChoice(
-        t=choice.t if isinstance(choice.t, str) else None, z=choice.z if isinstance(choice.z, str) else None, suffix=""
-    )
-    return apply_plane_choice(pixels, kept, projections)
+    return pixels, kept
 
 
 def _read_plane(inputs: RunInputs, fov: Fov, z: int, t: int) -> np.ndarray:
@@ -148,18 +158,16 @@ def mask_record(inputs: RunInputs, fov: Fov, mask_type: str) -> Mapping | None:
 
 
 def mask_layout(record: Mapping) -> str:
-    """Return the canonical layout of a recorded mask: ``YX`` when shared, else its T and Z roles, then ``YX``."""
-    if record.get("shared"):
-        return "YX"
+    """Return the canonical layout of a recorded mask: its T and Z roles, then ``YX``."""
     return "".join(role for role in "TZ" if role in str(record["roles"])) + "YX"
 
 
 def read_fov_mask(inputs: RunInputs, fov: Fov, record: Mapping, layout: str) -> np.ndarray:
     """Read an image's recorded mask through ``RunInputs.read_mask``, in the mask *layout*.
 
-    A stated shared 2-D mask is read once; a mask with depth slices or time points is read
-    plane by plane, the brick checking each plane's labels. An axis of *layout* the mask does
-    not have is added with length 1 (one plane, shared by the image's planes along it).
+    A mask with time points is read plane by plane, the brick checking each plane's labels.
+    An axis of *layout* the mask does not have is added with length 1 (one plane, shared by the
+    image's planes along it).
 
     Raises
     ------

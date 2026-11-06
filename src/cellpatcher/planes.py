@@ -6,12 +6,16 @@
   these options existed;
 - ``"all"``: one patch per plane;
 - ``"first"``, or ``"select"`` with ``z_index``/``t_index``: one plane;
-- Z only: ``"max"``, ``"mean"`` or ``"sum"`` project the stack.
+
+A Z projection (``"max"``, ``"mean"``, ``"sum"``) is not offered: MorphoBricks v1 analyses 2-D planes
+and a projection belongs to preprocessing (owner decision of 5 November 2026, issue #83); asking
+for one raises :class:`cellpatcher.errors.ZStackNotSupportedError`.
 
 A mask follows the image's planes along an axis it has with the same length,
 and is shared by every plane when it lacks the axis or has length 1 (the rule
 of ``docs/normalization_contract.md`` §4 for OME-NGFF labels, applied to every
-mask).
+mask). A file run's images have at most one Z plane (preprocessing v0.4.0); Z policies stay for
+in-memory images, which may still have a Z axis.
 
 Images in memory are split with :func:`iter_image_planes`; the images of a file run are read
 plane by plane through the preprocessing run (:mod:`cellpatcher.run_reading`).
@@ -26,11 +30,13 @@ from dataclasses import dataclass
 import numpy as np
 
 from cellpatcher.axes import axis_index, normalize_axes
-from cellpatcher.preprocess import project_axis, select_axis_index
+from cellpatcher.errors import ZStackNotSupportedError
+from cellpatcher.preprocess import select_axis_index
 
-Z_POLICIES = ("keep", "all", "first", "select", "max", "mean", "sum")
+Z_POLICIES = ("keep", "all", "first", "select")
 T_POLICIES = ("keep", "all", "first", "select")
-_PROJECTIONS = ("max", "mean", "sum")
+REMOVED_Z_PROJECTIONS = ("max", "mean", "sum")
+"""The ``z_policy`` values removed after v0.2.0 (issue #83): a projection belongs to preprocessing."""
 
 
 def validate_plane_policies(common) -> None:
@@ -38,9 +44,18 @@ def validate_plane_policies(common) -> None:
 
     Raises
     ------
+    ZStackNotSupportedError
+        If ``z_policy`` is a Z projection.
     ValueError
         If a policy is unknown, or ``"select"`` has no index.
     """
+    if common.z_policy in REMOVED_Z_PROJECTIONS:
+        raise ZStackNotSupportedError(
+            f"z_policy={common.z_policy!r} projects Z planes, which CellPatcher no longer does: MorphoBricks v1 "
+            "analyses 2-D planes and a projection belongs to preprocessing. Project the stack first (preprocessing, "
+            "or cellpatcher.prepare_image_for_patching with z_policy='max'), then patch the 2-D result.",
+            axis="Z",
+        )
     for axis, policies in (("z", Z_POLICIES), ("t", T_POLICIES)):
         policy = getattr(common, f"{axis}_policy")
         index = getattr(common, f"{axis}_index")
@@ -69,8 +84,7 @@ class ImagePlane:
     mask, mask_axes
         The matching mask plane, or None when there is no mask.
     z, t
-        The plane's Z and T index, or None when the axis is absent, kept, or
-        projected.
+        The plane's Z and T index, or None when the axis is absent or kept.
     suffix
         Appended to the patch ids of this plane when an axis is split
         (``"all"``), e.g. ``"_t001_z002"``; empty otherwise.
@@ -89,22 +103,20 @@ class ImagePlane:
 class PlaneChoice:
     """One plane chosen by the policies, independent of the pixels.
 
-    ``t`` and ``z`` are an index, a projection name (``"max"``, ``"mean"``,
-    ``"sum"``; Z only), or None when the axis is absent or kept.
+    ``t`` and ``z`` are an index, or None when the axis is absent or kept.
     """
 
-    t: int | str | None
-    z: int | str | None
+    t: int | None
+    z: int | None
     suffix: str
 
-    def value(self, axis: str) -> int | str | None:
+    def value(self, axis: str) -> int | None:
         """The choice along ``"T"`` or ``"Z"``; None for any other axis, which is never chosen."""
         return {"T": self.t, "Z": self.z}.get(axis)
 
     def index(self, axis: str) -> int | None:
-        """The plane index along ``"T"`` or ``"Z"``; None when kept, absent or projected."""
-        value = self.value(axis)
-        return value if isinstance(value, int) else None
+        """The plane index along ``"T"`` or ``"Z"``; None when kept or absent."""
+        return self.value(axis)
 
 
 def plane_choices(image_shape, image_axes, mask_shape, mask_axes, common, *, single_planes=False) -> list[PlaneChoice]:
@@ -112,14 +124,13 @@ def plane_choices(image_shape, image_axes, mask_shape, mask_axes, common, *, sin
 
     With *single_planes* (normalization is enabled), every Z or T axis longer
     than 1 must end as one index per plane (``docs/normalization_contract.md``
-    §3): ``"keep"`` and projections are refused.
+    §3): ``"keep"`` is refused.
 
     Raises
     ------
     ValueError
         If an index is outside the image, a mask's Z or T length is neither
-        the image's nor 1, a Z projection meets a mask that follows the
-        image's Z planes, or *single_planes* refuses a policy.
+        the image's nor 1, or *single_planes* refuses a policy.
     """
     validate_plane_policies(common)
     image_axes = normalize_axes(image_axes, len(image_shape))
@@ -165,15 +176,12 @@ def apply_plane_choice(image, image_axes, choice: PlaneChoice):
         value = choice.value(axis)
         if axis not in plane_axes or value is None:
             continue
-        if isinstance(value, str):
-            plane, plane_axes = project_axis(plane, plane_axes, axis, value)
-        else:
-            plane, plane_axes = select_axis_index(plane, plane_axes, axis, value)
+        plane, plane_axes = select_axis_index(plane, plane_axes, axis, value)
     return plane, plane_axes
 
 
 def patch_plane_choice(patch, image_axes, common) -> PlaneChoice:
-    """The plane a patch was cut from: its ``t``/``z0``, or the policy's projection.
+    """The plane a patch was cut from: its ``t`` and ``z0`` along the axes a policy splits.
 
     Used to rebuild a patch from its source image (``cellpatcher.delivery``).
     """
@@ -182,8 +190,6 @@ def patch_plane_choice(patch, image_axes, common) -> PlaneChoice:
         policy = getattr(common, f"{axis.lower()}_policy")
         if axis not in normalize_axes(image_axes) or policy == "keep":
             values[axis] = None
-        elif policy in _PROJECTIONS:
-            values[axis] = policy
         else:
             values[axis] = index
     return PlaneChoice(t=values["T"], z=values["Z"], suffix="")
@@ -198,21 +204,20 @@ def select_mask_plane(mask, mask_axes, choice: PlaneChoice):
         position = axis_index(mask_axes, axis)
         if value is None or position is None:
             continue
-        mask_value = 0 if mask.shape[position] == 1 or isinstance(value, str) else value
+        mask_value = 0 if mask.shape[position] == 1 else value
         mask, mask_axes = select_axis_index(mask, mask_axes, axis, mask_value)
     return mask, mask_axes
 
 
 def _axis_choices(image_shape, image_axes, mask_shape, mask_axes, axis, policy, index, single_planes) -> list[tuple]:
-    """``(value, id label)`` per plane along ``axis``: an index, a projection name, or None (unchanged)."""
+    """``(value, id label)`` per plane along ``axis``: an index, or None (unchanged)."""
     position = axis_index(image_axes, axis)
     if position is None:
         return [(None, "")]
     length = int(image_shape[position])
-    if single_planes and length > 1 and (policy == "keep" or policy in _PROJECTIONS):
-        effect = "keeps all" if policy == "keep" else "projects the"
+    if single_planes and length > 1 and policy == "keep":
         raise ValueError(
-            f"Normalization needs one plane per patch, but {axis.lower()}_policy={policy!r} {effect} "
+            f"Normalization needs one plane per patch, but {axis.lower()}_policy={policy!r} keeps all "
             f"{length} planes along {axis} (the preprocessing statistics describe single planes). Set "
             f"common.{axis.lower()}_policy to 'all', 'first' or 'select'."
         )
@@ -226,13 +231,6 @@ def _axis_choices(image_shape, image_axes, mask_shape, mask_axes, axis, policy, 
                 f"must have the image's {axis} length (one label plane per image plane) or length 1 "
                 "(shared by all planes)."
             )
-        if policy in _PROJECTIONS and mask_length == length and length > 1:
-            raise ValueError(
-                f"z_policy={policy!r} projects the images' Z planes, but the masks have one label plane "
-                "per Z plane. Use masks without a Z axis, or z_policy='all', 'first' or 'select'."
-            )
-    if policy in _PROJECTIONS:
-        return [(policy, "")]
     if policy == "all":
         return [(i, f"_{axis.lower()}{i:03d}") for i in range(length)]
     selected = 0 if policy == "first" else index

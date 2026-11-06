@@ -123,7 +123,7 @@ def test_split_channel_patches_have_no_channel_axis():
 
 @pytest.mark.parametrize(
     "z_policy, z_index, expected_axes",
-    [("keep", None, "ZCYX"), ("select", 1, "CYX"), ("max", None, "CYX"), ("all", None, "CYX")],
+    [("keep", None, "ZCYX"), ("select", 1, "CYX"), ("all", None, "CYX")],
 )
 def test_output_axes_follow_the_plane_policy(z_policy, z_index, expected_axes):
     stack = np.stack([_stack(), _stack() + 1])  # ZCYX
