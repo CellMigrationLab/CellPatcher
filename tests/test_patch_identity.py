@@ -249,15 +249,15 @@ def test_random_rectangles_do_not_depend_on_the_place_in_the_run(tmp_path):
 
 def test_random_planes_are_seeded_by_their_own_indices():
     config = _random_config()
-    config.common.image_axes, config.common.z_policy = "ZYX", "all"
+    config.common.image_axes, config.common.t_policy = "TYX", "all"
     stack = np.stack([_image(0)] * 3)
     full = run_patching(images=stack, config=config, image_metadata=[{"position_id": "P"}])
-    # Plane z=2 alone (from metadata) draws what it drew inside the stack.
-    alone = run_patching(images=stack[2], config=_random_config(), image_metadata=[{"position_id": "P", "z": 2}])
-    assert [(p.patch_id, p.y0, p.x0) for p in full.patches if p.z0 == 2] == [
+    # Plane t=2 alone (from metadata) draws what it drew inside the stack.
+    alone = run_patching(images=stack[2], config=_random_config(), image_metadata=[{"position_id": "P", "t": 2}])
+    assert [(p.patch_id, p.y0, p.x0) for p in full.patches if p.t == 2] == [
         (p.patch_id, p.y0, p.x0) for p in alone.patches
     ]
-    assert len({tuple((p.y0, p.x0) for p in full.patches if p.z0 == z) for z in range(3)}) == 3
+    assert len({tuple((p.y0, p.x0) for p in full.patches if p.t == t) for t in range(3)}) == 3
 
 
 # ---------------------------------------------------------------------------
@@ -484,7 +484,7 @@ def test_a_supplied_z_is_refused_with_a_z_policy(policy, monkeypatch):
     config = CellPatcherConfig(mode="random")
     config.random.patch_size, config.random.n_patches = 8, 2
     config.common.image_axes, config.common.z_policy = "ZYX", policy
-    image = np.zeros((3, 16, 16), dtype=np.uint16)
+    image = np.zeros((1, 16, 16), dtype=np.uint16)  # one Z plane: a depth stack is refused first (#83)
     with pytest.raises(ValueError, match="z_policy=.* also decides its planes"):
         run_patching(images=[image], config=config, image_metadata=[{"position_id": "p1", "z": 2}])
 

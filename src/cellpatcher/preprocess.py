@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from cellpatcher.axes import axis_index, normalize_axes, require_spatial_axes
+from cellpatcher.axes import axis_index, normalize_axes, refuse_z_stack, require_spatial_axes
 from cellpatcher.errors import ZStackNotSupportedError
 
 
@@ -137,6 +137,7 @@ def _apply_axis_policy(
     param_name=None,
     index_param_name=None,
 ):
+    """Collapse one axis of *arr* by *policy*; a Z axis with more than one plane is refused first."""
     # If the array doesn't have this axis at all, there's nothing to
     # collapse -- return it unchanged rather than erroring.
     idx = axis_index(axes, axis)
@@ -149,6 +150,8 @@ def _apply_axis_policy(
     _policy_param = param_name if param_name is not None else f"{axis.lower()}_policy"
     _index_param = index_param_name if index_param_name is not None else f"{axis.lower()}_index"
 
+    if axis == "Z":
+        refuse_z_stack(arr.shape, axes, "The labels" if label_context else "The image")
     size = arr.shape[idx]
     if policy == "error":
         # 'error' is a safety net: a size-1 axis is unambiguous to collapse,

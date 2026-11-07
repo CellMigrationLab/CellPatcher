@@ -197,7 +197,7 @@ def test_the_supplied_position_id_is_listed_also_for_images_without_patches(tmp_
 def test_an_image_without_planes_is_skipped_with_a_reason(tmp_path):
     config = CellPatcherConfig(
         mode="grid",
-        common=CommonConfig(image_axes="ZYX", z_policy="all", output_dir=str(tmp_path)),
+        common=CommonConfig(image_axes="TYX", t_policy="all", output_dir=str(tmp_path)),
         grid=GridConfig(tile_size=16),
         export=ExportConfig(enabled=True, image_format="npy"),
     )

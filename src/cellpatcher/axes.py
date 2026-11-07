@@ -1,5 +1,7 @@
 import numpy as np
 
+from cellpatcher.errors import ZStackNotSupportedError
+
 _ALLOWED_AXES = {"T", "C", "Z", "Y", "X"}
 
 
@@ -202,3 +204,53 @@ def refuse_transposed_inputs(image_axes: str, mask_axes: str | None, images: obj
         refuse_transposed_image_axes(image_axes)
     if masks is not None:
         refuse_transposed_mask_axes(mask_axes)
+
+
+def refuse_z_stack(shape: tuple[int, ...], axes: str, what: str = "The image") -> None:
+    """Refuse an in-memory array of *shape* with more than one Z plane, whatever ``z_policy`` says (issue #83).
+
+    The guard of the in-memory route, the counterpart of the file route's check in
+    ``cellpatcher.run_reading.fov_layout``: MorphoBricks v1 analyses 2-D planes, so a depth stack is
+    neither patched plane by plane, kept whole nor reduced here. An array with no Z axis, or one Z
+    plane, passes.
+
+    Raises
+    ------
+    ZStackNotSupportedError
+        If the Z axis of *axes* has more than one plane in *shape*.
+    """
+    position = axis_index(normalize_axes(axes, len(shape)), "Z")
+    if position is not None and int(shape[position]) > 1:
+        length = int(shape[position])
+        raise ZStackNotSupportedError(
+            f"{what} has {length} Z planes, but CellPatcher works on 2-D planes only, whatever z_policy says. "
+            "A Z projection must be done as a recorded projection step in morphobricks-preprocessing "
+            "before patching.",
+            axis="Z",
+            length=length,
+        )
+
+
+def refuse_unsupported_inputs(image_axes: str, mask_axes: str | None, images: object, masks: object) -> None:
+    """Refuse in-memory images and masks with X before Y, or with more than one Z plane (issue #83).
+
+    Parameters
+    ----------
+    image_axes, mask_axes
+        ``common.image_axes`` and ``common.mask_axes``.
+    images, masks
+        The in-memory images and masks (a single array or a list/tuple); each one given is checked.
+
+    Raises
+    ------
+    ValueError
+        From :func:`refuse_transposed_inputs`.
+    ZStackNotSupportedError
+        If an image or mask has more than one Z plane, whatever ``z_policy`` says.
+    """
+    refuse_transposed_inputs(image_axes, mask_axes, images, masks)
+    for array, array_axes, what in ((images, image_axes, "The image"), (masks, mask_axes, "The mask")):
+        if array is not None:
+            for one in array if isinstance(array, (list, tuple)) else [array]:
+                if one is not None:  # a missing mask is refused where it is needed
+                    refuse_z_stack(one.shape, array_axes, what)
