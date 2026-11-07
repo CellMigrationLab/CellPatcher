@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 
 from cellpatcher import CellConfig, CellPatcherConfig, CommonConfig, run_patching
+from cellpatcher.axes import refuse_z_stack
 from cellpatcher.errors import ZStackNotSupportedError
 from cellpatcher.preprocess import (
     PreparedPlane,
@@ -16,11 +17,26 @@ from cellpatcher.preprocess import (
 )
 
 
-def test_select_axis_index_zyx_select_z():
+def test_select_axis_index_refuses_several_z_planes():
+    # Issue #83 / K1: the public helper is as strict as every other in-memory route.
     arr = np.zeros((3, 4, 5))
-    out, ax = select_axis_index(arr, "ZYX", "Z", 1)
-    assert out.shape == (4, 5)
-    assert ax == "YX"
+    with pytest.raises(ZStackNotSupportedError) as helper:
+        select_axis_index(arr, "ZYX", "Z", 1)
+    with pytest.raises(ZStackNotSupportedError) as guard:
+        refuse_z_stack(arr.shape, "ZYX")
+    assert str(helper.value) == str(guard.value) and "has 3 Z planes" in str(helper.value)
+    assert helper.value.axis == "Z" and helper.value.length == 3
+    with pytest.raises(ZStackNotSupportedError):  # also when another axis is the one selected
+        select_axis_index(np.zeros((2, 3, 4, 5)), "TZYX", "T", 0)
+
+
+def test_select_axis_index_keeps_working_without_several_z_planes():
+    out, ax = select_axis_index(np.arange(12).reshape(1, 3, 4), "ZYX", "Z", 0)
+    assert ax == "YX" and np.array_equal(out, np.arange(12).reshape(3, 4))
+    out, ax = select_axis_index(np.zeros((2, 4, 5)), "TYX", "T", 1)  # no Z axis
+    assert out.shape == (4, 5) and ax == "YX"
+    out, ax = select_axis_index(np.zeros((3, 1, 4, 5)), "TZYX", "T", 2)  # T selected, one Z plane
+    assert out.shape == (1, 4, 5) and ax == "ZYX"
 
 
 def test_select_axis_index_cyx_select_c():
@@ -49,9 +65,8 @@ def test_select_axis_index_out_of_range_raises():
 
 def test_project_axis_zyx_methods():
     # Issue #83: a Z projection combines nothing; it only passes one plane (below) or refuses (next test).
-    arr = np.arange(24).reshape(2, 3, 4)
-    out_first, ax_first = project_axis(arr, "ZYX", "Z", "first")
-    assert ax_first == "YX" and np.allclose(out_first, arr[0])
+    one_first, ax_first = project_axis(np.arange(12).reshape(1, 3, 4), "ZYX", "Z", "first")
+    assert ax_first == "YX" and np.array_equal(one_first, np.arange(12).reshape(3, 4))
     one = np.arange(12, dtype=np.uint16).reshape(1, 3, 4)
     for method, reduce in (("max", np.max), ("mean", np.mean), ("sum", np.sum)):
         out, axes = project_axis(one, "ZYX", "Z", method)
@@ -61,9 +76,22 @@ def test_project_axis_zyx_methods():
 
 
 def test_project_axis_refuses_a_z_projection_of_several_planes():
-    for method in ("max", "mean", "sum"):
+    for method in ("first", "max", "mean", "sum"):
         with pytest.raises(ZStackNotSupportedError, match="recorded projection step in morphobricks-preprocessing"):
             project_axis(np.zeros((2, 3, 4)), "ZYX", "Z", method)
+
+
+def test_project_axis_refuses_first_of_several_z_planes_with_the_guards_message():
+    arr = np.arange(24).reshape(2, 3, 4)
+    with pytest.raises(ZStackNotSupportedError) as helper:
+        project_axis(arr, "ZYX", "Z", "first")
+    with pytest.raises(ZStackNotSupportedError) as guard:
+        refuse_z_stack(arr.shape, "ZYX")
+    assert str(helper.value) == str(guard.value) and helper.value.length == 2
+    with pytest.raises(ZStackNotSupportedError):  # a C projection of an array that has several Z planes
+        project_axis(np.zeros((2, 3, 4, 5)), "CZYX", "C", "max")
+    out, axes = project_axis(np.ones((2, 1, 4, 5)), "CZYX", "C", "max")  # one Z plane: as before
+    assert out.shape == (1, 4, 5) and axes == "ZYX"
 
 
 def test_project_axis_cyx_mean_over_c():

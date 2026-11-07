@@ -2,7 +2,7 @@
 
 > See also: [Docs map](README.md) · [Quick start](quick_start.md) · [Patching modes](patching_modes.md) · [API examples](api_examples.md) · [Preprocessing](preprocessing.md) · [Config reference](configuration_reference.md)
 
-CellPatcher generates 2D Y/X patch regions. If your image has Z or T axes, choose your lane up front: select/project a single 2D plane before patching, or expand the stack into multiple 2D planes and run the same patching mode on each plane.
+CellPatcher generates 2D Y/X patch regions. CellPatcher works on 2-D planes only: an image or mask with more than one Z plane is refused (issue #83), by every in-memory helper below too (`select_axis_index` and `project_axis` included). Reduce a Z stack to one plane in a [recorded projection step of morphobricks-preprocessing](https://github.com/CellMigrationLab/morphobricks-preprocessing/issues/176) first. A time series (T axis) can be selected from, or expanded into one 2D plane per frame, and the same patching mode runs on each plane.
 
 **In folder and tree runs** (and `run_patching`), set `config.common.z_policy`/`t_policy` instead of preparing the arrays yourself: `"all"` patches every plane, `"first"`/`"select"` one plane (`"max"`/`"mean"`/`"sum"` accept an image with no Z axis or one Z plane and refuse more: CellPatcher combines no planes, a Z projection is a recorded projection step in morphobricks-preprocessing, issue #83); the default `"keep"` keeps every plane in each patch. Masks follow the image's planes or are shared (see the [config reference](configuration_reference.md#commonconfig)). The helpers below stay available for in-memory workflows.
 
@@ -19,9 +19,9 @@ CellPatcher generates 2D Y/X patch regions. If your image has Z or T axes, choos
 |---|---|---|
 | 2D `YX` image | Use directly | Already compatible |
 | Z stack, one projected image wanted | A recorded projection step in morphobricks-preprocessing, then patch the 2-D result | CellPatcher combines no Z planes (issue #83) |
-| Z stack, patch every slice | `iter_image_planes_for_patching(..., z_policy="all")` | One 2D workflow per slice |
+| Time series, patch every frame | `iter_image_planes_for_patching(..., t_policy="all")` | One 2D workflow per frame (a Z stack is refused, issue #83) |
 | Multichannel image, keep all channels | Use `image_axes="CYX"` or `"YXC"` | Preserves channel data |
-| Label stack | `prepare_labels_for_cell_patching(..., z_policy="select")` | Labels must resolve to one `YX` plane |
+| Label time series | `prepare_labels_for_cell_patching(..., t_policy="select", t_index=0)` | Labels must resolve to one `YX` plane (more than one Z plane is refused) |
 | DINO-like RGB input | `prepare_image_for_patching(..., channel_policy="repeat_to_rgb")` | Explicit model-facing prep |
 
 ## Image preparation helpers
@@ -69,7 +69,7 @@ a recorded step of morphobricks-preprocessing first.
 CellPatcher currently does **not** generate volumetric 3D patches.
 If you process stacks, helpers produce a sequence of 2D planes, and each plane goes through the normal 2D patching workflow.
 
-## Example: patch every Z slice (grid mode)
+## Example: patch every T frame (grid mode)
 
 ```python
 from cellpatcher import (
@@ -80,7 +80,7 @@ from cellpatcher import (
     run_patching,
 )
 
-planes = list(iter_image_planes_for_patching(image, "ZYX", z_policy="all"))
+planes = list(iter_image_planes_for_patching(image, "TYX", t_policy="all"))
 images = [p.array for p in planes]
 
 config = CellPatcherConfig(mode="grid")
@@ -90,7 +90,7 @@ config.grid = GridConfig(tile_size=128)
 result = run_patching(images=images, config=config, image_metadata=[{**p.metadata, "position_id": "fov1"} for p in planes])
 ```
 
-## Example: cell mode over matched Z planes
+## Example: cell mode over matched T frames
 
 ```python
 from cellpatcher import (
@@ -103,10 +103,10 @@ from cellpatcher import (
 
 pairs = list(iter_cell_planes_for_patching(
     image,
-    "ZYX",
+    "TYX",
     labels,
-    "ZYX",
-    z_policy="all",
+    "TYX",
+    t_policy="all",
 ))
 
 images = [p.image for p in pairs]
@@ -133,11 +133,11 @@ matching `PatchRegion`'s `t`/`z0`/`z1`/`c` fields automatically — and therefor
 since `patches.csv` is written from those same `PatchRegion` objects.
 
 ```python
-pairs = list(iter_cell_planes_for_patching(image, "ZYX", labels, "ZYX", z_policy="all"))
+pairs = list(iter_cell_planes_for_patching(image, "TYX", labels, "TYX", t_policy="all"))
 
 images = [p.image for p in pairs]
 labels_2d = [p.labels for p in pairs]
-image_metadata = [p.metadata for p in pairs]  # each dict has "t"/"z" keys as applicable
+image_metadata = [p.metadata for p in pairs]  # each dict has a "t" key (and "z" when the image has a Z axis of one plane)
 
 result = run_patching(images=images, masks=labels_2d, config=config, image_metadata=image_metadata)
 

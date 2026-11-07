@@ -178,19 +178,20 @@ Patching modes are 2D Y/X; for C/Z/T data, see `preprocessing.md`.
 ```python
 from cellpatcher import prepare_image_for_patching, prepare_labels_for_cell_patching
 
-# A Z projection is a recorded step of morphobricks-preprocessing (issue #83); here one plane is chosen.
+# An image with more than one Z plane is refused (issue #83): a Z projection is a recorded step of
+# morphobricks-preprocessing. Here one frame of a time series is chosen.
 image_yx, image_axes = prepare_image_for_patching(
-    image_zstack,
-    "ZYX",
-    z_policy="select",
-    z_index=0,
+    image_series,
+    "TYX",
+    t_policy="select",
+    t_index=0,
 )
 
 labels_yx, mask_axes = prepare_labels_for_cell_patching(
-    labels_zstack,
-    "ZYX",
-    z_policy="select",
-    z_index=0,
+    labels_series,
+    "TYX",
+    t_policy="select",
+    t_index=0,
 )
 ```
 
@@ -206,11 +207,11 @@ image_rgb, image_axes = prepare_image_for_patching(
 
 This pattern is handy for DINO-style model inputs, while CellPatcher itself still does not run DINO/Torch inference.
 
-## Patching every Z slice or T frame
+## Patching every T frame
 
-Use this when you want to run standard 2D patching on every Z slice or T frame.
+Use this when you want to run standard 2D patching on every T frame. An image with more than one Z plane is refused (issue #83).
 
-`cell`, `grid`, `random`, and `whole_fov` are still Y/X patching modes. If you want every Z slice or T frame, first expand data into prepared 2D planes with iterators.
+`cell`, `grid`, `random`, and `whole_fov` are still Y/X patching modes. If you want every T frame, first expand data into prepared 2D planes with iterators.
 
 Use:
 - `iter_image_planes_for_patching`
@@ -229,7 +230,7 @@ from cellpatcher import (
     run_patching,
 )
 
-planes = list(iter_image_planes_for_patching(image, "ZYX", z_policy="all"))
+planes = list(iter_image_planes_for_patching(image, "TYX", t_policy="all"))
 images = [p.array for p in planes]
 
 config = CellPatcherConfig(mode="grid")
@@ -250,10 +251,10 @@ from cellpatcher import (
 
 pairs = list(iter_cell_planes_for_patching(
     image,
-    "ZYX",
+    "TYX",
     labels,
-    "ZYX",
-    z_policy="all",
+    "TYX",
+    t_policy="all",
 ))
 
 images = [p.image for p in pairs]
@@ -278,7 +279,7 @@ Torch integration is optional. CellPatcher does not run DINO/Torch inference in 
 - `scale_policy="auto"` divides an integer patch by its dtype maximum (the default before v0.2.0); it does not percentile-normalize or ImageNet-normalize data. It is **deprecated**: it warns when it rescales (`ScalePolicyDeprecationWarning`, shown under Python's default filters), and each item records the divisor (`scale_divisor`, 1.0 when unscaled)
 - `channel_policy` defaults to `"keep"`, the channels as exported; `"repeat_to_rgb"` (the default before v0.2.0) repeats a single channel to three for RGB models, and each item records it (`channel_repeat`: 3 when repeated, else 1)
 - Use your own transform for ImageNet/DINO normalization
-- For non-singleton Z/T, preprocess first with `prepare_image_for_patching(...)`, `iter_image_planes_for_patching(...)`, or `iter_cell_planes_for_patching(...)`
+- For a non-singleton T (a Z stack is refused, issue #83), preprocess first with `prepare_image_for_patching(...)`, `iter_image_planes_for_patching(...)`, or `iter_cell_planes_for_patching(...)`
 - Keep `extra_metadata_by_image_id` values DataLoader-collate-friendly (for example strings, numbers, lists, or small dictionaries)
 
 ```python
@@ -307,7 +308,7 @@ loader = DataLoader(dataset, batch_size=64)
 ```python
 from cellpatcher import iter_image_planes_for_patching
 
-planes = list(iter_image_planes_for_patching(image, "ZYX", z_policy="all"))
+planes = list(iter_image_planes_for_patching(image, "TYX", t_policy="all"))
 images = [p.array for p in planes]
 plane_lookup = {
     f"image_{i:04d}": {"plane_id": p.plane_id, **p.metadata}

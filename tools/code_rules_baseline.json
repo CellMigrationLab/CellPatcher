@@ -375,7 +375,6 @@
     "src/cellpatcher/preprocess.py repeat_to_rgb: # Ruff findings undocumented-public-function": 1,
     "src/cellpatcher/preprocess.py select_axis_index: # Ruff findings missing-return-type-undocumented-public-function": 1,
     "src/cellpatcher/preprocess.py select_axis_index: # Ruff findings missing-type-function-argument": 4,
-    "src/cellpatcher/preprocess.py select_axis_index: # Ruff findings undocumented-public-function": 1,
     "src/cellpatcher/resize.py <module>: # Ruff findings missing-required-import": 1,
     "src/cellpatcher/resize.py <module>: # Ruff findings undocumented-public-module": 1,
     "src/cellpatcher/resize.py _resize_nearest_fallback: # Ruff findings missing-return-type-private-function": 1,

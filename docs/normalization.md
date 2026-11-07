@@ -49,7 +49,7 @@ config = CellPatcherConfig(mode="grid")
 config.grid.tile_size = 128
 # The preprocessing run: every image is read through it, in the roles it recorded (no axes here).
 config.common.preprocessing_run = "./experiment_MorphoBricks_Preprocessing"
-config.common.z_policy = "all"          # one patch per Z plane (needed for stacks)
+config.common.t_policy = "all"          # one patch per T frame (needed for time series)
 config.common.output_dir = "./patches"
 config.export.enabled = True
 config.normalization = NormalizationConfig(
@@ -125,10 +125,9 @@ channels never share parameters (except the three channels of an RGB image).
 ## Stacks, channels and OME-Zarr images
 
 - **Z-stacks and time series:** normalization needs one plane per patch. A file run never has Z>1
-  (preprocessing v0.4.0 refuses it, `docs/preprocessing.md`); the `z_policy` options below matter
-  only for in-memory arrays. Set
+  (preprocessing v0.4.0 refuses it, `docs/preprocessing.md`); an in-memory array with Z>1 is refused too. Set
   `common.z_policy`/`t_policy` to `"all"` (one patch per plane), `"first"` or `"select"`;
-  `"keep"` and Z projections stop the run. Each Z slice is its own plane.
+  `"keep"` and Z projections stop the run. Each T frame is its own plane; a Z stack is refused (issue #83).
 - **Channels** may be kept together in one patch (each channel gets its own parameters, listed
   in channel order) or split with `extraction.split_channels=True`, or `[i, ...]` for only the
   selected channels. A single-channel patch keeps the parameters of its channel in the image's

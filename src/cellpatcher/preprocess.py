@@ -25,8 +25,19 @@ class PreparedPlanePair:
 
 
 def select_axis_index(array, axes, axis, index):
+    """Take plane *index* of *axis* out of *array*, returning ``(plane, axes)``.
+
+    An array with more than one Z plane is refused whichever axis is selected (issue #83): pick the
+    plane in a recorded projection step of morphobricks-preprocessing before patching.
+
+    Raises
+    ------
+    ZStackNotSupportedError
+        If the Z axis of *axes* has more than one plane in *array*.
+    """
     arr = np.asarray(array)
     normalized_axes = normalize_axes(axes, arr.ndim)
+    refuse_z_stack(arr.shape, normalized_axes)
     axis = str(axis).upper()
     idx = axis_index(normalized_axes, axis)
     if idx is None:
@@ -69,11 +80,13 @@ def _single_z_plane(arr: np.ndarray, idx: int, method: str) -> np.ndarray:
 def project_axis(array, axes, axis, method):
     """Take *axis* out of *array*: ``"first"`` plane, or ``"max"``/``"mean"``/``"sum"`` over a C or T axis.
 
-    A Z axis is never projected here (issue #83): with one plane the projection names return it
-    unchanged, with more they raise :class:`~cellpatcher.errors.ZStackNotSupportedError`.
+    An array with more than one Z plane is refused whichever axis is projected (issue #83): with
+    one Z plane the projection names return it unchanged, with more they raise
+    :class:`~cellpatcher.errors.ZStackNotSupportedError`.
     """
     arr = np.asarray(array)
     normalized_axes = normalize_axes(axes, arr.ndim)
+    refuse_z_stack(arr.shape, normalized_axes)
     axis = str(axis).upper()
     idx = axis_index(normalized_axes, axis)
     if idx is None:
@@ -81,8 +94,6 @@ def project_axis(array, axes, axis, method):
 
     method = str(method).lower()
     if axis == "Z" and method in {"max", "mean", "sum"}:
-        if arr.shape[idx] > 1:
-            raise z_projection_refusal(method, arr.shape[idx])
         return _single_z_plane(arr, idx, method), normalized_axes[:idx] + normalized_axes[idx + 1 :]
     if method == "first":
         out = np.take(arr, 0, axis=idx)
