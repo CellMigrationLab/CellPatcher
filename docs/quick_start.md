@@ -54,10 +54,12 @@ Patching modes work on 2D Y/X arrays. If your data has Z, T, or C axes, resolve 
 | `ZYX` stack | Single projected plane | A recorded projection step in morphobricks-preprocessing (CellPatcher combines no Z planes, issue #83) | `YX` image to patch |
 | `ZYX` stack | One run per Z slice | `iter_image_planes_for_patching(image, "ZYX", z_policy="all")` | Sequence of `YX` arrays |
 | `ZYX` image + `ZYX` labels (cell mode) | Patch every Z slice with matched labels | `iter_cell_planes_for_patching(image, "ZYX", labels, "ZYX", z_policy="all")` | Sequence of matched 2D pairs |
-| `ZYX` image + `YX` labels (cell mode) | Reduce image Z, keep 2D labels | `iter_cell_planes_for_patching(image, "ZYX", labels, "YX", z_policy="select"/"first"/"max")` | Single 2D pair |
+| `ZYX` image + `YX` labels (cell mode) | Reduce image Z, keep 2D labels | `iter_cell_planes_for_patching(image, "ZYX", labels, "YX", z_policy="select"/"first")` | Single 2D pair |
 | `CZYX` image + `ZYX` labels (cell mode) | Expand Z, preserve channels | `iter_cell_planes_for_patching(image, "CZYX", labels, "ZYX", z_policy="all")` | Sequence of `CYX`/`YX` pairs |
 | `TCZYX` image + `TZYX` labels (cell mode) | Expand T and Z | `iter_cell_planes_for_patching(image, "TCZYX", labels, "TZYX", t_policy="all", z_policy="all")` | Sequence of matched pairs |
 | Any layout without labels (`random`, `grid`, `whole_fov`) | Selecting one plane or per-slice expansion | `prepare_image_for_patching(...)` to select; `iter_image_planes_for_patching(...)` for per-slice | `YX` array or sequence of `YX` arrays |
+
+> **Z projection:** `z_policy="max"` (also `"mean"` and `"sum"`) is accepted only when Z is absent or has a single plane, which is returned unchanged; a real Z stack raises `ZStackNotSupportedError` (issue #83). To reduce a stack to one plane, use a recorded projection step in [morphobricks-preprocessing](https://github.com/CellMigrationLab/morphobricks-preprocessing/issues/176), or `select`/`first`. For an integer Z=1 image, `mean` and `sum` keep the output dtype of the earlier projection (`mean` is float64, `sum` the numpy accumulator type), so results stay bitwise identical to before; the source dtype is not kept.
 
 > **Principle:** CellPatcher never silently projects Z/T axes, merges channels, or normalizes intensities. All preprocessing is explicit.
 

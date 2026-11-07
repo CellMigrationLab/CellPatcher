@@ -271,8 +271,12 @@ def prepare_labels_for_cell_patching(
     """Prepare labels for cell patching to a single YX plane.
 
     Notes:
-        z_policy='max' may be useful for non-overlapping labels across Z, but is
-        not always biologically safe and should be used explicitly.
+        z_policy='max' (and 'mean'/'sum') is accepted only when Z is absent or has one
+        plane, which is returned unchanged; a Z stack with more than one plane raises
+        ZStackNotSupportedError (issue #83). Project a stack as a recorded step in
+        morphobricks-preprocessing before patching
+        (https://github.com/CellMigrationLab/morphobricks-preprocessing/issues/176), or
+        use z_policy='select', 'first' or 'all'.
     """
     arr = np.asarray(labels)
     ax = normalize_axes(axes, arr.ndim)
