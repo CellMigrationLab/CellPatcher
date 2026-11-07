@@ -41,8 +41,8 @@ guide [normalization.md](normalization.md).
 
 The statistics themselves (histograms, pooling, the four methods) follow the preprocessing
 brick's
-[contract](https://github.com/CellMigrationLab/morphobricks-preprocessing/blob/main/docs/contract.md)
-§4, §6 and §7, and are computed by its package, never reimplemented here.
+[contract](https://github.com/CellMigrationLab/morphobricks-normalization/blob/main/docs/contract.md)
+§1.2.2, §1.2.3 and §1.2.4 (the preprocessing contract's §3-§7 only point to it), and are computed by its package, never reimplemented here.
 
 ## 1. Dependency
 
@@ -215,7 +215,7 @@ parameters, always per channel.
 - All CSV rows of the group are pooled, including planes of the same images that were not
   patched (for example Z slices without cells).
 - A group with no finite pixels, or whose parameters have zero or non-finite scale, is an
-  error (preprocessing contract §7).
+  error (normalization contract §1.2.4).
 
 ## 8. Patch scope
 

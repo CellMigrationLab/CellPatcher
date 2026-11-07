@@ -27,7 +27,7 @@ other bricks, is in the [CHANGELOG](notebooks/CellPatcher/CHANGELOG.md) (v0.2.0r
   `image_metadata=[{"position_id": ...}]` (or an `image_file`); unnamed images are refused.
 - Cell-mode masks are instance labels used as given; boolean masks are refused unless you opt in to
   connected-component labelling (`CellConfig.binary_mask_policy="connected_components"`).
-- Reads TIFF and OME-Zarr images (those the preprocessing run accepted), patches Z-stacks and time series plane by plane, and optionally normalizes
+- Reads TIFF and OME-Zarr images (those the preprocessing run accepted), patches time series plane by plane (Z-stacks must be projected in preprocessing first), and optionally normalizes
   patches with the MorphoBricks preprocessing statistics (`config.normalization`, see `docs/normalization.md`).
 
 ## Patching modes at a glance

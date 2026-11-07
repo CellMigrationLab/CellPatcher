@@ -124,7 +124,9 @@ channels never share parameters (except the three channels of an RGB image).
 
 ## Stacks, channels and OME-Zarr images
 
-- **Z-stacks and time series:** normalization needs one plane per patch. Set
+- **Z-stacks and time series:** normalization needs one plane per patch. A file run never has Z>1
+  (preprocessing v0.4.0 refuses it, `docs/preprocessing.md`); the `z_policy` options below matter
+  only for in-memory arrays. Set
   `common.z_policy`/`t_policy` to `"all"` (one patch per plane), `"first"` or `"select"`;
   `"keep"` and Z projections stop the run. Each Z slice is its own plane.
 - **Channels** may be kept together in one patch (each channel gets its own parameters, listed
