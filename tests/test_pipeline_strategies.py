@@ -713,7 +713,7 @@ def test_pipeline_whole_fov_multi_image_one_patch_each():
 def test_pipeline_whole_fov_zyx_axes():
     cfg = CellPatcherConfig(mode="whole_fov")
     cfg.common.image_axes = "ZYX"
-    image = np.zeros((3, 10, 20))
+    image = np.zeros((1, 10, 20))  # one Z plane: a depth stack is refused (#83)
     result = run_patching(images=image, config=cfg, image_metadata=named(image))
     assert len(result.patches) == 1
     patch = result.patches[0]

@@ -14,8 +14,9 @@
 A mask follows the image's planes along an axis it has with the same length,
 and is shared by every plane when it lacks the axis or has length 1 (the rule
 of ``docs/normalization_contract.md`` §4 for OME-NGFF labels, applied to every
-mask). A file run's images have at most one Z plane (preprocessing v0.4.0); Z policies stay for
-in-memory images, which may still have a Z axis.
+mask). Images have at most one Z plane, in memory as in a file run (preprocessing v0.4.0 for
+files, :func:`cellpatcher.axes.refuse_z_stack` for arrays): more raise
+:class:`cellpatcher.errors.ZStackNotSupportedError` under every ``z_policy``.
 
 Images in memory are split with :func:`iter_image_planes`; the images of a file run are read
 plane by plane through the preprocessing run (:mod:`cellpatcher.run_reading`).
@@ -29,7 +30,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from cellpatcher.axes import axis_index, normalize_axes
+from cellpatcher.axes import axis_index, normalize_axes, refuse_z_stack
 from cellpatcher.preprocess import project_axis, select_axis_index, z_projection_refusal
 
 Z_POLICIES = ("keep", "all", "first", "select", "max", "mean", "sum")
@@ -123,12 +124,14 @@ def plane_choices(image_shape, image_axes, mask_shape, mask_axes, common, *, sin
         If an index is outside the image, a mask's Z or T length is neither
         the image's nor 1, or *single_planes* refuses a policy.
     ZStackNotSupportedError
-        If a Z projection meets an image with more than one Z plane.
+        If the image or a mask has more than one Z plane, whatever ``z_policy`` says (issue #83).
     """
     validate_plane_policies(common)
     image_axes = normalize_axes(image_axes, len(image_shape))
+    refuse_z_stack(image_shape, image_axes)
     if mask_shape is not None:
         mask_axes = normalize_axes(mask_axes, len(mask_shape))
+        refuse_z_stack(mask_shape, mask_axes, "The mask")
     choices = []
     for axis in ("T", "Z"):
         policy = getattr(common, f"{axis.lower()}_policy")

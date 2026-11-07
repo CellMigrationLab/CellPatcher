@@ -265,7 +265,7 @@ def test_malformed_fraction_masks_are_refused(fraction_masks, message):
 
 
 def test_fraction_masks_are_refused_when_planes_are_split():
-    config = CellPatcherConfig(mode="grid", common=CommonConfig(image_axes="ZYX", z_policy="all"))
+    config = CellPatcherConfig(mode="grid", common=CommonConfig(image_axes="TYX", t_policy="all"))
     with pytest.raises(ValueError, match="split planes"):
         run_patching(
             images=[np.zeros((2, 20, 20))], config=config, image_metadata=[{"position_id": "p"}],

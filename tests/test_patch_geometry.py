@@ -122,14 +122,14 @@ def test_split_channel_patches_have_no_channel_axis():
 
 
 @pytest.mark.parametrize(
-    "z_policy, z_index, expected_axes",
-    [("keep", None, "ZCYX"), ("select", 1, "CYX"), ("all", None, "CYX")],
+    "t_policy, t_index, expected_axes",
+    [("keep", None, "TCYX"), ("select", 1, "CYX"), ("all", None, "CYX")],
 )
-def test_output_axes_follow_the_plane_policy(z_policy, z_index, expected_axes):
-    stack = np.stack([_stack(), _stack() + 1])  # ZCYX
+def test_output_axes_follow_the_plane_policy(t_policy, t_index, expected_axes):
+    stack = np.stack([_stack(), _stack() + 1])  # TCYX
     config = CellPatcherConfig(
         mode="grid",
-        common=CommonConfig(image_axes="ZCYX", extract_arrays=True, z_policy=z_policy, z_index=z_index),
+        common=CommonConfig(image_axes="TCYX", extract_arrays=True, t_policy=t_policy, t_index=t_index),
         grid=GridConfig(tile_size=16),
     )
     result = run_patching(images=[stack], config=config, image_metadata=named([stack]))
