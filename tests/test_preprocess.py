@@ -120,11 +120,12 @@ def test_prepare_image_for_patching_core_behaviors():
     for policy in ("max", "mean", "sum"):  # a projection of one plane is that plane (issue #83)
         out, ax = prepare_image_for_patching(np.arange(6 * 7).reshape(1, 6, 7), "ZYX", z_policy=policy)
         assert out.shape == (6, 7) and ax == "YX"
-        with pytest.raises(ZStackNotSupportedError, match="would combine 2 Z planes"):
+        with pytest.raises(ZStackNotSupportedError, match="has 2 Z planes"):
             prepare_image_for_patching(np.arange(2 * 6 * 7).reshape(2, 6, 7), "ZYX", z_policy=policy)
 
-    out, ax = prepare_image_for_patching(np.zeros((3, 6, 7)), "ZYX", z_policy="select", z_index=1)
-    assert out.shape == (6, 7) and ax == "YX"
+    # A depth stack is refused under every policy, "select" included (issue #83).
+    with pytest.raises(ZStackNotSupportedError, match="has 3 Z planes"):
+        prepare_image_for_patching(np.zeros((3, 6, 7)), "ZYX", z_policy="select", z_index=1)
 
     out, ax = prepare_image_for_patching(np.zeros((1, 6, 7)), "ZYX")
     assert out.shape == (6, 7) and ax == "YX"
@@ -134,7 +135,7 @@ def test_prepare_image_for_patching_t_and_c_behaviors():
     with pytest.raises(ValueError):
         prepare_image_for_patching(np.zeros((2, 3, 6, 7)), "TZYX")
 
-    out, ax = prepare_image_for_patching(np.zeros((1, 3, 6, 7)), "TZYX", z_policy="first")
+    out, ax = prepare_image_for_patching(np.zeros((1, 1, 6, 7)), "TZYX", z_policy="first")
     assert out.shape == (6, 7) and ax == "YX"
 
     out, ax = prepare_image_for_patching(np.zeros((2, 4, 1, 6, 7)), "TCZYX", t_policy="select", t_index=0, z_policy="max")
@@ -196,12 +197,12 @@ def test_prepare_labels_for_cell_patching_behaviors():
     with pytest.raises(ValueError):
         prepare_labels_for_cell_patching(np.zeros((2, 4, 5), dtype=np.int32), "ZYX")
 
-    out, ax = prepare_labels_for_cell_patching(np.zeros((2, 4, 5), dtype=np.int32), "ZYX", z_policy="select", z_index=1)
-    assert out.shape == (4, 5) and ax == "YX"
+    with pytest.raises(ZStackNotSupportedError, match="has 2 Z planes"):  # whatever the policy (issue #83)
+        prepare_labels_for_cell_patching(np.zeros((2, 4, 5), dtype=np.int32), "ZYX", z_policy="select", z_index=1)
 
     out, ax = prepare_labels_for_cell_patching(np.zeros((1, 4, 5), dtype=np.int32), "ZYX", z_policy="max")
     assert out.shape == (4, 5) and ax == "YX"
-    with pytest.raises(ZStackNotSupportedError, match="would combine 2 Z planes"):
+    with pytest.raises(ZStackNotSupportedError, match="has 2 Z planes"):
         prepare_labels_for_cell_patching(np.zeros((2, 4, 5), dtype=np.int32), "ZYX", z_policy="max")
 
     out, ax = prepare_labels_for_cell_patching(np.zeros((1, 1, 4, 5), dtype=np.int32), "TZYX")
@@ -234,26 +235,23 @@ def test_iter_image_planes_yx_single_plane_id():
 
 
 def test_iter_image_planes_all_variants_and_order():
-    z_planes = list(iter_image_planes_for_patching(np.zeros((3, 5, 6)), "ZYX", z_policy="all"))
-    assert len(z_planes) == 3
-    assert [p.metadata for p in z_planes] == [{"z": 0}, {"z": 1}, {"z": 2}]
+    z_planes = list(iter_image_planes_for_patching(np.zeros((1, 5, 6)), "ZYX", z_policy="all"))
+    assert [p.metadata for p in z_planes] == [{"z": 0}]  # one Z plane at most (issue #83)
 
     t_planes = list(iter_image_planes_for_patching(np.zeros((2, 5, 6)), "TYX", t_policy="all"))
     assert len(t_planes) == 2
     assert [p.metadata for p in t_planes] == [{"t": 0}, {"t": 1}]
 
-    tz = list(iter_image_planes_for_patching(np.zeros((2, 3, 5, 6)), "TZYX", t_policy="all", z_policy="all"))
-    assert len(tz) == 6
-    assert [p.plane_id for p in tz][:3] == ["t000_z000", "t000_z001", "t000_z002"]
-    assert [p.plane_id for p in tz][3:] == ["t001_z000", "t001_z001", "t001_z002"]
+    tz = list(iter_image_planes_for_patching(np.zeros((2, 1, 5, 6)), "TZYX", t_policy="all", z_policy="all"))
+    assert [p.plane_id for p in tz] == ["t000_z000", "t001_z000"]
 
 
 def test_iter_image_planes_projection_and_channels_and_errors():
     planes = list(iter_image_planes_for_patching(np.zeros((2, 1, 5, 6)), "TZYX", t_policy="all", z_policy="max"))
     assert len(planes) == 2 and all(p.axes == "YX" for p in planes)
 
-    planes = list(iter_image_planes_for_patching(np.zeros((4, 3, 5, 6)), "CZYX", z_policy="all", channel_policy="keep"))
-    assert len(planes) == 3 and all(p.axes == "CYX" for p in planes)
+    planes = list(iter_image_planes_for_patching(np.zeros((4, 1, 5, 6)), "CZYX", z_policy="all", channel_policy="keep"))
+    assert len(planes) == 1 and all(p.axes == "CYX" for p in planes)
 
     planes = list(iter_image_planes_for_patching(np.zeros((5, 6)), "YX", channel_policy="repeat_to_rgb"))
     assert planes[0].axes == "YXC"
@@ -267,37 +265,35 @@ def test_iter_image_planes_projection_and_channels_and_errors():
 
 
 def test_iter_cell_planes_all_and_axes_and_errors():
-    pairs = list(iter_cell_planes_for_patching(np.zeros((2, 5, 6)), "ZYX", np.zeros((2, 5, 6), dtype=int), "ZYX", z_policy="all"))
-    assert len(pairs) == 2
+    pairs = list(iter_cell_planes_for_patching(np.zeros((1, 5, 6)), "ZYX", np.zeros((1, 5, 6), dtype=int), "ZYX", z_policy="all"))
+    assert len(pairs) == 1  # one Z plane at most (issue #83)
     assert isinstance(pairs[0], PreparedPlanePair)
 
     pairs = list(iter_cell_planes_for_patching(
-        np.zeros((2, 3, 5, 6)), "TZYX", np.zeros((2, 3, 5, 6), dtype=int), "TZYX", t_policy="all", z_policy="all"
+        np.zeros((2, 1, 5, 6)), "TZYX", np.zeros((2, 1, 5, 6), dtype=int), "TZYX", t_policy="all", z_policy="all"
     ))
-    assert len(pairs) == 6
-    assert pairs[0].plane_id == "t000_z000"
-    assert pairs[-1].plane_id == "t001_z002"
+    assert [p.plane_id for p in pairs] == ["t000_z000", "t001_z000"]
 
     pairs = list(iter_cell_planes_for_patching(
-        np.zeros((4, 3, 5, 6)), "CZYX", np.zeros((3, 5, 6), dtype=int), "ZYX", z_policy="all", image_channel_policy="keep"
+        np.zeros((4, 1, 5, 6)), "CZYX", np.zeros((1, 5, 6), dtype=int), "ZYX", z_policy="all", image_channel_policy="keep"
     ))
     assert all(p.image_axes == "CYX" and p.label_axes == "YX" for p in pairs)
 
     with pytest.raises(ValueError, match="z_policy='all' requires both image and labels to contain a Z axis"):
         list(iter_cell_planes_for_patching(np.zeros((2, 5, 6)), "ZYX", np.zeros((2, 5, 6), dtype=int), "CYX", z_policy="all"))
     with pytest.raises(ValueError, match="Z sizes must match"):
-        list(iter_cell_planes_for_patching(np.zeros((2, 5, 6)), "ZYX", np.zeros((3, 5, 6), dtype=int), "ZYX", z_policy="all"))
+        list(iter_cell_planes_for_patching(np.zeros((1, 5, 6)), "ZYX", np.zeros((3, 5, 6), dtype=int), "ZYX", z_policy="all"))
     with pytest.raises(ValueError, match="T sizes must match"):
-        list(iter_cell_planes_for_patching(np.zeros((2, 3, 5, 6)), "TZYX", np.zeros((3, 3, 5, 6), dtype=int), "TZYX", t_policy="all", z_policy="all"))
+        list(iter_cell_planes_for_patching(np.zeros((2, 1, 5, 6)), "TZYX", np.zeros((3, 1, 5, 6), dtype=int), "TZYX", t_policy="all", z_policy="all"))
     with pytest.raises(ValueError, match="Spatial shape mismatch"):
-        list(iter_cell_planes_for_patching(np.zeros((2, 5, 6)), "ZYX", np.zeros((2, 4, 6), dtype=int), "ZYX", z_policy="all"))
+        list(iter_cell_planes_for_patching(np.zeros((1, 5, 6)), "ZYX", np.zeros((1, 4, 6), dtype=int), "ZYX", z_policy="all"))
 
 
 def test_iter_cell_planes_integration_run_patching_cell_mode():
     image = np.zeros((2, 16, 16), dtype=np.uint16)
     labels = np.zeros((2, 16, 16), dtype=np.uint16)
     labels[:, 4:8, 4:8] = 1
-    pairs = list(iter_cell_planes_for_patching(image, "ZYX", labels, "ZYX", z_policy="all"))
+    pairs = list(iter_cell_planes_for_patching(image, "TYX", labels, "TYX", t_policy="all"))
     images = [p.image for p in pairs]
     labels_2d = [p.labels for p in pairs]
 
@@ -307,12 +303,12 @@ def test_iter_cell_planes_integration_run_patching_cell_mode():
     cfg.common = CommonConfig(image_axes=pairs[0].image_axes, mask_axes="YX", extract_arrays=True)
     cfg.cell = CellConfig(patch_size="auto", exclude_border=False)
 
-    # The planes' metadata gives each plane's z, which tells their patches apart.
+    # The planes' metadata gives each plane's t, which tells their patches apart.
     metadata = [{**p.metadata, "position_id": "P"} for p in pairs]
     result = run_patching(images=images, masks=labels_2d, config=cfg, image_metadata=metadata)
     assert len(result.patches) > 0
     assert result.patch_arrays is not None
-    assert [patch.z0 for patch in result.patches] == [0, 1]
+    assert [patch.t for patch in result.patches] == [0, 1]
 
 
 def test_select_axis_index_does_not_squeeze_other_axes():
@@ -323,8 +319,8 @@ def test_select_axis_index_does_not_squeeze_other_axes():
 
 
 def test_iter_image_plane_id_stability_for_single_axis_all():
-    z_planes = list(iter_image_planes_for_patching(np.zeros((2, 5, 6)), "ZYX", z_policy="all"))
-    assert [p.plane_id for p in z_planes] == ["z000", "z001"]
+    z_planes = list(iter_image_planes_for_patching(np.zeros((1, 5, 6)), "ZYX", z_policy="all"))
+    assert [p.plane_id for p in z_planes] == ["z000"]
 
     t_planes = list(iter_image_planes_for_patching(np.zeros((2, 5, 6)), "TYX", t_policy="all"))
     assert [p.plane_id for p in t_planes] == ["t000", "t001"]
@@ -358,7 +354,7 @@ def test_prepare_labels_all_policy_error_message_points_to_iterator():
 def test_iter_image_planes_tzyx_t_all_z_first_yields_t_planes():
     """TZYX + t_policy='all' + z_policy='first' yields T planes; only t in metadata (no z)."""
     planes = list(
-        iter_image_planes_for_patching(np.zeros((2, 3, 5, 6)), "TZYX", t_policy="all", z_policy="first")
+        iter_image_planes_for_patching(np.zeros((2, 1, 5, 6)), "TZYX", t_policy="all", z_policy="first")
     )
     assert len(planes) == 2
     assert all(p.axes == "YX" for p in planes)
@@ -368,8 +364,8 @@ def test_iter_image_planes_tzyx_t_all_z_first_yields_t_planes():
 
 def test_iter_cell_planes_t_all_only_yields_t_planes():
     """TZYX + t_policy='all', z_policy='first' yields T paired planes with t metadata only."""
-    image = np.zeros((2, 3, 5, 6))
-    labels = np.zeros((2, 3, 5, 6), dtype=np.int32)
+    image = np.zeros((2, 1, 5, 6))
+    labels = np.zeros((2, 1, 5, 6), dtype=np.int32)
     pairs = list(iter_cell_planes_for_patching(image, "TZYX", labels, "TZYX", t_policy="all", z_policy="first"))
     assert len(pairs) == 2
     assert [p.plane_id for p in pairs] == ["t000", "t001"]

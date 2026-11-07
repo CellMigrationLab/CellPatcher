@@ -26,7 +26,7 @@ def _stack(shape=(3, 16, 16)):
     return np.arange(np.prod(shape), dtype=np.float32).reshape(shape)
 
 
-def _grid_config(image_axes="ZYX", **common):
+def _grid_config(image_axes="TYX", **common):
     config = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=8))
     config.common.image_axes = image_axes
     config.common.extract_arrays = True
@@ -35,7 +35,7 @@ def _grid_config(image_axes="ZYX", **common):
     return config
 
 
-def _cell_config(image_axes="ZYX", mask_axes="ZYX", **common):
+def _cell_config(image_axes="TYX", mask_axes="TYX", **common):
     config = CellPatcherConfig(mode="cell")
     config.cell.patch_size = 6
     config.cell.exclude_border = False
@@ -53,44 +53,44 @@ def test_keep_is_the_default_and_keeps_every_plane_in_each_patch():
     assert [p.patch_id for p in result.patches][:2] == [
         "single/single/single/s/grid-y0-x0-h8-w8", "single/single/single/s/grid-y0-x8-h8-w8"
     ]
-    assert {p.z0 for p in result.patches} == {None}
+    assert {p.t for p in result.patches} == {None}
     assert result.patch_arrays[0].shape == (3, 8, 8)
 
 
-def test_all_gives_one_patch_per_plane_with_its_z():
+def test_all_gives_one_patch_per_plane_with_its_t():
     stack = _stack()
-    result = run_patching(images=stack, config=_grid_config(z_policy="all"), image_metadata=[{"position_id": "P"}])
+    result = run_patching(images=stack, config=_grid_config(t_policy="all"), image_metadata=[{"position_id": "P"}])
 
     assert len(result.patches) == 3 * 4
-    assert result.patches[0].patch_id == "single/single/single/P/z000/grid-y0-x0-h8-w8"
-    assert result.patches[-1].patch_id == "single/single/single/P/z002/grid-y8-x8-h8-w8"
+    assert result.patches[0].patch_id == "single/single/single/P/t0000/grid-y0-x0-h8-w8"
+    assert result.patches[-1].patch_id == "single/single/single/P/t0002/grid-y8-x8-h8-w8"
     assert {p.image_id for p in result.patches} == {"image_0000"}
-    for patch, array in zip(result.patches, result.patch_arrays):
-        assert (patch.z1 - patch.z0) == 1
-        np.testing.assert_array_equal(array, stack[patch.z0, patch.y0:patch.y1, patch.x0:patch.x1])
+    for patch, array in zip(result.patches, result.patch_arrays, strict=True):
+        np.testing.assert_array_equal(array, stack[patch.t, patch.y0:patch.y1, patch.x0:patch.x1])
 
 
-def test_t_and_z_split_together_in_t_then_z_order():
-    stack = _stack((2, 3, 8, 8))
+def test_t_and_a_single_z_plane_split_together():
+    # One Z plane is the most a Z axis may have (issue #83): "all" names it z000.
+    stack = _stack((2, 1, 8, 8))
     result = run_patching(
         images=stack, config=_grid_config("TZYX", z_policy="all", t_policy="all"), image_metadata=[{"position_id": "P"}]
     )
 
     assert [p.patch_id for p in result.patches] == [
-        f"single/single/single/P/t{t:04d}/z{z:03d}/grid-y0-x0-h8-w8" for t in range(2) for z in range(3)
+        f"single/single/single/P/t{t:04d}/z000/grid-y0-x0-h8-w8" for t in range(2)
     ]
-    assert [(p.t, p.z0) for p in result.patches] == [(t, z) for t in range(2) for z in range(3)]
-    np.testing.assert_array_equal(result.patch_arrays[4], stack[1, 1])
+    assert [(p.t, p.z0) for p in result.patches] == [(t, 0) for t in range(2)]
+    np.testing.assert_array_equal(result.patch_arrays[1], stack[1, 0])
 
 
 def test_first_and_select_choose_one_plane_without_a_suffix():
     stack = _stack()
-    first = run_patching(images=stack, config=_grid_config(z_policy="first"), image_metadata=named(stack))
-    assert {(p.z0, p.patch_id.endswith("_z000")) for p in first.patches} == {(0, False)}
+    first = run_patching(images=stack, config=_grid_config(t_policy="first"), image_metadata=named(stack))
+    assert {(p.t, p.patch_id.endswith("_t0000")) for p in first.patches} == {(0, False)}
 
-    selected = run_patching(images=stack, config=_grid_config(z_policy="select", z_index=2),
+    selected = run_patching(images=stack, config=_grid_config(t_policy="select", t_index=2),
         image_metadata=named(stack))
-    assert {p.z0 for p in selected.patches} == {2}
+    assert {p.t for p in selected.patches} == {2}
     np.testing.assert_array_equal(selected.patch_arrays[0], stack[2, :8, :8])
 
 
@@ -98,8 +98,8 @@ def test_first_and_select_choose_one_plane_without_a_suffix():
 def test_a_projection_of_one_plane_is_accepted_and_changes_nothing(policy):
     """Owner decision on #86: a projection that combines nothing (no Z axis, or Z=1) is the plane itself."""
     one = _stack((1, 16, 16))
-    kept = run_patching(images=one, config=_grid_config(), image_metadata=named(one))
-    result = run_patching(images=one, config=_grid_config(z_policy=policy), image_metadata=named(one))
+    kept = run_patching(images=one, config=_grid_config("ZYX"), image_metadata=named(one))
+    result = run_patching(images=one, config=_grid_config("ZYX", z_policy=policy), image_metadata=named(one))
     assert {p.z0 for p in result.patches} == {None}
     assert [p.patch_id for p in result.patches] == [p.patch_id for p in kept.patches]
     assert result.patch_arrays[0].dtype == one.dtype
@@ -114,12 +114,12 @@ def test_a_projection_of_one_plane_is_accepted_and_changes_nothing(policy):
 def test_a_projection_of_depth_planes_is_refused_by_name(policy):
     """Issue #83: a projection that would combine Z planes belongs to preprocessing."""
     stack = _stack()
-    message = "would combine 3 Z planes.*recorded projection step in morphobricks-preprocessing"
+    message = "has 3 Z planes.*recorded projection step in morphobricks-preprocessing"
     with pytest.raises(ZStackNotSupportedError, match=message) as caught:
-        run_patching(images=stack, config=_grid_config(z_policy=policy), image_metadata=named(stack))
+        run_patching(images=stack, config=_grid_config("ZYX", z_policy=policy), image_metadata=named(stack))
     assert (caught.value.axis, caught.value.length) == ("Z", 3)
-    with pytest.raises(ZStackNotSupportedError, match="would combine 3 Z planes"):
-        run_patching(images=_stack(), masks=_labels_per_plane(), config=_cell_config(z_policy=policy),
+    with pytest.raises(ZStackNotSupportedError, match="has 3 Z planes"):
+        run_patching(images=_stack(), masks=_labels_per_plane(), config=_cell_config("ZYX", "ZYX", z_policy=policy),
             image_metadata=named(_stack()))  # formerly "projects the images' Z planes" for masks following the planes
 
 
@@ -146,7 +146,7 @@ def test_invalid_policies_and_indices_are_rejected():
     with pytest.raises(ValueError, match="needs z_index"):
         CommonConfig(z_policy="select")
     with pytest.raises(ValueError, match="outside the images"):
-        run_patching(images=_stack(), config=_grid_config(z_policy="select", z_index=3), image_metadata=named(_stack()))
+        run_patching(images=_stack(), config=_grid_config(t_policy="select", t_index=3), image_metadata=named(_stack()))
     # Set after construction: still checked when the run starts.
     config = _grid_config()
     config.common.z_policy = "median"
@@ -155,26 +155,27 @@ def test_invalid_policies_and_indices_are_rejected():
 
 
 def test_image_metadata_z_conflicts_with_a_z_policy():
+    one = _stack((1, 16, 16))  # one Z plane: a depth stack is refused first (#83)
     with pytest.raises(ValueError, match="use one or the other"):
         run_patching(
-            images=_stack(), config=_grid_config(z_policy="all"), image_metadata=[{"z": 1, "position_id": "P"}]
+            images=one, config=_grid_config("ZYX", z_policy="all"), image_metadata=[{"z": 1, "position_id": "P"}]
         )
 
 
 def test_provenance_from_image_metadata_reaches_every_plane():
     metadata = [{"image_file": "a.tif", "source_relative_path": "control/a.tif"}]
-    result = run_patching(images=_stack(), config=_grid_config(z_policy="all"), image_metadata=metadata)
+    result = run_patching(images=_stack(), config=_grid_config(t_policy="all"), image_metadata=metadata)
     assert {(p.image_file, p.source_relative_path) for p in result.patches} == {("a.tif", "control/a.tif")}
 
 
 def test_split_channels_follow_the_plane_suffix_and_share_one_position():
-    stack = _stack((2, 3, 8, 8))  # C, Z, Y, X
-    config = _grid_config("CZYX", z_policy="all")
+    stack = _stack((2, 3, 8, 8))  # C, T, Y, X
+    config = _grid_config("CTYX", t_policy="all")
     config.extraction.split_channels = True
     result = run_patching(images=stack, config=config, image_metadata=[{"image_file": "s.tif"}])
 
     assert [p.patch_id for p in result.patches] == [
-        f"single/single/single/s/z{z:03d}/c{c}/grid-y0-x0-h8-w8" for z in range(3) for c in range(2)
+        f"single/single/single/s/t{t:04d}/c{c}/grid-y0-x0-h8-w8" for t in range(3) for c in range(2)
     ]
     assert {p.position_id for p in result.patches} == {"s"}
     np.testing.assert_array_equal(result.patch_arrays[3], stack[1, 1])
@@ -183,7 +184,7 @@ def test_split_channels_follow_the_plane_suffix_and_share_one_position():
 def test_random_mode_is_deterministic_per_plane():
     config = CellPatcherConfig(mode="random")
     config.random.patch_size, config.random.n_patches = 4, 3
-    config.common.image_axes, config.common.z_policy = "ZYX", "all"
+    config.common.image_axes, config.common.t_policy = "TYX", "all"
     first = run_patching(images=_stack(), config=config, image_metadata=named(_stack()))
     second = run_patching(images=_stack(), config=config, image_metadata=named(_stack()))
     assert [(p.patch_id, p.y0, p.x0) for p in first.patches] == [(p.patch_id, p.y0, p.x0) for p in second.patches]
@@ -203,35 +204,38 @@ def _labels_per_plane(n_planes=3):
     return labels
 
 
-def test_cell_masks_with_the_image_z_length_follow_its_planes():
+def test_cell_masks_with_the_image_t_length_follow_its_planes():
     result = run_patching(
-        images=_stack(), masks=_labels_per_plane(), config=_cell_config(z_policy="all"),
+        images=_stack(), masks=_labels_per_plane(), config=_cell_config(t_policy="all"),
         image_metadata=[{"position_id": "P"}],
     )
-    assert [(p.z0, p.label_id) for p in result.patches] == [(0, 1), (1, 2), (2, 3)]
-    assert [p.patch_id for p in result.patches] == ["single/single/single/P/mask/z000/label1", "single/single/single/P/mask/z001/label2",
-        "single/single/single/P/mask/z002/label3"]
+    assert [(p.t, p.label_id) for p in result.patches] == [(0, 1), (1, 2), (2, 3)]
+    assert [p.patch_id for p in result.patches] == [
+        "single/single/single/P/mask/t0000/label1",
+        "single/single/single/P/mask/t0001/label2",
+        "single/single/single/P/mask/t0002/label3",
+    ]
 
 
 def test_a_2d_or_length_one_mask_is_shared_by_every_plane():
     mask = _labels_per_plane()[0]
-    shared = run_patching(images=_stack(), masks=mask, config=_cell_config(mask_axes="YX", z_policy="all"),
+    shared = run_patching(images=_stack(), masks=mask, config=_cell_config(mask_axes="YX", t_policy="all"),
         image_metadata=named(_stack()))
-    assert [(p.z0, p.label_id) for p in shared.patches] == [(0, 1), (1, 1), (2, 1)]
+    assert [(p.t, p.label_id) for p in shared.patches] == [(0, 1), (1, 1), (2, 1)]
 
-    single = run_patching(images=_stack(), masks=mask[None], config=_cell_config(z_policy="all"),
+    single = run_patching(images=_stack(), masks=mask[None], config=_cell_config(t_policy="all"),
         image_metadata=named(_stack()))
-    assert [(p.z0, p.label_id) for p in single.patches] == [(0, 1), (1, 1), (2, 1)]
+    assert [(p.t, p.label_id) for p in single.patches] == [(0, 1), (1, 1), (2, 1)]
 
 
-def test_mask_z_length_must_match_or_be_one():
-    with pytest.raises(ValueError, match="must have the image's Z length"):
-        run_patching(images=_stack(), masks=_labels_per_plane(2), config=_cell_config(z_policy="all"),
+def test_mask_t_length_must_match_or_be_one():
+    with pytest.raises(ValueError, match="must have the image's T length"):
+        run_patching(images=_stack(), masks=_labels_per_plane(2), config=_cell_config(t_policy="all"),
             image_metadata=named(_stack()))
 
 
 def test_apply_mask_uses_the_matching_label_plane():
-    config = _cell_config(z_policy="all")
+    config = _cell_config(t_policy="all")
     config.extraction.apply_mask = True
     result = run_patching(images=_stack() + 1, masks=_labels_per_plane(), config=config,
         image_metadata=named(_stack() + 1))
@@ -377,9 +381,11 @@ def test_the_t_policy_the_message_names_patches_that_run(tmp_path, policy):
     assert len(result.patches) == (3 if policy == "all" else 1)
 
 
-def test_in_memory_t_and_z_masks_with_keep_name_both_policies():
+def test_in_memory_t_and_z_masks_with_keep_are_refused_for_their_depth():
+    # The Z stack is refused before any policy is named (issue #83); the T-only form of the
+    # message is tested through the file run above.
     masks = [np.ones((2, 3, 16, 16), dtype=np.int32)]
     config = _cell_config(image_axes="TZYX", mask_axes="TZYX")
-    with pytest.raises(ValueError, match=r"have T and Z planes.*common.t_policy and common.z_policy"):
+    with pytest.raises(ZStackNotSupportedError, match="3 Z planes"):
         run_patching(images=[np.zeros((2, 3, 16, 16), np.float32)], masks=masks, config=config,
                      image_metadata=named([None]))

@@ -290,7 +290,7 @@ def test_patch_torch_dataset_multichannel_and_plane_lookup_bridge():
     )
     assert tuple(ds_yxc[0].shape) == (4, 4, 4)
 
-    planes = list(iter_image_planes_for_patching(np.zeros((2, 6, 6)), "ZYX", z_policy="all"))
+    planes = list(iter_image_planes_for_patching(np.zeros((1, 6, 6)), "ZYX", z_policy="all"))  # Z>1 is refused (#83)
     patches = [PatchRegion(patch_id="z0", image_id="image_0000", y0=0, y1=3, x0=0, x1=3)]
     lookup = {f"image_{i:04d}": {"plane_id": p.plane_id, **p.metadata} for i, p in enumerate(planes)}
     ds2 = PatchTorchDataset(images=[p.array for p in planes], patches=patches, image_axes=planes[0].axes,
