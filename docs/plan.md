@@ -18,10 +18,10 @@ and masks; deliver the normalized patches either as files or in memory.
 and `whole_fov` modes stay as they are), true 3D patches, spatial corrections (flat-field,
 BaSiC, rolling-ball, CLAHE), and planes too large to hold in memory.
 
-The statistics and normalization formulas are defined by the preprocessing brick's
-[contract](https://github.com/CellMigrationLab/morphobricks-preprocessing/blob/main/docs/contract.md)
-(§4 histograms, §6 group statistics, §7 normalization parameters) and implemented in its
-package. This plan does not redefine or reimplement them; it decides how CellPatcher
+The statistics and normalization formulas are defined by the normalization brick's
+[contract](https://github.com/CellMigrationLab/morphobricks-normalization/blob/main/docs/contract.md)
+(§1.2.2 histograms, §1.2.3 group statistics, §1.2.4 linear parameters; the preprocessing
+contract's §3-§7 are pointers to it) and implemented in its package. This plan does not redefine or reimplement them; it decides how CellPatcher
 selects, applies and records them.
 
 ## Instructions for implementation
@@ -192,7 +192,7 @@ The preprocessing CSV writes `z`; CellPatcher writes `z0/z1` one plane thick, so
 
 ## 5. Normalization methods
 
-The four methods of the preprocessing contract §7: min-max, percentile range (default
+The four methods of the normalization contract (§1.2.4, §3.2): min-max, percentile range (default
 1–99.8), z-score and robust z-score (MAD × 1.4826). Each is an offset and a scale; applying
 it computes `(pixels − offset) / scale` with `NormalizationParameters.apply()` and returns
 float32, without clipping **[D10]**.
