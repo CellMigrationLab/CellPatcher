@@ -51,15 +51,14 @@ Patching modes work on 2D Y/X arrays. If your data has Z, T, or C axes, resolve 
 |---|---|---|---|
 | `YX` image (grayscale / single-channel) | Already 2D | Use directly — no helper needed | `YX` array |
 | `CYX` or `YXC` image (multichannel, including RGB) | Keep all channels | Set `image_axes="CYX"` or `"YXC"` directly | `CYX`/`YXC` array (channels preserved through extraction/masking/resize) |
-| `ZYX` stack | Single projected plane | A recorded projection step in morphobricks-preprocessing (CellPatcher combines no Z planes, issue #83) | `YX` image to patch |
-| `ZYX` stack | One run per Z slice | `iter_image_planes_for_patching(image, "ZYX", z_policy="all")` | Sequence of `YX` arrays |
-| `ZYX` image + `ZYX` labels (cell mode) | Patch every Z slice with matched labels | `iter_cell_planes_for_patching(image, "ZYX", labels, "ZYX", z_policy="all")` | Sequence of matched 2D pairs |
-| `ZYX` image + `YX` labels (cell mode) | Reduce image Z, keep 2D labels | `iter_cell_planes_for_patching(image, "ZYX", labels, "YX", z_policy="select"/"first")` | Single 2D pair |
-| `CZYX` image + `ZYX` labels (cell mode) | Expand Z, preserve channels | `iter_cell_planes_for_patching(image, "CZYX", labels, "ZYX", z_policy="all")` | Sequence of `CYX`/`YX` pairs |
-| `TCZYX` image + `TZYX` labels (cell mode) | Expand T and Z | `iter_cell_planes_for_patching(image, "TCZYX", labels, "TZYX", t_policy="all", z_policy="all")` | Sequence of matched pairs |
+| `ZYX` stack (more than one Z plane) | Single projected plane | A recorded projection step in morphobricks-preprocessing (CellPatcher combines no Z planes, issue #83) | `YX` image to patch |
+| `TYX` time series | One run per frame | `iter_image_planes_for_patching(image, "TYX", t_policy="all")` | Sequence of `YX` arrays |
+| `TYX` image + `TYX` labels (cell mode) | Patch every frame with matched labels | `iter_cell_planes_for_patching(image, "TYX", labels, "TYX", t_policy="all")` | Sequence of matched 2D pairs |
+| `TYX` image + `YX` labels (cell mode) | Select one image frame, keep 2D labels | `iter_cell_planes_for_patching(image, "TYX", labels, "YX", t_policy="select"/"first")` | Single 2D pair |
+| `TCYX` image + `TYX` labels (cell mode) | Expand T, preserve channels | `iter_cell_planes_for_patching(image, "TCYX", labels, "TYX", t_policy="all")` | Sequence of `CYX` pairs |
 | Any layout without labels (`random`, `grid`, `whole_fov`) | Selecting one plane or per-slice expansion | `prepare_image_for_patching(...)` to select; `iter_image_planes_for_patching(...)` for per-slice | `YX` array or sequence of `YX` arrays |
 
-> **Z projection:** `z_policy="max"` (also `"mean"` and `"sum"`) is accepted only when Z is absent or has a single plane, which is returned unchanged; a real Z stack raises `ZStackNotSupportedError` (issue #83). To reduce a stack to one plane, use a recorded projection step in [morphobricks-preprocessing](https://github.com/CellMigrationLab/morphobricks-preprocessing/issues/176), or `select`/`first`. For an integer Z=1 image, `mean` and `sum` keep the output dtype of the earlier projection (`mean` is float64, `sum` the numpy accumulator type), so results stay bitwise identical to before; the source dtype is not kept.
+> **Z projection:** `z_policy="max"` (also `"mean"` and `"sum"`) is accepted only when Z is absent or has a single plane, which is returned unchanged; a real Z stack raises `ZStackNotSupportedError` (issue #83), as does `select`/`first` on it, and the public helpers `select_axis_index` and `project_axis`. To reduce a stack to one plane, use a recorded projection step in [morphobricks-preprocessing](https://github.com/CellMigrationLab/morphobricks-preprocessing/issues/176). For an integer Z=1 image, `mean` and `sum` keep the output dtype of the earlier projection (`mean` is float64, `sum` the numpy accumulator type), so results stay bitwise identical to before; the source dtype is not kept.
 
 > **Principle:** CellPatcher never silently projects Z/T axes, merges channels, or normalizes intensities. All preprocessing is explicit.
 
@@ -199,14 +198,14 @@ from cellpatcher.torch_dataset import ExportedPatchTorchDataset, PatchTensorConf
 # Use explicit preprocessing to iterate 2D YX planes for cell patching.
 prepared_images = []
 prepared_labels = []
-prepared_metadata = []  # each plane's position (one per raw image) and z: its patches' identity
+prepared_metadata = []  # each plane's position (one per raw image) and t: its patches' identity
 for index, (raw_image, raw_label) in enumerate(zip(raw_images, raw_labels)):
     for item in iter_cell_planes_for_patching(
         raw_image,
-        "CZYX",   # image_axes (adjust to your real source axes)
+        "TCYX",   # image_axes (adjust to your real source axes; more than one Z plane is refused)
         raw_label,
-        "ZYX",    # label_axes (adjust to your real label axes)
-        z_policy="all",
+        "TYX",    # label_axes (adjust to your real label axes)
+        t_policy="all",
     ):
         prepared_images.append(item.image)
         prepared_labels.append(item.labels)

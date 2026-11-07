@@ -18,7 +18,7 @@ The overview figure uses the bundled real TIFF fixture so you can compare every 
 ## Important: patching modes generate 2D Y/X regions
 
 `cell`, `random`, `grid`, and `whole_fov` all define how **2D `Y/X` regions** are generated.
-If you want every Z slice or T frame, expand stacks first with:
+If you want every T frame, expand the series first (a Z stack is refused, issue #83) with:
 
 - `iter_image_planes_for_patching`
 - `iter_cell_planes_for_patching`
