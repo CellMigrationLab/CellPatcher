@@ -395,7 +395,9 @@ def read_run_mask(run: FileRun, fov: Fov, layout: str | None = None) -> np.ndarr
 def fov_metadata(run: FileRun, fov: Fov, config: CellPatcherConfig) -> dict:
     """Return an image's ``run_patching(image_metadata=...)`` entry, from the run's records.
 
-    The FOV key is the run's (``position_id`` and ``technical_repeat`` included); the mask
+    The FOV key is the run's (``position_id`` and ``technical_repeat`` included), with the
+    run's ``repeat_group``/``condition_id``/``technical_repeat_id`` when it has a description (only
+    for ``positions.csv``; they stamp no patch); the mask
     file and, in ``cell`` mode without ``common.object_set``, the object set come from the
     recorded mask and its type.
     """
@@ -405,6 +407,10 @@ def fov_metadata(run: FileRun, fov: Fov, config: CellPatcherConfig) -> dict:
         "position_id": fov.key[3],
         "technical_repeat": fov.key[2],
     }
+    # The canonical IDs of a run with a description (None, or absent from a brick that has none).
+    for name in ("repeat_group", "condition_id", "technical_repeat_id"):
+        if getattr(fov, name, None) is not None:
+            meta[name] = getattr(fov, name)
     if run.mask_type is not None:
         meta["mask_file"] = mask_file_name(_record(run.inputs, fov, run.mask_type))
         if config.mode == "cell" and config.common.object_set is None:

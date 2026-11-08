@@ -13,12 +13,11 @@ import pytest
 
 from cellpatcher.config import CellPatcherConfig, CommonConfig, ExportConfig, GridConfig, NormalizationConfig
 from cellpatcher.export import IMAGE_TABLE_FILENAME, export_patches
-from cellpatcher.io import write_array
 from cellpatcher.pipeline import run_patching
 from cellpatcher.types import IMAGE_TABLE_COLUMNS, ImageRecord, PatchRegion
 
-from tests.helpers import make_synthetic_cell_image_and_labels
 from tests.helpers import named
+from tests.helpers import cell_folders as _cell_folders, cell_tree as _tree
 from tests.helpers import preprocessed_folder, preprocessed_tree
 
 # image_id tells images apart in an in-memory run, which has no file names.
@@ -54,14 +53,6 @@ def _assert_tables_join(folder):
             assert image_row["status"] in ("no_patches", "skipped") and image_row["reason"]
     return patch_rows, image_rows
 
-
-def _cell_folders(tmp_path, *, empty=("b",)):
-    """An image folder with images a, b, c and their masks; the masks of *empty* hold no cell."""
-    image, labels, _ = make_synthetic_cell_image_and_labels()
-    for name in ("a", "b", "c"):
-        write_array(tmp_path / "images" / f"{name}.tif", image)
-        write_array(tmp_path / "masks" / f"{name}_mask.tif", np.zeros_like(labels) if name in empty else labels)
-    return tmp_path / "images", tmp_path / "masks"
 
 
 def _cell_config(output_dir, **common):
@@ -283,21 +274,6 @@ def test_export_patches_writes_the_records_it_is_given(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def _tree(tmp_path):
-    image, labels, _ = make_synthetic_cell_image_and_labels()
-    empty = np.zeros_like(labels)
-    layout = {
-        "treated/2026_01_01/a.tif": labels,
-        "treated/2026_01_01/b.tif": empty,
-        "control/2026_01_01/B02/c.tif": labels,
-        "control/2026_01_01/B03/c.tif": empty,
-    }
-    for relative, mask in layout.items():
-        write_array(tmp_path / "raw" / relative, image)
-        mask_path = (tmp_path / "masks" / relative).with_name(f"{relative.rsplit('/', 1)[1][:-4]}_mask.tif")
-        write_array(mask_path, mask)
-    return tmp_path / "raw", tmp_path / "masks"
-
 
 EXPECTED_TREE_ROWS = [
     ("control", "2026_01_01", "B02", "c.tif", "control/2026_01_01/B02/c.tif", "4", "processed"),
@@ -338,7 +314,9 @@ def test_combined_tree_run_writes_one_table_for_every_image(tmp_path):
     assert _summary(image_rows) == EXPECTED_TREE_ROWS
     assert {leaf.result.image_table_file for leaf in results} == {str(out / IMAGE_TABLE_FILENAME)}
     # No per-leaf tables, as for patches.csv.
-    assert sorted(path.relative_to(out).as_posix() for path in out.rglob("*.csv")) == ["images.csv", "patches.csv"]
+    assert sorted(path.relative_to(out).as_posix() for path in out.rglob("*.csv")) == [
+        "images.csv", "patches.csv", "positions.csv",
+    ]
     for row in patch_rows:
         assert (out / row["patch_file"]).is_file()
 

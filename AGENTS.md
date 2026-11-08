@@ -372,6 +372,21 @@ Two ways to point CellPatcher at input data:
   row on `condition`/`biological_repeat`/`technical_repeat`/`image_id`/
   `image_file`, with the same `position_id`. In memory: `PatchingResult.image_records`. Documented in
   `docs/configuration_reference.md` ("Per-image table").
+- Beside `images.csv`, a per-position table `positions.csv`
+  (`cellpatcher.export.POSITION_TABLE_FILENAME`; issue #26) with **one row
+  per position** (the FOV key `condition`/`biological_repeat`/
+  `technical_repeat`/`position_id`, as `RunInputs` gives it), grouping the
+  position's source images, planes and channels: `repeat_group`/
+  `condition_id`/`technical_repeat_id` (the run's description, empty without
+  one), `n_source_images`, the source paths as JSON arrays (provenance, never
+  the key), a `status` (`analysed`, `analysed_no_regions`,
+  `all_regions_filtered`, `all_rejected_by_normalization`, `skipped`,
+  `partly_skipped`), a `reason`, the summed counts and `schema_version`. It
+  never claims a status CellPatcher did not observe: a failing image stops the
+  run, and failed or never-discovered acquisitions belong to MorphoFeature's
+  acquired-FOV ledger (MorphoFeature#194). In memory:
+  `cellpatcher.types.position_records`. Documented in
+  `docs/configuration_reference.md` ("Per-position table").
 - Per patch, the geometry a reader of exported arrays needs (appended after
   every earlier `patches.csv` column): `image_height`/`image_width` (the
   source image's Y/X size), `pad_top`/`pad_bottom`/`pad_left`/`pad_right`

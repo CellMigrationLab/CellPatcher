@@ -160,7 +160,7 @@ Controls whether and how patch arrays are written to disk.
 | Field | Type | Default | Notes |
 |---|---|---|---|
 | `enabled` | `bool` | `False` | Master switch for file export. When `True`, patch arrays are written to `common.output_dir`. |
-| `save_metadata_csv` | `bool` | `True` | When `True`, a `patches.csv` file with per-patch metadata is written alongside the patch files, together with the per-image table `images.csv` (see "Per-image table" below). |
+| `save_metadata_csv` | `bool` | `True` | When `True`, a `patches.csv` file with per-patch metadata is written alongside the patch files, together with the per-image table `images.csv` (see "Per-image table" below) and the per-position table `positions.csv` (see "Per-position table"). |
 | `image_format` | `str` | `"tif"` | Output file format. One of `"tif"`, `"tiff"` (both write TIFF), or `"npy"` (NumPy binary). |
 | `save_run_config` | `bool` | `True` | When `True`, `run_config.json` (the full serialized config) is written next to the patch files and named in every row's `config_file`. `run_patching_condition_repeat_tree(combine_metadata=True)` turns it off per folder and writes one for the whole tree instead. |
 
@@ -386,6 +386,27 @@ Wherever `patches.csv` is written (`export.enabled=True` with `save_metadata_csv
 There is no `failed` status: an image that cannot be read, matched to a mask or patched stops the whole run with an error before any table is written, as before, so no image is ever left out silently.
 
 **Joining the two tables.** Every `patches.csv` row's image has exactly one `images.csv` row with the same `condition`/`biological_repeat`/`technical_repeat`/`image_id`/`image_file`, and that row has the patch's `position_id` (`image_id` alone is not unique across a combined tree CSV; `source_relative_path` is unique in folder and tree runs). An image's `n_patches` is its number of `patches.csv` rows. `export_patches` called directly writes the records it is given (`image_records=`), or else one `processed` row per image of the patches, since it cannot know about images without patches.
+
+### Per-position table (`positions.csv`)
+
+`images.csv` has one row per input image, which is not always one position: a position split over several time-point files (`image_metadata` with the same `position_id` and different `t`) has several. Beside `images.csv` (same places, same `save_metadata_csv` switch; `cellpatcher.export.POSITION_TABLE_FILENAME`, `export_patches(position_table_filename=)`), `positions.csv` has **exactly one row per position** of the run: the preprocessing run's FOV (`Fov.key`, as `RunInputs` gives it), grouping every source image, plane and channel of it. In memory, `cellpatcher.types.position_records(image_records)` builds the same rows as `PositionRecord` objects, and `PatchingResult.position_table_file` names the file. It imports nothing of MorphoFeature or MorphoCoverage.
+
+The row's key is the FOV key, `condition` + `biological_repeat` + `technical_repeat` + `position_id`, with the names and values of `patches.csv` and `images.csv`, so it joins both. No label, `image_id` or file name stands in for it: equal basenames in two wells or repeats are two rows, and `image_id` (a place in the run) is not a column. A record with no `position_id` (only possible for `export_patches` called with hand-built patches that have none) is its own row with an empty `position_id`, never merged with another.
+
+| Column | Notes |
+|---|---|
+| `condition`, `biological_repeat`, `technical_repeat`, `position_id` | The FOV key, as in `patches.csv`. |
+| `repeat_group`, `condition_id`, `technical_repeat_id` | The canonical IDs of the preprocessing run's description (`Fov.repeat_group`, `Fov.condition_id`, `Fov.technical_repeat_id`), read from the run, never derived, parsed or guessed. Empty for a run without a description, for a preprocessing brick whose `Fov` has none (`v0.4.0` has none: they are filled once the pinned brick provides them), and for in-memory runs that do not give them in `image_metadata`. Two source images of one position naming different values are refused. |
+| `n_source_images` | The input images (files, planes of separate files) grouped into the row: the number of its `images.csv` rows. |
+| `source_relative_paths`, `image_files`, `mask_files` | JSON arrays (in order of first appearance, without repeats) of the source images' `source_relative_path`, `image_file` and `mask_file`: provenance only, never the key. `[]` when not known (in-memory images). |
+| `status` | What CellPatcher observed of the position: `analysed` (at least one patch); `analysed_no_regions` (patched; the patch mode generated no region, e.g. no labeled object); `all_regions_filtered` (regions generated, the filters removed all); `all_rejected_by_normalization` (regions kept, normalization discarded all, decision D8); `skipped` (every source image had nothing to patch); `partly_skipped` (some source images were skipped, the rest are counted). |
+| `reason` | Empty for `analysed`. Otherwise the step that left no patch, worded as in `images.csv`, and, for `skipped` and `partly_skipped`, which source images were skipped and why. |
+| `n_regions`, `n_kept`, `n_normalized`, `n_patches` | The sums of the position's source images' counts, with the meanings of `images.csv`; `n_patches` is the position's number of `patches.csv` rows. |
+| `schema_version` | `"1"` (`POSITION_TABLE_VERSION`). |
+
+**Versioning.** `schema_version` changes only when a column is renamed, removed or reinterpreted, or a status changes its meaning. A column added later is appended after `schema_version` and keeps the version, so readers select columns by name, as for `images.csv`. `images.csv` and `patches.csv` are unchanged (a new `ImageRecord` field is not an `images.csv` column), and `positions.csv` is a new file: a reader that ignores it loses nothing.
+
+**What a row does not say.** CellPatcher only knows the positions it was given. A missing mask, a file that cannot be read or matched, or a failing image stops the whole run with an error before any table is written, so those are not statuses; an acquisition that failed, was never discovered or is unfinished is not a row. The master acquired-FOV ledger, with the ledger the caller supplies for those, is MorphoFeature's (MorphoFeature#194), not this table's: a position missing from `positions.csv` is *not observed*, never "analysed with zero patches".
 
 ### OME-Zarr images
 
