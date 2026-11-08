@@ -122,8 +122,9 @@ enables the widgets; keep the preprocessing run, the experiment and the output f
 
 ## Optional preprocessing for multidimensional data
 
-Patching modes are 2D Y/X; for C/Z/T data, see `docs/preprocessing.md`. Folder and tree runs split Z and T with
-`config.common.z_policy`/`t_policy`.
+Patching modes are 2D Y/X; for C/Z/T data, see `docs/preprocessing.md`. Folder and tree runs split T with
+`config.common.t_policy` (`"all"`, `"first"`, `"select"`). Z=1 passes; Z>1 is refused under every `z_policy`
+(project or select first with `convert --project` in morphobricks-preprocessing).
 
 Note: plane iterator `metadata` (the `t`/`z` indices) reaches `PatchRegion` rows and the export CSV when passed through as `run_patching(..., image_metadata=...)`; the `plane_id` string itself is not mirrored onto `PatchRegion` and still needs an explicit join if you need it. See `docs/preprocessing.md`.
 

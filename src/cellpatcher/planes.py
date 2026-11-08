@@ -4,8 +4,9 @@
 
 - ``"keep"`` (default): every patch keeps all planes along the axis, as before
   these options existed;
-- ``"all"``: one patch per plane;
+- ``"all"``: one patch per plane (every T frame; for Z only its one plane, ``z000``);
 - ``"first"``, or ``"select"`` with ``z_index``/``t_index``: one plane;
+- T and Z differ: every T length works, but Z>1 is refused under every ``z_policy`` (below);
 - Z only: ``"max"``, ``"mean"`` or ``"sum"`` accept an image with no Z axis or one Z plane and return
   that plane unchanged; with more than one Z plane they raise
   :class:`cellpatcher.errors.ZStackNotSupportedError`: CellPatcher combines no planes, a Z projection

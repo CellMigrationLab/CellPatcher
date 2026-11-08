@@ -284,10 +284,11 @@ def prepare_labels_for_cell_patching(
     Notes:
         z_policy='max' (and 'mean'/'sum') is accepted only when Z is absent or has one
         plane, which is returned unchanged; a Z stack with more than one plane raises
-        ZStackNotSupportedError (issue #83). Project a stack as a recorded step in
-        morphobricks-preprocessing before patching
-        (https://github.com/CellMigrationLab/morphobricks-preprocessing/issues/176), or
-        use z_policy='select', 'first' or 'all'.
+        ZStackNotSupportedError (issue #83). Z>1 is refused under every z_policy
+        ('select', 'first', 'all' and the projections alike); T is separate and
+        t_policy 'select', 'first' or 'all' still work. Project or select a stack first
+        with ``convert --project`` in morphobricks-preprocessing
+        (https://github.com/CellMigrationLab/morphobricks-preprocessing/issues/176).
     """
     arr = np.asarray(labels)
     ax = normalize_axes(axes, arr.ndim)

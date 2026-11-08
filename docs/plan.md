@@ -74,10 +74,10 @@ Already implemented in this repository:
   runs (`SINGLE_TECHNICAL_REPEAT_LABEL` when a biological repeat holds its images
   directly), or set with `CommonConfig.technical_repeat` or per image with
   `image_metadata`.
-- Splitting stacks into 2D planes: `z_policy="all"` and `t_policy="all"` in
-  `iter_image_planes_for_patching`/`iter_cell_planes_for_patching`, and
-  `ExtractionConfig.split_channels`. The same helpers can also project Z (`"max"`,
-  `"mean"`, `"sum"`).
+- Splitting stacks into 2D planes: `t_policy="all"` (and `z_policy="all"` for one Z plane; Z>1
+  is refused, issue #83) in `iter_image_planes_for_patching`/`iter_cell_planes_for_patching`, and
+  `ExtractionConfig.split_channels`. The `"max"`, `"mean"` and `"sum"` Z projections were removed
+  (issue #83): they return a one-plane Z unchanged and refuse more.
 - Per-image normalization: `percentile_normalize` and `minmax_normalize`, used through the
   `normalize=`/`percentile=` arguments of the preparation helpers (`preprocess.py`), and
   the torch adapters' `PatchTensorConfig.scale_policy="auto"`, which divides integer patches
@@ -125,12 +125,13 @@ that relative paths match.
 
 ### 3.2 Splitting into 2D planes
 
-Patching is 2D. Every Z, C and T axis can be split until a 2D plane remains **[D4]**: Z with
-`z_policy="all"`, T with `t_policy="all"`, C with `split_channels=True`, or a single index
-with `"select"`/`"first"`. When normalization is enabled, Z and T must be split or selected:
-Z projections (`"max"`, `"mean"`, `"sum"`) are blocked, because each slice of a Z-stack is
-treated as an individual plane and the preprocessing statistics describe single planes
-**[D11]**. Channels may be split, selected or kept together in one patch; their parameters
+Patching is 2D. Every C and T axis can be split until a 2D plane remains **[D4]**: T with
+`t_policy="all"`, C with `split_channels=True`, or a single index with `"select"`/`"first"`.
+Z was planned the same way (`z_policy="all"`), but since issue #83 Z>1 is refused under every
+`z_policy` (Z=1 passes); project or select a stack first with `convert --project` in
+morphobricks-preprocessing. When normalization is enabled, T must be split or selected, and
+Z projections (`"max"`, `"mean"`, `"sum"`) are blocked, because the preprocessing statistics
+describe single planes **[D11]**. Channels may be split, selected or kept together in one patch; their parameters
 are always per channel (§6.1). For the same reason, merging channels
 (`channel_policy="max"` or `"mean"`) and `channel_policy="repeat_to_rgb"` in the preparation
 helpers are blocked under normalization: the resulting channels no longer match the CSV rows.
