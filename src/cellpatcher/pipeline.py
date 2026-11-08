@@ -10,6 +10,7 @@ from cellpatcher.axes import normalize_axes, refuse_unsupported_inputs, require_
 from cellpatcher.config import CellPatcherConfig
 from cellpatcher.extract import extract_patches
 from cellpatcher.export import IMAGE_TABLE_FILENAME, export_patches
+from cellpatcher.positions import position_table_beside
 from cellpatcher.filters import filter_regions
 from cellpatcher.fractions import check_fraction_masks, stamp_mask_fractions
 from cellpatcher.ids import (
@@ -44,7 +45,7 @@ from cellpatcher.strategies.grid import GridStrategy
 from cellpatcher.setting_checks import check_run_settings
 from cellpatcher.strategies.random import RandomPatchStrategy
 from cellpatcher.strategies.whole_fov import WholeFOVStrategy
-from cellpatcher.types import ImageRecord, PatchRegion
+from cellpatcher.types import IMAGE_RECORD_TEXTS, ImageRecord, PatchRegion
 
 # Filename for the full run-config JSON written alongside the metadata CSV;
 # lets a single PatchRegion CSV row (via its `config_file` column) point back
@@ -214,14 +215,9 @@ def _image_record(config: CellPatcherConfig, image_id: str, meta, image_shape=No
         condition=condition,
         biological_repeat=biological_repeat,
         technical_repeat=technical_repeat,
-        image_file=None if meta.get("image_file") is None else str(meta["image_file"]),
-        mask_file=None if meta.get("mask_file") is None else str(meta["mask_file"]),
-        source_relative_path=(
-            None if meta.get("source_relative_path") is None else str(meta["source_relative_path"])
-        ),
         image_height=height,
         image_width=width,
-        position_id=None if meta.get("position_id") is None else str(meta["position_id"]),
+        **{name: None if meta.get(name) is None else str(meta[name]) for name in IMAGE_RECORD_TEXTS},
     )
 
 
@@ -348,6 +344,7 @@ class PatchingResult:
     # images.csv beside patches.csv (image_table_file) when export is enabled.
     image_records: list[ImageRecord] = field(default_factory=list)
     image_table_file: str | None = None
+    position_table_file: str | None = None  # positions.csv: one row per position, grouping its images
 
 
 def _normalize_images(images):
@@ -658,6 +655,7 @@ def _finish_result(
         metadata_file=metadata_file,
         image_records=image_records,
         image_table_file=image_table_file,
+        position_table_file=position_table_beside(image_table_file),
     )
 
 

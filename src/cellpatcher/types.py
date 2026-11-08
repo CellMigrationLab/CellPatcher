@@ -266,6 +266,22 @@ def normalization_channel_columns(parameters) -> dict[str, str]:
     }
 
 
+def no_patch_reason(n_regions: int, n_kept: int, n_normalized: int, n_patches: int) -> str | None:
+    """Why counts that gave no patch gave none, at the step that removed the last one; None with patches."""
+    if n_patches > 0:
+        return None
+    if n_regions == 0:
+        return "the patch mode generated no region in this image"
+    if n_kept == 0:
+        return f"the filters removed all {n_regions} region(s)"
+    if n_normalized == 0:
+        return (
+            f"normalization discarded all {n_kept} patch(es): "
+            "they cannot be normalized from their own pixels"
+        )
+    return "no patch was kept"
+
+
 # Columns of the per-image table (``images.csv``), written beside every
 # ``patches.csv``. The identity columns use exactly the names ``patches.csv``
 # uses (AGENTS.md §5), so the two tables join on them.
@@ -290,6 +306,14 @@ IMAGE_TABLE_COLUMNS = (
     "n_regions",
     "n_kept",
     "n_normalized",
+)
+
+
+# The texts of an image's metadata an ImageRecord keeps: its provenance, its position and the canonical
+# IDs of a preprocessing run's description.
+IMAGE_RECORD_TEXTS = (
+    "image_file", "mask_file", "source_relative_path", "position_id", "repeat_group", "condition_id",
+    "technical_repeat_id",
 )
 
 
@@ -328,6 +352,12 @@ class ImageRecord:
     n_patches: int = 0
     skip_reason: str | None = None
     position_id: str | None = None
+    # The canonical IDs of a preprocessing run that has a description (RunInputs'
+    # Fov.repeat_group/condition_id/technical_repeat_id); None otherwise. Not images.csv columns:
+    # they only reach positions.csv (POSITION_TABLE_COLUMNS).
+    repeat_group: str | None = None
+    condition_id: str | None = None
+    technical_repeat_id: str | None = None
 
     @property
     def status(self) -> str:
@@ -340,19 +370,9 @@ class ImageRecord:
         """Why the image has no patch; ``None`` when it has patches."""
         if self.skip_reason is not None:
             return self.skip_reason
-        if self.n_patches > 0:
-            return None
-        if self.n_regions == 0:
-            return "the patch mode generated no region in this image"
-        if self.n_kept == 0:
-            return f"the filters removed all {self.n_regions} region(s)"
-        if self.n_normalized == 0:
-            return (
-                f"normalization discarded all {self.n_kept} patch(es): "
-                "they cannot be normalized from their own pixels"
-            )
-        return "no patch was kept"
+        return no_patch_reason(self.n_regions, self.n_kept, self.n_normalized, self.n_patches)
 
     def to_dict(self) -> dict:
         """The ``images.csv`` row: :data:`IMAGE_TABLE_COLUMNS` only."""
         return {column: getattr(self, column) for column in IMAGE_TABLE_COLUMNS}
+

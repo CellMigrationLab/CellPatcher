@@ -82,7 +82,7 @@ def test_the_export_writes_one_table_for_the_experiment(clean, tmp_path):
     summary = summarize_run(clean.output)
     export_patches_of_run(_cell_config(), summary, tmp_path / "out")
     assert {path.name for path in (tmp_path / "out").iterdir()} == {
-        "ctrl", "drug", "patches.csv", "images.csv", "run_config.json",
+        "ctrl", "drug", "patches.csv", "images.csv", "positions.csv", "run_config.json",
     }
     with open(tmp_path / "out" / "images.csv", newline="", encoding="utf-8") as handle:
         assert len(list(csv.DictReader(handle))) == 4

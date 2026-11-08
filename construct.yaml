@@ -51,6 +51,7 @@ extra_files:
 - src/cellpatcher/patch_checks.py: CellPatcher/src/cellpatcher/patch_checks.py
 - src/cellpatcher/pipeline.py: CellPatcher/src/cellpatcher/pipeline.py
 - src/cellpatcher/planes.py: CellPatcher/src/cellpatcher/planes.py
+- src/cellpatcher/positions.py: CellPatcher/src/cellpatcher/positions.py
 - src/cellpatcher/preprocess.py: CellPatcher/src/cellpatcher/preprocess.py
 - src/cellpatcher/resize.py: CellPatcher/src/cellpatcher/resize.py
 - src/cellpatcher/run_config_file.py: CellPatcher/src/cellpatcher/run_config_file.py

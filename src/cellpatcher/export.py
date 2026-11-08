@@ -6,6 +6,7 @@ from pathlib import Path
 
 import numpy as np
 
+from cellpatcher.positions import POSITION_TABLE_FILENAME, save_position_table_csv
 from cellpatcher.types import IMAGE_TABLE_COLUMNS, MASK_FRACTION_PREFIX, ImageRecord, PatchRegion
 
 # The per-image table written beside every patches.csv (see save_image_table_csv).
@@ -153,7 +154,8 @@ def export_patches(
 
     With *save_metadata*, ``patches.csv`` (*metadata_filename*) and the
     per-image table ``images.csv`` (*image_table_filename*,
-    :func:`save_image_table_csv`) are written in *output_dir*. The table
+    :func:`save_image_table_csv`) and the per-position table ``positions.csv``
+    (:func:`~cellpatcher.positions.save_position_table_csv`) are written in *output_dir*. The table
     lists *image_records* (the pipeline passes one per input image, with
     those that gave no patch), or, when None, the images of *patches*.
     """
@@ -195,6 +197,7 @@ def export_patches(
         if image_records is None:
             image_records = image_records_from_patches(patches)
         save_image_table_csv(image_records, out_dir / image_table_filename)
+        save_position_table_csv(image_records, out_dir / POSITION_TABLE_FILENAME)
 
     return saved_files
 

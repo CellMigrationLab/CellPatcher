@@ -1,5 +1,7 @@
 import numpy as np
 
+from cellpatcher.io import write_array
+
 
 def write_tiff(path, data, axes):
     """Write *data* as an ImageJ TIFF whose header names its *axes* (``"ZYX"``, ``"CYX"``, ...).
@@ -153,3 +155,27 @@ def as_file_run(config, run=None):
     config.common.image_axes = config.common.mask_axes = "YX"
     config.common.preprocessing_run = str(run or os.path.dirname(config.normalization.plane_histograms))
     return config
+
+def cell_folders(tmp_path, *, empty=("b",)):
+    """An image folder with images a, b, c and their masks; the masks of *empty* hold no cell."""
+    image, labels, _ = make_synthetic_cell_image_and_labels()
+    for name in ("a", "b", "c"):
+        write_array(tmp_path / "images" / f"{name}.tif", image)
+        write_array(tmp_path / "masks" / f"{name}_mask.tif", np.zeros_like(labels) if name in empty else labels)
+    return tmp_path / "images", tmp_path / "masks"
+
+
+def cell_tree(tmp_path):
+    image, labels, _ = make_synthetic_cell_image_and_labels()
+    empty = np.zeros_like(labels)
+    layout = {
+        "treated/2026_01_01/a.tif": labels,
+        "treated/2026_01_01/b.tif": empty,
+        "control/2026_01_01/B02/c.tif": labels,
+        "control/2026_01_01/B03/c.tif": empty,
+    }
+    for relative, mask in layout.items():
+        write_array(tmp_path / "raw" / relative, image)
+        mask_path = (tmp_path / "masks" / relative).with_name(f"{relative.rsplit('/', 1)[1][:-4]}_mask.tif")
+        write_array(mask_path, mask)
+    return tmp_path / "raw", tmp_path / "masks"

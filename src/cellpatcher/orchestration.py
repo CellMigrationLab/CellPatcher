@@ -13,6 +13,7 @@ from cellpatcher.config import CellPatcherConfig
 from cellpatcher.file_runs import FileRun, leaves, masks_used, open_file_run, patch_fovs, run_config_for
 from cellpatcher.io import SINGLE_TECHNICAL_REPEAT_LABEL, ConditionRepeatFolder, refuse_removed_matching
 from cellpatcher.export import IMAGE_TABLE_FILENAME, save_image_table_csv, save_metadata_csv
+from cellpatcher.positions import POSITION_TABLE_FILENAME, save_position_table_csv
 from cellpatcher.pipeline import RUN_CONFIG_FILENAME, PatchingResult
 from cellpatcher.run_config_file import config_from_dict, run_config_data
 from cellpatcher.run_session import statistics_session
@@ -584,9 +585,10 @@ def _write_combined_metadata(config: CellPatcherConfig, output_dir: Path, result
         save_metadata_csv(all_patches, csv_path)
         # Every image of every leaf, with those that gave no patch.
         image_table_path = output_dir / IMAGE_TABLE_FILENAME
-        save_image_table_csv(
-            [record for leaf_result in results for record in leaf_result.result.image_records], image_table_path
-        )
+        records = [record for leaf_result in results for record in leaf_result.result.image_records]
+        save_image_table_csv(records, image_table_path)
+        save_position_table_csv(records, output_dir / POSITION_TABLE_FILENAME)  # every position of every leaf
         for leaf_result in results:
             leaf_result.result.metadata_file = str(csv_path)
             leaf_result.result.image_table_file = str(image_table_path)
+            leaf_result.result.position_table_file = str(output_dir / POSITION_TABLE_FILENAME)
