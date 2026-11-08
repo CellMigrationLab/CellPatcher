@@ -4,7 +4,12 @@
 
 CellPatcher generates 2D Y/X patch regions. CellPatcher works on 2-D planes only: an image or mask with more than one Z plane is refused (issue #83), by every in-memory helper below too (`select_axis_index` and `project_axis` included). Reduce a Z stack to one plane in a [recorded projection step of morphobricks-preprocessing](https://github.com/CellMigrationLab/morphobricks-preprocessing/issues/176) first. A time series (T axis) can be selected from, or expanded into one 2D plane per frame, and the same patching mode runs on each plane.
 
-**In folder and tree runs** (and `run_patching`), set `config.common.z_policy`/`t_policy` instead of preparing the arrays yourself: `"all"` patches every plane, `"first"`/`"select"` one plane (`"max"`/`"mean"`/`"sum"` accept an image with no Z axis or one Z plane and refuse more: CellPatcher combines no planes, a Z projection is a recorded projection step in morphobricks-preprocessing, issue #83); the default `"keep"` keeps every plane in each patch. Masks follow the image's planes or are shared (see the [config reference](configuration_reference.md#commonconfig)). The helpers below stay available for in-memory workflows.
+**In folder and tree runs** (and `run_patching`), set `config.common.z_policy`/`t_policy` instead of preparing the arrays yourself. T and Z are separate:
+
+- **T (time):** `t_policy="all"` patches every frame as its own plane, `"first"`/`"select"` one frame; the default `"keep"` keeps every frame in each patch.
+- **Z (depth):** Z=1 (or no Z axis) passes, and `z_policy` then names that one plane (`"all"` gives `z000`) or returns it unchanged (`"max"`/`"mean"`/`"sum"`). Z>1 is refused whatever `z_policy` says (`"all"`, `"first"`, `"select"` and the projections alike, issue #83): CellPatcher combines no planes and selects none. Project or select first with `convert --project` in [morphobricks-preprocessing](https://github.com/CellMigrationLab/morphobricks-preprocessing/issues/176) before patching.
+
+Masks follow the image's planes or are shared (see the [config reference](configuration_reference.md#commonconfig)). The helpers below stay available for in-memory workflows.
 
 ## Core idea
 
@@ -51,10 +56,10 @@ Rules:
 - no silent label averaging/summing
 - strict matching for T/Z when iterating `all` planes
 
-Note: `iter_cell_planes_for_patching` supports `z_policy` values `{error, first, select, max, all}`.
-`"max"` (and `"mean"`/`"sum"` in the other helpers) is accepted only for an image with no Z axis or one Z
-plane, which it returns unchanged; for several Z planes it raises `ZStackNotSupportedError`: project in
-a recorded step of morphobricks-preprocessing first.
+Note: `iter_cell_planes_for_patching` supports `z_policy` values `{error, first, select, max, all}`, but Z>1 is
+refused under every one of them (`ZStackNotSupportedError`, issue #83): with one Z plane `"all"` yields that plane
+(`z000`) and `"max"` (and `"mean"`/`"sum"` in the other helpers) returns it unchanged. `t_policy="all"` still
+expands every T frame. Project or select a Z stack first with `convert --project` in morphobricks-preprocessing.
 
 ## Common mistakes
 

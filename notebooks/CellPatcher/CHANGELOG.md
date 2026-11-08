@@ -53,6 +53,19 @@ Everything described under `0.2.0rc1` to `0.2.0rc3` applies to this release.
   `v0.3.4`: pip refuses two different direct URLs for one package.
 
 ---
+## [Unreleased] - The docs treat T and Z separately: z_policy="all" no longer reads as patching every Z plane (#94)
+
+#### Fixed
+- `docs/preprocessing.md`, the configuration reference, the normalization docs, the README, the notebook
+  and the `prepare_labels_for_cell_patching` docstring still said `z_policy="all"` patches every plane,
+  and the docstring recommended `select`, `first` or `all` for a Z stack. Every route refuses Z>1 since
+  #83. The text now separates T (`all`, `first`, `select` work) from Z (Z=1 passes; Z>1 is refused under
+  every `z_policy`; project or select first with `convert --project` in morphobricks-preprocessing). The
+  cell-mode mask message adds the same note for a Z mask axis. No behaviour changed. Test:
+  `tests/test_docs_z_policy.py` fails on a paragraph that pairs `z_policy` with `"all"` without saying
+  that Z>1 is refused.
+
+---
 ## [Unreleased] - A sampling mask filters random draws only when it excludes them (matrix finding F8, for 0.2.0)
 
 The cross-brick matrix run of 2026-11-03 (finding F8) found that a random-mode run given a mask

@@ -734,7 +734,7 @@ def _patch_planes(config: CellPatcherConfig, sources) -> PatchingResult:
 
         image_id = f"image_{index:04d}"
         if not planes:
-            # A Z or T axis of length 0 under z_policy/t_policy="all".
+            # A Z or T axis of length 0 under a plane split (an empty axis has no plane to patch).
             record = _image_record(config, image_id, meta)
             record.skip_reason = "the image has no plane to patch along the axes split by z_policy/t_policy"
             records.append(record)

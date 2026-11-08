@@ -27,6 +27,12 @@ def _refuse_plane_axes(mask_axes: str, labels: np.ndarray) -> None:
             f"patch. Set {policies} (e.g. 'all' for one patch per plane, or 'first'/'select' "
             "for one plane), or give 2-D (YX) masks (in a file run: the preprocessing run's "
             "masks). mask_channel selects a label channel (C), not a plane."
+            + (
+                " A Z axis longer than 1 is refused under every z_policy: project or select it first "
+                "with `convert --project` in morphobricks-preprocessing."
+                if "Z" in planes
+                else ""
+            )
         )
 
 

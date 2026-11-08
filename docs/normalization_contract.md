@@ -74,7 +74,7 @@ index per plane:
 
 | Axis | Allowed | Blocked under normalization |
 |---|---|---|
-| Z | `z_policy="all"` (each slice its own plane), `"select"`, `"first"` | `"keep"` (all slices in one patch, the default); `"max"`, `"mean"`, `"sum"` over several slices raise `ZStackNotSupportedError` (issue #83; a projection is a recorded preprocessing step) |
+| Z | Z=1 only: the one plane passes (`z_policy="all"` names it `z000`, `"select"`/`"first"` pick it, `"max"`, `"mean"`, `"sum"` return it unchanged). Z>1 is refused under every `z_policy` (`ZStackNotSupportedError`, issue #83): project or select first with `convert --project` in morphobricks-preprocessing | `"keep"` over Z>1 (all slices in one patch) |
 | T | `t_policy="all"`, `"select"`, `"first"` | `"keep"` (all time points in one patch, the default) |
 | C | `split_channels=True` (one patch per channel) or a list of channel indices (one patch per selected channel), `channel_policy="select"`/`"first"`, or channels kept together in one patch | `channel_policy="max"`/`"mean"` (merged channels) and `"repeat_to_rgb"` in the preparation helpers |
 
@@ -339,8 +339,9 @@ In memory, `PatchRegion.normalization_parameters` holds the brick's `Parameters`
 
 `config.common` gained `mask_source` and `mask_label_name` (§4; removed in v0.2.0, CP-2b), and
 `z_policy`/`t_policy`
-(`"keep"` by default, or `"all"`, `"first"`, `"select"`; `"max"`, `"mean"`, `"sum"` accept one plane and refuse several, issue #83)
-with `z_index`/`t_index` (`int | None`), which split Z and T in folder, tree and
+(`"keep"` by default, or `"all"`, `"first"`, `"select"`; for Z, Z=1 passes and Z>1 is refused under every
+value, `"max"`, `"mean"`, `"sum"` included, issue #83; T keeps all of them)
+with `z_index`/`t_index` (`int | None`), which split T (and a one-plane Z) in folder, tree and
 `run_patching` runs (§3; Milestone 2, decided October 2026).
 
 ## 14. Validation

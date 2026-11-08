@@ -126,8 +126,9 @@ channels never share parameters (except the three channels of an RGB image).
 
 - **Z-stacks and time series:** normalization needs one plane per patch. A file run never has Z>1
   (preprocessing v0.4.0 refuses it, `docs/preprocessing.md`); an in-memory array with Z>1 is refused too. Set
-  `common.z_policy`/`t_policy` to `"all"` (one patch per plane), `"first"` or `"select"`;
-  `"keep"` and Z projections stop the run. Each T frame is its own plane; a Z stack is refused (issue #83).
+  `common.t_policy` to `"all"` (one patch per frame), `"first"` or `"select"`; `"keep"` along T stops
+  the run. Z is separate: Z=1 passes (`z_policy` names or returns that one plane), Z>1 is refused whatever
+  `z_policy` says (issue #83); project or select first with `convert --project` in morphobricks-preprocessing.
 - **Channels** may be kept together in one patch (each channel gets its own parameters, listed
   in channel order) or split with `extraction.split_channels=True`, or `[i, ...]` for only the
   selected channels. A single-channel patch keeps the parameters of its channel in the image's
@@ -189,7 +190,7 @@ planes and what to do:
 | *... other condition, biological repeat or technical repeat labels* | CellPatcher and the preprocessing read different folder levels: give both the same experiment folder. |
 | *... another position_id than their rows* | A `position_id` given in `image_metadata` is not the one the preprocessing recorded (the image name). Leave it to the image name, or give the recorded one. |
 | *... another role than the axis mapping confirmed in the preprocessing brick* | In-memory runs: `common.image_axes` differs from the axes confirmed in the preprocessing notebook. (Folder and tree runs take the run's roles and declare no axes.) |
-| *Normalization needs one plane per patch* | Set `z_policy`/`t_policy` to `"all"`, `"first"` or `"select"`. |
+| *Normalization needs one plane per patch* | Set `t_policy` to `"all"`, `"first"` or `"select"`. A Z axis longer than 1 is refused (Z>1 is never patched, issue #83): project or select it first with `convert --project` in morphobricks-preprocessing. |
 | *... cannot be computed for N group(s)* | A group has no finite pixels or no intensity spread: choose a larger scope or another method. |
 | *Keeping the normalized patches in memory needs about ...* | Use `iter_patch_arrays`, export to files, or raise `normalization.memory_limit`. |
 | *Reading the OME-Zarr image ... needs the zarr package* | `pip install "cellpatcher[zarr]"`. |
