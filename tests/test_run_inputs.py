@@ -145,6 +145,32 @@ def test_load_refuses_a_run_whose_image_changed_since(stack_experiment):
     assert _codes(error_info) == ["preprocessing_run_refused"]
 
 
+def test_a_default_run_hashes_content_so_an_edit_that_keeps_size_and_time_is_refused(tmp_path):
+    # Preprocessing v0.5.0 records each image's content SHA-256 by default (manifest version 3): a pixel
+    # edited in place with the size and modification time kept is caught when the run opens, where the
+    # fingerprint rule of v0.4.0 (the stack_experiment fixture) needs CellPatcher's own plane check.
+    import morphobricks_normalization as mbn
+    import morphobricks_preprocessing as mbp
+    import numpy as np
+
+    root = tmp_path / "experiment"
+    rng = np.random.default_rng(0)
+    for relative_path in STACK_IMAGES:
+        _write_tiff(root / relative_path, rng.integers(1, 4000, (3, 20, 24), dtype=np.uint16), "TYX")
+    output = tmp_path / "preprocessing"
+    assert mbp.run_experiment(root, mbp.AxisMapping("TYX", "TYX"), output_folder=output).written
+    assert load_plane_statistics(output / mbn.OUTPUT_FILENAME).manifest.manifest_version == "3"
+
+    image_path = root / "control" / "img1.tif"
+    stat = image_path.stat()
+    _write_tiff(image_path, rng.integers(1, 4000, (3, 20, 24), dtype=np.uint16), "TYX")
+    os.utime(image_path, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+
+    with pytest.raises(PreprocessingCheckError, match="control/img1.tif") as error_info:
+        load_plane_statistics(output / mbn.OUTPUT_FILENAME)
+    assert _codes(error_info) == ["preprocessing_run_refused"]
+
+
 def test_a_clean_run_normalizes_a_tree_run_through_run_inputs(tmp_path):
     # Before CP-1, CellPatcher refused every run written by preprocessing v0.4 (manifest
     # version 2): it read only version 1 manifests.
@@ -158,7 +184,9 @@ def test_a_clean_run_normalizes_a_tree_run_through_run_inputs(tmp_path):
         enabled=True, plane_histograms=str(run.output / "plane_histograms.csv"), scope="biological_repeat",
     )
     statistics = load_plane_statistics(config.normalization.plane_histograms)
-    assert statistics.manifest.manifest_version == "2"
+    # Preprocessing v0.5.0 hashes content by default: a default run writes manifest version 3
+    # (v0.4.0 wrote 2, which the stack_experiment fixture still states with verify_content=False).
+    assert statistics.manifest.manifest_version == "3"
     config.common.preprocessing_run = str(run.output)  # a file run reads through the run (CP-2a)
     results = run_patching_condition_repeat_tree(run.experiment, config=config)
     patches = [patch for leaf in results for patch in leaf.result.patches]

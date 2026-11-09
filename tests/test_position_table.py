@@ -245,18 +245,23 @@ def test_the_canonical_ids_of_a_description_reach_the_row(tmp_path):
 
 
 def test_a_file_runs_fov_metadata_carries_the_ids_of_its_description_only_when_it_has_them():
-    run = SimpleNamespace(mask_type=None)
     key = ("treated", "r1", "single", "P1")
     plain = SimpleNamespace(key=key, relative_path="treated/r1/P1.tif")
     described = SimpleNamespace(
-        key=key, relative_path="treated/r1/P1.tif", repeat_group="rg1", condition_id="c1", technical_repeat_id=None
+        key=key, relative_path="treated/r1/P1.tif", repeat_group="rg1", condition_id="c1", technical_repeat_id="tr1"
     )
     config = CellPatcherConfig(mode="grid")
 
-    assert not {"repeat_group", "condition_id", "technical_repeat_id"} & set(fov_metadata(run, plain, config))
-    meta = fov_metadata(run, described, config)
-    assert (meta["repeat_group"], meta["condition_id"]) == ("rg1", "c1")
-    assert "technical_repeat_id" not in meta  # None is "no description", never a guess
+    # An undescribed run has no IDs (empty columns); a described one carries all three.
+    undescribed_run = SimpleNamespace(mask_type=None, described=False)
+    ids = {"repeat_group", "condition_id", "technical_repeat_id"}
+    assert not ids & set(fov_metadata(undescribed_run, plain, config))
+    described_run = SimpleNamespace(mask_type=None, described=True)
+    meta = fov_metadata(described_run, described, config)
+    assert (meta["repeat_group"], meta["condition_id"], meta["technical_repeat_id"]) == ("rg1", "c1", "tr1")
+    # A described run's FOV without an ID is refused, never left empty (tests/test_described_ids.py).
+    with pytest.raises(ValueError, match="has no repeat_group"):
+        fov_metadata(described_run, plain, config)
 
 
 def test_two_source_images_of_a_position_cannot_name_two_repeat_groups():

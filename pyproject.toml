@@ -5,7 +5,8 @@
 line-length = 120
 target-version = "py311"
 src = ["src", "tests", "tools"]
-extend-exclude = ["tests/guard_fixtures", "references", ".tools", "app"]
+# The vendored Spec files are byte-exact copies (tests/spec_fixtures/README.md).
+extend-exclude = ["tests/guard_fixtures", "tests/spec_fixtures", "references", ".tools", "app"]
 
 [tool.ruff.lint]
 # The MorphoBricks code standards (design v0.4 §9), as in morphobricks-preprocessing. Findings

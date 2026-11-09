@@ -76,6 +76,8 @@ PREPROCESSING_COMMAND = (
 
 _DEFAULT_AXES = "YX"
 _LABELS = ("condition", "biological_repeat", "technical_repeat")
+# The canonical IDs of a described run that positions.csv carries (Fov attributes of the same names).
+_CANONICAL_IDS = ("repeat_group", "condition_id", "technical_repeat_id")
 
 
 @dataclass(frozen=True)
@@ -103,6 +105,11 @@ class FileRun:
     mask_type: str | None
     mask_layouts: Mapping[str, str]
     statistics: PlaneStatistics | None
+
+    @property
+    def described(self) -> bool:
+        """Whether the run has a published experiment description (its manifest records one)."""
+        return self.inputs.manifest.experiment_description is not None
 
     @property
     def fovs(self) -> tuple[Fov, ...]:
@@ -407,15 +414,37 @@ def fov_metadata(run: FileRun, fov: Fov, config: CellPatcherConfig) -> dict:
         "position_id": fov.key[3],
         "technical_repeat": fov.key[2],
     }
-    # The canonical IDs of a run with a description (None, or absent from a brick that has none).
-    for name in ("repeat_group", "condition_id", "technical_repeat_id"):
-        if getattr(fov, name, None) is not None:
-            meta[name] = getattr(fov, name)
+    # The canonical IDs of a run with a description. A run without one has none (empty columns); a
+    # described run must give all three, so an absent or None attribute is refused, never left empty.
+    for name in _CANONICAL_IDS:
+        value = getattr(fov, name, None)
+        if value is None or value == "":
+            if run.described:
+                _refuse_missing_canonical_id(fov, name)
+            continue
+        meta[name] = value
     if run.mask_type is not None:
         meta["mask_file"] = mask_file_name(_record(run.inputs, fov, run.mask_type))
         if config.mode == "cell" and config.common.object_set is None:
             meta["object_set"] = object_set_from_mask_type(run.mask_type)
     return meta
+
+
+def _refuse_missing_canonical_id(fov: Fov, name: str) -> None:
+    """Raise ``described_run_missing_id``: a described run's FOV has no *name* (never a guess or an empty cell)."""
+    from morphobricks_preprocessing.validation import error
+
+    raise PreprocessingCheckError([
+        error(
+            "described_run_missing_id",
+            f"The preprocessing run has an experiment description, but its image {fov.relative_path!r} has no "
+            f"{name}. CellPatcher writes the canonical IDs of the run into positions.csv and never derives, "
+            "parses or guesses them from the folder names.",
+            [fov.relative_path],
+            "Use a preprocessing brick whose Fov carries repeat_group, condition_id and technical_repeat_id "
+            "(v0.5.0 or later), and run preprocessing again on the experiment.",
+        )
+    ])
 
 
 def validate_image_and_mask_folders(

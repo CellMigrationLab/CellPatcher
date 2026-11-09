@@ -48,10 +48,16 @@ def _write_tiff(path, array, axes):
 
 
 def _preprocess(root, output, axes):
-    """Run the preprocessing brick on ``root``; return the output folder."""
+    """Run the preprocessing brick on ``root`` with the fingerprint identity rule; return the output folder.
+
+    Preprocessing v0.5.0 hashes content by default (manifest version 3); these tests state the v0.4.0
+    rule (manifest version 2) explicitly, as the tests of the default and strict runs state theirs.
+    """
     import morphobricks_preprocessing as mbp
 
-    result = mbp.run_experiment(root, mbp.AxisMapping(axes, axes), output_folder=output)
+    result = mbp.run_experiment(
+        root, mbp.AxisMapping(axes, axes), output_folder=output, mode=mbp.RunMode(verify_content=False)
+    )
     assert result.written, [str(issue) for issue in result.issues]
     return output
 

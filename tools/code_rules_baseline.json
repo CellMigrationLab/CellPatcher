@@ -511,7 +511,7 @@
     "tests/test_normalization.py test_patch_scope_never_uses_padding: # Ruff findings line-too-long": 1,
     "tests/test_normalization.py test_raw_patches_of_a_removed_scope_still_normalize_on_load: # Ruff findings zip-without-explicit-strict": 1,
     "tests/test_normalization.py test_the_brick_gives_the_parameters_and_arrays_of_the_earlier_code: # Ruff findings zip-without-explicit-strict": 1,
-    "tests/test_normalization.py: # lines (max #)": 951,
+    "tests/test_normalization.py: # lines (max #)": 950,
     "tests/test_ome_zarr_images.py test_tiff_masks_are_paired_beside_the_stores_own_label_images: # Ruff findings line-too-long": 1,
     "tests/test_ome_zarr_images.py test_tree_run_patches_ome_zarr_and_tiff_images_alike: # Ruff findings zip-without-explicit-strict": 2,
     "tests/test_patch_geometry.py <module>: # Ruff findings unsorted-imports": 1,

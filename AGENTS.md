@@ -21,7 +21,7 @@
 
 Key dependencies: `numpy`, `scipy`, `tifffile`, `imageio`, and the MorphoBricks bricks `morphobricks-preprocessing` and `morphobricks-normalization` from GitHub at pinned tags (core, required; normalization is declared at the tag the preprocessing tag pins, owner decision D-h, checked by `tests/test_dependency_pins.py`; histograms, the plane table, plane IDs, pooling and normalization parameters are imported from `morphobricks_normalization`, not from their deprecated preprocessing paths). Optional extras: `ipywidgets`, `matplotlib`, `pillow`, `tqdm`, `joblib`, `jl-hidecode` (notebook extra); `torch` (optional `cellpatcher.torch_dataset` adapter only — never a core dependency); `morphobricks-preprocessing[zarr]` at the same tag (`zarr` extra, formerly `preprocessing`: OME-Zarr images and OME-NGFF label masks).
 
-Current health snapshot (2026-11-05, v0.2.0 with preprocessing `v0.4.0` and normalization `v0.3.4` installed from their tags, Python 3.11, Linux): `.[test,zarr,notebook]` with CPU `torch` 2.15.0: 2605 passed, 0 skipped (`python tools/check.py`; the smaller extras were not run). Preprocessing `v0.4.0` refuses Z>1 inputs (2-D planes only), so the tests that built Z-stacks use T.
+Current health snapshot (2026-11-09, Stage 2 CP-1: preprocessing pinned to the `v0.5.0` release-candidate commit `0a2e25b` until the tag exists, normalization `v0.3.4`, Python 3.11, Linux): `.[test,zarr,notebook]` with CPU `torch` 2.15.0: 2693 passed, 0 skipped (`python tools/check.py`; the smaller extras were not run). Preprocessing refuses Z>1 inputs (2-D planes only), so the tests that built Z-stacks use T.
 
 ---
 
@@ -144,6 +144,7 @@ src/
 tests/
   test_*.py             # mirrors src/cellpatcher modules
   fixtures/              # small, deterministic TIFF fixtures (see tests/fixtures/readme.md)
+  spec_fixtures/         # MorphoBricks-Spec test material, a pinned copy made by the Spec's tools/vendor.py: never edit by hand (PIN.toml, README.md); tests/test_spec_pin.py hashes it
 
 docs/
   README.md               # documentation map / entry point

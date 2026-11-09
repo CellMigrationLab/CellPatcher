@@ -37,6 +37,13 @@ def test_the_rules_job_runs_the_code_rules():
     assert 'ruff==0.17.3' in job
 
 
+def test_the_spec_pin_job_checks_the_vendored_copy_against_the_spec():
+    job = _job("spec-pin")
+    assert "repository: CellMigrationLab/MorphoBricks-Spec" in job
+    assert "fetch-depth: 0" in job  # the pinned commit must be in the checkout
+    assert "python spec/tools/vendor.py --into . --check" in job
+
+
 def test_the_pytest_job_runs_every_extras_combination():
     job = _job("pytest")
     assert "extras: ['test', 'test,zarr', 'test,zarr,notebook']" in job

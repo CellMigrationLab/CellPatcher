@@ -1,0 +1,137 @@
+# TEMPLATE: copy to .github/workflows/spec-freshness.yml of a brick.
+# Maintained in MorphoBricks-Spec (tools/brick_templates/); change it there. See docs/vendoring.md.
+#
+# Weekly, non-blocking: warns (one GitHub issue) when the brick's pinned copy of the Spec is
+# behind Spec main on the files that matter, i.e. the paths named in PIN.toml (fixtures/ and
+# the pinned files). Docs-only Spec changes outside those paths do not trigger it. The job
+# never fails the build and opens no pull request: re-pinning is a reviewed human decision.
+#
+# Compares `git rev-parse <pin>:<path>` with `git rev-parse main:<path>` for each pinned path.
+name: spec-freshness
+
+on:
+  schedule:
+    - cron: "17 5 * * 1" # Mondays 05:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+env:
+  # Where PIN.toml lives in this brick; edit if the copy is not in the default place.
+  PIN_FILE: tests/spec_fixtures/PIN.toml
+  SPEC_REPO: CellMigrationLab/MorphoBricks-Spec
+  ISSUE_TITLE: Spec pin is behind MorphoBricks-Spec main
+
+jobs:
+  freshness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      # While the Spec is public the default token reads it. If the Spec becomes private, add a
+      # read-only token for it as the repository secret SPEC_READ_TOKEN (docs/vendoring.md).
+      # A failed checkout must not fail the job: the next step reports it as a warning.
+      - name: Check out Spec main
+        id: spec
+        continue-on-error: true
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.SPEC_REPO }}
+          ref: main
+          path: spec-main
+          fetch-depth: 0
+          persist-credentials: false
+          token: ${{ secrets.SPEC_READ_TOKEN || github.token }}
+      - name: Compare the pinned paths with Spec main
+        # A warning, never a failure: a problem here must not block a brick's merges.
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Any failure below is reported as a warning annotation; continue-on-error keeps the
+          # job green, so this check can never block a brick.
+          trap 'rc=$?; if [ "$rc" -ne 0 ]; then echo "::warning title=spec-freshness::The freshness check could not run (exit $rc). See the log. If the Spec repository is private, add the secret SPEC_READ_TOKEN (docs/vendoring.md in the Spec)."; fi' EXIT
+          if [ "${{ steps.spec.outcome }}" != "success" ]; then
+            echo "Could not check out $SPEC_REPO main (private repository without SPEC_READ_TOKEN, or an outage)." >&2
+            exit 1
+          fi
+          spec=spec-main
+          # Line 1: the pinned commit. Other lines: the pinned paths (fixtures, then the files).
+          mapfile -t pin < <(python3 - "$PIN_FILE" <<'PY'
+          import sys, tomllib
+          with open(sys.argv[1], "rb") as handle:
+              pin = tomllib.load(handle)
+          print(pin["commit"])
+          print("fixtures")
+          for path in pin["files"]:
+              print(path)
+          PY
+          )
+          if [ "${#pin[@]}" -lt 2 ]; then echo "Could not read the pin from $PIN_FILE." >&2; exit 1; fi
+          pinned=${pin[0]}
+          paths=("${pin[@]:1}")
+          main=$(git -C "$spec" rev-parse HEAD)
+
+          changed=()
+          note=""
+          if ! git -C "$spec" cat-file -e "${pinned}^{commit}" 2>/dev/null; then
+            note="The pinned commit \`$pinned\` is not in the history of Spec main."
+            changed=("${paths[@]}")
+          else
+            for path in "${paths[@]}"; do
+              old=$(git -C "$spec" rev-parse "$pinned:$path" 2>/dev/null || echo missing)
+              new=$(git -C "$spec" rev-parse "$main:$path" 2>/dev/null || echo missing)
+              if [ "$old" != "$new" ]; then changed+=("$path"); fi
+            done
+          fi
+
+          if [ "${#changed[@]}" -eq 0 ]; then
+            echo "Up to date: no pinned path changed between ${pinned:0:7} and Spec main ${main:0:7}."
+            exit 0
+          fi
+
+          url="https://github.com/$SPEC_REPO"
+          body=$(mktemp)
+          {
+            echo "The vendored copy of MorphoBricks-Spec is pinned at [\`${pinned:0:7}\`]($url/commit/$pinned);"
+            echo "Spec main is at [\`${main:0:7}\`]($url/commit/$main). These pinned paths differ:"
+            echo
+            for path in "${changed[@]}"; do echo "- \`$path\`"; done
+            echo
+            if [ -n "$note" ]; then
+              echo "$note"
+            else
+              echo "Changed files (\`git diff --name-status ${pinned:0:7} ${main:0:7}\`):"
+              echo
+              echo '```'
+              git -C "$spec" diff --name-status "$pinned" "$main" -- "${changed[@]}" | sed -n '1,100p'
+              echo '```'
+              echo
+              echo "Spec commits touching them:"
+              echo
+              git -C "$spec" log --format="- [\`%h\`]($url/commit/%H) %s" "$pinned..$main" -- "${changed[@]}" | sed -n '1,50p'
+            fi
+            echo
+            echo "To re-pin: run \`tools/vendor.py\` from a Spec checkout, run this brick's tests, open a"
+            echo "reviewed PR and update \`docs/pins.md\` in the Spec (see [docs/vendoring.md]($url/blob/main/docs/vendoring.md))."
+            echo
+            echo "_Opened by the weekly spec-freshness workflow. It never blocks a build. This issue is updated in place and can be closed once the pin is current._"
+          } > "$body"
+
+          # One issue: the open one with this exact title, else a new one (REST through gh).
+          number=$(gh api --paginate "repos/$GH_REPO/issues?state=open&per_page=100" \
+            --jq '.[] | select(.pull_request == null) | select(.title == env.ISSUE_TITLE) | .number' | sed -n '1p')
+          if [ -n "$number" ]; then
+            gh api -X PATCH "repos/$GH_REPO/issues/$number" -F body=@"$body" --silent
+            echo "Updated issue #$number."
+          else
+            gh api -X POST "repos/$GH_REPO/issues" -f title="$ISSUE_TITLE" -F body=@"$body" --silent
+            echo "Opened the issue."
+          fi

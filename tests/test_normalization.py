@@ -53,14 +53,13 @@ def _confirmed_design(root, pairs=None):
 
 
 def _preprocess(root, output, axes, design="confirmed", histogram_settings=None):
-    """Run the preprocessing brick; by default with a confirmed design, written as experiment_design.csv."""
+    """Run the preprocessing brick (fingerprint rule, manifest 2; v0.5.0 hashes by default) with a confirmed design."""
     import morphobricks_preprocessing as mbp
 
     if design == "confirmed":
         design = _confirmed_design(root)
-    result = mbp.run_experiment(
-        root, mbp.AxisMapping(axes, axes), output_folder=output, design=design, histogram_settings=histogram_settings
-    )
+    result = mbp.run_experiment(root, mbp.AxisMapping(axes, axes), output_folder=output, design=design,
+                                histogram_settings=histogram_settings, mode=mbp.RunMode(verify_content=False))
     assert result.written, [str(issue) for issue in result.issues]
     return result.csv_path
 
