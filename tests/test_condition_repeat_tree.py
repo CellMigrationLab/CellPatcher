@@ -287,7 +287,7 @@ def test_tree_random_mode_mask_root_needs_a_mask_for_every_image(tmp_path):
     mask_root = tmp_path / "masks"
     write_array(image_root / "treated" / "img.tif", np.arange(64 * 64, dtype=np.float32).reshape(64, 64))
     sampling_mask = np.zeros((64, 64), dtype=np.uint8)
-    sampling_mask[16:48, 16:48] = 1
+    sampling_mask[16:48, 16:48] = 1  # a sampling region: a binary mask, and described so
     write_array(mask_root / "treated" / "img_mask.tif", sampling_mask)
     write_array(image_root / "control" / "img.tif", np.arange(64 * 64, dtype=np.float32).reshape(64, 64))
 
@@ -295,10 +295,10 @@ def test_tree_random_mode_mask_root_needs_a_mask_for_every_image(tmp_path):
     cfg.random.n_patches = 3
     cfg.random.patch_size = 8
     with pytest.raises(ValueError, match="recorded no 'mask' mask for control/img.tif; every image needs one"):
-        _tree(image_root, config=cfg, mask_root_path=mask_root)
+        _tree(image_root, config=cfg, mask_root_path=mask_root, representations={"mask": "binary"})
 
     write_array(mask_root / "control" / "img_mask.tif", np.ones((64, 64), dtype=np.uint8))
-    results = _tree(image_root, config=cfg, mask_root_path=mask_root)
+    results = _tree(image_root, config=cfg, mask_root_path=mask_root, representations={"mask": "binary"})
     assert {r.condition: len(r.result.patches) for r in results} == {"control": 3, "treated": 3}
 
     results = _tree(image_root, config=cfg)

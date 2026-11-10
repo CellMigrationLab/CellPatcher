@@ -23,6 +23,7 @@ from cellpatcher.statistics import (
     check_planes,
     load_plane_statistics,
 )
+from tests.helpers import run_described
 
 needs_preprocessing = pytest.mark.skipif(
     importlib.util.find_spec("morphobricks_preprocessing") is None,
@@ -48,10 +49,17 @@ def _write_tiff(path, array, axes):
 
 
 def _preprocess(root, output, axes):
-    """Run the preprocessing brick on ``root``; return the output folder."""
+    """Run the preprocessing brick on ``root`` with the fingerprint identity rule; return the output folder.
+
+    The run is described (every run is, Spec ADR 0002 AR10). Preprocessing v0.5.0 hashes content by
+    default; these tests state the fingerprint rule (``verify_content=False``) explicitly, as the tests
+    of the default and strict runs state theirs.
+    """
     import morphobricks_preprocessing as mbp
 
-    result = mbp.run_experiment(root, mbp.AxisMapping(axes, axes), output_folder=output)
+    result = run_described(
+        root, mbp.AxisMapping(axes, axes), output_folder=output, mode=mbp.RunMode(verify_content=False)
+    )
     assert result.written, [str(issue) for issue in result.issues]
     return output
 

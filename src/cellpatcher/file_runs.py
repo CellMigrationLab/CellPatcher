@@ -10,7 +10,8 @@ and read where it is now). Then:
   repeat, ``position_id``) as the run recorded it, never parsed from a name;
 - each image is read with ``RunInputs.read_plane`` in the roles the run recorded, and each mask
   with ``RunInputs.read_mask`` by the run's pairing (:mod:`cellpatcher.run_reading`);
-- the CSV normalization scopes read the run's own table, design and image type.
+- the CSV normalization scopes read the run's own table and image type, and the repeat groups
+  of its description (``Fov.repeat_group``).
 
 The settings that told CellPatcher how to read files (``common.image_axes``, ``mask_axes`` and
 the labels) are refused for file runs with a migration message; in-memory ``run_patching``
@@ -34,7 +35,7 @@ from cellpatcher.io import (
 from cellpatcher.normalization import (
     CSV_SCOPES,
     check_image_type,
-    load_experiment_design,
+    repeat_groups,
     validate_normalization,
 )
 from cellpatcher.pipeline import (
@@ -76,6 +77,8 @@ PREPROCESSING_COMMAND = (
 
 _DEFAULT_AXES = "YX"
 _LABELS = ("condition", "biological_repeat", "technical_repeat")
+# The canonical IDs of a described run that positions.csv carries (Fov attributes of the same names).
+_CANONICAL_IDS = ("repeat_group", "condition_id", "technical_repeat_id")
 
 
 @dataclass(frozen=True)
@@ -287,8 +290,8 @@ def _csv_statistics(
 ) -> PlaneStatistics | None:
     """Check a CSV normalization scope against the opened run, before any image is read.
 
-    The run's own table, image type and (for ``biological_repeat``) design; every image must
-    have rows in the table.
+    The run's own table, image type and (for ``biological_repeat``) the repeat groups of its
+    description; every image must have rows in the table.
     """
     settings = normalization_settings(config, inputs)
     if not settings.enabled or settings.scope not in CSV_SCOPES:
@@ -298,7 +301,7 @@ def _csv_statistics(
     keep_in_session(statistics)
     check_image_type(settings, statistics)
     if settings.scope == "biological_repeat":
-        load_experiment_design(settings, statistics)
+        repeat_groups(statistics)
     rows_only = PlaneStatistics(statistics.plane_histograms, statistics.records, statistics.csv_sha256)
     check_images(rows_only, dict(layouts))
     return statistics
@@ -396,8 +399,8 @@ def fov_metadata(run: FileRun, fov: Fov, config: CellPatcherConfig) -> dict:
     """Return an image's ``run_patching(image_metadata=...)`` entry, from the run's records.
 
     The FOV key is the run's (``position_id`` and ``technical_repeat`` included), with the
-    run's ``repeat_group``/``condition_id``/``technical_repeat_id`` when it has a description (only
-    for ``positions.csv``; they stamp no patch); the mask
+    ``repeat_group``/``condition_id``/``technical_repeat_id`` of its description (every run has one,
+    :func:`cellpatcher.run_open.refuse_undescribed_run`; only for ``positions.csv``, they stamp no patch); the mask
     file and, in ``cell`` mode without ``common.object_set``, the object set come from the
     recorded mask and its type.
     """
@@ -407,15 +410,35 @@ def fov_metadata(run: FileRun, fov: Fov, config: CellPatcherConfig) -> dict:
         "position_id": fov.key[3],
         "technical_repeat": fov.key[2],
     }
-    # The canonical IDs of a run with a description (None, or absent from a brick that has none).
-    for name in ("repeat_group", "condition_id", "technical_repeat_id"):
-        if getattr(fov, name, None) is not None:
-            meta[name] = getattr(fov, name)
+    # The canonical IDs of the run's description: all three, for every image; a missing one is
+    # refused, never left empty or derived from a folder name.
+    for name in _CANONICAL_IDS:
+        value = getattr(fov, name)
+        if value is None or value == "":
+            _refuse_missing_canonical_id(fov, name)
+        meta[name] = value
     if run.mask_type is not None:
         meta["mask_file"] = mask_file_name(_record(run.inputs, fov, run.mask_type))
         if config.mode == "cell" and config.common.object_set is None:
             meta["object_set"] = object_set_from_mask_type(run.mask_type)
     return meta
+
+
+def _refuse_missing_canonical_id(fov: Fov, name: str) -> None:
+    """Raise ``described_run_missing_id``: a described run's FOV has no *name* (never a guess or an empty cell)."""
+    from morphobricks_preprocessing.validation import error
+
+    raise PreprocessingCheckError([
+        error(
+            "described_run_missing_id",
+            f"The preprocessing run has an experiment description, but its image {fov.relative_path!r} has no "
+            f"{name}. CellPatcher writes the canonical IDs of the run into positions.csv and never derives, "
+            "parses or guesses them from the folder names.",
+            [fov.relative_path],
+            "Run preprocessing again on the experiment with its published description, and give CellPatcher "
+            "that run.",
+        )
+    ])
 
 
 def validate_image_and_mask_folders(

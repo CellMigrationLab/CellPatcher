@@ -155,14 +155,15 @@ def test_a_positive_fraction_differs_from_a_run_without_mask():
 
 
 def _experiment(tmp_path):
-    """Two YX images of ctrl/rep1 and a masks folder holding two mask types."""
+    """Two YX images of ctrl/rep1 and a masks folder holding two binary mask types (a block, noise)."""
     rng = np.random.default_rng(2)
     root, masks = tmp_path / "experiment", tmp_path / "masks"
     for name in ("a", "b"):
         write_tiff(root / "ctrl" / "rep1" / f"{name}.tif", rng.integers(0, 900, SHAPE).astype(np.uint16), "YX")
         for kind, mask in (("tissue", _masks()["block"]), ("nuclei", _masks()["noise"])):
             write_tiff(masks / kind / "ctrl" / "rep1" / f"{name}.tif", mask.astype(np.uint8), "YX")
-    return root, masks, preprocess(root, masks=masks, output=tmp_path / "run")
+    binary = {"tissue": "binary", "nuclei": "binary"}  # 0/1 masks: a region and many separate objects
+    return root, masks, preprocess(root, masks=masks, output=tmp_path / "run", representations=binary)
 
 
 def _file_run(root, run, random, masks=None):

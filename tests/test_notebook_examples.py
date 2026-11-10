@@ -20,7 +20,7 @@ from cellpatcher.notebook_session import preview_image, summarize_run
 
 @pytest.fixture
 def clean(tmp_path):
-    from morphobricks_preprocessing.testing import make_clean_run
+    from tests.helpers import make_clean_run
 
     return make_clean_run(tmp_path / "clean", axes="CYX", shape=(2, 32, 40), mask_types=("Cells",))
 
@@ -69,7 +69,7 @@ def test_every_strategy_shows_its_own_settings_on_its_page(clean):
 
 
 def test_the_cell_example_without_masks_says_why(tmp_path):
-    from morphobricks_preprocessing.testing import make_clean_run
+    from tests.helpers import make_clean_run
 
     run = make_clean_run(tmp_path / "clean", axes="CYX", shape=(2, 32, 40), mask_types=())
     notebook = StrategyExamplesNotebook()

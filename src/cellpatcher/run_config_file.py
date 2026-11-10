@@ -153,6 +153,8 @@ def config_from_dict(data: Mapping, where: str = "The config") -> CellPatcherCon
         "normalization": NormalizationConfig,
     }
     data = {**data, "common": _without_removed_settings(data.get("common", {}), where)}
+    if "normalization" in data:
+        data["normalization"] = _without_experiment_design(data["normalization"], where)
     built = {name: kind(**data[name]) if name in data else kind() for name, kind in sections.items()}
     return CellPatcherConfig(mode=data.get("mode", "cell"), **built)
 
@@ -173,6 +175,25 @@ def _without_removed_settings(common: Mapping, where: str) -> dict:
                 "Remove it and choose the mask type with matching.mask_type (a label image's type is its name)."
             )
     return common
+
+
+def _without_experiment_design(normalization: Mapping, where: str) -> dict:
+    """Return the ``normalization`` section without ``experiment_design``, refusing one that names a file.
+
+    The ``biological_repeat`` scope pools by the repeat groups of the run's published description
+    (Spec ADR 0002 AR11 (3)); the derived ``experiment_design.csv`` is never read back. A file
+    written before holds its default, None, which is left out.
+    """
+    normalization = dict(normalization)
+    value = normalization.pop("experiment_design", None)
+    if value is not None:
+        raise ValueError(
+            f"{where}: normalization.experiment_design={value!r} was removed: the biological_repeat scope "
+            "pools the repeat groups of the preprocessing run's published description, never the derived "
+            "experiment_design.csv. Remove the setting; describe the experiment in the preprocessing notebook "
+            "if the run has no description."
+        )
+    return normalization
 
 
 def delivery_config(data: Mapping, where: str, source: str | None = None) -> CellPatcherConfig:

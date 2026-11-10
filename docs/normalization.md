@@ -14,12 +14,14 @@ before.
 
 ## The workflow
 
-1. **Install** CellPatcher: the preprocessing (v0.4.0) and normalization (v0.3.4) bricks are core
+1. **Install** CellPatcher: the preprocessing (v0.5.0) and normalization (v0.3.4) bricks are core
    dependencies. OME-Zarr images need the optional extra `pip install "cellpatcher[zarr]"` (the
    notebook's first cell installs it on Google Colab).
-2. **Run the preprocessing notebook** (or `morphobricks-preprocessing check`, `design`, `run`)
-   on your experiment folder. It writes `plane_histograms.csv`, `run_manifest.json` and, once the
-   design is confirmed, `experiment_design.csv` to an output folder next to the experiment.
+2. **Describe the experiment and run the preprocessing notebook** on your experiment folder: publish
+   its experiment description (`morphobricks.toml`: conditions, biological and technical repeats,
+   channels), then run. It writes `plane_histograms.csv` and `run_manifest.json` to an output folder
+   next to the experiment. Every run needs a published description: CellPatcher refuses a run
+   without one (`A_DESCRIPTION_REQUIRED`, Spec ADR 0002 AR10).
 3. **Run CellPatcher on that preprocessing run** (`common.preprocessing_run`, its output folder)
    with normalization enabled. Since v0.2.0 a folder or tree run reads every image, and the CSV
    scopes read the run's own table, through the run (`RunInputs`): `plane_histograms` may be left
@@ -98,11 +100,11 @@ channels never share parameters (except the three channels of an RGB image).
 | `"patch"` | The patch's own pixels | Cell-level normalization; no preprocessing table needed |
 
 - **`biological_repeat` keeps the differences between conditions and removes the differences
-  between repeats.** The repeats are paired across conditions in the preprocessing brick's
-  step 1 (`experiment_design.csv`, next to `plane_histograms.csv` or given in
-  `experiment_design`), where you also confirm that each repeat was prepared and acquired
-  under the same circumstances; without that confirmation the run stops before reading any
-  image. `pooling="conditions"` weighs every condition of a repeat equally instead of every
+  between repeats.** The repeats are paired across conditions by the run's published experiment
+  description (each image's `repeat_group`, read through `RunInputs`; the derived
+  `experiment_design.csv` is an output and never read back, owner decision of 2026-11-10), where
+  you also confirm that each repeat was prepared and acquired under the same circumstances; an
+  image without a repeat group stops the run before reading any image. `pooling="conditions"` weighs every condition of a repeat equally instead of every
   pixel (`"pixels"`, the default).
 - The former `"condition"` and `"technical_repeat"` scopes were removed (October 2026): they
   put conditions, or wells, on the same scale and so removed real differences. Patches
@@ -182,9 +184,10 @@ planes and what to do:
 |---|---|
 | *The preprocessing run in ... cannot be used: The experiment holds ... that the preprocessing run did not record* (`unrecorded_files`) | Since preprocessing v0.4.0rc2: images or masks were added to the experiment (or masks folder) after the run. None is left out: run preprocessing again on the experiment as it is, or exclude the images there. |
 | *... the zarr package is not installed* (`zarr_extra_missing`) | The run holds OME-Zarr images: `pip install "cellpatcher[zarr]"`. |
-| *The preprocessing run in ... cannot be used* (`preprocessing_run_refused`) | The preprocessing brick's `RunInputs` refuses the run (since v0.2.0): no `run_manifest.json` next to the table, a run written before preprocessing v0.4.0, a table or `experiment_design.csv` changed since the run, or an image or mask changed or missing since the run where CellPatcher reads it. Run preprocessing v0.4 on the experiment as it is now; an experiment only moved or copied (times kept) since its run is read where it is now when CellPatcher is given that folder and its masks folder (since CP-2a). |
-| *normalization.plane_histograms/manifest/experiment_design names ...* (`not_the_run_output`) | Only the run's own files, unrenamed in its output folder, are read. Give that folder's `plane_histograms.csv` (and leave `manifest` and `experiment_design` empty). |
-| *... the preprocessing run recorded no design* (`missing_experiment_design`) | The `biological_repeat` scope needs a run whose experiment design was confirmed (step 1 of the preprocessing brick). |
+| *The preprocessing run in ... cannot be used* (`preprocessing_run_refused`) | The preprocessing brick's `RunInputs` refuses the run (since v0.2.0): no `run_manifest.json` next to the table, a run written before preprocessing v0.4.0, a table or description changed since the run, or an image or mask changed or missing since the run where CellPatcher reads it. Run preprocessing v0.5 on the experiment as it is now; an experiment only moved or copied (times kept) since its run is read where it is now when CellPatcher is given that folder and its masks folder (since CP-2a). |
+| *The preprocessing run in ... has no published experiment description* (`A_DESCRIPTION_REQUIRED`) | Every run needs one (Spec ADR 0002 AR10): describe the experiment and publish its description in the preprocessing notebook, run preprocessing again and give CellPatcher that run. |
+| *normalization.plane_histograms/manifest names ...* (`not_the_run_output`) | Only the run's own files, unrenamed in its output folder, are read. Give that folder's `plane_histograms.csv` (and leave `manifest` empty). |
+| *... these images of the run have no repeat group* (`missing_repeat_group`) / *... several repeat groups to the images of one condition and biological-repeat folder* (`repeat_group_conflict`) | The `biological_repeat` scope pools the repeat groups of the run's description: run preprocessing again with its published description. `normalization.experiment_design` was removed (the derived `experiment_design.csv` is never read). |
 | *... image(s) found by CellPatcher have no rows in plane_histograms.csv* | In-memory runs: images whose `source_relative_path` the run has no rows for. Folder and tree runs patch only the run's images (since CP-2a); an image added after the run is refused as `unrecorded_files` (since preprocessing v0.4.0rc2). Run the preprocessing again, or use the patch scope. |
 | *... changed after the preprocessing brick read them* / *... the images changed after the preprocessing run* | An image's size, time or pixel values differ from the statistics. Run the preprocessing again. |
 | *... other condition, biological repeat or technical repeat labels* | CellPatcher and the preprocessing read different folder levels: give both the same experiment folder. |
@@ -198,8 +201,7 @@ planes and what to do:
 Warnings (the run continues): parameters that are approximations, background in group
 statistics, the `biological_repeat` scope (what it keeps and removes), repeat groups without
 images from some condition, and patches discarded for having no intensity spread. Before
-v0.2.0 a CSV scope without `run_manifest.json`, and the `biological_repeat` scope when the
-manifest recorded no `experiment_design_sha256`, only warned; both are refused now (above).
+v0.2.0 a CSV scope without `run_manifest.json` only warned; it is refused now (above).
 
 The exact rules are in the [normalization contract](normalization_contract.md); the reasons
 behind them are in the [plan](plan.md).

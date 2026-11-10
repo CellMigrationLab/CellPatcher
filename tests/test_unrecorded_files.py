@@ -19,7 +19,7 @@ from cellpatcher.statistics import PreprocessingCheckError
 
 
 def _clean_run(tmp_path, **kwargs):
-    from morphobricks_preprocessing.testing import make_clean_run
+    from tests.helpers import make_clean_run
 
     return make_clean_run(tmp_path / "clean", axes="YX", shape=(16, 20), **kwargs)
 

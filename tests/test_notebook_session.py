@@ -25,7 +25,7 @@ from cellpatcher.statistics import PreprocessingCheckError
 
 @pytest.fixture
 def clean(tmp_path):
-    from morphobricks_preprocessing.testing import make_clean_run
+    from tests.helpers import make_clean_run
 
     return make_clean_run(tmp_path / "clean", axes="CYX", shape=(2, 32, 40), mask_types=("Cells",))
 
@@ -189,9 +189,9 @@ def test_the_parameters_per_group_are_those_the_patches_get(clean, tmp_path):
 
 
 def test_the_parameters_per_group_of_the_biological_repeat_scope(tmp_path):
-    from morphobricks_preprocessing.testing import make_clean_run
+    from tests.helpers import make_clean_run
 
-    clean = make_clean_run(tmp_path / "clean", axes="CYX", shape=(2, 32, 40), mask_types=("Cells",), design=True)
+    clean = make_clean_run(tmp_path / "clean", axes="CYX", shape=(2, 32, 40), mask_types=("Cells",))
     config = _normalized_config()
     config.normalization.scope = "biological_repeat"
     table = group_parameters_of_run(config, summarize_run(clean.output))

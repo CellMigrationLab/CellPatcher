@@ -22,6 +22,7 @@ from cellpatcher import (
 from cellpatcher.config import CellPatcherConfig, GridConfig, NormalizationConfig
 from cellpatcher.io import list_supported_files
 from cellpatcher.orchestration import run_patching_condition_repeat_tree
+from tests.helpers import run_described
 
 pytestmark = [
     pytest.mark.skipif(
@@ -55,7 +56,7 @@ def experiment(tmp_path_factory):
         labels[0, 3:9, 3:11] = 1
         labels[1, 12:20, 10:17] = 2 + index
         _write_tiff(masks / "cells" / path, labels, "TYX")  # preprocessing layout: <mask type>/<image path>
-    result = mbp.run_experiment(
+    result = run_described(
         root, mbp.AxisMapping("TCYX", "TCYX"), output_folder=base / "preprocessing", masks_folder=masks
     )
     assert result.written

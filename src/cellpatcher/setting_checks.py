@@ -267,7 +267,7 @@ def check_normalization_settings(normalization: object) -> None:
     _check_normalization_choices(normalization)
     check_normalization_ranges(normalization)
     check_integer(normalization.memory_limit, "normalization.memory_limit", minimum=1)
-    for name in ("plane_histograms", "manifest", "experiment_root", "masks_root", "experiment_design"):
+    for name in ("plane_histograms", "manifest", "experiment_root", "masks_root"):
         _check_path(getattr(normalization, name), f"normalization.{name}")
 
 

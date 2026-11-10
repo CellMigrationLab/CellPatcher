@@ -24,7 +24,7 @@ from cellpatcher.statistics import PreprocessingCheckError
 
 
 def _clean_run(tmp_path, **kwargs):
-    from morphobricks_preprocessing.testing import make_clean_run
+    from tests.helpers import make_clean_run
 
     return make_clean_run(tmp_path / "clean", **kwargs)
 
@@ -188,7 +188,7 @@ def test_within_one_call_the_run_is_opened_once(tmp_path, monkeypatch):
     # A tree run normalizes every leaf with one opened run (the reason the cache existed).
     from cellpatcher import file_runs
 
-    run = _clean_run(tmp_path, axes="YX", shape=(16, 20), mask_types=("Cells",), design=True)
+    run = _clean_run(tmp_path, axes="YX", shape=(16, 20), mask_types=("Cells",))
     opened = []
     real = file_runs.open_run
     monkeypatch.setattr(file_runs, "open_run", lambda *args, **kwargs: opened.append(1) or real(*args, **kwargs))

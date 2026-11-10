@@ -88,7 +88,7 @@ def test_folder_run_writes_one_row_per_position(tmp_path):
     assert [row["position_id"] for row in rows] == ["a", "b", "c"]
     assert rows[0] == {
         "condition": "single", "biological_repeat": "single", "technical_repeat": "single",
-        "position_id": "a", "repeat_group": "", "condition_id": "", "technical_repeat_id": "",
+        "position_id": "a", "repeat_group": "single", "condition_id": "single", "technical_repeat_id": "single",
         "n_source_images": "1", "source_relative_paths": '["a.tif"]', "image_files": '["a.tif"]',
         "mask_files": '["a_mask.tif"]', "status": "analysed", "reason": "",
         "n_regions": "4", "n_kept": "4", "n_normalized": "4", "n_patches": "4",
@@ -244,19 +244,19 @@ def test_the_canonical_ids_of_a_description_reach_the_row(tmp_path):
     assert list(image_rows[0]) == list(IMAGE_TABLE_COLUMNS)  # images.csv does not carry them
 
 
-def test_a_file_runs_fov_metadata_carries_the_ids_of_its_description_only_when_it_has_them():
-    run = SimpleNamespace(mask_type=None)
+def test_a_file_runs_fov_metadata_carries_the_ids_of_its_description():
     key = ("treated", "r1", "single", "P1")
-    plain = SimpleNamespace(key=key, relative_path="treated/r1/P1.tif")
     described = SimpleNamespace(
-        key=key, relative_path="treated/r1/P1.tif", repeat_group="rg1", condition_id="c1", technical_repeat_id=None
+        key=key, relative_path="treated/r1/P1.tif", repeat_group="rg1", condition_id="c1", technical_repeat_id="tr1"
     )
     config = CellPatcherConfig(mode="grid")
+    run = SimpleNamespace(mask_type=None)
 
-    assert not {"repeat_group", "condition_id", "technical_repeat_id"} & set(fov_metadata(run, plain, config))
     meta = fov_metadata(run, described, config)
-    assert (meta["repeat_group"], meta["condition_id"]) == ("rg1", "c1")
-    assert "technical_repeat_id" not in meta  # None is "no description", never a guess
+    assert (meta["repeat_group"], meta["condition_id"], meta["technical_repeat_id"]) == ("rg1", "c1", "tr1")
+    # A FOV without an ID is refused, never left empty (every run is described; tests/test_described_ids.py).
+    with pytest.raises(ValueError, match="has no repeat_group"):
+        fov_metadata(run, SimpleNamespace(**{**vars(described), "repeat_group": None}), config)
 
 
 def test_two_source_images_of_a_position_cannot_name_two_repeat_groups():

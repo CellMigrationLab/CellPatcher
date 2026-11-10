@@ -22,7 +22,7 @@ from cellpatcher.statistics import PreprocessingCheckError
 
 @pytest.fixture
 def clean(tmp_path):
-    from morphobricks_preprocessing.testing import make_clean_run
+    from tests.helpers import make_clean_run
 
     return make_clean_run(tmp_path / "clean", axes="CYX", shape=(2, 32, 40), mask_types=("Cells",))
 

@@ -270,8 +270,8 @@ class NormalizationConfig:
     scope
         Pixels the parameters come from: ``"biological_repeat"`` (one repeat
         group: the same biological repeat in every condition, technical
-        repeats merged, as paired in the preprocessing brick's
-        ``experiment_design.csv``), ``"image"`` (default: all Z and T planes
+        repeats merged, as the run's published description pairs them,
+        ``Fov.repeat_group``), ``"image"`` (default: all Z and T planes
         of the source image) or ``"patch"`` (the patch's own pixels). Per
         channel, except for ``image_type="rgb"``. The former ``"condition"``
         and ``"technical_repeat"`` scopes are refused.
@@ -290,10 +290,6 @@ class NormalizationConfig:
         Bytes allowed for the normalized patches of eager delivery
         (``common.extract_arrays=True``); above it the run stops and suggests
         ``cellpatcher.iter_patch_arrays``, which gives one patch at a time.
-    experiment_design
-        For ``scope="biological_repeat"``: the run's ``experiment_design.csv``
-        (the repeat groups and their confirmation): None, or the one next to
-        ``plane_histograms`` (another file is refused).
     pooling
         For ``scope="biological_repeat"``: how much each condition weighs in
         its repeat group, ``"pixels"`` (default: each pixel once) or
@@ -322,7 +318,6 @@ class NormalizationConfig:
     export_values: str = "normalized"
     memory_limit: int = 4 * 1024**3
     # Appended after the earlier fields so run_config.json keeps their order.
-    experiment_design: str | None = None
     pooling: str = "pixels"
     image_type: str = "fluorescence"
 

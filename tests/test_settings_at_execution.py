@@ -226,7 +226,6 @@ BAD_VALUES = {
     "normalization.patch_region": CHOICE,
     "normalization.export_values": CHOICE + [None],
     "normalization.memory_limit": INTEGER + [0, None],
-    "normalization.experiment_design": [5, True, ["x"]],
     "normalization.pooling": CHOICE + [None],
     "normalization.image_type": CHOICE + [None],
 }

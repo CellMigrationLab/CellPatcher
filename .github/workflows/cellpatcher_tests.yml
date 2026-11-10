@@ -31,6 +31,30 @@ jobs:
       - name: Code rules
         run: python tools/check.py --rules
 
+  spec-pin:
+    # The vendored Spec test material (tests/spec_fixtures, docs/vendoring.md of the Spec) must be what the
+    # Spec has at the commit PIN.toml names: vendor.py --check changes nothing and names each difference.
+    # tests/test_spec_pin.py proves offline that the copy hashes to PIN.toml; this job proves PIN.toml.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Check out the Spec (full history, to find the pinned commit)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: CellMigrationLab/MorphoBricks-Spec
+          path: spec
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.11'
+
+      - name: The vendored copy is the Spec at its pinned commit
+        run: python spec/tools/vendor.py --into . --check
+
   pytest:
     runs-on: ubuntu-latest
     strategy:

@@ -15,9 +15,10 @@ PYTHONPATH=src python -m pytest -q
 ## Files: patch an experiment through its preprocessing run
 
 Since v0.2.0 CellPatcher reads image and mask files only through a clean run of the MorphoBricks
-preprocessing brick (v0.4): run its notebook, or `morphobricks-preprocessing check`, `design`
-and `run`, on the experiment first. CellPatcher then takes the run's images, labels, axis roles
-and mask pairing; no axes are given. The notebook (`notebooks/CellPatcher/CellPatcher.ipynb`)
+preprocessing brick (v0.5) with a published experiment description: describe the experiment and
+run preprocessing in its notebook first (a run without a description is refused,
+`A_DESCRIPTION_REQUIRED`). CellPatcher then takes the run's images, labels, IDs, axis roles and
+mask pairing; no axes are given. The notebook (`notebooks/CellPatcher/CellPatcher.ipynb`)
 does the same from its four steps.
 
 ```python

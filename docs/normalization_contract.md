@@ -126,7 +126,7 @@ Rules for `"ngff_labels"`:
 |---|---|---|
 | `plane_histograms.csv` | For the `biological_repeat` and `image` scopes | Path given in `normalization.plane_histograms`. Not needed for the `patch` scope. |
 | `run_manifest.json` | With the CSV (since v0.2.0) | The one next to the CSV, in the run's output folder. `normalization.manifest` may only name that file (`not_the_run_output`). |
-| `experiment_design.csv` | For the `biological_repeat` scope | The one next to the CSV, which the run's manifest must record (a run that recorded none is `missing_experiment_design`); `normalization.experiment_design` may only name that file (`not_the_run_output`). It is read with the preprocessing brick's shared reader `read_confirmed_design` (its contract §16; since CellPatcher v0.1.2): the file exactly as the brick writes it (no byte-order mark, the columns in order, one value per column in every row, no blank line, no value with outer whitespace, `true`/`false`, ISO `confirmed_on`, valid labels without case-only differences), every repeat group confirmed with one folder per condition, its SHA-256 equal to the manifest's `experiment_design_sha256`, and every image's condition and biological repeat must be in it. Checked before any image is read. |
+| The run's published description | Always (every run is described; Spec ADR 0002 AR10) | A run whose manifest records no description is refused when it is opened (`A_DESCRIPTION_REQUIRED`). For the `biological_repeat` scope each image's repeat group is its `Fov.repeat_group`, read through `RunInputs` (owner decision of 2026-11-10, Spec ADR 0002 AR11 (3)); an image without one is `missing_repeat_group`, a condition and biological-repeat folder whose images name two repeat groups is `repeat_group_conflict`, and an in-memory image whose condition and biological repeat no FOV of the run has is `image_not_in_description`. Checked before any image is read. The derived `experiment_design.csv` is an output of preprocessing and never read back; `normalization.experiment_design` was removed. |
 
 Checks before any patch is normalized; every failure blocks the run:
 
@@ -192,7 +192,7 @@ parameters, always per channel.
 
 | Scope | Pooled planes, per channel | From | `normalization_group` |
 |---|---|---|---|
-| `"biological_repeat"` | One repeat group: the same biological repeat in every condition, technical repeats merged, as paired in `experiment_design.csv` | CSV rows, the normalization brick's `scope_groups(records, settings, repeat_groups)` | `<repeat group>` |
+| `"biological_repeat"` | One repeat group: the same biological repeat in every condition, technical repeats merged, as the run's description pairs them (`Fov.repeat_group`, §5) | CSV rows, the normalization brick's `scope_groups(records, settings, repeat_groups)` | `<repeat group>` |
 | `"image"` (default) | All Z and T planes of one image | `scope_groups(records, settings)` | `<source_relative_path>` |
 | `"patch"` | The patch's selected pixels (§8) | the brick's `fit` on the pixels | `<source_relative_path>::<patch_id>` |
 
@@ -287,11 +287,12 @@ In memory, `PatchRegion.normalization_parameters` holds the brick's `Parameters`
   without it means normalization off.
 - A top-level `normalization_inputs` object records: `plane_histograms_sha256`,
   `schema_version`, `manifest_used` and `manifest_version` (always `true` and the run's
-  manifest version since v0.2.0: `"2"`, or `"3"` for a preprocessing run with
-  `--verify-content` since preprocessing v0.4.0rc5; `false`/`null` before, without a manifest) and
+  manifest version since v0.2.0: `"4"`, a described run of preprocessing v0.5.0; `false`/`null`
+  before, without a manifest) and
   `preprocessing_version`. Paths are not recorded, as they are machine-specific.
 - With the `biological_repeat` scope, `normalization_inputs` also records
-  `experiment_design_file` (the file name) and `experiment_design_sha256`.
+  `description_sha256`, the SHA-256 of the published description its repeat groups come from
+  (before CP-1's trim: `experiment_design_file` and `experiment_design_sha256`).
 - A top-level `normalization_settings` object holds the normalization brick's
   `NormalizationSettings.to_dict()` (scope, method, its options and, for
   `biological_repeat`, the pooling weight).
@@ -333,7 +334,6 @@ In memory, `PatchRegion.normalization_parameters` holds the brick's `Parameters`
 | `patch_region` | `str \| None` | `None` | §8; `None` means `"mask"` in `cell` mode and `"patch"` otherwise |
 | `export_values` | `str` | `"normalized"` | §12: `"normalized"` or `"raw"` |
 | `memory_limit` | `int` | `4 * 1024**3` | Bytes, for eager delivery (§12) |
-| `experiment_design` | `str \| None` | `None` | The run's `experiment_design.csv`, next to the CSV (§5); `None` uses it, and another file is refused |
 | `pooling` | `str` | `"pixels"` | §7: `"pixels"` or `"conditions"` |
 | `image_type` | `str` | `"fluorescence"` | §6: `"fluorescence"` (each channel separately) or `"rgb"` (R, G and B together, `"percentile"` only, `extraction.split_channels=False`); must equal the manifest's image type when it records one (§5) |
 

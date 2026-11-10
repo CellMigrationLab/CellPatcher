@@ -24,6 +24,7 @@ from tests.helpers import (
     preprocess,
     preprocessed_folder,
     preprocessed_tree,
+    run_described,
     write_ngff,
     write_ngff_labels,
 )
@@ -135,15 +136,17 @@ def test_tree_run_patches_ome_zarr_and_tiff_images_alike(tmp_path):
     root = tmp_path / "experiment"
     data = np.arange(16 * 16, dtype=np.uint16).reshape(1, 16, 16)
     write_ngff(root / "control" / "a.ome.zarr", data, "zyx")  # Z of length 1 is dropped for "YX"
-    write_array(root / "control" / "b.tif", data[0])
+    # One acquisition has one layout in a described run (preprocessing v0.5.0), so the TIFF is in another.
+    write_array(root / "treated" / "b.tif", data[0])
     config = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=8))
     config.common.extract_arrays = True
 
-    (leaf,) = preprocessed_tree(root, config=config)
+    leaves = preprocessed_tree(root, config=config)
     by_file = {}
-    for patch, array in zip(leaf.result.patches, leaf.result.patch_arrays):
-        by_file.setdefault(patch.image_file, []).append(array)
-        assert patch.source_relative_path == f"control/{patch.image_file}"
+    for leaf in leaves:
+        for patch, array in zip(leaf.result.patches, leaf.result.patch_arrays):
+            by_file.setdefault(patch.image_file, []).append(array)
+            assert patch.source_relative_path == f"{patch.condition}/{patch.image_file}"
     assert set(by_file) == {"a.ome.zarr", "b.tif"}
     for zarr_patch, tiff_patch in zip(by_file["a.ome.zarr"], by_file["b.tif"]):
         np.testing.assert_array_equal(zarr_patch, tiff_patch)
@@ -212,7 +215,7 @@ def test_ome_zarr_planes_link_to_preprocessing_rows(tmp_path):
     root = tmp_path / "experiment"
     data = np.random.default_rng(0).integers(0, 255, (2, 3, 16, 16), dtype=np.uint8)
     write_ngff(root / "control" / "a.ome.zarr", data, "ctyx")
-    result = mbp.run_experiment(root, mbp.AxisMapping("CTYX", "CTYX"), output_folder=tmp_path / "pre")
+    result = run_described(root, mbp.AxisMapping("CTYX", "CTYX"), output_folder=tmp_path / "pre")
     assert result.written, [str(issue) for issue in result.issues]
     statistics = load_plane_statistics(result.csv_path)
 

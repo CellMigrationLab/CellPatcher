@@ -18,7 +18,7 @@ from cellpatcher.config import CellPatcherConfig, GridConfig, NormalizationConfi
 from cellpatcher.orchestration import load_config, run_patching_condition_repeat_tree, run_patching_pipeline
 from cellpatcher.pipeline import RUN_CONFIG_FILENAME, run_patching
 from cellpatcher.statistics import PreprocessingCheckError
-from tests.helpers import named, write_tiff as _write_tiff
+from tests.helpers import named, run_described, write_tiff as _write_tiff
 
 pytestmark = [
     pytest.mark.skipif(
@@ -37,30 +37,16 @@ CHANNEL_COLUMNS = [
 ]
 
 
-def _confirmed_design(root, pairs=None):
-    """The preprocessing brick's experiment design of *root*, every repeat group confirmed.
+def _preprocess(root, output, axes, repeats=None, histogram_settings=None):
+    """Run the preprocessing brick, described (fingerprint rule: v0.5.0 hashes by default).
 
-    *pairs* moves ``(condition, biological_repeat)`` folders into other repeat groups.
+    *repeats* pairs ``(condition, biological_repeat)`` folders into repeat IDs in the description
+    (:func:`tests.helpers.describe_experiment`); by default each repeat label is one repeat group.
     """
     import morphobricks_preprocessing as mbp
 
-    design = mbp.default_design(mbp.preflight(root).dataset.repeats)
-    for key, group in (pairs or {}).items():
-        design = design.with_group(key, group)
-    for group in design.groups:
-        design = design.with_confirmed(group, True, "2026-10-28")
-    return design
-
-
-def _preprocess(root, output, axes, design="confirmed", histogram_settings=None):
-    """Run the preprocessing brick; by default with a confirmed design, written as experiment_design.csv."""
-    import morphobricks_preprocessing as mbp
-
-    if design == "confirmed":
-        design = _confirmed_design(root)
-    result = mbp.run_experiment(
-        root, mbp.AxisMapping(axes, axes), output_folder=output, design=design, histogram_settings=histogram_settings
-    )
+    result = run_described(root, mbp.AxisMapping(axes, axes), output_folder=output, repeats=repeats,
+                           histogram_settings=histogram_settings, mode=mbp.RunMode(verify_content=False))
     assert result.written, [str(issue) for issue in result.issues]
     return result.csv_path
 
@@ -156,7 +142,9 @@ def test_config_defaults_and_validation():
     for removed in ("condition", "technical_repeat"):
         with pytest.raises(ValueError, match=f"The '{removed}' scope was removed"):
             NormalizationConfig(scope=removed)
-    assert (settings.pooling, settings.experiment_design) == ("pixels", None)
+    assert settings.pooling == "pixels"
+    with pytest.raises(TypeError, match="experiment_design"):  # removed: the repeat groups are the description's
+        NormalizationConfig(experiment_design="experiment_design.csv")
     with pytest.raises(ValueError, match="normalization.pooling must be"):
         NormalizationConfig(pooling="images")
     with pytest.raises(ValueError, match="patch_region must be one of"):
@@ -226,7 +214,7 @@ def test_image_scope_pools_every_z_plane_of_the_image_per_channel(experiment, tm
     saved = json.loads((tmp_path / "out" / RUN_CONFIG_FILENAME).read_text(encoding="utf-8"))
     assert saved["normalization"]["scope"] == "image"
     inputs = saved["normalization_inputs"]
-    assert (inputs["schema_version"], inputs["manifest_used"], inputs["manifest_version"]) == ("4", True, "2")
+    assert (inputs["schema_version"], inputs["manifest_used"], inputs["manifest_version"]) == ("4", True, "4")
     assert len(inputs["plane_histograms_sha256"]) == 64
     assert load_config(tmp_path / "out" / RUN_CONFIG_FILENAME).normalization == config.normalization
     from morphobricks_normalization import NormalizationSettings, __version__
@@ -661,25 +649,28 @@ def test_images_with_different_channel_counts_are_refused():
         run_patching(images=[two, three], config=config, image_metadata=named([two, three]))
 
 
-def test_run_config_records_the_brick_settings_and_the_design(experiment, tmp_path):
+def test_run_config_records_the_brick_settings_and_the_description(experiment, tmp_path):
+    # The biological_repeat scope's repeat groups are the description's: run_config.json records its
+    # SHA-256, never an experiment_design.csv (owner answer 3; before, experiment_design_file/_sha256).
     import hashlib
 
     root, _, csv_path = experiment
-    design_path = csv_path.parent / "experiment_design.csv"
+    description = (csv_path.parent / "morphobricks.toml").read_bytes()
     for scope in ("image", "biological_repeat"):
         config = _config(csv_path, scope=scope, pooling="conditions")
         config.export.enabled, config.common.output_dir = True, str(tmp_path / scope)
         _tree(root, config, combine_metadata=True)
         saved = json.loads((tmp_path / scope / RUN_CONFIG_FILENAME).read_text(encoding="utf-8"))
         assert saved["normalization_settings"]["scope"] == scope
+        assert "experiment_design" not in saved["normalization"]
         inputs = saved["normalization_inputs"]
+        assert not {"experiment_design_file", "experiment_design_sha256"} & set(inputs)
         if scope == "biological_repeat":
             assert saved["normalization_settings"]["pooling"] == "conditions"
-            assert inputs["experiment_design_file"] == "experiment_design.csv"
-            assert inputs["experiment_design_sha256"] == hashlib.sha256(design_path.read_bytes()).hexdigest()
+            assert inputs["description_sha256"] == hashlib.sha256(description).hexdigest()
         else:
             assert "pooling" not in saved["normalization_settings"]  # no effect at the image scope
-            assert "experiment_design_file" not in inputs
+            assert "description_sha256" not in inputs
 
 
 def test_the_old_offset_and_scale_attributes_are_deprecated(experiment):
@@ -692,24 +683,22 @@ def test_the_old_offset_and_scale_attributes_are_deprecated(experiment):
 
 
 # ---------------------------------------------------------------------------
-# The biological-repeat scope and the experiment design (follow-up C2)
+# The biological-repeat scope: the repeat groups of the description (follow-up C2, owner answer 3)
 # ---------------------------------------------------------------------------
 
 
-def _unpaired_experiment(tmp_path, pairs=None, design="confirmed"):
-    """control/rep_a and treated/rep_b, a repeat named differently in each condition."""
+def _unpaired_experiment(tmp_path, pairs=None):
+    """control/rep_a and treated/rep_b, a repeat named differently in each condition (*pairs*: see _preprocess)."""
     root = tmp_path / "unpaired"
     images = {}
     for index, path in enumerate(("control/rep_a/a.tif", "treated/rep_b/b.tif")):
         image = (np.arange(64, dtype=np.uint8).reshape(8, 8) + 50 * index).astype(np.uint8)
         _write_tiff(root / path, image, "YX")
         images[path] = image
-    if design == "confirmed":
-        design = _confirmed_design(root, pairs)
-    return root, images, _preprocess(root, tmp_path / "unpaired_out", "YX", design=design)
+    return root, images, _preprocess(root, tmp_path / "unpaired_out", "YX", repeats=pairs)
 
 
-def test_the_design_pairs_repeats_with_different_names(tmp_path):
+def test_the_description_pairs_repeats_with_different_names(tmp_path):
     root, images, csv_path = _unpaired_experiment(tmp_path)
     config = _config(csv_path, image_axes="YX", scope="biological_repeat")
     patches = _patches_by_image(_tree(root, config))
@@ -742,104 +731,6 @@ def test_pooling_by_conditions_weighs_each_condition_equally(tmp_path):
     by_conditions = (small.astype(np.float64).mean() + large.astype(np.float64).mean()) / 2
     assert offsets("pixels") == pytest.approx(by_pixels)
     assert offsets("conditions") == pytest.approx(by_conditions)
-
-
-def test_a_missing_or_unconfirmed_design_stops_the_run_before_any_image_is_read(tmp_path, monkeypatch):
-    from morphobricks_preprocessing.run_inputs import RunInputs
-
-    def no_reading(*args, **kwargs):
-        raise AssertionError("an image was read")
-
-    root, _, csv_path = _unpaired_experiment(tmp_path, design=None)  # no experiment_design.csv
-    monkeypatch.setattr(RunInputs, "read_plane", no_reading)
-    config = _config(csv_path, image_axes="YX", scope="biological_repeat")
-    with pytest.raises(PreprocessingCheckError) as missing:
-        _tree(root, config)
-    assert [issue.code for issue in missing.value.issues] == ["missing_experiment_design"]
-    assert "step 1 of the preprocessing brick" in str(missing.value)
-
-    import morphobricks_preprocessing as mbp
-
-    # CP-1: only the run's own design is read; before, any file could be named.
-    unconfirmed = mbp.default_design(mbp.preflight(root).dataset.repeats)
-    mbp.write_experiment_design(unconfirmed, tmp_path / "unconfirmed.csv")
-    config.normalization.experiment_design = str(tmp_path / "unconfirmed.csv")
-    with pytest.raises(PreprocessingCheckError) as elsewhere:
-        _tree(root, config)
-    assert [issue.code for issue in elsewhere.value.issues] == ["not_the_run_output"]
-
-
-def test_a_design_changed_after_preprocessing_is_refused(tmp_path):
-    import morphobricks_preprocessing as mbp
-
-    root, _, csv_path = _unpaired_experiment(tmp_path)
-    design_path = csv_path.parent / "experiment_design.csv"
-    changed = _confirmed_design(root, pairs={("treated", "rep_b"): "rep_a"})
-    mbp.write_experiment_design(changed, design_path)
-    config = _config(csv_path, image_axes="YX", scope="biological_repeat")
-    with pytest.raises(PreprocessingCheckError, match="design experiment_design.csv is not the one the run wrote") as caught:
-        _tree(root, config)
-    assert [issue.code for issue in caught.value.issues] == ["preprocessing_run_refused"]
-
-
-def _design_edited(tmp_path, edit):
-    """An unpaired experiment whose experiment_design.csv is edited by *edit* (text -> text).
-
-    The manifest records the edited file's hash, as if the run had written it, so only the
-    reader can refuse the edit.
-    """
-    from morphobricks_preprocessing.manifest import file_sha256
-
-    root, _, csv_path = _unpaired_experiment(tmp_path)
-    design_path = csv_path.parent / "experiment_design.csv"
-    design_path.write_bytes(edit(design_path.read_bytes().decode("utf-8")).encode("utf-8"))
-    manifest_path = csv_path.parent / "run_manifest.json"
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    manifest["experiment_design_sha256"] = file_sha256(design_path)
-    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
-    return root, csv_path
-
-
-@pytest.mark.parametrize("edit, match", [
-    # Before v0.1.2 CellPatcher read the design leniently: each of these was accepted.
-    (lambda text: text.replace(",true,", ",yes,"), r"line 2.*confirmed"),
-    (lambda text: text.replace("\ncontrol,", "\n control,", 1), r"line 2.*condition"),
-    (lambda text: "\ufeff" + text, "byte-order mark"),
-    (lambda text: text.replace("\ntreated,", "\n\ntreated,", 1), r"line 3 has 0 values"),
-], ids=["confirmed-yes", "padded-condition", "byte-order-mark", "blank-line"])
-def test_the_design_is_read_with_the_shared_strict_reader(tmp_path, edit, match):
-    root, csv_path = _design_edited(tmp_path, edit)
-    config = _config(csv_path, image_axes="YX", scope="biological_repeat")
-    with pytest.raises(PreprocessingCheckError, match=match) as caught:
-        _tree(root, config)
-    assert [issue.code for issue in caught.value.issues] == ["unreadable_experiment_design"]
-
-
-def test_the_design_reader_is_the_preprocessing_brick_s(tmp_path, monkeypatch):
-    import morphobricks_preprocessing.design as design_module
-
-    calls = []
-    reader = design_module.read_confirmed_design
-
-    def recording(path, *, expected_sha256=None):
-        calls.append(expected_sha256)
-        return reader(path, expected_sha256=expected_sha256)
-
-    monkeypatch.setattr(design_module, "read_confirmed_design", recording)
-    root, _, csv_path = _unpaired_experiment(tmp_path)
-    manifest = json.loads((csv_path.parent / "run_manifest.json").read_text(encoding="utf-8"))
-    _tree(root, _config(csv_path, image_axes="YX", scope="biological_repeat"))
-    assert calls and set(calls) == {manifest["experiment_design_sha256"]}
-
-
-def test_a_run_without_a_design_is_refused_at_the_repeat_scope(tmp_path):
-    root, _, csv_path = _unpaired_experiment(tmp_path, design=None)
-    with pytest.raises(PreprocessingCheckError) as caught:
-        _tree(root, _config(csv_path, image_axes="YX", scope="biological_repeat"))
-    (issue,) = caught.value.issues
-    assert issue.code == "missing_experiment_design"
-    assert "the preprocessing run recorded no design" in issue.message
-    assert "step 1 of the preprocessing brick" in issue.action
 
 
 def test_repeat_groups_missing_a_condition_are_reported(tmp_path):
@@ -890,29 +781,14 @@ def test_csv_scopes_refuse_a_table_without_its_manifest(experiment):
         root, _config(csv_path, scope="biological_repeat")
     ))
     assert "run_manifest.json" not in with_manifest
-    assert "experiment_design_sha256" not in with_manifest
 
     alone = csv_path.parent.parent / "alone"
     alone.mkdir()
-    for name in (csv_path.name, "experiment_design.csv"):
-        (alone / name).write_bytes((csv_path.parent / name).read_bytes())
+    (alone / csv_path.name).write_bytes(csv_path.read_bytes())
     for scope in ("image", "biological_repeat"):
         with pytest.raises(PreprocessingCheckError, match="holds no run_manifest.json") as caught:
             _tree(root, _config(alone / csv_path.name, scope=scope))
         assert [issue.code for issue in caught.value.issues] == ["preprocessing_run_refused"]
-
-
-def test_a_run_that_recorded_no_design_is_refused_at_the_repeat_scope(experiment):
-    # Before CP-1 the design beside the table was read with a warning when the manifest
-    # recorded no hash for it; now the design is the run's, and a run without one is refused.
-    root, _, csv_path = experiment
-    manifest_path = csv_path.parent / "run_manifest.json"
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    manifest["experiment_design_sha256"] = None
-    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
-    with pytest.raises(PreprocessingCheckError) as caught:
-        _tree(root, _config(csv_path, scope="biological_repeat"))
-    assert [issue.code for issue in caught.value.issues] == ["missing_experiment_design"]
 
 
 def _two_object_binary_mask():

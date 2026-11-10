@@ -191,7 +191,8 @@ def test_run_patching_pipeline_random_mode_with_optional_mask(tmp_path):
     write_array(img_dir / "a.tif", img)
     write_array(mask_dir / "a_mask.tif", mask)
 
-    config = file_run_config(CellPatcherConfig(mode="random"), img_dir, masks=mask_dir)
+    binary = {"mask": "binary"}  # a sampling region is a binary mask, and the description says so
+    config = file_run_config(CellPatcherConfig(mode="random"), img_dir, masks=mask_dir, representations=binary)
     config.random.patch_size = 4
     config.random.n_patches = 5
     config.random.seed = 0

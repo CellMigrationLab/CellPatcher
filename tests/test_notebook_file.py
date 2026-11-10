@@ -313,7 +313,7 @@ def test_notebook_runs_in_a_kernel():
 
 @pytest.fixture
 def clean(tmp_path):
-    from morphobricks_preprocessing.testing import make_clean_run
+    from tests.helpers import make_clean_run
 
     return make_clean_run(tmp_path / "clean", axes="CYX", shape=(2, 32, 40), mask_types=("Cells",))
 
@@ -358,16 +358,19 @@ def test_torch_notebook_loads_an_export_in_a_kernel(clean, tmp_path):
 
 @EVERY
 def test_step_1_sends_users_to_preprocessing_first(name):
-    # Owner decision (2026-11-02): until preprocessing v0.4.0 is final the notebooks do not embed
-    # the preprocessing steps; the step that opens a run says plainly to run the preprocessing
-    # notebook or CLI first. The PyTorch notebook reads a CellPatcher export, not a run.
+    # Owner decision (2026-11-02): the notebooks do not embed the preprocessing steps; the step that
+    # opens a run says plainly to run the preprocessing notebook first, with a published description
+    # (Spec ADR 0002 AR10: an undescribed run is refused; the description is published in the
+    # preprocessing notebook). The PyTorch notebook reads a CellPatcher export, not a run.
     if name == "CellPatcher_Pytorch":
         assert "CellPatcher notebook** (step 4)" in _markdown(name)
         return
     cells = ["".join(c["source"]) for c in _notebook(name)["cells"] if c["cell_type"] == "markdown"]
     (step_1,) = [cell for cell in cells if "Step 1" in cell.splitlines()[1]]
     assert "**Run preprocessing first.**" in step_1
-    assert "MorphoBricks preprocessing notebook" in step_1 and "morphobricks-preprocessing check" in step_1
+    assert "**MorphoBricks preprocessing notebook** (version 0.5)" in step_1
+    assert "**described**" in step_1 and "without a published description is refused" in step_1
+    assert "version 0.4" not in _markdown(name)
 
 
 @EVERY
