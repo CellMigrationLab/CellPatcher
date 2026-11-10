@@ -326,6 +326,7 @@ def test_every_route_refuses_an_undescribed_run_before_anything_is_written(tmp_p
 
 
 def test_the_notebook_shows_the_description_refusal(tmp_path):
+    pytest.importorskip("ipywidgets")  # the notebook extra
     from cellpatcher.notebook_ui import CellPatcherNotebook
 
     _, output = _undescribed_run(tmp_path)
