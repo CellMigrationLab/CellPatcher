@@ -307,3 +307,35 @@ class SimpleRun:
 
     def __init__(self, output, experiment):
         self.output, self.experiment = output, experiment
+
+
+# The test helpers describe a mask by what it holds -------------------------------------------------
+
+
+def _two_blob_folders(tmp_path):
+    """One image and its mask of two separate regions of 1: a binary mask of two objects."""
+    import numpy as np
+
+    from cellpatcher.io import write_array
+
+    mask = np.zeros((16, 16), np.uint8)
+    mask[2:5, 2:5] = mask[10:13, 10:13] = 1
+    write_array(tmp_path / "images" / "a.tif", np.ones((16, 16), np.uint16))
+    write_array(tmp_path / "masks" / "a_mask.tif", mask)
+    return tmp_path / "images", tmp_path / "masks"
+
+
+def test_a_binary_mask_of_two_objects_is_never_described_as_instances(tmp_path):
+    # Review of CP-1: the helpers declared every mask "instances", so a 0/1 mask of several objects
+    # was published as one object. The description must state what the file holds.
+    from morphobricks_preprocessing.run_inputs import RunInputs
+
+    from tests.helpers import preprocess
+
+    images, masks = _two_blob_folders(tmp_path)
+    with pytest.raises(AssertionError, match="binary mask of several objects"):
+        preprocess(images, masks=masks, output=tmp_path / "instances")
+    run = preprocess(images, masks=masks, output=tmp_path / "binary", representations={"mask": "binary"})
+    assert {m.source_type: m.representation for m in RunInputs.open(run).mask_semantics().values()} == {
+        "mask": "binary"
+    }

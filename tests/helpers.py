@@ -104,7 +104,7 @@ TEST_IDS = {"control": "ctrl"}
 """The ID a test declares for a folder label that cannot be an ID (``control``, as the Spec's ``v33``)."""
 
 
-def describe_experiment(output, ids=TEST_IDS, repeats=None):
+def describe_experiment(output, ids=TEST_IDS, repeats=None, representations=None):
     """Publish the experiment description of the test experiment that the run in *output* recorded.
 
     Every run needs a published description (Spec ADR 0002 AR10), and the vendored Spec fixtures
@@ -117,7 +117,10 @@ def describe_experiment(output, ids=TEST_IDS, repeats=None):
     - the repeats of one label are one repeat group across the conditions, unless *repeats* gives
       the repeat ID of a ``(condition, biological_repeat)`` folder (pairing different names);
     - each image's channels are ``C0``, ``C1``, ... by C index (``R``, ``G``, ``B`` for ``rgb``);
-    - each recorded mask type is a declared ``instances`` mask of that ID.
+    - each recorded mask type is a declared mask of that ID, ``instances`` unless *representations*
+      gives its representation by mask type (``{"tissue": "binary"}``): a 0/1 or 0/255 mask of
+      several objects, or a sampling region, is ``binary``, never ``instances``
+      (:func:`check_masks` refuses a binary mask described as ``instances``).
 
     Returns the bytes written to ``morphobricks.toml``.
     """
@@ -153,6 +156,8 @@ def describe_experiment(output, ids=TEST_IDS, repeats=None):
     conditions = {label: id_of("conditions", label) for label in {key[1] for key in units}}
     technical_repeats = {label: id_of("technical_repeats", label) for label in {key[2] for key in units}}
     masks = {source_type: id_of("masks", source_type) for source_type in inputs.mask_types()}
+    if unknown := sorted(set(representations or {}) - set(masks)):
+        raise AssertionError(f"representations names mask types the run did not record: {unknown}")
     channels = sorted({channel for unit in units.values() for channel in unit["channels"]})
     lines = ['schema = "morphobricks-experiment"', "schema_version = 1", ""]
     for label, condition in sorted(conditions.items(), key=lambda item: item[1]):
@@ -172,7 +177,8 @@ def describe_experiment(output, ids=TEST_IDS, repeats=None):
                 lines += ['image_type = "rgb"'] if rgb else []
                 lines += [""]
     for source_type, mask in sorted(masks.items(), key=lambda item: item[1]):
-        lines += [f'[masks."{mask}"]', f'source_type = "{source_type}"', 'representation = "instances"', ""]
+        representation = (representations or {}).get(source_type, "instances")
+        lines += [f'[masks."{mask}"]', f'source_type = "{source_type}"', f'representation = "{representation}"', ""]
     lines += ["[used_ids]", f"conditions = {quoted(sorted(conditions.values()))}", f"channels = {quoted(channels)}",
               f"repeats = {quoted(repeat_ids)}",
               f"technical_repeats = {quoted(sorted(technical_repeats.values()))}", ""]
@@ -184,7 +190,11 @@ def describe_experiment(output, ids=TEST_IDS, repeats=None):
 def check_masks(output):
     """Run preprocessing's mask step on the described run in *output* when it has masks, as a user does.
 
-    ``RunInputs`` refuses a declared mask not yet checked (``A_MASK_UNCHECKED``).
+    ``RunInputs`` refuses a declared mask not yet checked (``A_MASK_UNCHECKED``). Then every mask
+    the test described as ``instances`` is read: one that holds a single label value on several
+    separate (4-connected) regions is a binary mask of several objects, and describing it as
+    ``instances`` would state that they are one object, so the test is stopped
+    (:func:`describe_experiment`'s *representations* declares it ``binary``).
     """
     from pathlib import Path
 
@@ -196,13 +206,39 @@ def check_masks(output):
     step = describe_masks(prepare_mask_step(None, Path(output)))
     if step.issues:
         raise AssertionError("the mask step failed: " + "; ".join(map(str, step.issues)))
+    _refuse_binary_masks_described_as_instances(RunInputs.open(Path(output)))
 
 
-def run_described(root, mapping, *, output_folder, repeats=None, **options):
+def _refuse_binary_masks_described_as_instances(inputs):
+    """Raise AssertionError for an ``instances`` mask file holding one label value on several regions."""
+    from morphobricks_preprocessing.run_inputs import RunInputsError
+    from scipy.ndimage import label
+
+    declared = [m.source_type for m in inputs.mask_semantics().values() if m.representation == "instances"]
+    for fov in inputs.fovs():
+        for mask_type in declared:
+            try:
+                planes = [
+                    np.asarray(inputs.read_mask(fov, mask_type, z if fov.z_count > 1 else None,
+                                                t if fov.t_count > 1 else None))
+                    for z in range(fov.z_count) for t in range(fov.t_count)
+                ]
+            except RunInputsError:  # no mask of this type for this image
+                continue
+            values = np.unique(np.concatenate([plane[plane != 0] for plane in planes]))
+            if len(values) == 1 and any(label(plane != 0)[1] > 1 for plane in planes):
+                raise AssertionError(
+                    f"the {mask_type!r} mask of {fov.relative_path} holds the one value {values[0]} on several "
+                    "separate regions: it is a binary mask of several objects, not an instance mask. Declare it "
+                    f'with representations={{"{mask_type}": "binary"}}, or write real instance labels.'
+                )
+
+
+def run_described(root, mapping, *, output_folder, repeats=None, representations=None, **options):
     """``morphobricks_preprocessing.run_experiment``, described: run, :func:`describe_experiment`, run again.
 
     The first run records the images (and their channel counts) the description is written
-    from (*repeats*: as :func:`describe_experiment` takes it); the second, with the same arguments,
+    from (*repeats*, *representations*: as :func:`describe_experiment` takes them); the second, with the same arguments,
     is the described run. Returns its result.
     """
     import warnings
@@ -214,7 +250,7 @@ def run_described(root, mapping, *, output_folder, repeats=None, **options):
         first = mbp.run_experiment(root, mapping, output_folder=output_folder, **options)
     if not first.written:
         return first
-    describe_experiment(output_folder, repeats=repeats)
+    describe_experiment(output_folder, repeats=repeats, representations=representations)
     result = mbp.run_experiment(root, mapping, output_folder=output_folder, **options)
     if result.written:
         check_masks(output_folder)
@@ -244,7 +280,8 @@ def make_clean_run(folder, **options):
     return dataclasses.replace(run, result=result)
 
 
-def preprocess(root, axes="YX", *, masks=None, output=None, stored=None, describe=True, **options):
+def preprocess(root, axes="YX", *, masks=None, output=None, stored=None, describe=True, representations=None,
+               **options):
     """Run the preprocessing brick on the experiment *root*, described, and return its output folder.
 
     Folder and tree runs read files only through a clean preprocessing run
@@ -253,7 +290,8 @@ def preprocess(root, axes="YX", *, masks=None, output=None, stored=None, describ
     ``morphobricks-preprocessing run --axes`` takes them (*stored*: the
     file's own axes when they differ, e.g. ``"IYX"`` for a plain stack);
     *masks* the masks folder. The output goes beside *root* unless *output* is given.
-    ``describe=False`` leaves the run undescribed (for the tests of its refusal).
+    ``describe=False`` leaves the run undescribed (for the tests of its refusal); *representations*
+    is the masks' representation by type, as :func:`describe_experiment` takes it.
     """
     from pathlib import Path
 
@@ -261,6 +299,10 @@ def preprocess(root, axes="YX", *, masks=None, output=None, stored=None, describ
 
     root = Path(root)
     output = Path(output) if output is not None else root.parent / f"{root.name}_preprocessing"
+    if describe:
+        options["representations"] = representations
+    elif representations:
+        raise AssertionError("an undescribed run declares no mask representation")
     run = run_described if describe else mbp.run_experiment
     result = run(
         root,
@@ -280,11 +322,11 @@ def file_run_config(config, root, axes="YX", **preprocessing):
     return config
 
 
-def preprocessed_tree(root, *, config, mask_root_path=None, axes="YX", **kwargs):
+def preprocessed_tree(root, *, config, mask_root_path=None, axes="YX", representations=None, **kwargs):
     """Preprocess *root* (with its masks folder), then run the tree run through that run (CP-2a)."""
     from cellpatcher.orchestration import run_patching_condition_repeat_tree
 
-    file_run_config(config, root, axes, masks=mask_root_path)
+    file_run_config(config, root, axes, masks=mask_root_path, representations=representations)
     return run_patching_condition_repeat_tree(root, config=config, mask_root_path=mask_root_path, **kwargs)
 
 
