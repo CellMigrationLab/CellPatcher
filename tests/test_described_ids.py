@@ -302,6 +302,39 @@ def test_the_statistics_of_an_undescribed_run_are_refused(tmp_path):
     _assert_description_required(raised, output)
 
 
+def _undescribed_routes(experiment, output, out):
+    """Every other route that opens a run: the folder run, the folder check, the notebook's step 1."""
+    from cellpatcher.file_runs import validate_image_and_mask_folders
+    from cellpatcher.notebook_session import summarize_run
+    from cellpatcher.orchestration import run_patching_pipeline
+
+    return {
+        "folder run": lambda: run_patching_pipeline(experiment, config=_config(SimpleRun(output, experiment), out)),
+        "validate": lambda: validate_image_and_mask_folders(experiment, None, preprocessing_run=output),
+        "notebook": lambda: summarize_run(output),
+    }
+
+
+@pytest.mark.parametrize("route", ["folder run", "validate", "notebook"])
+def test_every_route_refuses_an_undescribed_run_before_anything_is_written(tmp_path, route):
+    # Review of CP-1: A_DESCRIPTION_REQUIRED on the routes the tree-run test does not take.
+    experiment, output = _undescribed_run(tmp_path)
+    with pytest.raises(PreprocessingCheckError) as raised:
+        _undescribed_routes(experiment, output, tmp_path / "out")[route]()
+    _assert_description_required(raised, output)
+    assert not (tmp_path / "out").exists()
+
+
+def test_the_notebook_shows_the_description_refusal(tmp_path):
+    from cellpatcher.notebook_ui import CellPatcherNotebook
+
+    _, output = _undescribed_run(tmp_path)
+    notebook = CellPatcherNotebook()
+    notebook.run_folder.value = str(output)
+    assert notebook.check_run() is None
+    assert "[A_DESCRIPTION_REQUIRED]" in notebook.run_message.value
+
+
 class SimpleRun:
     """Where a run is, as ``make_described_run`` returns it (``output``, ``experiment``)."""
 
