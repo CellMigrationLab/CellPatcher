@@ -21,7 +21,7 @@
 
 Key dependencies: `numpy`, `scipy`, `tifffile`, `imageio`, and the MorphoBricks bricks `morphobricks-preprocessing` and `morphobricks-normalization` from GitHub at pinned tags (core, required; normalization is declared at the tag the preprocessing tag pins, owner decision D-h, checked by `tests/test_dependency_pins.py`; histograms, the plane table, plane IDs, pooling and normalization parameters are imported from `morphobricks_normalization`, not from their deprecated preprocessing paths). Optional extras: `ipywidgets`, `matplotlib`, `pillow`, `tqdm`, `joblib`, `jl-hidecode` (notebook extra); `torch` (optional `cellpatcher.torch_dataset` adapter only — never a core dependency); `morphobricks-preprocessing[zarr]` at the same tag (`zarr` extra, formerly `preprocessing`: OME-Zarr images and OME-NGFF label masks).
 
-Current health snapshot (2026-11-10, Stage 2 CP-1: preprocessing `v0.5.0` and normalization `v0.3.4` installed from their tags, Python 3.11, Linux): `.[test,zarr,notebook]` with CPU `torch` 2.15.0: 2693 passed, 0 skipped (`python tools/check.py`; the smaller extras were not run). Preprocessing refuses Z>1 inputs (2-D planes only), so the tests that built Z-stacks use T.
+Current health snapshot (2026-11-10, Stage 2 CP-1: preprocessing `v0.5.0` and normalization `v0.3.4` installed from their tags, Python 3.11, Linux): `.[test,zarr,notebook]` with CPU `torch` 2.15.0: 2675 passed, 0 skipped (`python tools/check.py`; the smaller extras were not run). Preprocessing refuses Z>1 inputs (2-D planes only), so the tests that built Z-stacks use T.
 
 ---
 
@@ -187,7 +187,13 @@ CellPatcher-specific conventions:
 * **File runs read through a clean preprocessing run** (v0.2.0, CP-2a; design
   v0.4 §6): `run_patching_pipeline`, `run_patching_condition_repeat_tree` and
   `run_patching_from_folders` need `common.preprocessing_run` (else
-  `no_preprocessing_run` with the preprocessing command). `cellpatcher.file_runs`
+  `no_preprocessing_run` with the preprocessing command). Every run must have a
+  published experiment description (Spec ADR 0002 AR10, owner policy of
+  2026-11-10): `cellpatcher.run_open.open_run` refuses one without
+  (`A_DESCRIPTION_REQUIRED`), on every route; there is no undescribed path, and
+  tests build described runs only (`tests/helpers.py`: `preprocess`,
+  `run_described`, `make_clean_run`, or preprocessing's `make_described_run` on
+  the vendored Spec fixtures). `cellpatcher.file_runs`
   opens it with `RunInputs.open` with the image folder/root and masks folder
   given (a moved or copied experiment is checked and read where it is now),
   patches the run's FOVs with their recorded keys, and reads images and masks
@@ -378,8 +384,8 @@ Two ways to point CellPatcher at input data:
   per position** (the FOV key `condition`/`biological_repeat`/
   `technical_repeat`/`position_id`, as `RunInputs` gives it), grouping the
   position's source images, planes and channels: `repeat_group`/
-  `condition_id`/`technical_repeat_id` (the run's description, empty without
-  one), `n_source_images`, the source paths as JSON arrays (provenance, never
+  `condition_id`/`technical_repeat_id` (the run's description; a FOV without
+  one is refused, `described_run_missing_id`), `n_source_images`, the source paths as JSON arrays (provenance, never
   the key), a `status` (`analysed`, `analysed_no_regions`,
   `all_regions_filtered`, `all_rejected_by_normalization`, `skipped`,
   `partly_skipped`), a `reason`, the summed counts and `schema_version`. It
@@ -442,8 +448,10 @@ bricks (core dependencies, pinned tags in `setup.py`), CellPatcher:
   OME-Zarr images and OME-NGFF label masks through the preprocessing run (see
   "Inputs" above);
 - normalizes patches (`config.normalization`, `cellpatcher.normalization`)
-  at the biological-repeat scope (across conditions, from the preprocessing
-  brick's `experiment_design.csv`, pooled by `"pixels"` or `"conditions"`),
+  at the biological-repeat scope (across conditions, by each FOV's
+  `repeat_group` from the run's description through `RunInputs`, never the
+  derived `experiment_design.csv`; owner answer 3 of 2026-11-10; pooled by
+  `"pixels"` or `"conditions"`),
   the image scope or the patch scope (follow-up C2 removed the condition and
   technical-repeat scopes); per channel for `image_type="fluorescence"`, or
   with R, G and B sharing one offset and scale for `image_type="rgb"`
