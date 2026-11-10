@@ -1,9 +1,9 @@
 name: CellPatcher
-version: 0.2.0
+version: 0.3.0
 environment_file: environment.yaml
 installer_type: all
 license_file: LICENSE
-conclusion_text: Thank you! You have successfully installed CellPatcher 0.2.0.
+conclusion_text: Thank you! You have successfully installed CellPatcher 0.3.0.
 keep_pkgs: false
 register_python: false
 initialize_conda: false
