@@ -18,6 +18,63 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Pin preprocessing v0.4.0rc4; prepare v0.2.0rc2
 
 ---
+## [0.3.0] - Preprocessing v0.5.0, every run described (Stage 2 CP-1)
+
+The v0.3.0 release. It pins preprocessing `v0.5.0` (core and `zarr` extra; was `v0.4.0`) and keeps
+normalization at `v0.3.4`, the tag preprocessing `v0.5.0` pins (owner decision D-h; pip refuses two
+different direct URLs for one package). `__version__`, `setup.py` and every notebook (`RELEASE_TAG`,
+`current_version`, `notebook_latest_versions.yaml`) are `0.3.0`. Owner policy of 2026-11-10: no
+backward compatibility for the removed behaviour below. Everything under `0.2.0` applies as before.
+
+### Breaking
+- **Every run needs a published description.** A preprocessing run whose manifest records no
+  published experiment description is refused when it is opened, with code `A_DESCRIPTION_REQUIRED`
+  (Spec ADR 0002 AR10), on every route: tree, folder and in-memory runs, the CSV normalization
+  scopes, `validate_image_and_mask_folders`, the notebooks' check. Nothing is written. Preprocessing
+  `v0.5.0` still writes an undescribed run (with a warning); CellPatcher refuses it.
+- A described run's image without a `repeat_group`, `condition_id` or `technical_repeat_id` is refused
+  (`described_run_missing_id`); `positions.csv` carries the three IDs as the description gives them.
+- **`NormalizationConfig.experiment_design` is removed**, with `experiment_design_path` and
+  `load_experiment_design`. The `biological_repeat` scope pools by each image's `Fov.repeat_group`,
+  read through `RunInputs`; the derived `experiment_design.csv` is never read back. A saved
+  `run_config.json` that names `normalization.experiment_design` is refused (a `null` value loads).
+- Refusals renamed or added: `image_not_in_design` is now `image_not_in_description`;
+  `missing_repeat_group` and `repeat_group_conflict` are new; `missing_experiment_design` and the
+  design checks no longer exist.
+- **`run_config.json`**: `normalization_inputs` records `description_sha256` (the SHA-256 of the
+  published description) instead of `experiment_design_file` and `experiment_design_sha256`, and
+  `manifest_version` is `"4"` for a run of preprocessing `v0.5.0`.
+- The CLI-only route (`check`, `design`, `run`) is no longer offered in the notebooks: the
+  description is published in the preprocessing notebook.
+
+### Changed
+- Dependencies: preprocessing `v0.5.0` (tag `3f10545`; was `v0.4.0`), normalization `v0.3.4`
+  (unchanged, checked by `tests/test_dependency_pins.py`, which now also requires the preprocessing
+  pins to be a release tag, not a commit).
+- The notebooks' step 1 and the troubleshooting name preprocessing notebook version 0.5, the
+  described run and `A_DESCRIPTION_REQUIRED`.
+- The docs treat T and Z separately (#94): `z_policy="all"` no longer reads as patching every Z
+  plane; Z>1 is refused under every `z_policy`. No behaviour changed.
+
+### Tests
+- MorphoBricks-Spec `6d22761` is vendored in `tests/spec_fixtures` (`tests/test_spec_pin.py`, the
+  weekly spec-freshness workflow and a `vendor.py --check` CI job). The test helpers describe their
+  own images (`describe_experiment`; `preprocess`, `run_described` and `preprocessed_tree` take
+  `representations`, for example `{"nuclei": "binary"}`; a binary mask is no longer described as
+  instances by default).
+
+### Migration
+- Describe the experiment and publish its description in the preprocessing notebook (v0.5) first,
+  run preprocessing again, and give CellPatcher that run's output folder. A run made before
+  (undescribed, or by preprocessing `v0.4`) is refused: `A_DESCRIPTION_REQUIRED`, or
+  `preprocessing_run_refused` for a manifest `RunInputs` no longer reads.
+- Remove `normalization.experiment_design` from code and from saved `run_config.json` files; the
+  `biological_repeat` scope needs no file, only the description's repeat groups.
+- Code that matched `image_not_in_design` or `missing_experiment_design` matches the new codes.
+- Bricks that pin CellPatcher pin `v0.3.0` together with preprocessing `v0.5.0` and normalization
+  `v0.3.4`.
+
+---
 ## [0.2.0] - Preprocessing v0.4.0, normalization v0.3.4, strict settings
 
 The v0.2.0 release. It pins preprocessing `v0.4.0` and normalization `v0.3.4`, the tag preprocessing
@@ -53,7 +110,7 @@ Everything described under `0.2.0rc1` to `0.2.0rc3` applies to this release.
   `v0.3.4`: pip refuses two different direct URLs for one package.
 
 ---
-## [Unreleased] - The docs treat T and Z separately: z_policy="all" no longer reads as patching every Z plane (#94)
+## [0.3.0] - The docs treat T and Z separately: z_policy="all" no longer reads as patching every Z plane (#94)
 
 #### Fixed
 - `docs/preprocessing.md`, the configuration reference, the normalization docs, the README, the notebook
