@@ -15,6 +15,7 @@ import pytest
 from cellpatcher.config import CellPatcherConfig, GridConfig
 from cellpatcher.orchestration import run_patching_condition_repeat_tree
 from cellpatcher.statistics import PreprocessingCheckError, load_plane_statistics
+from tests.helpers import run_described
 from tests.test_statistics import STACK_IMAGES, _codes, _preprocess, _write_tiff
 
 
@@ -124,6 +125,7 @@ def test_load_refuses_a_run_before_v040(stack_experiment):
     manifest_path = output / mbp.MANIFEST_FILENAME
     data = json.loads(manifest_path.read_text(encoding="utf-8"))
     data["manifest_version"] = "1"
+    del data["experiment_description"]  # a run before v0.4.0 had none
     manifest_path.write_text(json.dumps(data), encoding="utf-8")
 
     with pytest.raises(PreprocessingCheckError, match="written before v0.4.0") as error_info:
@@ -146,7 +148,8 @@ def test_load_refuses_a_run_whose_image_changed_since(stack_experiment):
 
 
 def test_a_default_run_hashes_content_so_an_edit_that_keeps_size_and_time_is_refused(tmp_path):
-    # Preprocessing v0.5.0 records each image's content SHA-256 by default (manifest version 3): a pixel
+    # Preprocessing v0.5.0 records each image's content SHA-256 by default (a described run: manifest version 4,
+    # settings.verify_content true): a pixel
     # edited in place with the size and modification time kept is caught when the run opens, where the
     # fingerprint rule of v0.4.0 (the stack_experiment fixture) needs CellPatcher's own plane check.
     import morphobricks_normalization as mbn
@@ -158,8 +161,9 @@ def test_a_default_run_hashes_content_so_an_edit_that_keeps_size_and_time_is_ref
     for relative_path in STACK_IMAGES:
         _write_tiff(root / relative_path, rng.integers(1, 4000, (3, 20, 24), dtype=np.uint16), "TYX")
     output = tmp_path / "preprocessing"
-    assert mbp.run_experiment(root, mbp.AxisMapping("TYX", "TYX"), output_folder=output).written
-    assert load_plane_statistics(output / mbn.OUTPUT_FILENAME).manifest.manifest_version == "3"
+    assert run_described(root, mbp.AxisMapping("TYX", "TYX"), output_folder=output).written
+    manifest = load_plane_statistics(output / mbn.OUTPUT_FILENAME).manifest
+    assert (manifest.manifest_version, manifest.settings.verify_content) == ("4", True)
 
     image_path = root / "control" / "img1.tif"
     stat = image_path.stat()
@@ -174,19 +178,17 @@ def test_a_default_run_hashes_content_so_an_edit_that_keeps_size_and_time_is_ref
 def test_a_clean_run_normalizes_a_tree_run_through_run_inputs(tmp_path):
     # Before CP-1, CellPatcher refused every run written by preprocessing v0.4 (manifest
     # version 2): it read only version 1 manifests.
-    from morphobricks_preprocessing.testing import make_clean_run
-
     from cellpatcher.config import NormalizationConfig
+    from tests.helpers import make_clean_run
 
-    run = make_clean_run(tmp_path / "clean", design=True)
+    run = make_clean_run(tmp_path / "clean")
     config = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=8))
     config.normalization = NormalizationConfig(
         enabled=True, plane_histograms=str(run.output / "plane_histograms.csv"), scope="biological_repeat",
     )
     statistics = load_plane_statistics(config.normalization.plane_histograms)
-    # Preprocessing v0.5.0 hashes content by default: a default run writes manifest version 3
-    # (v0.4.0 wrote 2, which the stack_experiment fixture still states with verify_content=False).
-    assert statistics.manifest.manifest_version == "3"
+    # A described run writes manifest version 4 (preprocessing v0.5.0).
+    assert statistics.manifest.manifest_version == "4"
     config.common.preprocessing_run = str(run.output)  # a file run reads through the run (CP-2a)
     results = run_patching_condition_repeat_tree(run.experiment, config=config)
     patches = [patch for leaf in results for patch in leaf.result.patches]
@@ -197,10 +199,10 @@ def test_a_clean_run_normalizes_a_tree_run_through_run_inputs(tmp_path):
     }
 
 
-def test_a_strict_run_s_version_3_manifest_patches_as_the_default_run(stack_experiment, tmp_path):
-    # Preprocessing v0.4.0rc5: a --verify-content run writes manifest version 3 (the default run
-    # still writes 2). CellPatcher reads it through RunInputs, records "3" in run_config.json and
-    # gives the same normalized patches.
+def test_a_strict_run_patches_as_a_fingerprint_run(stack_experiment, tmp_path):
+    # A --verify-content run (content SHA-256 identity) and a fingerprint run (the stack_experiment
+    # fixture, verify_content=False) of the same images: both described, manifest version 4, which
+    # CellPatcher records in run_config.json; the normalized patches are the same.
     import morphobricks_preprocessing as mbp
     import numpy as np
 
@@ -208,7 +210,7 @@ def test_a_strict_run_s_version_3_manifest_patches_as_the_default_run(stack_expe
 
     root, default_output = stack_experiment
     strict_output = tmp_path / "strict"
-    result = mbp.run_experiment(
+    result = run_described(
         root, mbp.AxisMapping("TYX", "TYX"), output_folder=strict_output, mode=mbp.RunMode(verify_content=True)
     )
     assert result.written, [str(issue) for issue in result.issues]
@@ -227,7 +229,7 @@ def test_a_strict_run_s_version_3_manifest_patches_as_the_default_run(stack_expe
         }
         saved = json.loads((tmp_path / f"{name}_patches" / "run_config.json").read_text(encoding="utf-8"))
         recorded[name] = saved["normalization_inputs"]["manifest_version"]
-    assert recorded == {"default": "2", "strict": "3"}
+    assert recorded == {"default": "4", "strict": "4"}
     assert delivered["strict"].keys() == delivered["default"].keys() and delivered["default"]
     for key, array in delivered["default"].items():
         np.testing.assert_array_equal(delivered["strict"][key], array)

@@ -6,8 +6,9 @@ Implements ``docs/normalization_contract.md`` §6–§9 for ``config.normalizati
   ``plane_histograms.csv`` of the patch's group, grouped by the normalization
   brick's ``scope_groups`` (with ``per_time_point`` the time point added to
   the key). A ``biological_repeat`` group is one repeat group: the same
-  biological repeat in every condition, technical repeats merged, paired in
-  the preprocessing brick's ``experiment_design.csv``. ``"patch"`` builds a
+  biological repeat in every condition, technical repeats merged, paired by
+  the run's published description (``Fov.repeat_group`` through ``RunInputs``,
+  never the derived ``experiment_design.csv``). ``"patch"`` builds a
   histogram of the patch's own pixels (``"mask"``, ``"bbox"`` or ``"patch"``
   region), never including padding.
 - **Methods.** The normalization brick's ``fit`` turns a group's rows, or a
@@ -36,7 +37,6 @@ import warnings
 from collections import defaultdict
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -44,7 +44,7 @@ from morphobricks_normalization.records import SINGLE
 
 from cellpatcher.axes import normalize_axes
 from cellpatcher.masking import _label_to_2d
-from cellpatcher.run_open import _refuse_other_file, settings_statistics
+from cellpatcher.run_open import settings_statistics
 from cellpatcher.statistics import (
     PlaneStatistics,
     PreprocessingCheckError,
@@ -56,8 +56,6 @@ from cellpatcher.statistics import (
 )
 
 if TYPE_CHECKING:
-    from morphobricks_preprocessing import ConfirmedDesign
-
     from cellpatcher.config import CellPatcherConfig, NormalizationConfig
 
 CSV_SCOPES = ("biological_repeat", "image")
@@ -112,67 +110,55 @@ def validate_normalization(config) -> None:
         )
 
 
-def experiment_design_path(settings: NormalizationConfig) -> Path:
-    """The preprocessing run's ``experiment_design.csv``, beside ``plane_histograms``.
+def repeat_groups(statistics: PlaneStatistics) -> dict[tuple[str, str], str]:
+    """Return the repeat group of every ``(condition, biological_repeat)`` of the run, from its description.
 
-    ``normalization.experiment_design`` may name only that file (design v0.4 §6).
-
-    Raises
-    ------
-    PreprocessingCheckError
-        If ``normalization.experiment_design`` names another file.
-    """
-    from morphobricks_preprocessing.design import DESIGN_FILENAME
-
-    path = Path(settings.plane_histograms).expanduser().parent / DESIGN_FILENAME
-    if settings.experiment_design is not None:
-        _refuse_other_file("normalization.experiment_design", Path(settings.experiment_design).expanduser(), path)
-    return path
-
-
-def load_experiment_design(settings: NormalizationConfig, statistics: PlaneStatistics) -> ConfirmedDesign:
-    """Read and check the experiment design of the ``biological_repeat`` scope, before any image is read.
-
-    The design is the preprocessing run's own, found as ``RunInputs`` finds it (the brick's ``published_path``:
-    the output folder's file, or the copy an unfinished but valid publication holds; audit A-m2): the file whose
-    SHA-256 the run's manifest records, read with the brick's one shared reader, ``read_confirmed_design``
-    (contract §16; CellPatcher keeps no reader of its own), exactly as the brick writes it, every repeat group
-    confirmed with one folder per condition.
-
-    Returns
-    -------
-    morphobricks_preprocessing.ConfirmedDesign
-        Its ``path``, ``sha256`` and ``repeat_groups`` (``{(condition, biological_repeat): repeat group}``,
-        the pairing the normalization brick's ``scope_groups`` takes).
+    The ``biological_repeat`` scope pools one repeat group: ``Fov.repeat_group``, the repeat ID the
+    published description gives each FOV through ``RunInputs`` (Spec ADR 0002 AR11 (3)), never the
+    derived ``experiment_design.csv`` (an output only) nor a folder name. The keys are the FOV key's
+    condition and biological-repeat labels, as the normalization brick's ``scope_groups`` takes them.
 
     Raises
     ------
     PreprocessingCheckError
-        ``missing_experiment_design`` when the run recorded no design, or the reader's errors
-        (``unreadable_experiment_design``, ``repeat_group_conflict``, ``design_not_confirmed``,
-        ``changed_experiment_design``).
+        ``missing_repeat_group`` when a FOV of the run has none, or ``repeat_group_conflict``
+        when the images of one condition and biological-repeat folder name two repeat groups.
     """
-    from morphobricks_preprocessing.design import DESIGN_FILENAME, DesignCheckError, read_confirmed_design
-    from morphobricks_preprocessing.run.generation import published_path
     from morphobricks_preprocessing.validation import error
 
-    path = experiment_design_path(settings)
-    expected = statistics.manifest.experiment_design_sha256
-    if expected is None:
+    groups: dict[tuple[str, str], set[str]] = defaultdict(set)
+    missing = []
+    for fov in statistics.inputs.fovs():
+        if not fov.repeat_group:
+            missing.append(fov.relative_path)
+            continue
+        groups[(fov.key[0], fov.key[1])].add(fov.repeat_group)
+    if missing:
         raise PreprocessingCheckError([
             error(
-                "missing_experiment_design",
-                "normalization.scope='biological_repeat' pools the biological repeats as the "
-                "experiment design pairs them, but the preprocessing run recorded no design.",
-                [str(statistics.manifest_path)],
-                "Run step 1 of the preprocessing brick on this experiment (it pairs and confirms the "
-                "biological repeats), then run the preprocessing brick again.",
+                "missing_repeat_group",
+                "normalization.scope='biological_repeat' pools the biological repeats as the run's experiment "
+                "description pairs them, but these images of the run have no repeat group.",
+                missing,
+                "Run preprocessing again on the experiment with its published description, and give CellPatcher "
+                "that run.",
             )
         ])
-    try:
-        return read_confirmed_design(published_path(path.parent, DESIGN_FILENAME, expected), expected_sha256=expected)
-    except DesignCheckError as exc:
-        raise PreprocessingCheckError(exc.issues) from exc
+    conflicts = sorted(key for key, names in groups.items() if len(names) > 1)
+    if conflicts:
+        raise PreprocessingCheckError([
+            error(
+                "repeat_group_conflict",
+                "The run's description gives several repeat groups to the images of one condition and "
+                "biological-repeat folder ("
+                + "; ".join(f"{'/'.join(key)}: {', '.join(sorted(groups[key]))}" for key in conflicts)
+                + "), so the biological_repeat scope cannot pool them.",
+                [str(statistics.manifest_path)],
+                "Correct the experiment description in the preprocessing notebook, publish it and run "
+                "preprocessing again.",
+            )
+        ])
+    return {key: next(iter(names)) for key, names in sorted(groups.items())}
 
 
 def check_image_type(settings: NormalizationConfig, statistics: PlaneStatistics) -> None:
@@ -210,7 +196,7 @@ def normalization_inputs(config: CellPatcherConfig) -> dict | None:
     values come from the run ``RunInputs`` opened: the table's SHA-256 and
     the manifest version its manifest records. Paths are not recorded: they
     are machine-specific. The ``biological_repeat`` scope also records the
-    experiment design's file name and SHA-256.
+    SHA-256 of the published description its repeat groups come from.
     """
     settings = config.normalization
     if not settings.enabled or settings.scope not in CSV_SCOPES or settings.plane_histograms is None:
@@ -225,8 +211,8 @@ def normalization_inputs(config: CellPatcherConfig) -> dict | None:
         "preprocessing_version": _preprocessing().__version__,
     }
     if settings.scope == "biological_repeat":
-        design = load_experiment_design(settings, statistics)
-        inputs.update(experiment_design_file=design.path.name, experiment_design_sha256=design.sha256)
+        repeat_groups(statistics)
+        inputs.update(description_sha256=manifest.experiment_description["sha256"])
     return inputs
 
 
@@ -460,15 +446,15 @@ class Normalizer:
         """The run's normalizer, or None when ``config.normalization.enabled`` is False.
 
         Validates the settings, loads the statistics for a CSV scope (and,
-        for ``biological_repeat``, checks the experiment design and groups
-        the rows, so a design problem stops the run before any patch is
-        normalized), and warns about the scope's consequences (contract §14).
+        for ``biological_repeat``, takes the repeat groups of the run's description
+        and groups the rows, so a missing repeat group stops the run before any patch
+        is normalized), and warns about the scope's consequences (contract §14).
         """
         settings = config.normalization
         if not settings.enabled:
             return None
         validate_normalization(config)
-        statistics, repeat_groups = None, None
+        statistics, groups = None, None
         if settings.scope in CSV_SCOPES:
             statistics = settings_statistics(settings)
             check_image_type(settings, statistics)
@@ -481,12 +467,12 @@ class Normalizer:
                 stacklevel=2,
             )
             if settings.scope == "biological_repeat":
-                repeat_groups = load_experiment_design(settings, statistics).repeat_groups
+                groups = repeat_groups(statistics)
         mbn = require_normalization()
         for issue in mbn.check_settings(fit_settings(settings), statistics_file=statistics is not None):
             warnings.warn(issue.message, NormalizationWarning, stacklevel=2)
-        normalizer = cls(config, statistics, repeat_groups)
-        if repeat_groups is not None:
+        normalizer = cls(config, statistics, groups)
+        if groups is not None:
             normalizer._ensure_index()
         return normalizer
 
@@ -573,7 +559,7 @@ class Normalizer:
             without_manifest, {metadata[index]["source_relative_path"]: image_axes for index in channel_planes}
         )
         if self.repeat_groups is not None:
-            self._check_design_labels(channel_planes, metadata, labels)
+            self._check_repeat_labels(channel_planes, metadata, labels)
         has_channels = "C" in normalize_axes(image_axes)
         keys, planes = [], []
         for index, channels in channel_planes.items():
@@ -619,8 +605,8 @@ class Normalizer:
             )
         return normalizations
 
-    def _check_design_labels(self, channel_planes, metadata, labels) -> None:
-        """Refuse images whose condition and biological repeat the experiment design does not pair."""
+    def _check_repeat_labels(self, channel_planes: Mapping, metadata: list, labels: list) -> None:
+        """Refuse images whose condition and biological repeat no FOV of the run's description has."""
         from morphobricks_preprocessing.validation import error
 
         unknown = sorted({
@@ -632,12 +618,12 @@ class Normalizer:
             pairs = sorted({"/".join(label or SINGLE for label in pair) for _, pair in unknown})
             raise PreprocessingCheckError([
                 error(
-                    "image_not_in_design",
-                    f"The experiment design has no repeat group for {', '.join(pairs)}, the condition and "
-                    "biological repeat of these images.",
+                    "image_not_in_description",
+                    f"The preprocessing run's description has no repeat group for {', '.join(pairs)}, the "
+                    "condition and biological repeat of these images.",
                     [path for path, _ in unknown if path],
-                    "Run step 1 of the preprocessing brick on this experiment so that the design lists every "
-                    "biological repeat, then run the preprocessing brick again.",
+                    "Patch the images of the run with the labels the run recorded, or describe these images in "
+                    "the preprocessing notebook and run preprocessing again.",
                 )
             ])
 

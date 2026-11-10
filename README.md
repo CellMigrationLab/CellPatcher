@@ -6,8 +6,9 @@ CellPatcher helps you turn microscopy images into reproducible patch datasets wi
 
 Since v0.2.0 CellPatcher reads image and mask files only through a run of the
 [MorphoBricks preprocessing brick](https://github.com/CellMigrationLab/morphobricks-preprocessing)
-(v0.4): run its notebook (or its `check`, `design` and `run` commands) on your experiment first,
-then point CellPatcher to the run's output folder. What changed, with the migration notes for the
+(v0.5): describe the experiment and publish its description in the preprocessing notebook, run it
+on your experiment first, then point CellPatcher to the run's output folder. A run without a
+published description is refused (`A_DESCRIPTION_REQUIRED`). What changed, with the migration notes for the
 other bricks, is in the [CHANGELOG](notebooks/CellPatcher/CHANGELOG.md) (v0.2.0rc1 to v0.2.0).
 
 - **Normal user / manual workflow:** open `notebooks/CellPatcher/CellPatcher.ipynb` and give it the preprocessing run's output folder.

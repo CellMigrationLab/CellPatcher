@@ -197,8 +197,45 @@ def open_run(
                 "Give the plane_histograms.csv the preprocessing brick wrote, or run it again.",
             )
         ]) from exc
+    refuse_undescribed_run(inputs, folder)
     remember("manifest_sha256", folder, before)
     return inputs
+
+
+DESCRIPTION_REQUIRED = "A_DESCRIPTION_REQUIRED"
+"""The code of a run without a published experiment description (Spec ADR 0002 AR10, AR11 (1))."""
+
+
+def refuse_undescribed_run(inputs: RunInputs, folder: Path) -> None:
+    """Refuse a run whose manifest records no published experiment description (``morphobricks.toml``).
+
+    Every run needs one (Spec ADR 0002 AR10, owner policy of 2026-11-10): its conditions,
+    biological repeats (``repeat_group``), technical repeats and channels are read from it through
+    ``RunInputs``, never from folder names or the derived ``experiment_design.csv``. Nothing falls back.
+
+    Raises
+    ------
+    PreprocessingCheckError
+        ``A_DESCRIPTION_REQUIRED``, naming the fix.
+    """
+    from morphobricks_preprocessing.validation import error
+
+    from cellpatcher.statistics import PreprocessingCheckError
+
+    if inputs.manifest.experiment_description is not None:
+        return
+    raise PreprocessingCheckError([
+        error(
+            DESCRIPTION_REQUIRED,
+            f"The preprocessing run in {folder} has no published experiment description (morphobricks.toml), "
+            "and CellPatcher reads a run's conditions, biological repeats, technical repeats and their IDs "
+            "only from its description.",
+            [str(folder)],
+            "Describe the experiment and publish its description in the preprocessing notebook "
+            "(morphobricks-preprocessing describe lists what is still open), run preprocessing again and "
+            "give CellPatcher that run.",
+        )
+    ])
 
 
 def _refusal_issue(exc: Exception, folder: Path) -> ValidationIssue:

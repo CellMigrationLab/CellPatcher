@@ -283,8 +283,8 @@ class CellPatcherNotebook:
                                       style.help_text("Split channels: one patch per selected channel; none "
                                                       "selected keeps all channels in each patch.")]),
             style.card("Normalization", [*form.normalization.controls(), style.help_text(
-                "The image and biological-repeat scopes use the preprocessing run's plane_histograms.csv and "
-                "experiment_design.csv; the image type is the one confirmed in preprocessing. "
+                "The image and biological-repeat scopes use the preprocessing run's plane_histograms.csv; the "
+                "repeat groups and the image type are the ones its experiment description states. "
                 "<b>Show parameters per group</b> lists the offset and scale every group gets."),
                 self.parameters_button, self.parameters_message]),
             style.card("Export", [form.file_format]),

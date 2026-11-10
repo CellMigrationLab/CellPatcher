@@ -16,7 +16,7 @@ from cellpatcher.delivery import iter_exported_patches, iter_patch_arrays
 from cellpatcher.orchestration import load_config, run_patching_condition_repeat_tree, run_patching_pipeline
 from cellpatcher.pipeline import RUN_CONFIG_FILENAME, run_patching
 from cellpatcher.statistics import PreprocessingCheckError, recorded_image_type
-from tests.helpers import as_file_run
+from tests.helpers import as_file_run, run_described
 
 pytestmark = [
     pytest.mark.skipif(
@@ -65,22 +65,26 @@ def _run(images, config):
     return run_patching(images, config=config, image_metadata=metadata)
 
 
-def _write_tiff(path, data):
+def _write_tiff(path, data, rgb=True):
+    """Write a (C, Y, X) image: an RGB colour TIFF (``YXS``), or a three-channel ``CYX`` stack.
+
+    A described run's ``rgb`` unit must be an RGB image by its header (preprocessing v0.5.0).
+    """
     import tifffile
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    tifffile.imwrite(path, data, imagej=True, metadata={"axes": "CYX"})
+    if rgb:
+        tifffile.imwrite(path, np.moveaxis(data, 0, -1), photometric="rgb", metadata={"axes": "YXS"})
+    else:
+        tifffile.imwrite(path, data, imagej=True, metadata={"axes": "CYX"})
 
 
 def _preprocess(root, output, image_type="rgb"):
     import morphobricks_preprocessing as mbp
+    from morphobricks_preprocessing.axes import prefill_mapping
 
-    design = mbp.default_design(mbp.preflight(root).dataset.repeats)
-    for group in design.groups:
-        design = design.with_confirmed(group, True, "2026-10-28")
-    result = mbp.run_experiment(
-        root, mbp.AxisMapping("CYX", "CYX"), output_folder=output, design=design, image_type=image_type
-    )
+    mapping = prefill_mapping("YXS") if image_type == "rgb" else mbp.AxisMapping("CYX", "CYX")
+    result = run_described(root, mapping, output_folder=output, image_type=image_type)
     assert result.written, [str(issue) for issue in result.issues]
     return result.csv_path
 
@@ -241,9 +245,11 @@ def test_the_manifest_image_type_must_match_the_configuration(tmp_path):
         run_patching_pipeline(folder, config=as_file_run(fluorescence))
     assert raised.value.issues[0].code == "image_type_differs"
 
-    fluorescence_csv = _preprocess(folder, tmp_path / "fluorescence", image_type="fluorescence")
+    stack = tmp_path / "stack"  # the same pixels as a three-channel fluorescence stack
+    _write_tiff(stack / "img0.tif", _rgb_images(1)[0], rgb=False)
+    fluorescence_csv = _preprocess(stack, tmp_path / "fluorescence", image_type="fluorescence")
     with pytest.raises(PreprocessingCheckError, match="confirmed for 'fluorescence' images"):
-        run_patching_pipeline(folder, config=as_file_run(_config(fluorescence_csv, scope="image")))
+        run_patching_pipeline(stack, config=as_file_run(_config(fluorescence_csv, scope="image")))
 
 
 def test_recorded_image_type_is_read_through_run_inputs(tmp_path):
@@ -252,7 +258,9 @@ def test_recorded_image_type_is_read_through_run_inputs(tmp_path):
     folder = tmp_path / "images"
     _write_tiff(folder / "img0.tif", _rgb_images(1)[0])
     rgb_csv = _preprocess(folder, tmp_path / "rgb")
-    untyped_csv = _preprocess(folder, tmp_path / "untyped", image_type=None)
+    stack = tmp_path / "stack"  # the same pixels as a three-channel stack, run without an image type
+    _write_tiff(stack / "img0.tif", _rgb_images(1)[0], rgb=False)
+    untyped_csv = _preprocess(stack, tmp_path / "untyped", image_type=None)
 
     assert recorded_image_type(rgb_csv) == "rgb"
     assert recorded_image_type(rgb_csv, rgb_csv.parent / "run_manifest.json") == "rgb"
@@ -268,7 +276,7 @@ def test_recorded_image_type_is_read_through_run_inputs(tmp_path):
 
 def test_without_an_image_type_in_the_manifest_the_configuration_decides(tmp_path):
     folder = tmp_path / "images"
-    _write_tiff(folder / "img0.tif", _rgb_images(1)[0])
+    _write_tiff(folder / "img0.tif", _rgb_images(1)[0], rgb=False)
     csv_path = _preprocess(folder, tmp_path / "preprocessing", image_type=None)
 
     result = run_patching_pipeline(folder, config=as_file_run(_config(csv_path, scope="image")))

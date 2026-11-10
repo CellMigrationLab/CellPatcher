@@ -8,13 +8,15 @@ through ``RunInputs`` (``Fov.repeat_group``, ``Fov.condition_id``, ``Fov.technic
   differs from the folder (``control`` / ``ctrl``) and a brick that took the folder for the ID is wrong.
 - P25: the repeat folders differ across conditions (``v03``) or one folder name pairs with two
   repeats (``v30``); only ``repeat_group`` pairs them correctly.
-- Absent IDs on a described run are an error; an undescribed run keeps its empty columns, byte for byte.
+- Every run is described (Spec ADR 0002 AR10): a run without a published description is refused
+  (``A_DESCRIPTION_REQUIRED``), and a FOV without one of the IDs is an error, never an empty cell.
+- The ``biological_repeat`` scope pools by ``Fov.repeat_group``, never the derived
+  ``experiment_design.csv`` (AR11 (3)).
 """
 
 import csv
 from dataclasses import replace
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
@@ -135,42 +137,105 @@ def test_p25_v30_one_folder_name_is_two_repeats(tmp_path):
     assert _row_ids_by_key(rows) == _run_inputs_ids(run)
 
 
-@pytest.mark.parametrize("name", ["v03", "v30"])
-def test_p25_normalization_pools_by_the_runs_repeat_group_not_the_folder_name(tmp_path, name):
-    # The design the description derives (experiment-v1 section 11), given to the run, is what the
-    # biological_repeat scope reads: its groups are exactly Fov.repeat_group.
-    import morphobricks_preprocessing as mbp
-    from morphobricks_preprocessing.design_derive import derive_design
-
-    from cellpatcher.normalization import load_experiment_design
-    from cellpatcher.statistics import load_plane_statistics
-
-    run = _described_run(tmp_path, name)
-    result = mbp.run_experiment(
-        run.experiment, mbp.AxisMapping("CYX", "CYX"), output_folder=run.output, design=derive_design(run.description)
-    )
-    assert result.written, [str(issue) for issue in result.issues]
-    histograms = str(run.output / "plane_histograms.csv")
-    settings = NormalizationConfig(enabled=True, plane_histograms=histograms, scope="biological_repeat")
-
-    groups = load_experiment_design(settings, load_plane_statistics(histograms)).repeat_groups
-
-    assert groups == {key[:2]: ids[0] for key, ids in _run_inputs_ids(run).items()}
-    assert len(set(groups.values())) == 2 and len(groups) == 4  # four folders, two repeats
-
-
-def test_a_described_run_without_a_design_refuses_the_repeat_scope_instead_of_grouping_by_folder(tmp_path):
-    run = _described_run(tmp_path, "v30")
+def _repeat_scope(run, tmp_path):
+    """Patch *run* at the ``biological_repeat`` scope; return ``{(condition, biological_repeat): group}``."""
     config = _config(run, tmp_path / "out")
     config.normalization = NormalizationConfig(
         enabled=True, plane_histograms=str(run.output / "plane_histograms.csv"), scope="biological_repeat"
     )
+    results = run_patching_condition_repeat_tree(run.experiment, config=config)
+    patches = [patch for leaf in results for patch in leaf.result.patches]
+    assert patches
+    return {(patch.condition, patch.biological_repeat): patch.normalization_group for patch in patches}
 
-    with pytest.raises(PreprocessingCheckError, match="recorded no design"):
-        run_patching_condition_repeat_tree(run.experiment, config=config)
+
+@pytest.mark.parametrize("name", ["v03", "v30"])
+def test_p25_normalization_pools_by_the_runs_repeat_group_not_the_folder_name(tmp_path, name):
+    # The repeat groups are Fov.repeat_group through RunInputs (owner answer 3, AR11 (3)); the run has no
+    # experiment_design.csv to read (make_described_run writes none), and before CP-1's trim the scope
+    # refused it (missing_experiment_design).
+    from cellpatcher.normalization import repeat_groups
+    from cellpatcher.statistics import load_plane_statistics
+
+    run = _described_run(tmp_path, name)
+    assert not (run.output / "experiment_design.csv").exists()
+    histograms = str(run.output / "plane_histograms.csv")
+
+    groups = repeat_groups(load_plane_statistics(histograms))
+
+    assert groups == {key[:2]: ids[0] for key, ids in _run_inputs_ids(run).items()}
+    assert len(set(groups.values())) == 2 and len(groups) == 4  # four folders, two repeats
+    assert _repeat_scope(run, tmp_path) == groups  # each patch's normalization_group is its repeat group
 
 
-# An absent ID on a described run is an error ---------------------------------------------------
+def test_the_repeat_scope_ignores_a_derived_design_that_pairs_by_folder_name(tmp_path):
+    # v30: CTRL/rep1 pairs with DrugA/rep2 in the description. The run also writes the design that pairs
+    # by folder name (rep1 with rep1); CellPatcher never reads it back as a grouping input.
+    import morphobricks_preprocessing as mbp
+
+    run = _described_run(tmp_path, "v30")
+    design = mbp.default_design(mbp.preflight(run.experiment).dataset.repeats)
+    for group in design.groups:
+        design = design.with_confirmed(group, True, "2026-11-10")
+    result = mbp.run_experiment(run.experiment, mbp.AxisMapping("CYX", "CYX"), output_folder=run.output, design=design)
+    assert result.written, [str(issue) for issue in result.issues]
+    assert (run.output / "experiment_design.csv").is_file()
+
+    assert _repeat_scope(run, tmp_path) == {
+        ("CTRL", "rep1"): "Day1", ("DrugA", "rep2"): "Day1", ("CTRL", "rep2"): "Day2", ("DrugA", "rep1"): "Day2",
+    }
+
+
+def test_a_missing_repeat_group_is_refused_never_grouped_by_folder(tmp_path, monkeypatch):
+    from morphobricks_preprocessing.run_inputs import RunInputs
+
+    from cellpatcher.normalization import repeat_groups
+    from cellpatcher.statistics import load_plane_statistics
+
+    run = _described_run(tmp_path, "v30")
+    statistics = load_plane_statistics(run.output / "plane_histograms.csv")
+    fovs = statistics.inputs.fovs()
+    monkeypatch.setattr(RunInputs, "fovs", lambda self: (replace(fovs[0], repeat_group=None), *fovs[1:]))
+
+    with pytest.raises(PreprocessingCheckError, match="have no repeat group") as error:
+        repeat_groups(statistics)
+    assert [issue.code for issue in error.value.issues] == ["missing_repeat_group"]
+    assert fovs[0].relative_path in str(error.value)
+
+
+def test_one_folder_with_two_repeat_groups_is_refused(tmp_path, monkeypatch):
+    from morphobricks_preprocessing.run_inputs import RunInputs
+
+    from cellpatcher.normalization import repeat_groups
+    from cellpatcher.statistics import load_plane_statistics
+
+    run = _described_run(tmp_path, "v03")
+    statistics = load_plane_statistics(run.output / "plane_histograms.csv")
+    fovs = statistics.inputs.fovs()
+    first = fovs[0]
+    twin = next(fov for fov in fovs[1:] if fov.key[:2] == first.key[:2])
+    changed = tuple(replace(fov, repeat_group="Other") if fov is twin else fov for fov in fovs)
+    monkeypatch.setattr(RunInputs, "fovs", lambda self: changed)
+
+    with pytest.raises(PreprocessingCheckError, match="several repeat groups") as error:
+        repeat_groups(statistics)
+    assert [issue.code for issue in error.value.issues] == ["repeat_group_conflict"]
+
+
+def test_a_saved_config_naming_an_experiment_design_is_refused():
+    # normalization.experiment_design was removed (owner answer 3): the repeat groups are the run's
+    # description's. A file written before holds None, which loads; one naming a file is refused.
+    from cellpatcher.run_config_file import config_from_dict
+
+    section = {"enabled": True, "scope": "biological_repeat"}
+    loaded = config_from_dict({"run_config_version": 2, "normalization": {**section, "experiment_design": None}})
+    assert loaded.normalization.scope == "biological_repeat"
+    named = {**section, "experiment_design": "experiment_design.csv"}
+    with pytest.raises(ValueError, match="experiment_design='experiment_design.csv' was removed"):
+        config_from_dict({"run_config_version": 2, "normalization": named})
+
+
+# Every run is described ---------------------------------------------------------------------------
 
 
 def _file_run(run, tmp_path):
@@ -181,23 +246,16 @@ def _file_run(run, tmp_path):
         return config, open_file_run(config, run.experiment, None, use_masks=False, where="test")
 
 
-def test_a_described_run_is_described(tmp_path):
-    described = _file_run(_described_run(tmp_path / "d", "v13"), tmp_path / "d")[1]
-    assert described.described
-    assert all(getattr(fov, name) for fov in described.fovs for name in ID_COLUMNS)
+def test_every_fov_of_a_described_run_has_the_three_ids(tmp_path):
+    _, file_run = _file_run(_described_run(tmp_path, "v13"), tmp_path)
+    assert all(getattr(fov, name) for fov in file_run.fovs for name in ID_COLUMNS)
 
 
 @pytest.mark.parametrize("name", ID_COLUMNS)
-@pytest.mark.parametrize("missing", ["none", "empty", "absent"])
-def test_a_described_fov_without_an_id_is_refused(tmp_path, name, missing):
+@pytest.mark.parametrize("missing", [None, ""])
+def test_a_fov_without_an_id_is_refused(tmp_path, name, missing):
     config, file_run = _file_run(_described_run(tmp_path, "v33"), tmp_path)
-    fov = file_run.fovs[0]
-    assert getattr(fov, name)
-    if missing == "absent":  # a brick whose Fov has no such attribute (v0.4.0)
-        fields = {field: getattr(fov, field) for field in fov.__dataclass_fields__ if field != name}
-        fov = SimpleNamespace(**fields)
-    else:
-        fov = replace(fov, **{name: None if missing == "none" else ""})
+    fov = replace(file_run.fovs[0], **{name: missing})
 
     with pytest.raises(PreprocessingCheckError, match=f"has no {name}") as error:
         fov_metadata(file_run, fov, config)
@@ -205,52 +263,47 @@ def test_a_described_fov_without_an_id_is_refused(tmp_path, name, missing):
     assert fov.relative_path in str(error.value)
 
 
-def test_an_undescribed_fov_without_ids_keeps_its_empty_columns(tmp_path):
-    from morphobricks_preprocessing.testing import make_clean_run
-
-    run = make_clean_run(tmp_path / "clean")
-    config, file_run = _file_run(run, tmp_path)
-    assert not file_run.described
-
-    for fov in file_run.fovs:
-        assert [getattr(fov, name) for name in ID_COLUMNS] == [None, None, None]
-        assert not set(ID_COLUMNS) & set(fov_metadata(file_run, fov, config))
-    for fov in (SimpleNamespace(**{k: getattr(file_run.fovs[0], k) for k in ("key", "relative_path")}),):
-        assert not set(ID_COLUMNS) & set(fov_metadata(file_run, fov, config))  # no such attribute at all
-
-    rows = _positions(run, tmp_path / "positions_out")
-    assert rows
-    assert {name: {row[name] for row in rows} for name in ID_COLUMNS} == {name: {""} for name in ID_COLUMNS}
-
-
-# Legacy parity ------------------------------------------------------------------------------------
-
-
-def test_v13_described_and_undescribed_runs_differ_only_in_the_three_id_columns(tmp_path):
-    # v13: IDs = folder labels = header names. The undescribed twin runs preprocessing on the same
-    # images without the description (a warning), so every CellPatcher output must be byte-identical
-    # but the ID columns of positions.csv.
+def _undescribed_run(tmp_path):
+    """A run of the v13 images without the description (preprocessing v0.5.0 still writes one, with a warning)."""
     import morphobricks_preprocessing as mbp
 
     described = _described_run(tmp_path / "d", "v13")
-    twin_output = tmp_path / "u" / "output"
+    output = tmp_path / "u" / "output"
     with pytest.warns(UserWarning, match="No experiment description"):
-        twin = mbp.run_experiment(described.experiment, mbp.AxisMapping("CYX", "CYX"), output_folder=twin_output)
-    assert twin.written
-    plain = SimpleNamespace(output=twin_output, experiment=described.experiment)
+        assert mbp.run_experiment(described.experiment, mbp.AxisMapping("CYX", "CYX"), output_folder=output).written
+    return described.experiment, output
 
-    described_rows = _positions(described, tmp_path / "d" / "out")
-    plain_rows = _positions(plain, tmp_path / "u" / "out")
 
-    for name in ("patches.csv", "images.csv"):
-        assert (tmp_path / "d" / "out" / name).read_bytes() == (tmp_path / "u" / "out" / name).read_bytes()
-    assert {name: {row[name] for row in plain_rows} for name in ID_COLUMNS} == {name: {""} for name in ID_COLUMNS}
-    assert all(row["repeat_group"] and row["condition_id"] and row["technical_repeat_id"] for row in described_rows)
-    without_ids = [{k: v for k, v in row.items() if k not in ID_COLUMNS} for row in described_rows]
-    assert without_ids == [{k: v for k, v in row.items() if k not in ID_COLUMNS} for row in plain_rows]
-    # v13: the IDs are the folder labels (condition_id and technical_repeat_id; the repeat folder is the repeat ID).
-    assert all(
-        (row["repeat_group"], row["condition_id"], row["technical_repeat_id"])
-        == (row["biological_repeat"], row["condition"], row["technical_repeat"])
-        for row in described_rows
-    )
+def _assert_description_required(raised, output):
+    assert [issue.code for issue in raised.value.issues] == ["A_DESCRIPTION_REQUIRED"]
+    assert "no published experiment description (morphobricks.toml)" in str(raised.value)
+    assert "publish its description in the preprocessing notebook" in str(raised.value)  # the fix is named
+    assert str(output) in str(raised.value)
+
+
+def test_a_tree_run_on_an_undescribed_run_is_refused_before_anything_is_written(tmp_path):
+    # Spec ADR 0002 AR10: no undescribed path; before the trim the run patched with empty ID columns.
+    experiment, output = _undescribed_run(tmp_path)
+    config = _config(SimpleRun(output, experiment), tmp_path / "out")
+
+    with pytest.raises(PreprocessingCheckError) as raised:
+        run_patching_condition_repeat_tree(experiment, config=config, combine_metadata=True)
+    _assert_description_required(raised, output)
+    assert not (tmp_path / "out").exists()
+
+
+def test_the_statistics_of_an_undescribed_run_are_refused(tmp_path):
+    # A CSV scope of run_patching opens the run through its table: refused the same way.
+    from cellpatcher.statistics import load_plane_statistics
+
+    _, output = _undescribed_run(tmp_path)
+    with pytest.raises(PreprocessingCheckError) as raised:
+        load_plane_statistics(output / "plane_histograms.csv")
+    _assert_description_required(raised, output)
+
+
+class SimpleRun:
+    """Where a run is, as ``make_described_run`` returns it (``output``, ``experiment``)."""
+
+    def __init__(self, output, experiment):
+        self.output, self.experiment = output, experiment
