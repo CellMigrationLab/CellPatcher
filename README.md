@@ -9,7 +9,7 @@ Since v0.2.0 CellPatcher reads image and mask files only through a run of the
 (v0.5): describe the experiment and publish its description in the preprocessing notebook, run it
 on your experiment first, then point CellPatcher to the run's output folder. A run without a
 published description is refused (`A_DESCRIPTION_REQUIRED`). What changed, with the migration notes for the
-other bricks, is in the [CHANGELOG](notebooks/CellPatcher/CHANGELOG.md) (v0.2.0rc1 to v0.2.0).
+other bricks, is in the [CHANGELOG](notebooks/CellPatcher/CHANGELOG.md) (v0.2.0rc1 to v0.3.0).
 
 - **Normal user / manual workflow:** open `notebooks/CellPatcher/CellPatcher.ipynb` and give it the preprocessing run's output folder.
 - **Choosing a patching strategy:** open `notebooks/CellPatcher_Strategy_Examples/CellPatcher_Strategy_Examples.ipynb`: each strategy on one image of your preprocessing run, nothing written.
@@ -115,7 +115,7 @@ Open the notebook in Colab:
 **A release, anywhere (Google Colab included):**
 
 ```bash
-pip install "cellpatcher[notebook,zarr] @ git+https://github.com/CellMigrationLab/CellPatcher.git@v0.2.0"
+pip install "cellpatcher[notebook,zarr] @ git+https://github.com/CellMigrationLab/CellPatcher.git@v0.3.0"
 ```
 
 The notebook's first cell does this on Colab (pinned to its `RELEASE_TAG`), mounts Google Drive and
