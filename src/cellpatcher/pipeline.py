@@ -26,6 +26,7 @@ from cellpatcher.ids import (
     stamp_channel_ids,
 )
 from cellpatcher.io import SINGLE_BIOLOGICAL_REPEAT_LABEL, SINGLE_CONDITION_LABEL, SINGLE_TECHNICAL_REPEAT_LABEL
+from cellpatcher.mask_policy import check_mask_policy
 from cellpatcher.masking import apply_label_masks_to_patches
 from cellpatcher.delivery import raw_export_array
 from cellpatcher.normalization import (
@@ -790,41 +791,6 @@ def _patch_planes(config: CellPatcherConfig, sources) -> PatchingResult:
     return _finish_result(config, patches, patch_arrays, records, export_arrays)
 
 
-def _refuse_masking_computed_labels(config: CellPatcherConfig, masks) -> None:
-    """Refuse using a binary mask's values as the labels connected components computed.
-
-    Masking (``extraction.apply_mask``) and patch-scope normalization over
-    ``patch_region="mask"``/``"bbox"`` select the pixels whose mask value
-    equals the patch's ``label_id``. With
-    ``cell.binary_mask_policy="connected_components"`` those labels are
-    computed, not the binary mask's 0/1 values: every object but the first
-    would be blanked or reported as having no pixels, and the first would
-    take in every touching neighbour (issue #44).
-    """
-    if config.cell.binary_mask_policy is None:
-        return
-    region = resolved_patch_region(config)
-    if config.extraction.apply_mask:
-        refusal = (
-            "extraction.apply_mask=True cannot mask by the labels that "
-            "cell.binary_mask_policy='connected_components' computes for a binary mask: the mask holds "
-            "0/1, not those labels. Label the mask first (integer instance labels), or turn apply_mask off."
-        )
-    elif config.normalization.enabled and config.normalization.scope == "patch" and region in ("mask", "bbox"):
-        refusal = (
-            f"normalization.scope='patch' with patch_region={region!r} cannot select each object's pixels by "
-            "the labels that cell.binary_mask_policy='connected_components' computes for a binary mask: the "
-            "mask holds 0/1, not those labels. Label the mask first (integer instance labels), or use "
-            "normalization.patch_region='patch' or another scope."
-        )
-    else:
-        return
-    for mask in masks:
-        dtype = np.dtype(getattr(mask, "dtype", np.asarray(mask).dtype))
-        if dtype == bool or np.issubdtype(dtype, np.floating):
-            raise ValueError(refusal)
-
-
 @one_session  # the preprocessing run is opened once per call (cellpatcher.run_session)
 def run_patching(images=None, masks=None, config=None, image_metadata=None, fraction_masks=None) -> PatchingResult:
     """Generate patch regions (and optionally extract arrays) from in-memory images.
@@ -842,9 +808,11 @@ def run_patching(images=None, masks=None, config=None, image_metadata=None, frac
         A single label array or a list/tuple of label arrays, one per image.
 
         * ``mode='cell'`` — **required**.  Integer label map where each unique
-          non-zero value is a separate cell, used as given (decision D47). A
-          boolean mask is refused without an explicit ``cell.binary_mask_policy`` (no default),
-          labelled by :func:`cellpatcher.label_objects` with it; labels above int32 are refused.
+          non-zero value is a separate cell, used as given (decision D47: a 0/1
+          integer mask is one object); ``cell.binary_mask_policy`` is refused with it (nothing
+          to convert, :mod:`cellpatcher.mask_policy`). Only a boolean mask is binary: refused
+          without an explicit ``cell.binary_mask_policy`` (no default), labelled by
+          :func:`cellpatcher.label_objects` with it; labels above int32 are refused.
         * ``mode='random'`` — **optional**.  When provided, patches are
           restricted to the spatial region covered by the mask.
         * ``mode='grid'`` / ``'whole_fov'`` — not consumed; pass ``None``.
@@ -925,7 +893,7 @@ def run_patching(images=None, masks=None, config=None, image_metadata=None, frac
         image_metadata = _identity_metadata(config, _normalize_images(images), image_metadata)
     refuse_unsupported_inputs(config.common.image_axes, config.common.mask_axes, images, masks)
     if config.mode == "cell" and masks is not None:
-        _refuse_masking_computed_labels(config, _normalize_masks(masks))
+        check_mask_policy(config, _normalize_masks(masks), resolved_patch_region(config))
     if fraction_masks is not None:
         if splits_planes(config.common):
             raise ValueError("fraction_masks need 2-D planes; they are refused when z_policy/t_policy split planes.")

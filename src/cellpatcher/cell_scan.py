@@ -12,6 +12,7 @@ from cellpatcher.axes import (
     require_spatial_axes,
 )
 from cellpatcher.config import CellConfig
+from cellpatcher.mask_policy import refuse_policy_on_instances
 from cellpatcher.object_geometry import object_boxes
 from cellpatcher.setting_checks import check_cell_settings
 from cellpatcher.strategies.cell import CellSegmentationStrategy
@@ -122,7 +123,9 @@ def scan_cell_objects(*, image_shape, labels, image_id=None, config=None, image_
         Shape tuple of the image (used to determine spatial dimensions).
     labels:
         Integer label array (2D ``YX``, or multidimensional when
-        ``mask_axes`` and ``config.mask_channel`` are set).
+        ``mask_axes`` and ``config.mask_channel`` are set), used as stored (D47);
+        ``config.binary_mask_policy`` is refused with it, as in ``run_patching``.
+        A boolean mask is labelled only with that policy.
     image_id:
         Optional identifier string embedded in each returned record.
         Defaults to ``"image_0000"``.
@@ -155,6 +158,9 @@ def scan_cell_objects(*, image_shape, labels, image_id=None, config=None, image_
     if image_h <= 0 or image_w <= 0:
         raise ValueError(f"Spatial dimensions must be positive, got Y={image_h}, X={image_w}.")
 
+    image_id_value = image_id if image_id is not None else "image_0000"
+    # As in run_patching: a policy with an integer (instances) mask is refused, never ignored.
+    refuse_policy_on_instances(local_config.binary_mask_policy, labels, image_id_value)
     labeled = _prepare_labeled_plane(labels, local_config, mask_axes)
 
     if labeled.shape != (image_h, image_w):
@@ -165,7 +171,6 @@ def scan_cell_objects(*, image_shape, labels, image_id=None, config=None, image_
     # the mask per object.
     boxes = object_boxes(labeled)
     records: list[CellObjectRecord] = []
-    image_id_value = image_id if image_id is not None else "image_0000"
 
     # One record per labeled object, regardless of whether it would pass
     # the size/border filters -- scan_cell_patch_size needs the excluded

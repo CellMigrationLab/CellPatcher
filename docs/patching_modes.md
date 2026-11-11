@@ -34,7 +34,8 @@ non-zero integer value is one object (an `instances` mask holding 0 and 1 is one
 `binary_mask_policy="connected_components"` explicitly (there is no default): the mask is then labelled by the
 shared labeller `cellpatcher.label_objects` at `binary_mask_connectivity` (1: 4-connected; 2:
 8-connected, the default), with a warning, and both are recorded in `run_config.json` with `matching.mask_id`. Labels above the
-int32 maximum are refused.
+int32 maximum are refused. The policy on an `instances` mask is refused (nothing to convert): in a file run, a mask declared
+`instances`; in memory (`run_patching`, the object scan and `CellSegmentationStrategy` called directly), any **integer** array (pass a boolean array to label it, or leave the policy `None`).
 
 Key parameters to know:
 

@@ -32,6 +32,7 @@ from cellpatcher.io import (
     ConditionRepeatFolder,
     refuse_removed_matching,
 )
+from cellpatcher.mask_policy import resolved_masks
 from cellpatcher.normalization import (
     CSV_SCOPES,
     check_image_type,
@@ -416,7 +417,8 @@ def patch_fovs(run: FileRun, fovs: Sequence[Fov], config: CellPatcherConfig) -> 
     depend on the other images of the run (audit A-M1).
     """
     metadata = [fov_metadata(run, fov, config) for fov in fovs]
-    return _patch_planes(config, _plane_sources(run, fovs, metadata, config))
+    with resolved_masks():  # a binary mask was labelled when read, so its policy is not refused here
+        return _patch_planes(config, _plane_sources(run, fovs, metadata, config))
 
 
 def _plane_sources(run: FileRun, fovs: Sequence[Fov], metadata: Sequence[dict], config: CellPatcherConfig) -> Iterator:
