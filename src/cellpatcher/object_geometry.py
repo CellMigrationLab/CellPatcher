@@ -37,9 +37,11 @@ CONNECTIVITIES = {1: "4-connected", 2: "8-connected"}
 1 joins a pixel to its 4 edge neighbours (up, down, left, right); 2 also to its 4 corner
 neighbours, so two blobs that touch only at a corner are one object at 2 and two at 1."""
 
-BINARY_MASK_CONNECTIVITY = 1
-"""The connectivity of ``connected_components`` on the shared 2-D routes (4-connected, the Stage 2
-plan's rule and CellPatcher's ``cell.binary_mask_connectivity`` default). Recorded with the policy."""
+BINARY_MASK_CONNECTIVITY = 2
+"""The connectivity of ``connected_components`` on the shared 2-D routes: 8-connected (owner
+decision of 11 November 2026: the common 2-D default of skimage.measure.label and ImageJ, and the
+connectivity of MorphoRelate's CellProfiler parity), and CellPatcher's
+``cell.binary_mask_connectivity`` default. Recorded with the policy."""
 
 
 @dataclass(frozen=True)

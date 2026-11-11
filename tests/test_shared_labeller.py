@@ -45,7 +45,7 @@ def test_4_and_8_connectivity_differ_only_where_objects_touch_at_a_corner():
     assert (four.max(), eight.max()) == (5, 3)  # the diagonal chain is 3 objects at 1, one at 2
     np.testing.assert_array_equal(four != 0, eight != 0)  # the foreground is mask != 0 either way
     assert CONNECTIVITIES == {1: "4-connected", 2: "8-connected"}
-    assert BINARY_MASK_CONNECTIVITY == 1  # the shared 2-D routes' connectivity
+    assert BINARY_MASK_CONNECTIVITY == 2  # the shared 2-D routes' connectivity (8-connected)
 
 
 @pytest.mark.parametrize("dtype", [bool, np.uint8, np.uint16, np.int32])
@@ -55,7 +55,7 @@ def test_the_two_blob_mask_is_two_objects_whatever_its_binary_pixel_type(dtype):
     if dtype is not bool:
         mask = mask * 255 if dtype == np.uint8 else mask  # 0/255 is binary too
     labels = label_objects(mask, "connected_components", BINARY_MASK_CONNECTIVITY)
-    np.testing.assert_array_equal(labels, np.array(blob["labels"]["1"], dtype=np.int32))
+    np.testing.assert_array_equal(labels, np.array(blob["labels"][str(BINARY_MASK_CONNECTIVITY)], dtype=np.int32))
 
 
 def test_the_labeller_is_pure_and_deterministic():

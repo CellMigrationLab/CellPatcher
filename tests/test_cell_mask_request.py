@@ -79,14 +79,14 @@ def test_v08_p27_a_b_c_binary_region_as_objects(v08, tmp_path, monkeypatch):
     # (b) with the per-request conversion: accepted, labelled by the shared labeller, recorded.
     config = _cell_config(v08.output, tmp_path / "b", mask_id="TumorRegion")
     config.cell.binary_mask_policy = "connected_components"
-    with pytest.warns(UserWarning, match="'TumorRegion' is labelled by 4-connected components"):
+    with pytest.warns(UserWarning, match="'TumorRegion' is labelled by 8-connected components"):
         patches = _tree(v08, config)
     assert len(patches) == 4 and {p.label_id for p in patches} == {1}  # one region of 1s in each of 4 images
     assert {p.object_set for p in patches} == {"tumor_region"}  # the object set is still the mask type
     saved = json.loads((tmp_path / "b" / "CTRL" / "rep1" / "run_config.json").read_text("utf-8"))
     assert saved["matching"]["mask_id"] == "TumorRegion"
     assert (saved["cell"]["binary_mask_policy"], saved["cell"]["binary_mask_connectivity"]) == (
-        "connected_components", 1
+        "connected_components", 2
     )
 
     # (c) a later request without it is refused again: the conversion was for that request only.
@@ -173,7 +173,7 @@ def test_the_two_blob_binary_mask_is_two_objects_with_the_policy(tmp_path):
     config.cell.binary_mask_policy = "connected_components"
     config.common.extract_arrays = True
     config.extraction.apply_mask = True  # masks by the computed labels, not the file's 0/1
-    with pytest.warns(UserWarning, match="4-connected"):
+    with pytest.warns(UserWarning, match="8-connected"):
         result = run_patching_pipeline(images, config=config, mask_folder_path=masks)
     assert [(p.label_id, p.area_px, (p.y0, p.x0)) for p in result.patches] == [(1, 9, (2, 2)), (2, 9, (10, 10))]
     for array in result.patch_arrays:

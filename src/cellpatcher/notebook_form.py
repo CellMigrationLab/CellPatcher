@@ -104,7 +104,7 @@ class CellControls:
             min_area=_int("Minimum object area (px)", 1, 1),
             max_area=_int("Maximum object area (px, 0: none)", 0),
             apply_mask=_check("Blank the pixels outside the object (apply mask)"),
-            components=_check("The mask is binary: label its connected components (4-connected)"),
+            components=_check("The mask is binary: label its connected components (8-connected)"),
         )
 
     def controls(self) -> list[widgets.Widget]:

@@ -248,7 +248,7 @@ CellPatcher-specific conventions:
   `CellConfig.binary_mask_policy="connected_components"` (no default; the former
   `"single_object"` is refused), labelled by **the one shared labeller**
   `cellpatcher.label_objects(mask, policy, connectivity)` (`object_geometry`, pure;
-  `cell.binary_mask_connectivity`, 1 = 4-connected by default). A file run asks the run's
+  `cell.binary_mask_connectivity`, 2 = 8-connected by default). A file run asks the run's
   resolver (`cellpatcher.run_request`): `MaskRequest(matching.mask_id, "objects", policy)`,
   the mask ID defaulting to the declared mask of `matching.mask_type`'s source type; its
   refusals (`A_MASK_NOT_INSTANCES`, `A_MASK_UNCHECKED`, `A_SCOPE_INCOMPLETE`) are raised with

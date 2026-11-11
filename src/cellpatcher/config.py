@@ -85,7 +85,7 @@ class CellConfig:
     the resolver's ``A_MASK_NOT_INSTANCES`` before any pixel is read;
     ``"connected_components"`` labels it with the shared labeller
     (:func:`cellpatcher.label_objects`) at ``binary_mask_connectivity``
-    (1: 4-connected, the default; 2: 8-connected), both recorded in
+    (1: 4-connected; 2: 8-connected, the default), both recorded in
     ``run_config.json`` with ``matching.mask_id``. The former
     ``"single_object"`` value (the implicit default before CP-2) is refused.
     Labels are checked with the preprocessing brick's ``check_labels``
@@ -100,7 +100,7 @@ class CellConfig:
     min_area: int = 1
     max_area: int | None = None
     binary_mask_policy: str | None = None
-    binary_mask_connectivity: int = 1
+    binary_mask_connectivity: int = 2
 
     def __post_init__(self) -> None:
         check_cell_settings(self)

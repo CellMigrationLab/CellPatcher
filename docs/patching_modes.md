@@ -32,8 +32,8 @@ non-zero integer value is one object (an `instances` mask holding 0 and 1 is one
 (declared so by the run's description in a file run; a boolean array in memory) has no object ids and is refused
 (`A_MASK_NOT_INSTANCES` in a file run, from the run's resolver, before any pixel is read), unless the request sets
 `binary_mask_policy="connected_components"` explicitly (there is no default): the mask is then labelled by the
-shared labeller `cellpatcher.label_objects` at `binary_mask_connectivity` (1: 4-connected, the default; 2:
-8-connected), with a warning, and both are recorded in `run_config.json` with `matching.mask_id`. Labels above the
+shared labeller `cellpatcher.label_objects` at `binary_mask_connectivity` (1: 4-connected; 2:
+8-connected, the default), with a warning, and both are recorded in `run_config.json` with `matching.mask_id`. Labels above the
 int32 maximum are refused.
 
 Key parameters to know:
