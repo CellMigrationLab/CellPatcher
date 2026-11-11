@@ -487,9 +487,9 @@ def test_pipeline_cell_centroid_center_on():
     assert abs(p.center_y - float(np.mean(ys))) < 1e-6
 
 
-def test_pipeline_cell_binary_mask_single_object_policy():
+def test_pipeline_cell_binary_mask_without_a_policy():
     cfg = CellPatcherConfig(mode="cell")
-    cfg.cell.binary_mask_policy = "single_object"
+    cfg.cell.binary_mask_policy = None  # no policy (there is no default)
     cfg.cell.exclude_border = False
     img = np.zeros((10, 10))
     labels = np.zeros((10, 10), dtype=bool)

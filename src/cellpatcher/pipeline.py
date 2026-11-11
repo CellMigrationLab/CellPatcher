@@ -801,7 +801,7 @@ def _refuse_masking_computed_labels(config: CellPatcherConfig, masks) -> None:
     would be blanked or reported as having no pixels, and the first would
     take in every touching neighbour (issue #44).
     """
-    if config.cell.binary_mask_policy != "connected_components":
+    if config.cell.binary_mask_policy is None:
         return
     region = resolved_patch_region(config)
     if config.extraction.apply_mask:
@@ -843,8 +843,8 @@ def run_patching(images=None, masks=None, config=None, image_metadata=None, frac
 
         * ``mode='cell'`` — **required**.  Integer label map where each unique
           non-zero value is a separate cell, used as given (decision D47). A
-          boolean mask is refused unless ``cell.binary_mask_policy`` is
-          ``"connected_components"``; labels above the int32 maximum are refused.
+          boolean mask is refused without an explicit ``cell.binary_mask_policy`` (no default),
+          labelled by :func:`cellpatcher.label_objects` with it; labels above int32 are refused.
         * ``mode='random'`` — **optional**.  When provided, patches are
           restricted to the spatial region covered by the mask.
         * ``mode='grid'`` / ``'whole_fov'`` — not consumed; pass ``None``.

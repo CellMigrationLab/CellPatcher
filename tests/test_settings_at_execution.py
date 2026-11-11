@@ -187,7 +187,8 @@ BAD_VALUES = {
     "cell.exclude_border": FLAG,
     "cell.min_area": INTEGER + [0, None],
     "cell.max_area": INTEGER,
-    "cell.binary_mask_policy": CHOICE + [None],
+    "cell.binary_mask_policy": CHOICE + ["single_object"],  # None is no policy; single_object was removed
+    "cell.binary_mask_connectivity": INTEGER + [0, 3, None],
     "random.patch_size": INTEGER + [0, None],
     "random.n_patches": INTEGER + [0, None],
     "random.seed": INTEGER,
@@ -213,6 +214,7 @@ BAD_VALUES = {
     "extraction.mask_fill_value": NUMBER + [None],
     "extraction.split_channels": [1, "True", None, [], [True], [1.0], ["1", 1], [""], [0, 0], [-1]],
     "matching.mask_type": [5, True, "", "  ", ["cells"]],
+    "matching.mask_id": [5, True, "", "  ", ["Nuclei"]],
     "normalization.enabled": FLAG,
     "normalization.plane_histograms": [5, True, ["x"]],
     "normalization.manifest": [5, True, ["x"]],

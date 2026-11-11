@@ -42,7 +42,7 @@ def test_bool_mask_is_refused_by_default():
         s.generate_regions(image_shape=(6, 6), labels=labels)
 
 
-@pytest.mark.parametrize("policy", ["single_object", "connected_components"])
+@pytest.mark.parametrize("policy", [None, "connected_components"])
 def test_integer_mask_holding_one_value_is_kept_as_given(policy):
     # Decision D47: an integer mask is instance labels whatever the policy;
     # 0/255 is one object labelled 255, two separate blobs of 1 one object.
@@ -54,8 +54,9 @@ def test_integer_mask_holding_one_value_is_kept_as_given(policy):
     assert [p.label_id for p in patches] == [255]
 
 
-def test_default_policy_is_single_object():
-    assert CellConfig().binary_mask_policy == "single_object"
+def test_there_is_no_default_policy():
+    # CP-2: the implicit "single_object" default is removed; no policy is None (Spec AQ9: never a default).
+    assert CellConfig().binary_mask_policy is None
 
 
 def test_labels_above_int32_max_are_refused_not_wrapped():
@@ -73,11 +74,11 @@ def test_largest_int32_label_is_kept():
     assert [p.label_id for p in s.generate_regions(image_shape=(4, 4), labels=labels)] == [2**31 - 1]
 
 
-def test_binary_single_object_returns_one():
+def test_integer_0_1_mask_without_a_policy_is_one_object():
     labels = np.zeros((6, 6), dtype=int)
     labels[1:3, 1:3] = 1
     labels[4:5, 4:6] = 1
-    s = CellSegmentationStrategy(CellConfig(binary_mask_policy="single_object", exclude_border=False))
+    s = CellSegmentationStrategy(CellConfig(exclude_border=False))
     patches = s.generate_regions(image_shape=(6, 6), labels=labels)
     assert len(patches) == 1
 
@@ -251,7 +252,7 @@ def test_out_of_range_mask_channel_raises():
 # Float and negative label validation tests
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("policy", ["single_object", "connected_components"])
+@pytest.mark.parametrize("policy", [None, "connected_components"])
 def test_a_float_binary_mask_is_refused(policy):
     """Owner decision D-b (preprocessing check_labels): a float mask is refused even when it holds
     only 0.0 and 1.0, whatever binary_mask_policy; before D86 it was treated as a binary mask."""

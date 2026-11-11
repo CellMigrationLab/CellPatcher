@@ -56,7 +56,15 @@ from cellpatcher.io import (
     run_patching_from_folders,
 )
 from cellpatcher.filters import compute_threshold, filter_regions, foreground_fraction
-from cellpatcher.object_geometry import ObjectBoxes, border_labels, object_boxes, object_sides
+from cellpatcher.object_geometry import (
+    BINARY_MASK_CONNECTIVITY,
+    BINARY_MASK_POLICIES,
+    ObjectBoxes,
+    border_labels,
+    label_objects,
+    object_boxes,
+    object_sides,
+)
 from cellpatcher.patch_checks import PatchBoundsError, check_patch_bounds, check_region_mask
 from cellpatcher.pipeline import RUN_CONFIG_FILENAME, PatchingResult, run_patching
 from cellpatcher.preprocess import (
@@ -167,6 +175,9 @@ __all__ = [
     "object_boxes",
     "object_sides",
     "border_labels",
+    "label_objects",
+    "BINARY_MASK_POLICIES",
+    "BINARY_MASK_CONNECTIVITY",
     "PatchBoundsError",
     "check_patch_bounds",
     "check_region_mask",
