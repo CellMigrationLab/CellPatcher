@@ -38,6 +38,7 @@ extra_files:
 - src/cellpatcher/fractions.py: CellPatcher/src/cellpatcher/fractions.py
 - src/cellpatcher/ids.py: CellPatcher/src/cellpatcher/ids.py
 - src/cellpatcher/io.py: CellPatcher/src/cellpatcher/io.py
+- src/cellpatcher/mask_policy.py: CellPatcher/src/cellpatcher/mask_policy.py
 - src/cellpatcher/masking.py: CellPatcher/src/cellpatcher/masking.py
 - src/cellpatcher/normalization.py: CellPatcher/src/cellpatcher/normalization.py
 - src/cellpatcher/normalization_review.py: CellPatcher/src/cellpatcher/normalization_review.py
