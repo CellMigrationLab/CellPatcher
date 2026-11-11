@@ -17,7 +17,7 @@ setup(
         # checks). Pinned to its tag and raised deliberately; the ``zarr`` extra
         # below adds its OME-Zarr reader at the same tag.
         "morphobricks-preprocessing @ git+https://github.com/CellMigrationLab/"
-        "morphobricks-preprocessing@8726cb45acac4b16121001fc2c93863479ce3788",
+        "morphobricks-preprocessing@v0.5.1",
         # CellPatcher imports the normalization brick directly (plane histograms,
         # the plane table, pooling, normalization parameters, SINGLE), so it
         # declares it, at the tag the preprocessing tag above pins (owner
@@ -60,7 +60,7 @@ setup(
         # is a core dependency.
         "zarr": [
             "morphobricks-preprocessing[zarr] @ git+https://github.com/CellMigrationLab/"
-            "morphobricks-preprocessing@8726cb45acac4b16121001fc2c93863479ce3788",
+            "morphobricks-preprocessing@v0.5.1",
         ],
     },
 )

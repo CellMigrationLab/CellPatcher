@@ -125,12 +125,6 @@ def test_the_zarr_extra_installs_the_core_preprocessing_tag():
     assert _url(zarr) == _url(_by_name(core)["morphobricks-preprocessing"])
 
 
-# A merged release commit the owner has not tagged yet, and the tag it becomes (Stage 2 W2: preprocessing
-# v0.5.1 is merged at this commit). A draft may pin it; the pin switches to the tag when the owner tags
-# it, and this entry goes with it. Any other commit is refused.
-UNTAGGED_RELEASES = {"8726cb45acac4b16121001fc2c93863479ce3788": "v0.5.1"}
-
-
 def test_preprocessing_is_pinned_to_a_release_tag_not_a_commit():
     # Stage 2 CP-1 pinned the v0.5.0 release-candidate commit until the tag existed; a commit pin
     # is not a release, and every brick must spell the same URL (pip refuses two for one package).
@@ -138,7 +132,6 @@ def test_preprocessing_is_pinned_to_a_release_tag_not_a_commit():
     for requirement in (_by_name(core)["morphobricks-preprocessing"], *extras["zarr"]):
         repository, ref = _url(requirement).rsplit("@", 1)
         assert repository == "git+https://github.com/CellMigrationLab/morphobricks-preprocessing", requirement
-        ref = UNTAGGED_RELEASES.get(ref, ref)
         assert re.fullmatch(r"v\d+\.\d+\.\d+", ref), f"{requirement}: pin a release tag, not {ref!r}"
 
 
