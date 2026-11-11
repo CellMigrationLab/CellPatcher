@@ -75,16 +75,22 @@ class CommonConfig:
 class CellConfig:
     """Parameters of ``mode='cell'``.
 
-    Masks are instance labels (decision D47, 2026-10-26): an integer mask is
-    used as given, each non-zero value one object (a 0/1 integer mask is one
-    object, label 1). ``binary_mask_policy`` only matters for a boolean mask,
-    which has no object ids: ``"single_object"`` (default) refuses it;
-    ``"connected_components"`` is the explicit opt-in that labels its
-    connected components (4-connected), with a warning, and is recorded in
-    ``run_config.json``. Labels are checked with the preprocessing brick's
-    ``check_labels`` (decision D-b): negative labels and labels above the
-    int32 maximum are refused, and so is a float mask, even of whole numbers
-    or 0.0/1.0.
+    Masks are object sets (decision D47, 2026-10-26; Spec ADR 0002 AR5): an
+    integer ``instances`` mask is used as stored, each non-zero value one
+    object (an ``instances`` mask holding 0 and 1 is one object, label 1).
+    A ``binary`` mask (in a file run: declared ``binary`` by the run's
+    description; in memory: a boolean array) has no object ids, so it is an
+    object set only through the explicit per-request ``binary_mask_policy``:
+    ``None`` (no policy; there is no default) refuses it, in a file run with
+    the resolver's ``A_MASK_NOT_INSTANCES`` before any pixel is read;
+    ``"connected_components"`` labels it with the shared labeller
+    (:func:`cellpatcher.label_objects`) at ``binary_mask_connectivity``
+    (1: 4-connected, the default; 2: 8-connected), both recorded in
+    ``run_config.json`` with ``matching.mask_id``. The former
+    ``"single_object"`` value (the implicit default before CP-2) is refused.
+    Labels are checked with the preprocessing brick's ``check_labels``
+    (decision D-b): negative labels and labels above the int32 maximum are
+    refused, and so is a float mask, even of whole numbers or 0.0/1.0.
     """
 
     patch_size: int | str = "auto"
@@ -93,7 +99,8 @@ class CellConfig:
     exclude_border: bool = True
     min_area: int = 1
     max_area: int | None = None
-    binary_mask_policy: str = "single_object"
+    binary_mask_policy: str | None = None
+    binary_mask_connectivity: int = 1
 
     def __post_init__(self) -> None:
         check_cell_settings(self)
@@ -357,6 +364,13 @@ class MatchConfig:
     ``img_cells.tif`` or ``cells/img.tif``). None (default) uses the run's only
     type, and refuses a run holding several.
 
+    ``mask_id`` names the object set of ``mode="cell"`` in a file run by the
+    **mask ID** of the run's description (``masks.<ID>``, Spec ADR 0002): the
+    run's resolver selects it (``MaskRequest(mask_id, "objects",
+    cell.binary_mask_policy)``) and its refusals stop the run before any read.
+    None (default): the description's one mask whose source type is the mask
+    type above. Given with ``mask_type``, the two must name the same mask.
+
     The former options ``strategy``, ``mask_suffixes``, ``case_sensitive``
     and ``ignore_unrequested_masks`` were removed in v0.1.1: given here, set
     later or found in an old ``run_config.json``, they are refused by name
@@ -364,6 +378,7 @@ class MatchConfig:
     """
 
     mask_type: str | None = None
+    mask_id: str | None = None
     strategy: InitVar[object] = _NOT_GIVEN
     mask_suffixes: InitVar[object] = _NOT_GIVEN
     case_sensitive: InitVar[object] = _NOT_GIVEN

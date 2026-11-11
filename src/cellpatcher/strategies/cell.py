@@ -1,5 +1,4 @@
 import warnings
-from collections import deque
 from operator import index
 
 import numpy as np
@@ -7,6 +6,7 @@ import numpy as np
 from cellpatcher.axes import axis_index, normalize_axes, refuse_transposed_mask_axes
 from cellpatcher.config import CellConfig
 from cellpatcher.errors import LabelRangeError
+from cellpatcher.object_geometry import label_objects
 from cellpatcher.setting_checks import check_cell_settings
 from cellpatcher.strategies.base import BasePatchStrategy, _spatial_shape_from_axes
 from cellpatcher.types import PatchRegion
@@ -47,49 +47,18 @@ class CellSegmentationStrategy(BasePatchStrategy):
         refuse_transposed_mask_axes(mask_axes)  # a label plane is taken as Y, X in its stored order
         self.mask_axes = normalize_axes(mask_axes)
 
-    @staticmethod
-    def _label_connected_components(binary: np.ndarray) -> np.ndarray:
-        try:
-            from scipy.ndimage import label as scipy_label
-
-            labeled, _ = scipy_label(binary)
-            return labeled.astype(np.int32)
-        except ImportError:
-            # scipy is not installed; fall back to the built-in BFS implementation below
-            pass
-
-        # Manual 4-connected flood fill: scan every pixel in reading order,
-        # and whenever an unlabeled foreground pixel is found, BFS outward
-        # from it assigning the same new label to its whole connected blob.
-        h, w = binary.shape
-        labeled = np.zeros((h, w), dtype=np.int32)
-        current_label = 0
-        neighbors = [(-1, 0), (1, 0), (0, -1), (0, 1)]
-
-        for y in range(h):
-            for x in range(w):
-                if not binary[y, x] or labeled[y, x] != 0:
-                    continue
-                current_label += 1
-                queue = deque([(y, x)])
-                labeled[y, x] = current_label
-                while queue:
-                    cy, cx = queue.popleft()
-                    for dy, dx in neighbors:
-                        ny, nx = cy + dy, cx + dx
-                        if 0 <= ny < h and 0 <= nx < w and binary[ny, nx] and labeled[ny, nx] == 0:
-                            labeled[ny, nx] = current_label
-                            queue.append((ny, nx))
-        return labeled
-
     def label_objects(self, selected: np.ndarray, *, image_id=None) -> tuple[np.ndarray, bool]:
         """The object labels of a 2D mask plane as int32, and whether they were computed.
 
         Decision D47: an integer mask is instance labels, used as given (a
-        0/1 or 0/255 mask is one object). A boolean mask has no object ids:
-        it is refused unless ``binary_mask_policy="connected_components"``,
-        which labels its connected components with a warning (the second
-        value is then True: the labels are not the mask's values).
+        0/1 or 0/255 integer mask is one object; a file run's ``binary`` mask
+        is labelled before it gets here, :mod:`cellpatcher.run_request`). A
+        boolean mask has no object ids: it is refused without an explicit
+        ``binary_mask_policy`` (there is no default), and with
+        ``"connected_components"`` labelled by the shared labeller
+        (:func:`cellpatcher.label_objects`, ``binary_mask_connectivity``), with
+        a warning (the second value is then True: the labels are not the
+        mask's values).
 
         Integer labels are checked with the preprocessing brick's
         ``check_labels``, the one label rule of every MorphoBricks brick
@@ -103,7 +72,7 @@ class CellSegmentationStrategy(BasePatchStrategy):
             (a ``ValueError``) for negative labels or labels above the int32
             maximum.
         ValueError
-            For a float mask, a binary mask without the opt-in, or another
+            For a float mask, a boolean mask without a policy, or another
             dtype.
         """
         from morphobricks_preprocessing.masks import check_labels
@@ -111,21 +80,23 @@ class CellSegmentationStrategy(BasePatchStrategy):
         where = f" (image {image_id})" if image_id is not None else ""
         name = f"The mask{where}"
         if selected.dtype == bool:
-            if self.config.binary_mask_policy != "connected_components":
+            policy = self.config.binary_mask_policy
+            if policy is None:
                 raise ValueError(
-                    f"The mask{where} is binary ({selected.dtype}), so it has no object ids. Give integer "
-                    "instance labels (each object its own value; mask.astype(np.uint8) makes the whole "
-                    "foreground one object, label 1), or opt in to connected-component labelling with "
+                    f"The mask{where} is binary ({selected.dtype}), so it has no object ids, and no "
+                    "binary_mask_policy is set (there is no default; A_MASK_NOT_INSTANCES). Give integer instance "
+                    "labels (each object its own value; mask.astype(np.uint8) makes the whole foreground one "
+                    "object, label 1), or ask for connected-component labelling with "
                     "cell.binary_mask_policy='connected_components'."
                 )
+            connectivity = self.config.binary_mask_connectivity
             warnings.warn(
-                f"The binary mask{where} is labelled by 4-connected components "
-                "(cell.binary_mask_policy='connected_components'): its label_id values are computed, "
-                "not taken from the mask.",
+                f"The binary mask{where} is labelled by {'4' if connectivity == 1 else '8'}-connected components "
+                f"(cell.binary_mask_policy={policy!r}): its label_id values are computed, not taken from the mask.",
                 UserWarning,
                 stacklevel=3,
             )
-            return self._label_connected_components(selected), True
+            return label_objects(selected, policy, connectivity), True
         if not np.issubdtype(selected.dtype, np.integer):
             check_labels(selected, name)  # refuses floats and other pixel types, naming the type
             raise ValueError(f"{name} does not hold integer labels (pixel type {selected.dtype}).")

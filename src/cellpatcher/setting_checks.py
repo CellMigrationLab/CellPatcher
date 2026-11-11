@@ -30,7 +30,7 @@ from cellpatcher.planes import validate_plane_policies
 
 MODES = ("cell", "random", "whole_fov", "grid")
 CENTER_ON = ("centroid", "bbox_center")
-BINARY_MASK_POLICIES = ("single_object", "connected_components")
+BINARY_MASK_POLICIES = ("connected_components",)  # cellpatcher.object_geometry; no default (None: no policy)
 SEED_SCOPES = ("plane_channel", "plane", "position")
 GRID_PARTIAL_MODES = ("flush", "clipped")
 PAD_MODES = ("clip", "constant")
@@ -141,7 +141,13 @@ def check_cell_settings(cell: object) -> None:
     a float such as 1.9); that it is a channel of the mask is checked where the mask is read.
     """
     check_choice(cell.center_on, CENTER_ON, "center_on")
-    check_choice(cell.binary_mask_policy, BINARY_MASK_POLICIES, "binary_mask_policy")
+    _check_binary_mask_policy(cell.binary_mask_policy)
+    check_integer(cell.binary_mask_connectivity, "binary_mask_connectivity", minimum=1)
+    if cell.binary_mask_connectivity > 2:
+        raise ValueError(
+            "binary_mask_connectivity must be 1 (4-connected) or 2 (8-connected); "
+            f"got {cell.binary_mask_connectivity!r}."
+        )
     if cell.mask_channel is not None:
         check_integer(cell.mask_channel, "mask_channel", minimum=0)
     if not isinstance(cell.patch_size, str) or cell.patch_size != "auto":
@@ -235,11 +241,23 @@ def check_export_settings(export: object) -> None:
     check_choice(export.image_format.lower(), IMAGE_FORMATS, "image_format")
 
 
+def _check_binary_mask_policy(policy: object) -> None:
+    """Refuse a ``binary_mask_policy`` that is neither None (no policy) nor a P27 policy, naming ``single_object``."""
+    if policy == "single_object":
+        raise ValueError(
+            "binary_mask_policy='single_object' was removed (CP-2): there is no default policy. Leave it None, so "
+            "a binary mask is refused as an object set, or set 'connected_components' to label it."
+        )
+    if policy is not None:
+        check_choice(policy, BINARY_MASK_POLICIES, "binary_mask_policy")
+
+
 def check_match_settings(matching: object) -> None:
-    """Refuse a ``MatchConfig`` whose ``mask_type`` is neither None nor a non-empty name."""
-    mask_type = matching.mask_type
-    if mask_type is not None and (not isinstance(mask_type, str) or not mask_type.strip()):
-        raise ValueError(f"matching.mask_type must be None or a non-empty name; got {mask_type!r}.")
+    """Refuse a ``MatchConfig`` whose ``mask_type`` or ``mask_id`` is neither None nor a non-empty name."""
+    for name in ("mask_type", "mask_id"):
+        value = getattr(matching, name)
+        if value is not None and (not isinstance(value, str) or not value.strip()):
+            raise ValueError(f"matching.{name} must be None or a non-empty name; got {value!r}.")
 
 
 def _number_pair(value: object, name: str, form: str) -> tuple[float, float]:

@@ -53,6 +53,7 @@ from cellpatcher.run_reading import (
     read_fov_mask,
     union_layout,
 )
+from cellpatcher.run_request import ObjectMask, resolve_run
 from cellpatcher.run_session import keep_in_session, remember, remember_layouts
 from cellpatcher.setting_checks import channel_id_selection, check_run_settings
 from cellpatcher.statistics import (
@@ -102,6 +103,9 @@ class FileRun:
     channel_indices
         For ``extraction.split_channels`` naming channel IDs: each image's C indices of those IDs,
         keyed by its path, as the run's resolver selected them (CP-3); empty otherwise.
+    object_mask
+        In ``cell`` mode, the object set the resolver selected by mask ID, with its conversion (CP-2);
+        None otherwise.
     """
 
     inputs: RunInputs
@@ -110,6 +114,7 @@ class FileRun:
     mask_layouts: Mapping[str, str]
     statistics: PlaneStatistics | None
     channel_indices: Mapping[str, tuple[int, ...]] = field(default_factory=dict)
+    object_mask: ObjectMask | None = None
 
     @property
     def fovs(self) -> tuple[Fov, ...]:
@@ -235,51 +240,49 @@ def open_file_run(
     if not fovs:
         raise ValueError(f"The preprocessing run in {inputs.output_folder} has no images.")
     layouts = {fov.relative_path: fov_layout(fov, config.common) for fov in fovs}
-    mask_type = _mask_type(config.matching.mask_type, inputs, f"mode={config.mode!r}") if use_masks else None
+    by_id = config.mode == "cell" and config.matching.mask_id is not None  # the mask type is the selection's
+    reads_type = use_masks and not by_id
+    mask_type = _mask_type(config.matching.mask_type, inputs, f"mode={config.mode!r}") if reads_type else None
+    ids, cell = channel_id_selection(config.extraction.split_channels) or (), config.cell
+    mask_id = _cell_mask_id(config, inputs, mask_type)
+    resolved = resolve_run(inputs, ids, mask_id, cell.binary_mask_policy, cell.binary_mask_connectivity)
+    if resolved.issues:  # the resolver's refusals, with their codes, before any pixel is read
+        raise PreprocessingCheckError(list(resolved.issues))
+    if resolved.object_mask is not None:
+        mask_type = resolved.object_mask.source_type
     mask_layouts = {}
     if mask_type is not None:
         mask_layouts = {fov.relative_path: mask_layout(_record(inputs, fov, mask_type)) for fov in fovs}
         _check_object_set(config, mask_type)
     remember_layouts(config.common.preprocessing_run, layouts, mask_layouts)
     statistics = _csv_statistics(config, inputs, layouts)
-    return FileRun(inputs, layouts, mask_type, mask_layouts, statistics, selected_channels(config, inputs))
+    return FileRun(inputs, layouts, mask_type, mask_layouts, statistics, resolved.channel_indices, resolved.object_mask)
 
 
-def selected_channels(config: CellPatcherConfig, inputs: RunInputs) -> dict[str, tuple[int, ...]]:
-    """Return each image's C indices of the channel IDs ``extraction.split_channels`` names (CP-3).
+def _cell_mask_id(config: CellPatcherConfig, inputs: RunInputs, mask_type: str | None) -> str | None:
+    """Return the mask ID cell mode asks the resolver for: ``matching.mask_id``, or the declared mask of *mask_type*.
 
-    The IDs are resolved per image by the run's resolver (``RunInputs.resolve_request``, resolver
-    contract v1): one ID may be another C index in another image. CellPatcher declares RGB support
-    (P24). Empty when ``split_channels`` names no IDs.
-
-    Raises
-    ------
-    PreprocessingCheckError
-        Every refusal of the resolver, with its code (``A_SCOPE_INCOMPLETE`` for an ID some image
-        lacks, unknown IDs included: present in 0 of n); nothing is selected then.
+    ``matching.mask_type`` given with ``matching.mask_id`` must be that mask's source type. None outside cell mode.
     """
-    from morphobricks_preprocessing import Capabilities, Request
-    from morphobricks_preprocessing.validation import error
-
-    ids = channel_id_selection(config.extraction.split_channels)
-    if ids is None:
-        return {}
-    resolved = inputs.resolve_request(Request(channel_ids=ids, capabilities=Capabilities(rgb_support=True)))
-    if resolved.refused:
-        raise PreprocessingCheckError([
-            error(
-                refusal.code,
-                f"extraction.split_channels names {refusal.subject!r}: {refusal.message}",
-                list(refusal.files),
-                "Name channel IDs every image of the run has (the run's description lists them), or "
-                "select and record an eligible subset in preprocessing.",
+    if config.mode != "cell":
+        return None
+    declared = inputs.description().masks
+    wanted = config.matching.mask_id
+    if wanted is not None:
+        given = config.matching.mask_type
+        if given is not None and wanted in declared and declared[wanted].source_type != given:
+            raise ValueError(
+                f"matching.mask_id={wanted!r} is the mask of source type {declared[wanted].source_type!r}, but "
+                f"matching.mask_type={given!r}: name one mask (leave matching.mask_type unset)."
             )
-            for refusal in resolved.refusals
-        ])
-    return {
-        selection.relative_path: tuple(sorted(selection.index_of(channel) for channel in ids))
-        for selection in resolved.selections
-    }
+        return wanted
+    ids = sorted(mask_id for mask_id, mask in declared.items() if mask.source_type == mask_type)
+    if len(ids) != 1:
+        raise ValueError(
+            f"The run's description declares {len(ids)} masks of source type {mask_type!r} "
+            f"({', '.join(ids) or 'none'}): set matching.mask_id to the description's mask ID of the object set."
+        )
+    return ids[0]
 
 
 def _mask_type(wanted: str | None, inputs: RunInputs, reader: str) -> str:
@@ -398,7 +401,10 @@ def run_config_for(config: CellPatcherConfig, run: FileRun, labels: Sequence[str
         mask_axes=run.mask_axes,
         **dict(zip(_LABELS, labels)),
     )
-    return replace(config, common=common, normalization=normalization_settings(config, run.inputs))
+    matching = config.matching
+    if run.object_mask is not None:  # the mask ID read is recorded in run_config.json with the policy
+        matching = replace(matching, mask_id=run.object_mask.mask_id)
+    return replace(config, common=common, matching=matching, normalization=normalization_settings(config, run.inputs))
 
 
 def patch_fovs(run: FileRun, fovs: Sequence[Fov], config: CellPatcherConfig) -> PatchingResult:
@@ -433,10 +439,12 @@ def _plane_sources(run: FileRun, fovs: Sequence[Fov], metadata: Sequence[dict], 
 def read_run_mask(run: FileRun, fov: Fov, layout: str | None = None) -> np.ndarray:
     """Read an image's mask of the run's type, through ``RunInputs.read_mask``.
 
-    In *layout*, or the mask's own (:meth:`FileRun.mask_layout`) when None.
+    In *layout*, or the mask's own (:meth:`FileRun.mask_layout`) when None. A cell-mode ``binary`` mask
+    comes back as the shared labeller's objects under the recorded policy (:class:`ObjectMask`).
     """
     record = _record(run.inputs, fov, run.mask_type)
-    return read_fov_mask(run.inputs, fov, record, run.mask_layout(fov) if layout is None else layout)
+    mask = read_fov_mask(run.inputs, fov, record, run.mask_layout(fov) if layout is None else layout)
+    return mask if run.object_mask is None else run.object_mask.objects(mask)
 
 
 def fov_metadata(run: FileRun, fov: Fov, config: CellPatcherConfig) -> dict:
