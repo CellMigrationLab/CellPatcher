@@ -32,6 +32,98 @@ Release v0.3.0
 Pin preprocessing v0.4.0rc4; prepare v0.2.0rc2
 
 ---
+## [0.4.0] - Preprocessing v0.5.1, the resolver, one shared mask labeller (Stage 2 W2: CP-4, CP-3, CP-2)
+
+The v0.4.0 release. It pins preprocessing `v0.5.1` (core and `zarr` extra; was `v0.5.0`) and
+normalization `v0.4.0` (was `v0.3.4`), the tag preprocessing `v0.5.1` pins (owner decision D-h; pip
+refuses two different direct URLs for one package). `__version__`, `setup.py` and every notebook
+(`RELEASE_TAG`, `current_version`, `notebook_latest_versions.yaml`) are `0.4.0`. It carries #99
+(CP-4), #100 (CP-3) and #101 (CP-2). Owner policy of 2026-11-10 (Spec ADR 0002 AR10): no backward
+compatibility for the removed behaviour below; old settings are refused, not converted. Instance
+masks give the same patches as v0.3.0: on the Spec fixtures `v03 v13 v30 v33` (grid, no/image/
+biological-repeat normalization) and `v07` (cell mode, instance masks) every exported patch file,
+`images.csv` and `positions.csv` is byte-identical to v0.3.0, and `patches.csv` only gains the
+`channel_id` column.
+
+### Breaking
+- **A binary mask is an object set only with an explicit `cell.binary_mask_policy`** (Spec ADR 0002
+  AR5, AR11 (4); P27). There is no default: `binary_mask_policy` is `None` unless set to
+  `"connected_components"`. In a file run, cell mode asks the run's resolver for its object set by
+  mask ID (`MaskRequest(<mask ID>, "objects", cell.binary_mask_policy)`); a mask the description
+  declares `binary` is refused without the policy (`A_MASK_NOT_INSTANCES`) before any pixel is read.
+  Before, such a 0/1 mask was silently one object. A policy on an `instances` mask is refused
+  (`ValueError` naming `cell.binary_mask_policy`); an `instances` mask is used as stored, never
+  relabelled (D47: an `instances` mask holding 0 and 1 is one object). In memory, a boolean mask is
+  the binary one and follows the same rule.
+- **`binary_mask_policy="single_object"` is removed.** It was the implicit default and only meant
+  "refuse a boolean mask", which `None` now does. It is refused by name, in code and in a saved
+  `run_config.json`.
+- **8-connected labelling by default** (owner decision of 2026-11-11). The one shared labeller,
+  `cellpatcher.label_objects(mask, policy, connectivity)`, labels a binary mask's connected
+  components; `cell.binary_mask_connectivity` is `2` (8-connected) by default and `1`
+  (4-connected) on request; `cellpatcher.BINARY_MASK_CONNECTIVITY` is `2`. A boolean mask labelled
+  in v0.3.0 (4-connected) can give fewer objects now where objects touch only at a corner.
+- **Cell-mode resolver refusals** stop a file run before any read, each with its code:
+  `A_MASK_NOT_INSTANCES`, `A_MASK_UNCHECKED` (masks the mask step has not checked, "k of n files")
+  and `A_SCOPE_INCOMPLETE` (a mask some image lacks, "present in k of n"; an undeclared mask ID is
+  0 of n). An image without its label image is now `A_SCOPE_INCOMPLETE` (was CellPatcher's own
+  "recorded no mask").
+- **The declared image type wins.** Each position's image type is the one its unit declares in the
+  description (`Fov.image_type`: `rgb`, or `channels`, normalized per channel as `"fluorescence"`).
+  A `normalization.image_type` that contradicts it is refused naming both (`image_type_differs`), at
+  every scope of a file run (before: the CSV scopes only, and a run that recorded no type let the
+  setting decide). A run that declares mixed types is refused (`image_types_mixed`).
+  `RunSummary.image_type` is a `str`, never `None`.
+- **Preprocessing v0.5.1 reads manifest version 4 only.** An older run is refused
+  (`preprocessing_run_refused`, no longer a traceback); a run without a published description is
+  refused by `RunInputs.open` itself (`A_DESCRIPTION_REQUIRED`, as before).
+- **`patches.csv`** has a new last column, `channel_id` (after `square_index`; every other column
+  keeps its place). In the cell runs, the dynamic `mask_fraction_*` columns come after it.
+
+### Added
+- **Channels by canonical ID** (CP-3, G2-id): `extraction.split_channels` may name channel IDs of
+  the run's description (for example `["DNA"]`). A file run resolves them per image through the
+  resolver, so one ID may be a different C index in another image; an unknown ID is refused
+  (`A_SCOPE_INCOMPLETE`, nothing selected). A list mixing IDs and indices, an empty or repeated ID,
+  and an ID list for in-memory images are refused. `patch_id` is unchanged (it keeps `c` and is
+  never parsed).
+- `PatchRegion.channel_id` and the `channel_id` column: the canonical ID of the patch's `c` in its
+  own image (`Fov.channel_ids`), for index selections and `True` too; empty for a patch without `c`.
+- `matching.mask_id`: the description's mask ID of the cell-mode object set. When `None`, the
+  description's one mask of `matching.mask_type` (or of the run's only type) is used; given
+  together, the two must name the same mask.
+- `run_config.json` records the mask ID read (`matching.mask_id`), `cell.binary_mask_policy` and
+  `cell.binary_mask_connectivity`. Nothing is written to `morphobricks.toml`.
+- `cellpatcher.label_objects`, `CONNECTIVITIES` and `BINARY_MASK_CONNECTIVITY`: the one labeller
+  every route calls for a recorded `binary_mask_policy` (MorphoFeature MF-3, fiberfeatures FF-1,
+  MorphoRelate MR-2). Its hand-written goldens are `tests/fixtures/shared_labeller/golden.json`.
+
+### Changed
+- Dependencies: preprocessing `v0.5.1` (tag `8726cb4`; was `v0.5.0`), normalization `v0.4.0` (was
+  `v0.3.4`), both checked by `tests/test_dependency_pins.py` (release tags only).
+- MorphoBricks-Spec `b4b1008` is vendored in `tests/spec_fixtures` (fixtures unchanged).
+- The test helpers describe each test's images before the run, from preprocessing's preflight.
+- Docs: RGB support stated (P24), the image-type rule, the mask rule, channel IDs.
+
+### Migration
+- Re-run preprocessing `v0.5.1` on the experiment (describe and publish it in the preprocessing
+  notebook first) and give CellPatcher that run's output folder; a run of preprocessing `v0.5.0` or
+  earlier is refused (`preprocessing_run_refused`).
+- Remove `binary_mask_policy="single_object"` from code and from saved `run_config.json` files
+  (`None` is its meaning). For a mask declared `binary` that should be split into objects, set
+  `cell.binary_mask_policy="connected_components"` (the notebook's "The mask is binary: label its
+  connected components (8-connected)"); set `cell.binary_mask_connectivity=1` to keep v0.3.0's
+  4-connected labels. For an `instances` mask, leave the policy `None`.
+- Drop any `normalization.image_type` that contradicts the description's declared unit type, or fix
+  the description.
+- Code that reads `patches.csv` by position (not by column name) must allow the new last column,
+  `channel_id`.
+- Bricks that pin CellPatcher pin `v0.4.0` together with preprocessing `v0.5.1` and normalization
+  `v0.4.0`; they call `cellpatcher.label_objects(mask, selection.conversion,
+  BINARY_MASK_CONNECTIVITY)` for a `binary` `MaskSelection` with a conversion, record `(mask_id,
+  conversion, connectivity)`, and compare with the golden.
+
+---
 ## [0.3.0] - Preprocessing v0.5.0, every run described (Stage 2 CP-1)
 
 The v0.3.0 release. It pins preprocessing `v0.5.0` (core and `zarr` extra; was `v0.4.0`) and keeps
