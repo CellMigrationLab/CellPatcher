@@ -69,8 +69,9 @@ def refuse_policy_on_instances(policy: str | None, mask: object, where: str) -> 
 
     *where* names the mask's image in the message (``"image 0"``). Nothing is refused without a
     policy, nor inside :func:`resolved_masks` (a file run's masks, labelled by the resolver).
-    ``run_patching`` (:func:`check_mask_policy`) and the object scan
-    (:func:`cellpatcher.scan_cell_objects`) share this rule.
+    ``run_patching`` (:func:`check_mask_policy`), the object scan
+    (:func:`cellpatcher.scan_cell_objects`) and the cell strategy called directly
+    (:meth:`cellpatcher.CellSegmentationStrategy.label_objects`) share this rule.
 
     Raises
     ------

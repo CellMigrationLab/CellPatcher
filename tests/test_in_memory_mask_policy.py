@@ -118,3 +118,29 @@ def test_the_notebook_scan_of_a_file_run_labels_its_binary_mask_with_the_policy(
     with pytest.warns(UserWarning, match="8-connected"):
         scan = scan_object_sizes(config, summarize_run(output))
     assert (scan.n_images, scan.n_objects_total) == (1, 2)
+
+
+# --- the public cell strategy, called directly, takes the same rule ------------------------------
+
+
+def _strategy_objects(mask, policy, **kwargs):
+    from cellpatcher import CellConfig, CellSegmentationStrategy
+
+    strategy = CellSegmentationStrategy(CellConfig(exclude_border=False, binary_mask_policy=policy))
+    regions = strategy.generate_regions(image_shape=mask.shape, labels=mask, **kwargs)
+    return [(r.label_id, r.area_px) for r in regions]
+
+
+@pytest.mark.parametrize("dtype", [np.uint8, np.uint16, np.int32, np.int64])
+def test_the_cell_strategy_called_directly_refuses_a_policy_with_an_integer_mask(dtype):
+    with pytest.raises(ValueError, match=REFUSAL) as raised:
+        _strategy_objects(_two_blobs(dtype), "connected_components", image_id="image_0003")
+    assert f"the mask of image_0003 is integer ({np.dtype(dtype)})" in str(raised.value)
+    with pytest.raises(ValueError, match="the mask of the labels given to generate_regions is integer"):
+        _strategy_objects(_two_blobs(dtype), "connected_components")
+
+
+def test_the_cell_strategy_labels_a_boolean_mask_and_keeps_an_integer_one_as_stored():
+    with pytest.warns(UserWarning, match="8-connected components"):
+        assert _strategy_objects(_two_blobs(bool), "connected_components") == [(1, 9), (2, 9)]
+    assert _strategy_objects(_two_blobs(np.uint8), None) == [(1, 18)]
