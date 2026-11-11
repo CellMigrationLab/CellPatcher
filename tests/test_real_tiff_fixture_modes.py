@@ -42,7 +42,7 @@ EXPECTED_GRID_COUNT_64_OVERLAP_PARTIAL = 484
 EXPECTED_BINARY_CC_PATCH_COUNT = 2
 
 
-def _cell_config(*, patch_size="auto", center_on="bbox_center", apply_mask=False, binary_mask_policy="connected_components", exclude_border=True):
+def _cell_config(*, patch_size="auto", center_on="bbox_center", apply_mask=False, binary_mask_policy=None, exclude_border=True):
     cfg = CellPatcherConfig(mode="cell")
     cfg.common.image_axes = "YX"
     cfg.common.mask_axes = "YX"

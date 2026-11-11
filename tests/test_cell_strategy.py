@@ -42,16 +42,19 @@ def test_bool_mask_is_refused_by_default():
         s.generate_regions(image_shape=(6, 6), labels=labels)
 
 
-@pytest.mark.parametrize("policy", [None, "connected_components"])
-def test_integer_mask_holding_one_value_is_kept_as_given(policy):
-    # Decision D47: an integer mask is instance labels whatever the policy;
-    # 0/255 is one object labelled 255, two separate blobs of 1 one object.
+def test_integer_mask_holding_one_value_is_kept_as_given():
+    # Decision D47: an integer mask is instance labels; 0/255 is one object
+    # labelled 255, two separate blobs of 1 one object. With a policy it is
+    # refused, never ignored (tests/test_in_memory_mask_policy.py).
     labels = np.zeros((6, 6), dtype=np.uint8)
     labels[1:3, 1:3] = 255
     labels[4:5, 4:6] = 255
-    s = CellSegmentationStrategy(CellConfig(binary_mask_policy=policy, exclude_border=False))
+    s = CellSegmentationStrategy(CellConfig(exclude_border=False))
     patches = s.generate_regions(image_shape=(6, 6), labels=labels)
     assert [p.label_id for p in patches] == [255]
+    s = CellSegmentationStrategy(CellConfig(binary_mask_policy="connected_components", exclude_border=False))
+    with pytest.raises(ValueError, match="nothing to convert"):
+        s.generate_regions(image_shape=(6, 6), labels=labels)
 
 
 def test_there_is_no_default_policy():

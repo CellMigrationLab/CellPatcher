@@ -6,6 +6,7 @@ import numpy as np
 from cellpatcher.axes import axis_index, normalize_axes, refuse_transposed_mask_axes
 from cellpatcher.config import CellConfig
 from cellpatcher.errors import LabelRangeError
+from cellpatcher.mask_policy import refuse_policy_on_instances
 from cellpatcher.object_geometry import label_objects
 from cellpatcher.setting_checks import check_cell_settings
 from cellpatcher.strategies.base import BasePatchStrategy, _spatial_shape_from_axes
@@ -72,13 +73,22 @@ class CellSegmentationStrategy(BasePatchStrategy):
             (a ``ValueError``) for negative labels or labels above the int32
             maximum.
         ValueError
-            For a float mask, a boolean mask without a policy, or another
-            dtype.
+            For a float mask, a boolean mask without a policy, an integer
+            mask with a policy (nothing to convert,
+            :func:`cellpatcher.mask_policy.refuse_policy_on_instances`), or
+            another dtype.
         """
         from morphobricks_preprocessing.masks import check_labels
 
         where = f" (image {image_id})" if image_id is not None else ""
         name = f"The mask{where}"
+        # As in run_patching and the object scan: a policy with an integer (instances) mask is
+        # refused, never ignored (not inside mask_policy.resolved_masks, a file run's labelled masks).
+        refuse_policy_on_instances(
+            self.config.binary_mask_policy,
+            selected,
+            image_id if image_id is not None else "the labels given to generate_regions",
+        )
         if selected.dtype == bool:
             policy = self.config.binary_mask_policy
             if policy is None:
