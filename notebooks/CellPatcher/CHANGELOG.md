@@ -55,6 +55,14 @@ biological-repeat normalization) and `v07` (cell mode, instance masks) every exp
   (`ValueError` naming `cell.binary_mask_policy`); an `instances` mask is used as stored, never
   relabelled (D47: an `instances` mask holding 0 and 1 is one object). In memory, a boolean mask is
   the binary one and follows the same rule.
+- **In memory, an integer mask with `cell.binary_mask_policy` is refused** (#103). Only a boolean
+  mask is binary in memory; an integer mask is instances, used as stored (D47: a 0/1 integer mask is
+  one object), so the policy has nothing to convert. Before, `run_patching` (`mode="cell"`), the
+  object scan (`scan_cell_objects`, `scan_cell_patch_size`) and `CellSegmentationStrategy` called
+  directly silently ignored the policy and gave one object; they now raise a `ValueError` naming the
+  image and the fix (pass `mask != 0` to label it, or leave the policy `None`), before any output is
+  written. File runs are unchanged (the resolver labels a `binary` mask and refuses the policy on an
+  `instances` one).
 - **`binary_mask_policy="single_object"` is removed.** It was the implicit default and only meant
   "refuse a boolean mask", which `None` now does. It is refused by name, in code and in a saved
   `run_config.json`.
