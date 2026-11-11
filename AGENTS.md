@@ -44,7 +44,7 @@ These rules override other implementation preferences.
   `mask_file`, `y0/y1/x0/x1`, `z0/z1`, `t`, `c`, `label_id`,
   `center_y`/`center_x`/`center_z`, `touches_border`, `area_px`,
   `patch_file`, `output_height`/`output_width`, `config_file`, `valid`,
-  `reason`, `source_relative_path`, `object_set`). These are exactly the columns written to the exported metadata
+  `reason`, `source_relative_path`, `object_set`, `channel_id`). These are exactly the columns written to the exported metadata
   CSV (`save_metadata_csv` in `src/cellpatcher/export.py`, plus the
   computed `height`/`width` convenience columns from `PatchRegion.to_dict()`),
   and downstream repos may already depend on them. New fields may be
@@ -463,7 +463,10 @@ bricks (core dependencies, pinned tags in `setup.py`), CellPatcher:
   declares for each image (`Fov.image_type`, `rgb` or `channels` =
   fluorescence; the declared type wins and a contradicting setting is refused
   naming both, at every scope; CP-4). CellPatcher supports RGB units (P24);
-- lets `extraction.split_channels` list the channels to patch (follow-up
+- lets `extraction.split_channels` list the channels to patch, by index or,
+  in a file run, by the channel IDs of the run's description, resolved per
+  image by `RunInputs.resolve_request` (CP-3; each split patch's `channel_id`
+  names its channel, `patch_id` keeps `c`) (follow-up
   C5).
 
 The notebook offers all of these, with the image type taken from the

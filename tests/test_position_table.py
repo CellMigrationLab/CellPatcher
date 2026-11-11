@@ -247,10 +247,11 @@ def test_the_canonical_ids_of_a_description_reach_the_row(tmp_path):
 def test_a_file_runs_fov_metadata_carries_the_ids_of_its_description():
     key = ("treated", "r1", "single", "P1")
     described = SimpleNamespace(
-        key=key, relative_path="treated/r1/P1.tif", repeat_group="rg1", condition_id="c1", technical_repeat_id="tr1"
+        key=key, relative_path="treated/r1/P1.tif", repeat_group="rg1", condition_id="c1", technical_repeat_id="tr1",
+        channel_ids=("C0",),
     )
     config = CellPatcherConfig(mode="grid")
-    run = SimpleNamespace(mask_type=None)
+    run = SimpleNamespace(mask_type=None, channel_indices={})
 
     meta = fov_metadata(run, described, config)
     assert (meta["repeat_group"], meta["condition_id"], meta["technical_repeat_id"]) == ("rg1", "c1", "tr1")

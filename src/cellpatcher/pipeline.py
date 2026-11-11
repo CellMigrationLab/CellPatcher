@@ -23,6 +23,7 @@ from cellpatcher.ids import (
     random_seed,
     resolve_object_set,
     resolve_position_id,
+    stamp_channel_ids,
 )
 from cellpatcher.io import SINGLE_BIOLOGICAL_REPEAT_LABEL, SINGLE_CONDITION_LABEL, SINGLE_TECHNICAL_REPEAT_LABEL
 from cellpatcher.masking import apply_label_masks_to_patches
@@ -580,9 +581,9 @@ def _build_result(
         config, image_list, patches, masks=masks, normalizations=normalizations
     )
     if config.extraction.split_channels:
-        # Split after extraction/masking/resizing so each region is only
-        # cropped once; filters were already applied to the whole region.
+        # Split after extraction/masking/resizing so each region is cropped once; filters saw the whole region.
         patches, patch_arrays_internal = _split_channel_patches(config, image_list, patches, patch_arrays_internal)
+    stamp_channel_ids(image_metadata, patches)
     _stamp_output_dimensions(config, patches, patch_arrays_internal)
     n_patches = _count_by_image(patches)
     for record in records:
@@ -684,17 +685,14 @@ def _run_patching_by_plane(images, masks, config: CellPatcherConfig, image_metad
 def _patch_planes(config: CellPatcherConfig, sources) -> PatchingResult:
     """Patch the planes of each image, one image at a time, and export once.
 
-    *sources* yields ``(image metadata or None, iterable of ImagePlane)`` per
-    image, in image order; the metadata of an image read from a file carries
-    its ``image_file``, which names its ``position_id`` when none is given.
-    Every plane (with its mask plane) is patched as an image of its own; the
-    patches then get back their source image's ``image_id``, with the plane
-    recorded in ``z0``/``z1``/``t`` (and so in ``patch_id``,
-    :mod:`cellpatcher.ids`). Only one image's planes are held at
-    a time. Random mode samples each plane with a seed derived from the run
-    seed and the plane's identity (:func:`cellpatcher.ids.random_seed`), so
-    the result depends neither on how the planes arrive nor on the image's
-    place in the run.
+    *sources* yields ``(image metadata or None, iterable of ImagePlane)`` per image, in image order;
+    the metadata of an image read from a file carries its ``image_file``, which names its
+    ``position_id`` when none is given. Every plane (with its mask plane) is patched as an image of
+    its own; the patches then get back their source image's ``image_id``, with the plane recorded in
+    ``z0``/``z1``/``t`` (and so in ``patch_id``, :mod:`cellpatcher.ids`). Only one image's planes are
+    held at a time. Random mode samples each plane with a seed derived from the run seed and the
+    plane's identity (:func:`cellpatcher.ids.random_seed`), so the result depends neither on how the
+    planes arrive nor on the image's place in the run.
     """
     need_arrays = config.common.extract_arrays or config.export.enabled
     raw_export = config.normalization.enabled and config.normalization.export_values == "raw" and config.export.enabled
@@ -706,9 +704,9 @@ def _patch_planes(config: CellPatcherConfig, sources) -> PatchingResult:
     seen: dict = {}
     for index, (image_meta, planes) in enumerate(sources):
         meta = dict(image_meta or {})
-        # The image's identity, shared by all of its planes (resolved here
-        # for folder runs, whose metadata names the file; in-memory runs
-        # resolved it in run_patching before splitting), unique per source (D85).
+        selected = meta.pop("channel_indices", None)  # a file run's split_channels by ID: this image's C indices
+        # The image's identity, shared by all of its planes (resolved here for folder runs, whose metadata
+        # names the file; in-memory runs resolved it in run_patching before splitting), unique per source (D85).
         labels = _image_labels(config, meta)
         meta["position_id"] = resolve_position_id(labels, meta, image_index=index)
         check_unique_position(seen, labels, meta, index)
@@ -725,12 +723,8 @@ def _patch_planes(config: CellPatcherConfig, sources) -> PatchingResult:
                         f"{axis}_policy={getattr(config.common, f'{axis}_policy')!r} also chooses its planes; "
                         "use one or the other."
                     )
-            plane_meta = dict(meta)
-            if plane.z is not None:
-                plane_meta["z"] = plane.z
-            if plane.t is not None:
-                plane_meta["t"] = plane.t
-            plane_metadata.append(plane_meta)
+            plane_metadata.append({**meta, **{axis: value for axis, value in (("z", plane.z), ("t", plane.t))
+                                              if value is not None}})
 
         image_id = f"image_{index:04d}"
         if not planes:
@@ -741,6 +735,7 @@ def _patch_planes(config: CellPatcherConfig, sources) -> PatchingResult:
             continue
         plane_masks = [plane.mask for plane in planes]
         mask_axes = next((plane.mask_axes for plane in planes if plane.mask is not None), config.common.mask_axes)
+        extraction = config.extraction if selected is None else replace(config.extraction, split_channels=[*selected])
         plane_config = replace(
             config,
             common=replace(
@@ -754,6 +749,7 @@ def _patch_planes(config: CellPatcherConfig, sources) -> PatchingResult:
                 t_index=None,
             ),
             export=replace(config.export, enabled=False),
+            extraction=extraction,
         )
         token = _EAGER_BYTES_HELD.set(held if config.common.extract_arrays else None)
         try:

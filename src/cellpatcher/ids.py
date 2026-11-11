@@ -45,6 +45,7 @@ import hashlib
 import json
 import re
 from collections import Counter
+from collections.abc import Mapping, Sequence
 
 import numpy as np
 from morphobricks_preprocessing.discovery import (
@@ -313,3 +314,28 @@ def assign_patch_ids(patches) -> None:
             "position_id without different t/z/c plane indices. Give each image its own position_id "
             '(image_metadata[i]["position_id"]) or its plane indices ("t", "z", "c").'
         )
+
+
+def stamp_channel_ids(image_metadata: Sequence[Mapping] | None, patches: Sequence) -> None:
+    """Set each patch's ``channel_id``: the canonical ID of its channel ``c`` (CP-3).
+
+    ``image_metadata[i]["channel_ids"]`` is the ID of every C index of image *i*, in C order; a
+    file run gives each image's own (``Fov.channel_ids`` through ``RunInputs``, so one ID may be
+    a different C index in another image). A patch without ``c`` (every channel in one patch,
+    or an image without a C axis) gets none. ``patch_id`` is not changed: it keeps ``c``.
+
+    Raises
+    ------
+    ValueError
+        If ``channel_ids`` is not a sequence of non-empty text, or holds no ID for a patch's ``c``.
+    """
+    per_image = {f"image_{index:04d}": meta for index, meta in enumerate(image_metadata or ())}
+    for patch in patches:
+        ids = (per_image.get(patch.image_id) or {}).get("channel_ids")
+        if ids is None or patch.c is None:
+            continue
+        if isinstance(ids, str) or not all(isinstance(value, str) and value for value in ids):
+            raise ValueError(f'image_metadata["channel_ids"] must be channel IDs (text) by C index, not {ids!r}.')
+        if patch.c >= len(ids):
+            raise ValueError(f'image_metadata["channel_ids"] names {len(ids)} channels, none for c={patch.c}.')
+        patch.channel_id = ids[patch.c]

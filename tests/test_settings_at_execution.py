@@ -211,7 +211,7 @@ BAD_VALUES = {
     "extraction.resize_order": INTEGER + [-1, None],
     "extraction.apply_mask": FLAG,
     "extraction.mask_fill_value": NUMBER + [None],
-    "extraction.split_channels": [1, "True", None, [], [True], [1.0], ["1"], [0, 0], [-1]],
+    "extraction.split_channels": [1, "True", None, [], [True], [1.0], ["1", 1], [""], [0, 0], [-1]],
     "matching.mask_type": [5, True, "", "  ", ["cells"]],
     "normalization.enabled": FLAG,
     "normalization.plane_histograms": [5, True, ["x"]],
