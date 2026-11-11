@@ -44,7 +44,7 @@ from morphobricks_normalization.records import SINGLE
 
 from cellpatcher.axes import normalize_axes
 from cellpatcher.masking import _label_to_2d
-from cellpatcher.run_open import settings_statistics
+from cellpatcher.run_open import check_image_type, settings_statistics
 from cellpatcher.statistics import (
     PlaneStatistics,
     PreprocessingCheckError,
@@ -56,7 +56,7 @@ from cellpatcher.statistics import (
 )
 
 if TYPE_CHECKING:
-    from cellpatcher.config import CellPatcherConfig, NormalizationConfig
+    from cellpatcher.config import CellPatcherConfig
 
 CSV_SCOPES = ("biological_repeat", "image")
 
@@ -159,34 +159,6 @@ def repeat_groups(statistics: PlaneStatistics) -> dict[tuple[str, str], str]:
             )
         ])
     return {key: next(iter(names)) for key, names in sorted(groups.items())}
-
-
-def check_image_type(settings: NormalizationConfig, statistics: PlaneStatistics) -> None:
-    """Refuse an ``image_type`` that differs from the one the preprocessing manifest records (N34).
-
-    When the run recorded no image type, ``normalization.image_type`` decides.
-
-    Raises
-    ------
-    PreprocessingCheckError
-        If the manifest records another image type.
-    """
-    recorded = statistics.inputs.image_type()
-    if recorded is None or recorded == settings.image_type:
-        return
-    from morphobricks_preprocessing.validation import error
-
-    path = statistics.manifest_path
-    raise PreprocessingCheckError([
-        error(
-            "image_type_differs",
-            f"The preprocessing run that wrote {statistics.plane_histograms.name} was confirmed for "
-            f"{recorded!r} images, but normalization.image_type is {settings.image_type!r}.",
-            [str(path)],
-            f"Set normalization.image_type={recorded!r}, or run the preprocessing brick again with image type "
-            f"{settings.image_type!r} if that one is right.",
-        )
-    ])
 
 
 def normalization_inputs(config: CellPatcherConfig) -> dict | None:
@@ -457,7 +429,7 @@ class Normalizer:
         statistics, groups = None, None
         if settings.scope in CSV_SCOPES:
             statistics = settings_statistics(settings)
-            check_image_type(settings, statistics)
+            check_image_type(settings, statistics.inputs)
             warnings.warn(
                 "The group and image statistics of the preprocessing brick come from whole planes, "
                 "background included; in sparse images they describe the background more than the "

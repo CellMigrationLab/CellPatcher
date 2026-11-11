@@ -21,7 +21,7 @@ from cellpatcher.run_session import recalled, remember, session_statistics
 if TYPE_CHECKING:
     from morphobricks_normalization import PlaneRecord
     from morphobricks_preprocessing import ValidationIssue
-    from morphobricks_preprocessing.run_inputs import RunInputs
+    from morphobricks_preprocessing.run_inputs import Fov, RunInputs
 
     from cellpatcher.config import NormalizationConfig
     from cellpatcher.statistics import PlaneStatistics
@@ -172,6 +172,7 @@ def open_run(
         ``unreadable_plane_histograms`` when its table cannot be read.
     """
     from morphobricks_normalization.csv_io import CsvFormatError
+    from morphobricks_preprocessing.manifest import ManifestFormatError
     from morphobricks_preprocessing.run_inputs import RunInputs, RunInputsError
     from morphobricks_preprocessing.validation import error
 
@@ -186,7 +187,9 @@ def open_run(
         inputs = RunInputs.open(folder, *roots)
         if _manifest_sha256(folder) != before:
             raise RunInputsError("its run_manifest.json changed while it was opened.")
-    except RunInputsError as exc:
+    except (RunInputsError, ManifestFormatError) as exc:
+        # ManifestFormatError: a manifest of another version (preprocessing v0.5.1 reads version 4 only,
+        # older runs are refused, never converted) or not a manifest at all.
         raise PreprocessingCheckError([_refusal_issue(exc, folder)]) from exc
     except CsvFormatError as exc:
         raise PreprocessingCheckError([
@@ -197,7 +200,6 @@ def open_run(
                 "Give the plane_histograms.csv the preprocessing brick wrote, or run it again.",
             )
         ]) from exc
-    refuse_undescribed_run(inputs, folder)
     remember("manifest_sha256", folder, before)
     return inputs
 
@@ -206,49 +208,37 @@ DESCRIPTION_REQUIRED = "A_DESCRIPTION_REQUIRED"
 """The code of a run without a published experiment description (Spec ADR 0002 AR10, AR11 (1))."""
 
 
-def refuse_undescribed_run(inputs: RunInputs, folder: Path) -> None:
-    """Refuse a run whose manifest records no published experiment description (``morphobricks.toml``).
+def _refusal_issue(exc: Exception, folder: Path) -> ValidationIssue:
+    """Return the issue for ``RunInputs.open`` refusing the run in *folder*, by its reason.
 
-    Every run needs one (Spec ADR 0002 AR10, owner policy of 2026-11-10): its conditions,
-    biological repeats (``repeat_group``), technical repeats and channels are read from it through
-    ``RunInputs``, never from folder names or the derived ``experiment_design.csv``. Nothing falls back.
-
-    Raises
-    ------
-    PreprocessingCheckError
-        ``A_DESCRIPTION_REQUIRED``, naming the fix.
+    Since preprocessing v0.5.1 ``RunInputs.open`` refuses a run without a published description
+    (``DescriptionRequiredError``: ``A_DESCRIPTION_REQUIRED``, with CellPatcher's fix). Since
+    preprocessing v0.4.0rc2 the brick refuses a run whose experiment holds images or
+    masks it did not record (``UnrecordedFilesError``: none is ever left out), and a run
+    with OME-Zarr images when the zarr package is missing. Their messages say what to do;
+    every other refusal gets the generic advice.
     """
+    from morphobricks_preprocessing.run_inputs import (
+        DescriptionRequiredError,
+        UnrecordedFilesError,
+        ZarrUnavailableError,
+    )
     from morphobricks_preprocessing.validation import error
 
-    from cellpatcher.statistics import PreprocessingCheckError
-
-    if inputs.manifest.experiment_description is not None:
-        return
-    raise PreprocessingCheckError([
-        error(
+    if isinstance(exc, DescriptionRequiredError):
+        # Every run needs one (Spec ADR 0002 AR10, owner policy of 2026-11-10): its conditions, biological
+        # repeats (repeat_group), technical repeats, channels and image type are read from it through
+        # RunInputs, never from folder names or the derived experiment_design.csv. Nothing falls back.
+        return error(
             DESCRIPTION_REQUIRED,
             f"The preprocessing run in {folder} has no published experiment description (morphobricks.toml), "
             "and CellPatcher reads a run's conditions, biological repeats, technical repeats and their IDs "
-            "only from its description.",
+            f"only from its description ({exc}).",
             [str(folder)],
             "Describe the experiment and publish its description in the preprocessing notebook "
             "(morphobricks-preprocessing describe lists what is still open), run preprocessing again and "
             "give CellPatcher that run.",
         )
-    ])
-
-
-def _refusal_issue(exc: Exception, folder: Path) -> ValidationIssue:
-    """Return the issue for ``RunInputs.open`` refusing the run in *folder*, by its reason.
-
-    Since preprocessing v0.4.0rc2 the brick refuses a run whose experiment holds images or
-    masks it did not record (``UnrecordedFilesError``: none is ever left out), and a run
-    with OME-Zarr images when the zarr package is missing. Their messages say what to do;
-    every other refusal gets the generic advice.
-    """
-    from morphobricks_preprocessing.run_inputs import UnrecordedFilesError, ZarrUnavailableError
-    from morphobricks_preprocessing.validation import error
-
     if isinstance(exc, UnrecordedFilesError):
         files = [*exc.files.images, *exc.files.masks]
         return error(
@@ -270,7 +260,7 @@ def _refusal_issue(exc: Exception, folder: Path) -> ValidationIssue:
         "preprocessing_run_refused",
         f"The preprocessing run in {folder} cannot be used: {exc}",
         [str(folder)],
-        "Run preprocessing v0.4 on the experiment as it is now and give CellPatcher that run. For an "
+        "Run preprocessing again on the experiment as it is now and give CellPatcher that run. For an "
         "experiment only moved or copied since its run, give CellPatcher the experiment and masks "
         "folder where they are now (the image folder or root, and mask_folder_path or mask_root_path).",
     )
@@ -364,17 +354,123 @@ def _refuse_table_rows(csv_path: Path, records: tuple[PlaneRecord, ...]) -> None
         raise PreprocessingCheckError(issues)
 
 
+IMAGE_TYPES = {"channels": "fluorescence", "rgb": "rgb"}
+"""``normalization.image_type`` of each declared ``Fov.image_type`` (experiment-v1 §4.4b): an ordinary
+channel image (``channels``) is normalized per channel (``fluorescence``), an ``rgb`` unit as RGB."""
+
+
+def declared_image_type(fov: Fov) -> str:
+    """Return the ``normalization.image_type`` of *fov*'s declared image type (``Fov.image_type``).
+
+    The run's published description declares it per imaging unit, never a header (experiment-v1
+    §4.4b); CellPatcher takes it from ``RunInputs`` and nowhere else.
+
+    Raises
+    ------
+    PreprocessingCheckError
+        ``image_type_not_declared`` for a ``Fov`` without a declared type (a ``Fov`` built by hand):
+        nothing is guessed.
+    """
+    from morphobricks_preprocessing.validation import error
+
+    from cellpatcher.statistics import PreprocessingCheckError
+
+    if fov.image_type not in IMAGE_TYPES:
+        raise PreprocessingCheckError([
+            error(
+                "image_type_not_declared",
+                f"The run gives no declared image type for {fov.relative_path} (got {fov.image_type!r}), "
+                "and CellPatcher takes the image type only from the run's description.",
+                [fov.relative_path],
+                "Open the run with RunInputs.open on its published description; never build a Fov by hand.",
+            )
+        ])
+    return IMAGE_TYPES[fov.image_type]
+
+
+def run_image_type(inputs: RunInputs) -> str:
+    """Return the one ``normalization.image_type`` every position of the run declares.
+
+    Raises
+    ------
+    PreprocessingCheckError
+        ``image_types_mixed`` when the positions declare different types (rgb and ordinary channel
+        units in one run), or as :func:`declared_image_type`.
+    """
+    from morphobricks_preprocessing.validation import error
+
+    from cellpatcher.statistics import PreprocessingCheckError
+
+    by_type: dict[str, list[str]] = defaultdict(list)
+    for fov in inputs.fovs():
+        by_type[declared_image_type(fov)].append(fov.relative_path)
+    if len(by_type) == 1:
+        return next(iter(by_type))
+    raise PreprocessingCheckError([
+        error(
+            "image_types_mixed",
+            "The run's description declares different image types for its positions ("
+            + "; ".join(f"{kind}: {len(paths)} images" for kind, paths in sorted(by_type.items()))
+            + "), so no one normalization.image_type applies to the run.",
+            sorted(path for paths in by_type.values() for path in paths),
+            "Patch the rgb and the other units in separate preprocessing runs.",
+        )
+    ])
+
+
+def check_image_type(settings: NormalizationConfig, inputs: RunInputs) -> None:
+    """Refuse a ``normalization.image_type`` that contradicts the run's declared image type (N34, P24).
+
+    The image type of each position is the one its unit declares in the run's published description
+    (``Fov.image_type``: ``rgb``, or ``channels`` for an ordinary channel image, which is
+    normalized per channel, ``"fluorescence"``). The declared type wins: a setting that says
+    otherwise is refused, naming both, and never overrides it.
+
+    Raises
+    ------
+    PreprocessingCheckError
+        ``image_type_differs`` when a position declares another image type, or as
+        :func:`declared_image_type`.
+    """
+    from morphobricks_preprocessing.validation import error
+
+    from cellpatcher.statistics import PreprocessingCheckError
+
+    differing: dict[tuple[str, str], list[str]] = {}
+    for fov in inputs.fovs():
+        declared = declared_image_type(fov)
+        if declared != settings.image_type:
+            differing.setdefault((fov.image_type, declared), []).append(fov.relative_path)
+    if not differing:
+        return
+    files = sorted(path for paths in differing.values() for path in paths)
+    declared_text = " and ".join(f"{unit!r} (normalized as {kind!r})" for unit, kind in sorted(differing))
+    settings_text = " or ".join(f"normalization.image_type={kind!r}" for kind in sorted({k for _, k in differing}))
+    raise PreprocessingCheckError([
+        error(
+            "image_type_differs",
+            f"The run's description declares the image type {declared_text} for {len(files)} of its "
+            f"{len(inputs.fovs())} images, but normalization.image_type is {settings.image_type!r}. The "
+            "declared image type decides; a setting never overrides it.",
+            files,
+            f"Set {settings_text}, or correct the image type in the experiment description and run "
+            "preprocessing again if the description is wrong.",
+        )
+    ])
+
+
 def recorded_image_type(
     plane_histograms: str | os.PathLike,
     manifest: str | os.PathLike | None = None,
     *,
     experiment_root: str | os.PathLike | None = None,
     masks_root: str | os.PathLike | None = None,
-) -> str | None:
-    """Return the image type the preprocessing run recorded, read through ``RunInputs``.
+) -> str:
+    """Return the image type the run's description declares, read through ``RunInputs`` (``Fov.image_type``).
 
     ``normalization.image_type`` must equal it (normalization brick decision
-    N34). The run is opened as :func:`load_plane_statistics` opens it.
+    N34; the declared type wins, a contradicting setting is refused). The run is
+    opened as :func:`load_plane_statistics` opens it.
 
     Parameters
     ----------
@@ -387,16 +483,15 @@ def recorded_image_type(
 
     Returns
     -------
-    str or None
-        ``"fluorescence"`` or ``"rgb"``; None when the run recorded no image
-        type, so the configuration decides.
+    str
+        ``"fluorescence"`` (the description's ordinary channel units) or ``"rgb"``.
 
     Raises
     ------
     FileNotFoundError
         If the table does not exist.
     PreprocessingCheckError
-        As :func:`load_plane_statistics`.
+        As :func:`load_plane_statistics` and :func:`run_image_type`.
     """
     statistics = load_plane_statistics(plane_histograms, manifest, experiment_root=experiment_root, masks_root=masks_root)
-    return statistics.inputs.image_type()
+    return run_image_type(statistics.inputs)

@@ -196,7 +196,7 @@ class NormalizationControls:
             percentile=(self.low.value, self.high.value),
             per_time_point=self.per_time_point.value,
             export_values="raw" if self.raw.value else "normalized",
-            image_type=summary.image_type or "fluorescence",
+            image_type=summary.image_type,
         )
 
 

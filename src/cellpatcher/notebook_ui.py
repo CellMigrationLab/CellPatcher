@@ -116,7 +116,7 @@ def summary_html(summary: RunSummary) -> str:
         f"Masks folder: {summary.masks_root or 'none'}" + (" (given)" if summary.moved_masks else ""),
         f"Channels: {', '.join(summary.channels)}; array layout {summary.layout}",
         f"Mask types: {', '.join(summary.mask_types) or 'none (grid, random and whole FOV only)'}",
-        f"Image type: {summary.image_type or 'not recorded (fluorescence)'}",
+        f"Image type: {summary.image_type} (declared in the experiment description)",
     ]
     rows = [["Condition", "Biological repeat", "Technical repeat", "Images"]]
     rows += [[*group, str(count)] for group, count in summary.groups]

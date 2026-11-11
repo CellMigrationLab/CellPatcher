@@ -171,14 +171,17 @@ def test_a_mask_file_whose_header_names_x_before_y_is_refused(tmp_path):
     # Declared as its header names it, but CellPatcher would still take its first dimension as Y.
     # Masks are never transposed. With preprocessing rc1 the run was written with no axes for this
     # mask, and the file run refused that record; since rc2 the preprocessing run itself refuses
-    # the mask (and RunInputs.open an rc1 record: tests/test_unrecorded_files.py).
+    # the mask (and RunInputs.open an rc1 record: tests/test_unrecorded_files.py). Described first:
+    # preprocessing v0.5.1 refuses an undescribed run before it reads any header.
     import morphobricks_preprocessing as mbp
+
+    from tests.helpers import run_described
 
     image, labels, _ = make_synthetic_cell_image_and_labels(shape=(32, 32))
     write_tiff(tmp_path / "exp" / "a.tif", image, "YX")
     (tmp_path / "masks").mkdir()
     tifffile.imwrite(tmp_path / "masks" / "a_cells.tif", labels.astype(np.uint16), metadata={"axes": "XY"})
-    result = mbp.run_experiment(
+    result = run_described(
         tmp_path / "exp", mbp.AxisMapping("YX", "YX"), output_folder=tmp_path / "run", masks_folder=tmp_path / "masks"
     )
     assert not result.written
