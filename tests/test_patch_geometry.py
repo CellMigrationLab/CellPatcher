@@ -61,7 +61,7 @@ def test_exported_grid_patches_record_axes_padding_and_no_resize(tmp_path):
         "requested_y0", "requested_y1", "requested_x0", "requested_x1",
         "patch_touches_image_border", "object_touches_image_border", "parent_id", "square_index",
     ]
-    tail = [*GEOMETRY_COLUMNS, "object_set", *contract]
+    tail = [*GEOMETRY_COLUMNS, "object_set", *contract, "channel_id"]  # channel_id: CP-3
     assert reader.fieldnames[-len(tail):] == tail
     assert len(rows) == len(result.patches) == 6
     for row in rows:

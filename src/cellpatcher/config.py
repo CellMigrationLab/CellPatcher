@@ -13,6 +13,7 @@ from cellpatcher.io import (
 )
 from cellpatcher.setting_checks import (
     MODES,
+    channel_id_selection,
     channel_selection,
     check_cell_settings,
     check_common_settings,
@@ -203,8 +204,9 @@ class ExtractionConfig:
     # Export one single-channel patch per channel of each region instead of
     # one multichannel patch (requires a "C" axis in common.image_axes):
     # True for every channel, or a list of channel indices for only those
-    # (CellPatcher follow-up C5).
-    split_channels: bool | list[int] = False
+    # (CellPatcher follow-up C5), or, in a file run, a list of the channel IDs
+    # of the run's description, resolved per image (CP-3).
+    split_channels: bool | list[int] | list[str] = False
 
     def __post_init__(self) -> None:
         # output_size: None (no resize), an int (square) or a (height, width) pair of ints.
@@ -221,6 +223,12 @@ class ExtractionConfig:
         ValueError
             If a selected index is not a channel of the image.
         """
+        if channel_id_selection(self.split_channels) is not None:
+            raise ValueError(
+                f"extraction.split_channels={self.split_channels!r} names channel IDs, which only a described "
+                "preprocessing run has (a folder or tree run resolves them per image). Select in-memory images' "
+                "channels by index (0, 1, ...)."
+            )
         selection = channel_selection(self.split_channels)
         if selection is None:
             return tuple(range(channel_count)) if self.split_channels else ()

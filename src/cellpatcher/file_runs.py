@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Iterator, Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING
 
@@ -54,7 +54,7 @@ from cellpatcher.run_reading import (
     union_layout,
 )
 from cellpatcher.run_session import keep_in_session, remember, remember_layouts
-from cellpatcher.setting_checks import check_run_settings
+from cellpatcher.setting_checks import channel_id_selection, check_run_settings
 from cellpatcher.statistics import (
     PlaneStatistics,
     PreprocessingCheckError,
@@ -99,6 +99,9 @@ class FileRun:
         (:func:`cellpatcher.run_reading.mask_layout`); empty without masks.
     statistics
         The run's table for a CSV normalization scope, else None.
+    channel_indices
+        For ``extraction.split_channels`` naming channel IDs: each image's C indices of those IDs,
+        keyed by its path, as the run's resolver selected them (CP-3); empty otherwise.
     """
 
     inputs: RunInputs
@@ -106,6 +109,7 @@ class FileRun:
     mask_type: str | None
     mask_layouts: Mapping[str, str]
     statistics: PlaneStatistics | None
+    channel_indices: Mapping[str, tuple[int, ...]] = field(default_factory=dict)
 
     @property
     def fovs(self) -> tuple[Fov, ...]:
@@ -238,7 +242,44 @@ def open_file_run(
         _check_object_set(config, mask_type)
     remember_layouts(config.common.preprocessing_run, layouts, mask_layouts)
     statistics = _csv_statistics(config, inputs, layouts)
-    return FileRun(inputs, layouts, mask_type, mask_layouts, statistics)
+    return FileRun(inputs, layouts, mask_type, mask_layouts, statistics, selected_channels(config, inputs))
+
+
+def selected_channels(config: CellPatcherConfig, inputs: RunInputs) -> dict[str, tuple[int, ...]]:
+    """Return each image's C indices of the channel IDs ``extraction.split_channels`` names (CP-3).
+
+    The IDs are resolved per image by the run's resolver (``RunInputs.resolve_request``, resolver
+    contract v1): one ID may be another C index in another image. CellPatcher declares RGB support
+    (P24). Empty when ``split_channels`` names no IDs.
+
+    Raises
+    ------
+    PreprocessingCheckError
+        Every refusal of the resolver, with its code (``A_SCOPE_INCOMPLETE`` for an ID some image
+        lacks, unknown IDs included: present in 0 of n); nothing is selected then.
+    """
+    from morphobricks_preprocessing import Capabilities, Request
+    from morphobricks_preprocessing.validation import error
+
+    ids = channel_id_selection(config.extraction.split_channels)
+    if ids is None:
+        return {}
+    resolved = inputs.resolve_request(Request(channel_ids=ids, capabilities=Capabilities(rgb_support=True)))
+    if resolved.refused:
+        raise PreprocessingCheckError([
+            error(
+                refusal.code,
+                f"extraction.split_channels names {refusal.subject!r}: {refusal.message}",
+                list(refusal.files),
+                "Name channel IDs every image of the run has (the run's description lists them), or "
+                "select and record an eligible subset in preprocessing.",
+            )
+            for refusal in resolved.refusals
+        ])
+    return {
+        selection.relative_path: tuple(sorted(selection.index_of(channel) for channel in ids))
+        for selection in resolved.selections
+    }
 
 
 def _mask_type(wanted: str | None, inputs: RunInputs, reader: str) -> str:
@@ -421,6 +462,10 @@ def fov_metadata(run: FileRun, fov: Fov, config: CellPatcherConfig) -> dict:
         if value is None or value == "":
             _refuse_missing_canonical_id(fov, name)
         meta[name] = value
+    if fov.channel_ids is not None:
+        meta["channel_ids"] = fov.channel_ids  # each patch's channel_id is the ID of its c (CP-3)
+    if fov.relative_path in run.channel_indices:
+        meta["channel_indices"] = run.channel_indices[fov.relative_path]
     if run.mask_type is not None:
         meta["mask_file"] = mask_file_name(_record(run.inputs, fov, run.mask_type))
         if config.mode == "cell" and config.common.object_set is None:

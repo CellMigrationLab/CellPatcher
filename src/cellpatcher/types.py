@@ -178,6 +178,10 @@ class PatchRegion:
     # covers, and the square's place along the long side (0, 1, ...).
     parent_id: str | None = None
     square_index: int | None = None
+    # The canonical channel ID of c (CP-3): a described run's Fov.channel_ids[c] for that image, so
+    # one channel has one ID whatever its C index in each image; None without c. Appended after every
+    # earlier field so existing CSV columns keep their order; patch_id keeps c.
+    channel_id: str | None = None
     # Mask name -> share of y0/y1/x0/x1 in that mask's foreground, for the
     # fraction masks given to run_patching; cell patches also carry
     # "own_object" (the share inside the object's own label). Not a column

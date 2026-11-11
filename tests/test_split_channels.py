@@ -151,7 +151,7 @@ def test_selecting_every_channel_gives_the_patches_of_true():
         np.testing.assert_array_equal(left, right)
 
 
-@pytest.mark.parametrize("selection", [[], [-1], [0, 0], ["0"], [True], 1])
+@pytest.mark.parametrize("selection", [[], [-1], [0, 0], ["0", 1], [""], ["DNA", "DNA"], [True], 1])
 def test_a_channel_selection_must_list_distinct_channel_indices(selection):
     with pytest.raises(ValueError, match="split_channels"):
         ExtractionConfig(split_channels=selection)

@@ -152,6 +152,32 @@ def check_cell_settings(cell: object) -> None:
     check_strict_bool(cell.exclude_border, "exclude_border")
 
 
+def channel_id_selection(split_channels: object) -> tuple[str, ...] | None:
+    """Return the canonical channel IDs a list ``split_channels`` names, as given; None for any other value.
+
+    Channel IDs (text) select the channels of a described preprocessing run (file runs, CP-3): each
+    is resolved to its C index **in each image** by the run's resolver (``RunInputs.resolve_request``).
+
+    Raises
+    ------
+    ValueError
+        If a list of text names an empty ID, names one twice, or mixes IDs with indices.
+    """
+    if not isinstance(split_channels, (list, tuple)) or not split_channels:
+        return None
+    texts = [isinstance(channel, str) for channel in split_channels]
+    if not any(texts):
+        return None
+    if not all(texts) or not all(split_channels):
+        raise ValueError(
+            "split_channels lists either channel indices (0, 1, ...) or channel IDs of the run's description "
+            f"(text), not a mix or an empty ID; got {split_channels!r}."
+        )
+    if len(set(split_channels)) != len(split_channels):
+        raise ValueError(f"split_channels lists a channel more than once: {list(split_channels)!r}.")
+    return tuple(split_channels)
+
+
 def channel_selection(split_channels: object) -> tuple[int, ...] | None:
     """Return the channel indices a list ``split_channels`` selects, sorted; None for True or False.
 
@@ -195,7 +221,8 @@ def check_extraction_settings(extraction: object) -> None:
     check_strict_bool(extraction.apply_mask, "apply_mask")
     check_real_number(extraction.constant_values, "constant_values", finite=False)
     check_real_number(extraction.mask_fill_value, "mask_fill_value", finite=False)
-    channel_selection(extraction.split_channels)
+    if channel_id_selection(extraction.split_channels) is None:
+        channel_selection(extraction.split_channels)
 
 
 def check_export_settings(export: object) -> None:
