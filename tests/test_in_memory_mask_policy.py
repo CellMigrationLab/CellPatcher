@@ -74,3 +74,47 @@ def test_the_policy_with_an_integer_mask_is_refused_when_planes_are_split():
         _objects(mask, config)
     with pytest.warns(UserWarning, match="8-connected components"):
         assert _objects(mask.astype(bool), config) == [(1, 9), (2, 9)] * 2
+
+
+# --- the object scan (scan_cell_objects / scan_cell_patch_size) takes the same rule ---------------
+
+
+def _scan_objects(mask, policy):
+    from cellpatcher import CellConfig, scan_cell_objects
+
+    config = CellConfig(exclude_border=False, binary_mask_policy=policy)
+    return [(r.label_id, r.area_px) for r in scan_cell_objects(image_shape=mask.shape, labels=mask, config=config)]
+
+
+@pytest.mark.parametrize("dtype", [np.uint8, np.uint16, np.int32, np.int64])
+def test_the_object_scan_refuses_a_policy_with_an_integer_mask(dtype):
+    from cellpatcher import CellConfig, scan_cell_patch_size
+
+    with pytest.raises(ValueError, match=REFUSAL) as raised:
+        _scan_objects(_two_blobs(dtype), "connected_components")
+    assert f"the mask of image_0000 is integer ({np.dtype(dtype)})" in str(raised.value)
+    masks = [_two_blobs(bool), _two_blobs(dtype)]
+    config = CellConfig(exclude_border=False, binary_mask_policy="connected_components")
+    with pytest.raises(ValueError, match="the mask of image_0001 is integer"):
+        scan_cell_patch_size([(16, 16)] * 2, masks, config=config)
+
+
+def test_the_object_scan_labels_a_boolean_mask_and_keeps_an_integer_one_as_stored():
+    with pytest.warns(UserWarning, match="8-connected components"):
+        assert _scan_objects(_two_blobs(bool), "connected_components") == [(1, 9), (2, 9)]
+    assert _scan_objects(_two_blobs(np.uint8), None) == [(1, 18)]
+
+
+def test_the_notebook_scan_of_a_file_run_labels_its_binary_mask_with_the_policy(tmp_path):
+    # The notebook's file-mode scan gets the masks the resolver labelled (int32): not refused.
+    from cellpatcher.notebook_session import scan_object_sizes, summarize_run
+    from tests.test_cell_mask_request import _two_blob_run
+
+    _, _, output = _two_blob_run(tmp_path, "binary")
+    config = CellPatcherConfig(mode="cell")
+    config.cell.exclude_border = False
+    config.cell.binary_mask_policy = "connected_components"
+    config.matching.mask_id = "mask"
+    with pytest.warns(UserWarning, match="8-connected"):
+        scan = scan_object_sizes(config, summarize_run(output))
+    assert (scan.n_images, scan.n_objects_total) == (1, 2)

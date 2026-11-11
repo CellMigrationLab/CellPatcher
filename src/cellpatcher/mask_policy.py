@@ -7,8 +7,11 @@ refuses it on an ``instances`` mask (Spec ADR 0002 AR5 and AR11 (4), ADR 0001 AQ
 nothing to convert, and the policy is never ignored.
 
 A file run reads its mask through the resolver, which labels a ``binary`` mask with the recorded
-policy before patching (:mod:`cellpatcher.run_request`). Its per-image ``run_patching`` calls run
-inside :func:`resolved_masks`, so its already-labelled integer masks are not refused.
+policy before patching (:mod:`cellpatcher.run_request`). Its per-image ``run_patching`` calls, and
+the notebook's object scan of a file run, run inside :func:`resolved_masks`, so its
+already-labelled integer masks are not refused. The in-memory object scan
+(:func:`cellpatcher.scan_cell_objects`, :func:`cellpatcher.scan_cell_patch_size`) refuses as
+``run_patching`` does.
 """
 
 from __future__ import annotations
@@ -50,8 +53,8 @@ def check_mask_policy(config: CellPatcherConfig, masks: Sequence, patch_region: 
     """
     if config.cell.binary_mask_policy is None:
         return
-    if not _RESOLVED.get():
-        _refuse_policy_on_instances(config.cell.binary_mask_policy, masks)
+    for index, mask in enumerate(masks):
+        refuse_policy_on_instances(config.cell.binary_mask_policy, mask, f"image {index}")
     _refuse_masking_computed_labels(config, masks, patch_region)
 
 
@@ -61,18 +64,30 @@ def _mask_dtype(mask: object) -> np.dtype:
     return np.asarray(mask).dtype if dtype is None else np.dtype(dtype)
 
 
-def _refuse_policy_on_instances(policy: str, masks: Sequence) -> None:
-    """Refuse *policy* when an in-memory mask is integer: an instances mask is used as stored (D47)."""
-    for index, mask in enumerate(masks):
-        dtype = _mask_dtype(mask)
-        if np.issubdtype(dtype, np.integer):
-            raise ValueError(
-                f"cell.binary_mask_policy={policy!r} converts a binary mask to objects, but the mask of "
-                f"image {index} is integer ({dtype}): an in-memory integer mask is instance labels, used as "
-                "stored (D47: a mask holding 0 and 1 is one object), so there is nothing to convert. Pass a "
-                "boolean mask (mask != 0) to label it by connected components, or leave "
-                "cell.binary_mask_policy None to use the integer labels as stored."
-            )
+def refuse_policy_on_instances(policy: str | None, mask: object, where: str) -> None:
+    """Refuse *policy* with an integer in-memory *mask*: an instances mask is used as stored (D47).
+
+    *where* names the mask's image in the message (``"image 0"``). Nothing is refused without a
+    policy, nor inside :func:`resolved_masks` (a file run's masks, labelled by the resolver).
+    ``run_patching`` (:func:`check_mask_policy`) and the object scan
+    (:func:`cellpatcher.scan_cell_objects`) share this rule.
+
+    Raises
+    ------
+    ValueError
+        For a policy with an integer mask, naming the fix.
+    """
+    if policy is None or _RESOLVED.get():
+        return
+    dtype = _mask_dtype(mask)
+    if np.issubdtype(dtype, np.integer):
+        raise ValueError(
+            f"cell.binary_mask_policy={policy!r} converts a binary mask to objects, but the mask of "
+            f"{where} is integer ({dtype}): an in-memory integer mask is instance labels, used as "
+            "stored (D47: a mask holding 0 and 1 is one object), so there is nothing to convert. Pass a "
+            "boolean mask (mask != 0) to label it by connected components, or leave "
+            "cell.binary_mask_policy None to use the integer labels as stored."
+        )
 
 
 def _refuse_masking_computed_labels(config: CellPatcherConfig, masks: Sequence, region: str) -> None:

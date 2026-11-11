@@ -31,6 +31,7 @@ from cellpatcher.file_runs import (
     read_run_mask,
     run_config_for,
 )
+from cellpatcher.mask_policy import resolved_masks
 from cellpatcher.normalization import CSV_SCOPES, NormalizationWarning, group_parameters
 from cellpatcher.normalization_review import BeforeAfter, before_after
 from cellpatcher.orchestration import run_patching_condition_repeat_tree
@@ -308,7 +309,10 @@ def scan_object_sizes(config: CellPatcherConfig, summary: RunSummary) -> CellPat
         )
         masks = [read_run_mask(run, fov, run.mask_axes) for fov in run.fovs]  # one layout for the scan
     shapes = [mask.shape for mask in masks]
-    return scan_cell_patch_size(shapes, masks, config=config.cell, image_axes=run.mask_axes, mask_axes=run.mask_axes)
+    with resolved_masks():  # read through the resolver: a binary mask was labelled when read
+        return scan_cell_patch_size(
+            shapes, masks, config=config.cell, image_axes=run.mask_axes, mask_axes=run.mask_axes
+        )
 
 
 def refuse_output_inside_inputs(output_dir: Path, summary: RunSummary) -> None:
