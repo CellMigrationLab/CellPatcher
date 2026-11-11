@@ -48,12 +48,12 @@ brick's
 
 | Rule | Detail |
 |---|---|
-| Dependencies | `morphobricks-preprocessing` (`v0.5.0` since CellPatcher v0.3.0; `v0.4.0` in v0.2.0, `v0.4.0rc5` in v0.2.0rc3, `v0.4.0rc4` in v0.2.0rc2, `v0.4.0rc2` in v0.2.0rc1) and `morphobricks-normalization` (`v0.3.4` since v0.2.0, unchanged in v0.3.0: the tag preprocessing `v0.5.0` pins; `v0.3.3` in v0.2.0rc3, `v0.3.2` before) are core dependencies, pinned to tags in `setup.py`; normalization at the tag the preprocessing tag pins (owner decision D-h, checked by `tests/test_dependency_pins.py`). The `zarr` extra (`pip install "cellpatcher[zarr]"`, formerly `preprocessing`) installs `morphobricks-preprocessing[zarr]` at the same tag, for OME-Zarr images. Histograms, the plane table, plane IDs, pooling and normalization parameters, which moved to the normalization brick, are imported from `morphobricks_normalization`. |
+| Dependencies | `morphobricks-preprocessing` (`v0.5.1` since the Stage 2 W2 pins; `v0.5.0` since CellPatcher v0.3.0; `v0.4.0` in v0.2.0, `v0.4.0rc5` in v0.2.0rc3, `v0.4.0rc4` in v0.2.0rc2, `v0.4.0rc2` in v0.2.0rc1) and `morphobricks-normalization` (`v0.4.0` with preprocessing v0.5.1, which pins it; `v0.3.4` since v0.2.0, unchanged in v0.3.0: the tag preprocessing `v0.5.0` pins; `v0.3.3` in v0.2.0rc3, `v0.3.2` before) are core dependencies, pinned to tags in `setup.py`; normalization at the tag the preprocessing tag pins (owner decision D-h, checked by `tests/test_dependency_pins.py`). The `zarr` extra (`pip install "cellpatcher[zarr]"`, formerly `preprocessing`) installs `morphobricks-preprocessing[zarr]` at the same tag, for OME-Zarr images. Histograms, the plane table, plane IDs, pooling and normalization parameters, which moved to the normalization brick, are imported from `morphobricks_normalization`. |
 | Version | Installed from GitHub at a pinned commit or tag, recorded in `setup.py` and raised deliberately. |
-| Formats | Since v0.2.0 (CP-1) the preprocessing run is read through the brick's `RunInputs` (its design v0.4 §6), which needs `run_manifest.json` manifest version `2` (preprocessing v0.4), or `3` for a run with the brick's `--verify-content` (preprocessing v0.4.0rc5, CellPatcher v0.2.0rc3), or `4` for a described run (preprocessing v0.5.0, CellPatcher v0.3.0, which refuses a run without a published description: `A_DESCRIPTION_REQUIRED`), and the `plane_histograms.csv` version that brick reads; CellPatcher pins no version of its own. Any run `RunInputs` refuses is an error. |
+| Formats | Since v0.2.0 (CP-1) the preprocessing run is read through the brick's `RunInputs` (its design v0.4 §6), which needs `run_manifest.json` manifest version `2` (preprocessing v0.4), or `3` for a run with the brick's `--verify-content` (preprocessing v0.4.0rc5, CellPatcher v0.2.0rc3), or `4` for a described run (preprocessing v0.5.0, CellPatcher v0.3.0, which refuses a run without a published description: `A_DESCRIPTION_REQUIRED`); since preprocessing v0.5.1 only `4` is read (an older manifest is refused, `preprocessing_run_refused`, never converted) and `RunInputs.open` itself refuses a run without a description, and the `plane_histograms.csv` version that brick reads; CellPatcher pins no version of its own. Any run `RunInputs` refuses is an error. |
 | Needed for | Normalization (every scope), OME-Zarr images and labels, and plane-by-plane image reading. |
 | Without it | Patching works exactly as today; enabling normalization or giving OME-Zarr input stops the run with an install instruction. |
-| Imported | `read_plane_histograms`, `read_manifest`, `manifest.source_fingerprint`, `make_plane_id`, `group_records`, `compute_plane_histogram`, `PooledHistogram`, `min_max`, `percentile_range`, `z_score`, `robust_z_score`, `NormalizationParameters`, the OME-Zarr reader (`zarr_input`) and the plane readers (`planes`). |
+| Imported | `read_plane_histograms`, `read_manifest`, `make_plane_id`, `group_records`, `compute_plane_histogram`, `PooledHistogram`, `min_max`, `percentile_range`, `z_score`, `robust_z_score`, `NormalizationParameters`, the OME-Zarr reader (`zarr_input`) and the plane readers (`planes`). |
 | Missing pieces | Functionality CellPatcher needs that belongs with these (for example reading OME-Zarr label images) is added to the preprocessing package and imported. |
 
 ## 2. Images and discovery
@@ -155,9 +155,12 @@ CSV and manifest must be the run's own files, unrenamed (`not_the_run_output`). 
 - the run is opened once per CellPatcher call and kept for that call only
   (`cellpatcher.run_session`): the next call checks every image and mask again, patched or
   not (before CP-2a an opened run was cached for the session, keyed on the table and manifest);
-- the manifest's `image_type`, when it records one, equals `normalization.image_type`
-  (otherwise `image_type_differs`, checked before any image is read). A run that recorded no
-  image type leaves the choice to the configuration (normalization brick decision N34).
+- the image type each image's unit declares in the run's description (`Fov.image_type`:
+  `rgb`, or `channels`, an ordinary channel image normalized per channel as `"fluorescence"`)
+  equals `normalization.image_type` (otherwise `image_type_differs`, naming both, checked
+  before any image is read, at every scope of a file run; CP-4, P24). The declared type wins:
+  a setting never overrides it (normalization brick decision N34; before CP-4 the manifest's
+  run-wide type was compared, and a run that recorded none left the choice to the setting).
 
 ## 6. Methods
 
@@ -335,7 +338,7 @@ In memory, `PatchRegion.normalization_parameters` holds the brick's `Parameters`
 | `export_values` | `str` | `"normalized"` | §12: `"normalized"` or `"raw"` |
 | `memory_limit` | `int` | `4 * 1024**3` | Bytes, for eager delivery (§12) |
 | `pooling` | `str` | `"pixels"` | §7: `"pixels"` or `"conditions"` |
-| `image_type` | `str` | `"fluorescence"` | §6: `"fluorescence"` (each channel separately) or `"rgb"` (R, G and B together, `"percentile"` only, `extraction.split_channels=False`); must equal the manifest's image type when it records one (§5) |
+| `image_type` | `str` | `"fluorescence"` | §6: `"fluorescence"` (each channel separately) or `"rgb"` (R, G and B together, `"percentile"` only, `extraction.split_channels=False`); must equal the image type the run's description declares (`Fov.image_type`, §5) |
 
 `config.common` gained `mask_source` and `mask_label_name` (§4; removed in v0.2.0, CP-2b), and
 `z_policy`/`t_policy`
@@ -351,7 +354,7 @@ and suggests an action, in the preprocessing brick's style. Technical details go
 
 | Severity | Situations |
 |---|---|
-| Error (run blocked) | Extra not installed; CSV missing for a group or image scope; a preprocessing run `RunInputs` refuses, or a CSV, manifest or design other than the run's own (§5); any check of §5 failing; image without CSV rows at a group or image scope; experiment design missing, unreadable, not confirmed, changed since preprocessing, or without an image's repeat (§5); a removed scope (§7); an `image_type` other than the manifest's, `"rgb"` with a method other than `"percentile"` or with `split_channels`, or `"rgb"` images that are not three 8- or 16-bit channels (§5, §6); projection, merged channels or `repeat_to_rgb` under normalization (§3); plane over the memory limit; `"ngff_labels"` on a TIFF image, a missing or ambiguous label name, or a label image whose dimensions do not fit (§4); `"mask"`/`"bbox"` region outside `cell` mode; zero or non-finite scale, or no finite pixels, for a group; deprecated normalization arguments combined with normalization (§15); eager delivery over the memory limit; OME-Zarr input without `zarr` |
+| Error (run blocked) | Extra not installed; CSV missing for a group or image scope; a preprocessing run `RunInputs` refuses, or a CSV, manifest or design other than the run's own (§5); any check of §5 failing; image without CSV rows at a group or image scope; experiment design missing, unreadable, not confirmed, changed since preprocessing, or without an image's repeat (§5); a removed scope (§7); an `image_type` other than the declared one (`Fov.image_type`), `"rgb"` with a method other than `"percentile"` or with `split_channels`, or `"rgb"` images that are not three 8- or 16-bit channels (§5, §6); projection, merged channels or `repeat_to_rgb` under normalization (§3); plane over the memory limit; `"ngff_labels"` on a TIFF image, a missing or ambiguous label name, or a label image whose dimensions do not fit (§4); `"mask"`/`"bbox"` region outside `cell` mode; zero or non-finite scale, or no finite pixels, for a group; deprecated normalization arguments combined with normalization (§15); eager delivery over the memory limit; OME-Zarr input without `zarr` |
 | Warning (run continues) | Patches discarded without spread or finite pixels (§8, D8); approximate parameters; group statistics include background pixels (once per run); the `biological_repeat` scope (removes differences between repeats, keeps those between conditions); a repeat group without images from some condition; use of a deprecated normalization argument |
 
 ## 15. Deprecations

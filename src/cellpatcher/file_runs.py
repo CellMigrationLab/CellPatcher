@@ -290,16 +290,19 @@ def _csv_statistics(
 ) -> PlaneStatistics | None:
     """Check a CSV normalization scope against the opened run, before any image is read.
 
-    The run's own table, image type and (for ``biological_repeat``) the repeat groups of its
-    description; every image must have rows in the table.
+    The image type every position's unit declares (``Fov.image_type``, at every scope: the
+    declared type wins over ``normalization.image_type``), then at a CSV scope the run's own
+    table and (for ``biological_repeat``) the repeat groups of its description; every image
+    must have rows in the table.
     """
     settings = normalization_settings(config, inputs)
+    if settings.enabled:
+        check_image_type(settings, inputs)
     if not settings.enabled or settings.scope not in CSV_SCOPES:
         return None
     validate_normalization(replace(config, normalization=settings))
     statistics = statistics_of(inputs)
     keep_in_session(statistics)
-    check_image_type(settings, statistics)
     if settings.scope == "biological_repeat":
         repeat_groups(statistics)
     rows_only = PlaneStatistics(statistics.plane_histograms, statistics.records, statistics.csv_sha256)
@@ -400,7 +403,8 @@ def fov_metadata(run: FileRun, fov: Fov, config: CellPatcherConfig) -> dict:
 
     The FOV key is the run's (``position_id`` and ``technical_repeat`` included), with the
     ``repeat_group``/``condition_id``/``technical_repeat_id`` of its description (every run has one,
-    :func:`cellpatcher.run_open.refuse_undescribed_run`; only for ``positions.csv``, they stamp no patch); the mask
+    ``RunInputs.open`` refuses one without, ``A_DESCRIPTION_REQUIRED``; only for ``positions.csv``,
+    they stamp no patch); the mask
     file and, in ``cell`` mode without ``common.object_set``, the object set come from the
     recorded mask and its type.
     """

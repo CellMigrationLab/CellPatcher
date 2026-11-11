@@ -19,7 +19,7 @@
 | Tests       | `python tools/check.py` (pytest, Ruff and the MorphoBricks code rules against `tools/code_rules_baseline.json`, design v0.4 §9); `PYTHONPATH=src python -m pytest -q` for the tests alone |
 | Environment | `python -m pip install -e .` (add extras as needed: `.[test]`, `.[notebook]`, `.[torch]`) or `conda env create -f environment.yaml`                       |
 
-Key dependencies: `numpy`, `scipy`, `tifffile`, `imageio`, and the MorphoBricks bricks `morphobricks-preprocessing` and `morphobricks-normalization` from GitHub at pinned tags (core, required; normalization is declared at the tag the preprocessing tag pins, owner decision D-h, checked by `tests/test_dependency_pins.py`; histograms, the plane table, plane IDs, pooling and normalization parameters are imported from `morphobricks_normalization`, not from their deprecated preprocessing paths). Optional extras: `ipywidgets`, `matplotlib`, `pillow`, `tqdm`, `joblib`, `jl-hidecode` (notebook extra); `torch` (optional `cellpatcher.torch_dataset` adapter only — never a core dependency); `morphobricks-preprocessing[zarr]` at the same tag (`zarr` extra, formerly `preprocessing`: OME-Zarr images and OME-NGFF label masks).
+Key dependencies: `numpy`, `scipy`, `tifffile`, `imageio`, and the MorphoBricks bricks `morphobricks-preprocessing` and `morphobricks-normalization` from GitHub at pinned tags (preprocessing `v0.5.1`, normalization `v0.4.0`) (core, required; normalization is declared at the tag the preprocessing tag pins, owner decision D-h, checked by `tests/test_dependency_pins.py`; histograms, the plane table, plane IDs, pooling and normalization parameters are imported from `morphobricks_normalization`, not from their deprecated preprocessing paths). Optional extras: `ipywidgets`, `matplotlib`, `pillow`, `tqdm`, `joblib`, `jl-hidecode` (notebook extra); `torch` (optional `cellpatcher.torch_dataset` adapter only — never a core dependency); `morphobricks-preprocessing[zarr]` at the same tag (`zarr` extra, formerly `preprocessing`: OME-Zarr images and OME-NGFF label masks).
 
 Current health snapshot (2026-11-10, Stage 2 CP-1: preprocessing `v0.5.0` and normalization `v0.3.4` installed from their tags, Python 3.11, Linux): `.[test,zarr,notebook]` with CPU `torch` 2.15.0: 2680 passed, 0 skipped (`python tools/check.py`; the smaller extras were not run). Preprocessing refuses Z>1 inputs (2-D planes only), so the tests that built Z-stacks use T.
 
@@ -459,13 +459,15 @@ bricks (core dependencies, pinned tags in `setup.py`), CellPatcher:
   the image scope or the patch scope (follow-up C2 removed the condition and
   technical-repeat scopes); per channel for `image_type="fluorescence"`, or
   with R, G and B sharing one offset and scale for `image_type="rgb"`
-  (follow-up C3), which must equal the manifest's image type when it records
-  one;
+  (follow-up C3), which must equal the image type the run's description
+  declares for each image (`Fov.image_type`, `rgb` or `channels` =
+  fluorescence; the declared type wins and a contradicting setting is refused
+  naming both, at every scope; CP-4). CellPatcher supports RGB units (P24);
 - lets `extraction.split_channels` list the channels to patch (follow-up
   C5).
 
 The notebook offers all of these, with the image type taken from the
-manifest by `statistics.recorded_image_type` (follow-up C4). In summary:
+run's description by `statistics.recorded_image_type` (follow-up C4; `Fov.image_type` since CP-4). In summary:
 
 - **Inputs:** CellPatcher reads
   `plane_histograms.csv` from

@@ -133,3 +133,9 @@ def test_preprocessing_is_pinned_to_a_release_tag_not_a_commit():
         repository, ref = _url(requirement).rsplit("@", 1)
         assert repository == "git+https://github.com/CellMigrationLab/morphobricks-preprocessing", requirement
         assert re.fullmatch(r"v\d+\.\d+\.\d+", ref), f"{requirement}: pin a release tag, not {ref!r}"
+
+
+def test_normalization_is_pinned_to_a_release_tag():
+    core, _ = _setup_requirements()
+    ref = _url(_by_name(core)["morphobricks-normalization"]).rsplit("@", 1)[1]
+    assert re.fullmatch(r"v\d+\.\d+\.\d+", ref), f"normalization: pin a release tag, not {ref!r}"

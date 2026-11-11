@@ -116,8 +116,9 @@ def test_load_detects_a_table_changed_after_the_manifest(stack_experiment):
 
 
 def test_load_refuses_a_run_before_v040(stack_experiment):
-    # A version 1 manifest is a run before the axis check (design v0.4 §6). Before CP-1,
-    # CellPatcher read version 1 manifests only.
+    # A version 1 manifest is a run before the axis check (design v0.4 §6). Preprocessing v0.5.1 reads
+    # manifest version 4 only and refuses an older one (ManifestFormatError), never converts it: a
+    # named refusal, not a traceback (CP-4 regression).
     import morphobricks_normalization as mbn
     import morphobricks_preprocessing as mbp
 
@@ -128,7 +129,7 @@ def test_load_refuses_a_run_before_v040(stack_experiment):
     del data["experiment_description"]  # a run before v0.4.0 had none
     manifest_path.write_text(json.dumps(data), encoding="utf-8")
 
-    with pytest.raises(PreprocessingCheckError, match="written before v0.4.0") as error_info:
+    with pytest.raises(PreprocessingCheckError, match="reads version '4' only") as error_info:
         load_plane_statistics(output / mbn.OUTPUT_FILENAME)
     assert _codes(error_info) == ["preprocessing_run_refused"]
 

@@ -234,50 +234,84 @@ def test_biological_repeat_scope_pools_rgb_across_conditions(tmp_path):
     assert patches[0].normalization_parameters.scale == pytest.approx((high - low,) * 3)
 
 
-def test_the_manifest_image_type_must_match_the_configuration(tmp_path):
+@pytest.mark.parametrize("scope", ["image", "patch"])
+def test_the_declared_image_type_wins_and_a_contradicting_setting_is_refused(tmp_path, scope):
+    # CP-4 (P24): the image type is the unit's, declared in the description (Fov.image_type), at every
+    # scope of a file run. A setting that contradicts it is refused, naming both; it never overrides it.
+    # Before, the manifest's run-wide type was compared at the CSV scopes only, and a run without one
+    # let the setting decide.
     folder = tmp_path / "images"
     _write_tiff(folder / "img0.tif", _rgb_images(1)[0])
     rgb_csv = _preprocess(folder, tmp_path / "rgb")
 
-    fluorescence = _config(rgb_csv, scope="image")
+    fluorescence = _config(rgb_csv, scope=scope)
     fluorescence.normalization.image_type = "fluorescence"
-    with pytest.raises(PreprocessingCheckError, match="confirmed for 'rgb' images") as raised:
-        run_patching_pipeline(folder, config=as_file_run(fluorescence))
-    assert raised.value.issues[0].code == "image_type_differs"
+    if scope == "patch":
+        fluorescence.normalization.plane_histograms = None
+        fluorescence = as_file_run(fluorescence, rgb_csv.parent)
+    else:
+        fluorescence = as_file_run(fluorescence)
+    with pytest.raises(PreprocessingCheckError) as raised:
+        run_patching_pipeline(folder, config=fluorescence)
+    assert [issue.code for issue in raised.value.issues] == ["image_type_differs"]
+    text = str(raised.value)
+    assert "declares the image type 'rgb'" in text and "normalization.image_type is 'fluorescence'" in text
+    assert "Set normalization.image_type='rgb'" in text and "img0.tif" in text
 
-    stack = tmp_path / "stack"  # the same pixels as a three-channel fluorescence stack
+    stack = tmp_path / "stack"  # the same pixels as a three-channel stack: an ordinary channel unit
     _write_tiff(stack / "img0.tif", _rgb_images(1)[0], rgb=False)
-    fluorescence_csv = _preprocess(stack, tmp_path / "fluorescence", image_type="fluorescence")
-    with pytest.raises(PreprocessingCheckError, match="confirmed for 'fluorescence' images"):
-        run_patching_pipeline(stack, config=as_file_run(_config(fluorescence_csv, scope="image")))
+    channels_csv = _preprocess(stack, tmp_path / "channels", image_type=None)
+    rgb = _config(channels_csv, scope=scope)  # image_type="rgb"
+    if scope == "patch":
+        rgb.normalization.plane_histograms = None
+        rgb = as_file_run(rgb, channels_csv.parent)
+    else:
+        rgb = as_file_run(rgb)
+    with pytest.raises(PreprocessingCheckError) as raised:
+        run_patching_pipeline(stack, config=rgb)
+    text = str(raised.value)
+    assert "declares the image type 'channels' (normalized as 'fluorescence')" in text
+    assert "normalization.image_type is 'rgb'" in text
+
+
+def test_the_declared_rgb_type_of_v28_is_read_through_run_inputs(tmp_path):
+    # CP-4: Spec v28 declares two rgb units; every position gives Fov.image_type "rgb", and an rgb
+    # setting normalizes them as RGB (one offset and scale for R, G and B).
+    from morphobricks_preprocessing.testing_described import make_described_run
+
+    from tests.test_described_ids import _fixture
+
+    run = make_described_run(tmp_path / "v28", _fixture("v28"))
+    csv_path = run.output / "plane_histograms.csv"
+    assert recorded_image_type(csv_path) == "rgb"
+    results = run_patching_condition_repeat_tree(run.experiment, config=as_file_run(_config(csv_path, scope="image")))
+    patches = [patch for leaf in results for patch in leaf.result.patches]
+    assert patches and {patch.normalization_parameters.method for patch in patches} == {"rgb percentile 1-99.8"}
+
+    fluorescence = as_file_run(_config(csv_path, scope="image"))
+    fluorescence.normalization.image_type = "fluorescence"
+    with pytest.raises(PreprocessingCheckError, match="declares the image type 'rgb'"):
+        run_patching_condition_repeat_tree(run.experiment, config=fluorescence)
 
 
 def test_recorded_image_type_is_read_through_run_inputs(tmp_path):
     # CP-1: the image type is the run's, read through RunInputs. Before, any manifest could be
-    # named for any table, and a table without a manifest gave None.
+    # named for any table, and a table without a manifest gave None. CP-4: it is the type the
+    # description declares (Fov.image_type), an ordinary channel unit giving "fluorescence".
     folder = tmp_path / "images"
     _write_tiff(folder / "img0.tif", _rgb_images(1)[0])
     rgb_csv = _preprocess(folder, tmp_path / "rgb")
-    stack = tmp_path / "stack"  # the same pixels as a three-channel stack, run without an image type
+    stack = tmp_path / "stack"  # the same pixels as a three-channel stack, an ordinary channel unit
     _write_tiff(stack / "img0.tif", _rgb_images(1)[0], rgb=False)
-    untyped_csv = _preprocess(stack, tmp_path / "untyped", image_type=None)
+    channels_csv = _preprocess(stack, tmp_path / "channels", image_type=None)
 
     assert recorded_image_type(rgb_csv) == "rgb"
     assert recorded_image_type(rgb_csv, rgb_csv.parent / "run_manifest.json") == "rgb"
-    assert recorded_image_type(untyped_csv) is None
+    assert recorded_image_type(channels_csv) == "fluorescence"
     with pytest.raises(PreprocessingCheckError, match="normalization.manifest names"):
-        recorded_image_type(untyped_csv, rgb_csv.parent / "run_manifest.json")
+        recorded_image_type(channels_csv, rgb_csv.parent / "run_manifest.json")
     lone = tmp_path / "lone" / "plane_histograms.csv"
     lone.parent.mkdir()
     lone.write_bytes(rgb_csv.read_bytes())
     with pytest.raises(PreprocessingCheckError, match="holds no run_manifest.json"):
         recorded_image_type(lone)
-
-
-def test_without_an_image_type_in_the_manifest_the_configuration_decides(tmp_path):
-    folder = tmp_path / "images"
-    _write_tiff(folder / "img0.tif", _rgb_images(1)[0], rgb=False)
-    csv_path = _preprocess(folder, tmp_path / "preprocessing", image_type=None)
-
-    result = run_patching_pipeline(folder, config=as_file_run(_config(csv_path, scope="image")))
-    assert {patch.normalization_parameters.method for patch in result.patches} == {"rgb percentile 1-99.8"}

@@ -151,14 +151,12 @@ def _repeat_scope(run, tmp_path):
 
 @pytest.mark.parametrize("name", ["v03", "v30"])
 def test_p25_normalization_pools_by_the_runs_repeat_group_not_the_folder_name(tmp_path, name):
-    # The repeat groups are Fov.repeat_group through RunInputs (owner answer 3, AR11 (3)); the run has no
-    # experiment_design.csv to read (make_described_run writes none), and before CP-1's trim the scope
-    # refused it (missing_experiment_design).
+    # The repeat groups are Fov.repeat_group through RunInputs (owner answer 3, AR11 (3)), never the derived
+    # experiment_design.csv (an output only, which preprocessing v0.5.1 always writes; the next test changes it).
     from cellpatcher.normalization import repeat_groups
     from cellpatcher.statistics import load_plane_statistics
 
     run = _described_run(tmp_path, name)
-    assert not (run.output / "experiment_design.csv").exists()
     histograms = str(run.output / "plane_histograms.csv")
 
     groups = repeat_groups(load_plane_statistics(histograms))
@@ -166,24 +164,6 @@ def test_p25_normalization_pools_by_the_runs_repeat_group_not_the_folder_name(tm
     assert groups == {key[:2]: ids[0] for key, ids in _run_inputs_ids(run).items()}
     assert len(set(groups.values())) == 2 and len(groups) == 4  # four folders, two repeats
     assert _repeat_scope(run, tmp_path) == groups  # each patch's normalization_group is its repeat group
-
-
-def test_the_repeat_scope_ignores_a_derived_design_that_pairs_by_folder_name(tmp_path):
-    # v30: CTRL/rep1 pairs with DrugA/rep2 in the description. The run also writes the design that pairs
-    # by folder name (rep1 with rep1); CellPatcher never reads it back as a grouping input.
-    import morphobricks_preprocessing as mbp
-
-    run = _described_run(tmp_path, "v30")
-    design = mbp.default_design(mbp.preflight(run.experiment).dataset.repeats)
-    for group in design.groups:
-        design = design.with_confirmed(group, True, "2026-11-10")
-    result = mbp.run_experiment(run.experiment, mbp.AxisMapping("CYX", "CYX"), output_folder=run.output, design=design)
-    assert result.written, [str(issue) for issue in result.issues]
-    assert (run.output / "experiment_design.csv").is_file()
-
-    assert _repeat_scope(run, tmp_path) == {
-        ("CTRL", "rep1"): "Day1", ("DrugA", "rep2"): "Day1", ("CTRL", "rep2"): "Day2", ("DrugA", "rep1"): "Day2",
-    }
 
 
 def test_a_missing_repeat_group_is_refused_never_grouped_by_folder(tmp_path, monkeypatch):
@@ -264,14 +244,10 @@ def test_a_fov_without_an_id_is_refused(tmp_path, name, missing):
 
 
 def _undescribed_run(tmp_path):
-    """A run of the v13 images without the description (preprocessing v0.5.0 still writes one, with a warning)."""
-    import morphobricks_preprocessing as mbp
-
+    """The v13 run, its published description removed afterwards (preprocessing v0.5.1 writes no undescribed run)."""
     described = _described_run(tmp_path / "d", "v13")
-    output = tmp_path / "u" / "output"
-    with pytest.warns(UserWarning, match="No experiment description"):
-        assert mbp.run_experiment(described.experiment, mbp.AxisMapping("CYX", "CYX"), output_folder=output).written
-    return described.experiment, output
+    (described.output / "morphobricks.toml").unlink()
+    return described.experiment, described.output
 
 
 def _assert_description_required(raised, output):

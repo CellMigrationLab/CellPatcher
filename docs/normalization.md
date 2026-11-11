@@ -14,7 +14,7 @@ before.
 
 ## The workflow
 
-1. **Install** CellPatcher: the preprocessing (v0.5.0) and normalization (v0.3.4) bricks are core
+1. **Install** CellPatcher: the preprocessing (v0.5.1) and normalization (v0.4.0) bricks are core
    dependencies. OME-Zarr images need the optional extra `pip install "cellpatcher[zarr]"` (the
    notebook's first cell installs it on Google Colab).
 2. **Describe the experiment and run the preprocessing notebook** on your experiment folder: publish
@@ -31,8 +31,9 @@ before.
 In the CellPatcher notebook (v0.2), normalization is the **Normalization** card of step 2:
 **Normalize the patches**, **Statistics from** (image, biological repeat or patch), the
 method and percentiles, **Normalize each time point separately**, and whether the files hold
-normalized or raw values. The image type is the one confirmed in preprocessing (fluorescence
-when the run records none). **Show parameters per group** (image and biological-repeat scopes)
+normalized or raw values. The image type is the one the experiment description declares for
+the run's images (`Fov.image_type`: RGB, or ordinary channels, normalized per channel as
+fluorescence). **Show parameters per group** (image and biological-repeat scopes)
 lists the offset and scale of every group and channel of the run's table before anything is
 patched, the ones the patches get (`cellpatcher.notebook_session.group_parameters_of_run`, which
 calls `cellpatcher.normalization.group_parameters`); a group that cannot be normalized (no finite
@@ -81,8 +82,13 @@ channels are normalized together with StarDist's percentile method, which is the
 offered. One offset and scale come from the R, G and B pixels pooled together, so the colours
 keep their balance; the result equals `csbdeep.utils.normalize(x, 1, 99.8, axis=(0, 1, 2))`.
 The images must have three 8- or 16-bit channels, kept in one patch
-(`extraction.split_channels=False`). When the preprocessing brick was told the image type, its
-manifest records it and CellPatcher's `image_type` must match.
+(`extraction.split_channels=False`). **CellPatcher supports RGB images** (experiment-v1 §4.4b,
+P24): a unit the experiment description declares `image_type = "rgb"` is patched with its three
+channels in one patch and normalized as above. The image type is the one the description declares
+for each image (`Fov.image_type` through `RunInputs`; an ordinary channel unit is
+`"fluorescence"`), at every normalization scope. The declared type wins: a
+`normalization.image_type` that contradicts it is refused (`image_type_differs`, naming both),
+never used in its place.
 
 The pipeline order is generate → filter → extract → **normalize** → mask → resize → export:
 filters (`min_mean_intensity`, foreground thresholds) still see raw values, `mask_fill_value`

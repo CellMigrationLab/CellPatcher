@@ -34,7 +34,7 @@ from cellpatcher.file_runs import (
 from cellpatcher.normalization import CSV_SCOPES, NormalizationWarning, group_parameters
 from cellpatcher.normalization_review import BeforeAfter, before_after
 from cellpatcher.orchestration import run_patching_condition_repeat_tree
-from cellpatcher.run_open import open_run
+from cellpatcher.run_open import open_run, run_image_type
 from cellpatcher.run_reading import run_layout
 from cellpatcher.run_session import statistics_session
 
@@ -76,7 +76,8 @@ class RunSummary:
     mask_types
         The mask types the run recorded.
     image_type
-        The image type the user confirmed in preprocessing, or None.
+        The ``normalization.image_type`` of the image type the run's description declares
+        (``Fov.image_type``: ``"fluorescence"`` for ordinary channel units, or ``"rgb"``).
     """
 
     run: Path
@@ -89,7 +90,7 @@ class RunSummary:
     channels: tuple[str, ...]
     layout: str
     mask_types: tuple[str, ...]
-    image_type: str | None
+    image_type: str
 
     @property
     def experiment_argument(self) -> Path:
@@ -157,7 +158,7 @@ def summarize_run(
         channels=tuple(name or f"C{index}" for index, name in enumerate(names)),
         layout=run_layout(fovs),
         mask_types=inputs.mask_types(),
-        image_type=inputs.image_type(),
+        image_type=run_image_type(inputs),
     )
 
 
