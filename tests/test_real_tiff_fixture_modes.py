@@ -289,9 +289,9 @@ def test_real_tiff_export_all_modes_npy(tmp_path, mode):
     assert (out_dir / "patches.csv").exists()
 
 
-def test_real_tiff_cell_mode_single_object_and_area_filters():
+def test_real_tiff_cell_mode_one_object_and_area_filters():
     image, labels = load_real_tiff_fixture()
-    cfg = _cell_config(exclude_border=False, binary_mask_policy="single_object")
+    cfg = _cell_config(exclude_border=False, binary_mask_policy=None)
     cfg.cell.min_area = 10000
     cfg.cell.max_area = 800000
     # A binary mask as integers is one object (decision D47: a bool mask is refused).

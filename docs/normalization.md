@@ -123,8 +123,9 @@ channels never share parameters (except the three channels of an RGB image).
 - **Patch regions** (`scope="patch"`): `"mask"` uses the pixels of the patch's own object
   (Cell mode), `"bbox"` all pixels of the object's bounding box whatever the patch size, and
   `"patch"` all pixels of the patch. Padding added by `pad_mode="constant"` is never used.
-  `"mask"` and `"bbox"` need the mask to hold the patch labels: with a binary mask labelled by
-  `cell.binary_mask_policy="connected_components"` they are refused (use integer instance labels).
+  `"mask"` and `"bbox"` need the mask to hold the patch labels: with a boolean in-memory mask labelled by
+  `cell.binary_mask_policy="connected_components"` they are refused (use integer instance labels); a file
+  run's `binary` mask is replaced by its computed labels before patching, so they apply.
   A patch without any intensity spread (for example an empty background tile, or for robust
   z-score a patch where more than half the pixels share one value) cannot be normalized from
   its own pixels: it is **discarded** and listed in a warning. An RGB patch without spread is

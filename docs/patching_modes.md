@@ -27,10 +27,14 @@ Treat this as explicit plane-by-plane preprocessing, **not** true volumetric 3D 
 
 ## Cell mode
 
-Cell mode creates one patch per segmented object/cell. Masks are **instance labels**: each non-zero
-integer value is one object, used as given (a 0/1 or 0/255 integer mask is one object). A **boolean** mask has
-no object ids and is refused, unless `binary_mask_policy="connected_components"` explicitly opts in to labelling
-its connected components (with a warning). Labels above the int32 maximum are refused.
+Cell mode creates one patch per segmented object/cell. An **`instances`** mask is used as given: each
+non-zero integer value is one object (an `instances` mask holding 0 and 1 is one object). A **`binary`** mask
+(declared so by the run's description in a file run; a boolean array in memory) has no object ids and is refused
+(`A_MASK_NOT_INSTANCES` in a file run, from the run's resolver, before any pixel is read), unless the request sets
+`binary_mask_policy="connected_components"` explicitly (there is no default): the mask is then labelled by the
+shared labeller `cellpatcher.label_objects` at `binary_mask_connectivity` (1: 4-connected, the default; 2:
+8-connected), with a warning, and both are recorded in `run_config.json` with `matching.mask_id`. Labels above the
+int32 maximum are refused.
 
 Key parameters to know:
 
@@ -38,7 +42,8 @@ Key parameters to know:
 - `exclude_border`
 - `center_on`
 - `min_area` / `max_area`
-- `binary_mask_policy`
+- `binary_mask_policy`, `binary_mask_connectivity`
+- `matching.mask_id` (file runs: the description's mask ID of the object set)
 - `apply_mask` (in `ExtractionConfig`)
 - `mask_fill_value` (fill value used when `apply_mask=True`)
 - `mask_channel` (required for multi-channel label arrays in memory; mask files with a channel axis are refused: save one mask type per file, e.g. `<image>_cells.tif` and `<image>_nuclei.tif`)
@@ -56,7 +61,7 @@ Notes:
 Common pitfalls:
 
 - Wrong `image_axes` / `mask_axes`.
-- Passing a boolean mask: convert it to integer labels, or opt in to `binary_mask_policy="connected_components"` (whose computed labels are not the mask's values).
+- Passing a binary mask: give instance labels, or set `binary_mask_policy="connected_components"` (whose computed labels are not the mask's values).
 - Picking a global patch size without scanning first.
 - Expecting border-touching objects when `exclude_border=True` (default): it skips objects whose *bounding boxes* touch the image border, not patches.
 

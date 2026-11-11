@@ -244,7 +244,7 @@ def open_file_run(
     reads_type = use_masks and not by_id
     mask_type = _mask_type(config.matching.mask_type, inputs, f"mode={config.mode!r}") if reads_type else None
     ids, cell = channel_id_selection(config.extraction.split_channels) or (), config.cell
-    mask_id = _cell_mask_id(config, inputs, mask_type)
+    mask_id = _cell_mask_id(config, inputs, mask_type) if use_masks else None
     resolved = resolve_run(inputs, ids, mask_id, cell.binary_mask_policy, cell.binary_mask_connectivity)
     if resolved.issues:  # the resolver's refusals, with their codes, before any pixel is read
         raise PreprocessingCheckError(list(resolved.issues))

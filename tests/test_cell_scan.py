@@ -76,7 +76,7 @@ def test_float_binary_labels_are_refused():
     # Owner decision D-b: float masks are refused even of 0.0/1.0, whatever binary_mask_policy.
     labels = np.zeros((5, 5), dtype=np.float32)
     labels[2:4, 2:4] = 1.0
-    for policy in ("single_object", "connected_components"):
+    for policy in (None, "connected_components"):
         with pytest.raises(ValueError, match="save the mask as integers"):
             scan_cell_objects(image_shape=(5, 5), labels=labels,
                               config=CellConfig(exclude_border=False, binary_mask_policy=policy))

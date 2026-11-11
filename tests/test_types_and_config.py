@@ -79,13 +79,16 @@ def test_grid_config_rejects_invalid_overlap():
         GridConfig(overlap=1.0)
 
 
-def test_match_config_holds_the_mask_type_only():
-    # Issue #45: the pairing is the preprocessing brick's; only the mask type is chosen.
+def test_match_config_holds_the_mask_type_and_mask_id_only():
+    # Issue #45: the pairing is the preprocessing brick's; only the mask type is chosen, and (CP-2)
+    # the cell-mode object set by its description mask ID.
     from dataclasses import asdict
 
-    assert asdict(MatchConfig(mask_type="cells")) == {"mask_type": "cells"}
+    assert asdict(MatchConfig(mask_type="cells")) == {"mask_type": "cells", "mask_id": None}
     with pytest.raises(ValueError, match="mask_type"):
         MatchConfig(mask_type="")
+    with pytest.raises(ValueError, match="matching.mask_id must be None or a non-empty name"):
+        MatchConfig(mask_id=" ")
     config = MatchConfig()
     with pytest.raises(ValueError, match="removed in CellPatcher v0.1.1"):
         config.strategy = "exact_or_suffix"  # never silently ignored, old default included

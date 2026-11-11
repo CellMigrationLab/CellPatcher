@@ -58,6 +58,7 @@ extra_files:
 - src/cellpatcher/run_delivery.py: CellPatcher/src/cellpatcher/run_delivery.py
 - src/cellpatcher/run_open.py: CellPatcher/src/cellpatcher/run_open.py
 - src/cellpatcher/run_reading.py: CellPatcher/src/cellpatcher/run_reading.py
+- src/cellpatcher/run_request.py: CellPatcher/src/cellpatcher/run_request.py
 - src/cellpatcher/run_session.py: CellPatcher/src/cellpatcher/run_session.py
 - src/cellpatcher/setting_checks.py: CellPatcher/src/cellpatcher/setting_checks.py
 - src/cellpatcher/statistics.py: CellPatcher/src/cellpatcher/statistics.py

@@ -412,7 +412,6 @@
     "src/cellpatcher/strategies/cell.py <module>: # Ruff findings missing-required-import": 1,
     "src/cellpatcher/strategies/cell.py <module>: # Ruff findings undocumented-public-class": 1,
     "src/cellpatcher/strategies/cell.py <module>: # Ruff findings undocumented-public-module": 1,
-    "src/cellpatcher/strategies/cell.py _label_connected_components: private function of # lines without a docstring": 25,
     "src/cellpatcher/strategies/cell.py _select_label_plane: # Ruff findings missing-return-type-private-function": 1,
     "src/cellpatcher/strategies/cell.py _select_label_plane: # Ruff findings missing-type-function-argument": 1,
     "src/cellpatcher/strategies/cell.py generate_regions: # Ruff findings missing-type-function-argument": 3,

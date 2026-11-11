@@ -14,6 +14,7 @@ import pytest
 from cellpatcher.config import CellPatcherConfig
 from cellpatcher.io import write_array
 from cellpatcher.orchestration import run_patching_condition_repeat_tree
+from cellpatcher.statistics import PreprocessingCheckError
 from tests.helpers import file_run_config, preprocess, write_ngff, write_ngff_labels
 
 pytestmark = pytest.mark.skipif(
@@ -108,9 +109,10 @@ def test_a_label_image_that_does_not_fit_has_no_clean_run(tmp_path):
 def test_every_image_needs_a_label_image_of_the_type(tmp_path):
     _image(tmp_path, labels={"cells": _labels((16, 16), [(1, 2, 2)])})
     write_array(tmp_path / "control" / "b.tif", np.ones((16, 16), dtype=np.uint16))
-    # The TIFF has no label image.
-    with pytest.raises(ValueError, match="recorded no 'cells' mask for control/b.tif"):
+    # The TIFF has no label image: in cell mode the run's resolver refuses the object set (CP-2).
+    with pytest.raises(PreprocessingCheckError, match="'cells' is present in 1 of 2 acquisitions") as raised:
         _tree(tmp_path, _cell_config())
+    assert [issue.code for issue in raised.value.issues] == ["A_SCOPE_INCOMPLETE"]
 
 
 def test_random_mode_samples_inside_the_labels(tmp_path):

@@ -26,8 +26,11 @@ other bricks, is in the [CHANGELOG](notebooks/CellPatcher/CHANGELOG.md) (v0.2.0r
   `patch_id` built from its position, object set, planes and label or rectangle, and a `position_id`
   (see "Patch identity" in `docs/configuration_reference.md`). In-memory images given to `run_patching` need
   `image_metadata=[{"position_id": ...}]` (or an `image_file`); unnamed images are refused.
-- Cell-mode masks are instance labels used as given; boolean masks are refused unless you opt in to
-  connected-component labelling (`CellConfig.binary_mask_policy="connected_components"`).
+- Cell-mode masks are object sets: an `instances` mask is used as given; a `binary` mask (as the run's
+  description declares it, or a boolean array in memory) is refused unless the request sets the explicit
+  `CellConfig.binary_mask_policy="connected_components"` (no default), which labels it with the one shared
+  labeller, `cellpatcher.label_objects(mask, policy, connectivity)`. A file run asks its preprocessing
+  run's resolver for the mask by its description ID (`matching.mask_id`).
 - Reads TIFF and OME-Zarr images (those the preprocessing run accepted), patches time series plane by plane (Z-stacks must be projected in preprocessing first), and optionally normalizes
   patches with the MorphoBricks preprocessing statistics (`config.normalization`, see `docs/normalization.md`).
 
