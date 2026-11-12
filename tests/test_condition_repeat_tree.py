@@ -294,7 +294,7 @@ def test_tree_random_mode_mask_root_needs_a_mask_for_every_image(tmp_path):
     cfg = CellPatcherConfig(mode="random")
     cfg.random.n_patches = 3
     cfg.random.patch_size = 8
-    with pytest.raises(ValueError, match="recorded no 'mask' mask for control/img.tif; every image needs one"):
+    with pytest.raises(ValueError, match=r"(?s)present in 1 of 2 acquisitions.*control/img.tif.*A_SCOPE_INCOMPLETE"):
         _tree(image_root, config=cfg, mask_root_path=mask_root, representations={"mask": "binary"})
 
     write_array(mask_root / "control" / "img_mask.tif", np.ones((64, 64), dtype=np.uint8))

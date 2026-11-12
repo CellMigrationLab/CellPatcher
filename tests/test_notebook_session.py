@@ -173,7 +173,7 @@ def test_the_parameters_per_group_are_those_the_patches_get(clean, tmp_path):
     table = group_parameters_of_run(_normalized_config(), summary)
     assert (table.method, table.scope) == ("percentile", "image")
     assert [(row["group"], row["channel"]) for row in table.rows] == [
-        (f"{c}/rep1/{n}.ome.tif", channel) for c in ("ctrl", "drug") for n in ("a", "b") for channel in (0, 1)
+        (f"{c}/rep1/{n}.ome.tif", channel) for c in ("ctrl", "drug") for n in ("a", "b") for channel in ("ch1", "ch2")
     ]
     assert all(row["planes"] == 1 and row["exact"] for row in table.rows)
     assert any("background included" in note for note in table.notes)  # shown, not dropped
@@ -195,7 +195,8 @@ def test_the_parameters_per_group_of_the_biological_repeat_scope(tmp_path):
     config = _normalized_config()
     config.normalization.scope = "biological_repeat"
     table = group_parameters_of_run(config, summarize_run(clean.output))
-    assert [(row["group"], row["channel"], row["planes"]) for row in table.rows] == [("rep1", 0, 4), ("rep1", 1, 4)]
+    rows = [(row["group"], row["channel"], row["planes"]) for row in table.rows]
+    assert rows == [("rep1", "ch1", 4), ("rep1", "ch2", 4)]
 
 
 @pytest.mark.parametrize(("change", "message"), [

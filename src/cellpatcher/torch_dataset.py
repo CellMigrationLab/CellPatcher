@@ -9,7 +9,7 @@ import numpy as np
 from cellpatcher._deprecation import upgrade_legacy_repeat_column
 from cellpatcher.axes import axis_index, normalize_axes, refuse_transposed_inputs, require_spatial_axes
 from cellpatcher.config import CellPatcherConfig, CommonConfig, ExtractionConfig
-from cellpatcher.delivery import _normalize_on_load, _refuse_file, patch_array, patch_axes
+from cellpatcher.delivery import _refuse_file, on_load_normalizer, patch_array, patch_axes
 from cellpatcher.io import read_array
 from cellpatcher.export import sanitize_filename
 
@@ -455,7 +455,9 @@ class ExportedPatchTorchDataset(torch.utils.data.Dataset):
         path = self._resolve_row_path(row)
         # Files exported with normalization.export_values="raw" are
         # normalized on load with the row's parameters (contract §12).
-        array = _normalize_on_load(row, _load_exported_patch(path), self._run_config(row))
+        # A row that cannot be normalized is refused before its file is read.
+        normalize = on_load_normalizer(row, self._run_config(row))
+        array = normalize(_load_exported_patch(path))
 
         tensor = patch_array_to_tensor(array, axes=self._axes, config=self._tensor_config)
         if self._transform is not None:

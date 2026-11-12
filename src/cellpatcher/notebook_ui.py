@@ -144,9 +144,9 @@ def parameters_html(table: GroupParameters) -> str:
     rows = [["Group", "Channel", *(["Time point"] if has_t else []), "Planes", "Offset", "Scale", "Exact"]]
     problems = []
     for row in table.rows:
-        values = [row["group"], f"C{row['channel']}", *([str(row["t"])] if has_t else []), str(row["planes"])]
+        values = [row["group"], str(row["channel"]), *([str(row["t"])] if has_t else []), str(row["planes"])]
         if "problem" in row:
-            problems.append(f"{row['group']} (C{row['channel']}): {row['problem']}")
+            problems.append(f"{row['group']} ({row['channel']}): {row['problem']}")
             values += ["-", "-", row["problem"]]
         else:
             values += [f"{row['offset']:.6g}", f"{row['scale']:.6g}", "yes" if row["exact"] else "approximate"]

@@ -156,12 +156,12 @@ def test_written_patches_round_trip_without_a_run(tmp_path):
 
 
 def test_every_unknown_column_is_named(tmp_path):
-    # Owner decision: unknown columns are refused, and the message names each of them.
-    header = ["patch_id", "colour", "y0", "y1", "x0", "x1", "notes", "mask_fraction_cells", "Normalization_Offset_C0x"]
+    # Owner decision: unknown columns are refused, and the message names each of them (0x is not a channel ID).
+    header = ["patch_id", "colour", "y0", "y1", "x0", "x1", "notes", "mask_fraction_cells", "Normalization_Offset_0x"]
     path = _write(tmp_path / "patches.csv", header, [["p", "red", "0", "4", "0", "4", "n", "0.5", "1"]])
     with pytest.raises(PatchTableError) as error:
         read_patch_table(path)
-    assert "columns CellPatcher does not write: ['colour', 'notes', 'Normalization_Offset_C0x']" in str(error.value)
+    assert "columns CellPatcher does not write: ['colour', 'notes', 'Normalization_Offset_0x']" in str(error.value)
 
 
 # CSV structure (owner decision of 2026-10-31, CellPatcher v0.1.2): MorphoRelate

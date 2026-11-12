@@ -50,6 +50,7 @@ extra_files:
 - src/cellpatcher/object_geometry.py: CellPatcher/src/cellpatcher/object_geometry.py
 - src/cellpatcher/orchestration.py: CellPatcher/src/cellpatcher/orchestration.py
 - src/cellpatcher/patch_checks.py: CellPatcher/src/cellpatcher/patch_checks.py
+- src/cellpatcher/patch_normalization.py: CellPatcher/src/cellpatcher/patch_normalization.py
 - src/cellpatcher/pipeline.py: CellPatcher/src/cellpatcher/pipeline.py
 - src/cellpatcher/planes.py: CellPatcher/src/cellpatcher/planes.py
 - src/cellpatcher/positions.py: CellPatcher/src/cellpatcher/positions.py

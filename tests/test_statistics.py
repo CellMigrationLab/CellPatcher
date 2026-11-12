@@ -291,9 +291,11 @@ def test_check_planes_links_every_t_plane_to_its_row(stack_experiment):
     assert [record.plane_id for record in records] == [
         f"{path}::z=0,t={t}" for path in STACK_IMAGES for t in range(T_PLANES)
     ]
-    # Each match is one channel of its row (schema version 4: a row holds every channel).
+    # Each match is one channel of its row (schema version 5: a row holds every channel, by ID; C index i is
+    # the row's channels[i]).
     assert {record.c for record in records} == {0}
-    assert records[0].histogram is records[0].record.channel_histogram(0)
+    assert records[0].channel == records[0].record.channels[0]
+    assert records[0].histogram is records[0].record.channel_histogram(records[0].channel)
 
 
 @needs_preprocessing

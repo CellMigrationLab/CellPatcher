@@ -48,9 +48,9 @@ brick's
 
 | Rule | Detail |
 |---|---|
-| Dependencies | `morphobricks-preprocessing` (`v0.5.1` since CellPatcher v0.4.0; `v0.5.0` in v0.3.0; `v0.4.0` in v0.2.0, `v0.4.0rc5` in v0.2.0rc3, `v0.4.0rc4` in v0.2.0rc2, `v0.4.0rc2` in v0.2.0rc1) and `morphobricks-normalization` (`v0.4.0` since CellPatcher v0.4.0, the tag preprocessing v0.5.1 pins; `v0.3.4` in v0.2.0 and v0.3.0: the tag preprocessing `v0.5.0` pins; `v0.3.3` in v0.2.0rc3, `v0.3.2` before) are core dependencies, pinned to tags in `setup.py`; normalization at the tag the preprocessing tag pins (owner decision D-h, checked by `tests/test_dependency_pins.py`). The `zarr` extra (`pip install "cellpatcher[zarr]"`, formerly `preprocessing`) installs `morphobricks-preprocessing[zarr]` at the same tag, for OME-Zarr images. Histograms, the plane table, plane IDs, pooling and normalization parameters, which moved to the normalization brick, are imported from `morphobricks_normalization`. |
+| Dependencies | `morphobricks-preprocessing` (`v0.5.2` since the W3 pins, after CellPatcher v0.4.0; `v0.5.1` in v0.4.0; `v0.5.0` in v0.3.0; `v0.4.0` in v0.2.0, `v0.4.0rc5` in v0.2.0rc3, `v0.4.0rc4` in v0.2.0rc2, `v0.4.0rc2` in v0.2.0rc1) and `morphobricks-normalization` (`v0.5.0` since the W3 pins, the tag preprocessing v0.5.2 pins; `v0.4.0` in CellPatcher v0.4.0, the tag preprocessing v0.5.1 pins; `v0.3.4` in v0.2.0 and v0.3.0: the tag preprocessing `v0.5.0` pins; `v0.3.3` in v0.2.0rc3, `v0.3.2` before) are core dependencies, pinned to tags in `setup.py`; normalization at the tag the preprocessing tag pins (owner decision D-h, checked by `tests/test_dependency_pins.py`). The `zarr` extra (`pip install "cellpatcher[zarr]"`, formerly `preprocessing`) installs `morphobricks-preprocessing[zarr]` at the same tag, for OME-Zarr images. Histograms, the plane table, plane IDs, pooling and normalization parameters, which moved to the normalization brick, are imported from `morphobricks_normalization`. |
 | Version | Installed from GitHub at a pinned commit or tag, recorded in `setup.py` and raised deliberately. |
-| Formats | Since v0.2.0 (CP-1) the preprocessing run is read through the brick's `RunInputs` (its design v0.4 §6), which needs `run_manifest.json` manifest version `2` (preprocessing v0.4), or `3` for a run with the brick's `--verify-content` (preprocessing v0.4.0rc5, CellPatcher v0.2.0rc3), or `4` for a described run (preprocessing v0.5.0, CellPatcher v0.3.0, which refuses a run without a published description: `A_DESCRIPTION_REQUIRED`); since preprocessing v0.5.1 only `4` is read (an older manifest is refused, `preprocessing_run_refused`, never converted) and `RunInputs.open` itself refuses a run without a description, and the `plane_histograms.csv` version that brick reads; CellPatcher pins no version of its own. Any run `RunInputs` refuses is an error. |
+| Formats | Since v0.2.0 (CP-1) the preprocessing run is read through the brick's `RunInputs` (its design v0.4 §6), which needs `run_manifest.json` manifest version `2` (preprocessing v0.4), or `3` for a run with the brick's `--verify-content` (preprocessing v0.4.0rc5, CellPatcher v0.2.0rc3), or `4` for a described run (preprocessing v0.5.0, CellPatcher v0.3.0, which refuses a run without a published description: `A_DESCRIPTION_REQUIRED`); since preprocessing v0.5.1 only `4` is read, and since preprocessing v0.5.2 (the W3 pins) only `5`, whose file entries record their `channel_ids` (an older manifest is refused, `preprocessing_run_refused`, never converted) and `RunInputs.open` itself refuses a run without a description, and the `plane_histograms.csv` version that brick reads; CellPatcher pins no version of its own. Any run `RunInputs` refuses is an error. |
 | Needed for | Normalization (every scope), OME-Zarr images and labels, and plane-by-plane image reading. |
 | Without it | Patching works exactly as today; enabling normalization or giving OME-Zarr input stops the run with an install instruction. |
 | Imported | `read_plane_histograms`, `read_manifest`, `make_plane_id`, `group_records`, `compute_plane_histogram`, `PooledHistogram`, `min_max`, `percentile_range`, `z_score`, `robust_z_score`, `NormalizationParameters`, the OME-Zarr reader (`zarr_input`) and the plane readers (`planes`). |
@@ -253,9 +253,10 @@ generate regions → filter → extract → **normalize** → apply mask → res
 ## 10. `patches.csv` columns
 
 Optional columns appended after all existing columns in this order: `source_relative_path`,
-four `normalization_*` columns, then one `Normalization_Offset_C<i>`/`Normalization_Scale_C<i>`
-pair per channel, grouped by channel (normalization brick decisions N41, N42; CellPatcher
-follow-up C1). Existing columns keep their names, order and values, so readers that select
+four `normalization_*` columns, then `normalization_parameters_version`, `normalization_channels`
+and one `Normalization_Offset_<ID>`/`Normalization_Scale_<ID>` pair per canonical channel ID, grouped
+by channel in sorted ID order (normalization brick decisions N41, N42; CellPatcher follow-up C1;
+channel IDs instead of C indices since normalization v0.5.0, Spec ADR 0003 HV2). Existing columns keep their names, order and values, so readers that select
 columns by name are unaffected. With normalization off, the four `normalization_*` columns are
 empty and there are no channel pairs.
 
@@ -266,8 +267,10 @@ empty and there are no channel pairs.
 | `normalization_scope` | text | §7 scope value |
 | `normalization_group` | text | §7 group key |
 | `normalization_exact` | `true`/`false` | `true` when every channel's parameters are exact (§6) |
-| `Normalization_Offset_C<i>` | number | Offset of channel `i` of the image |
-| `Normalization_Scale_C<i>` | number | Scale of channel `i` of the image |
+| `normalization_parameters_version` | `2` | The parameter columns' version (normalization v0.5.0); a row without it is refused on load |
+| `normalization_channels` | text | The patch's channel IDs in its own C order, `;`-separated; each channel is normalized with its ID's pair |
+| `Normalization_Offset_<ID>` | number | Offset of channel ID `<ID>` (a file run: the description's ID of each C index, `Fov.channel_ids`, which must equal the `plane_histograms.csv` row's, else `channel_id_mismatch`; in memory without IDs: `C<i>` by position, `R`/`G`/`B` for RGB) |
+| `Normalization_Scale_<ID>` | number | Scale of channel ID `<ID>` |
 
 The pairs are written by the normalization brick's `Parameters.to_columns()`, with full
 precision (Python `repr` of the float). A table has one pair for every channel any of its

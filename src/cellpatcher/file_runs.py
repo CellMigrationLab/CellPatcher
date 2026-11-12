@@ -246,9 +246,15 @@ def open_file_run(
     mask_type = _mask_type(config.matching.mask_type, inputs, f"mode={config.mode!r}") if reads_type else None
     ids, cell = channel_id_selection(config.extraction.split_channels) or (), config.cell
     mask_id = _cell_mask_id(config, inputs, mask_type) if use_masks else None
-    resolved = resolve_run(inputs, ids, mask_id, cell.binary_mask_policy, cell.binary_mask_connectivity)
+    region_id = _region_mask_id(config, inputs, mask_type) if use_masks else None
+    resolved = resolve_run(
+        inputs, ids, mask_id, cell.binary_mask_policy, cell.binary_mask_connectivity, region_id=region_id
+    )
     if resolved.issues:  # the resolver's refusals, with their codes, before any pixel is read
         raise PreprocessingCheckError(list(resolved.issues))
+    if resolved.region_mask is not None and resolved.region_mask.conversion is not None:
+        # The recorded marker (experiment-v1 §4.5b), written to run_config.json with the mask ID.
+        remember(resolved.region_mask.conversion, config.common.preprocessing_run, resolved.region_mask.mask_id)
     if resolved.object_mask is not None:
         mask_type = resolved.object_mask.source_type
     mask_layouts = {}
@@ -284,6 +290,18 @@ def _cell_mask_id(config: CellPatcherConfig, inputs: RunInputs, mask_type: str |
             f"({', '.join(ids) or 'none'}): set matching.mask_id to the description's mask ID of the object set."
         )
     return ids[0]
+
+
+def _region_mask_id(config: CellPatcherConfig, inputs: RunInputs, mask_type: str | None) -> str | None:
+    """Return the mask ID random mode asks the resolver for as an area: the description's mask of *mask_type*.
+
+    None outside random mode, and when the description declares no mask of that source type (the run's mask
+    is then read as before, non-zero inside; only a declared mask can be ``parent_labels``).
+    """
+    if config.mode != "random" or mask_type is None:
+        return None
+    ids = sorted(mask_id for mask_id, mask in inputs.description().masks.items() if mask.source_type == mask_type)
+    return ids[0] if len(ids) == 1 else None
 
 
 def _mask_type(wanted: str | None, inputs: RunInputs, reader: str) -> str:

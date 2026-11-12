@@ -138,7 +138,7 @@ def test_show_parameters_per_group_lists_every_group(clean):
     notebook.parameters_button.click()
     text = notebook.parameters_message.value
     assert "Parameters per group (4 groups)" in text, text
-    assert "drug/rep1/b.ome.tif" in text and "C1" in text
+    assert "drug/rep1/b.ome.tif" in text and "ch2" in text  # channels by ID (normalization v0.5.0)
     assert "background included" in text  # the normalization warning is shown with the table
 
 
@@ -156,12 +156,12 @@ def test_a_group_that_cannot_be_normalized_is_shown_in_red():
     from cellpatcher.notebook_ui import parameters_html
 
     rows = (
-        {"group": "rep1", "channel": 0, "t": 0, "planes": 2, "offset": 10.0, "scale": 90.5, "exact": True},
-        {"group": "rep1", "channel": 1, "t": 0, "planes": 2, "problem": "zero intensity spread"},
+        {"group": "rep1", "channel": "DNA", "t": 0, "planes": 2, "offset": 10.0, "scale": 90.5, "exact": True},
+        {"group": "rep1", "channel": "ACTIN", "t": 0, "planes": 2, "problem": "zero intensity spread"},
     )
     text = parameters_html(GroupParameters("minmax", "biological_repeat", rows, ()))
     assert "Time point" in text and "90.5" in text
-    assert "mb-error" in text and "rep1 (C1): zero intensity spread" in text
+    assert "mb-error" in text and "rep1 (ACTIN): zero intensity spread" in text
 
 
 def test_the_normalized_preview_draws_the_patches_before_and_after(clean, monkeypatch):

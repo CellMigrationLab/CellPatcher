@@ -13,9 +13,9 @@ exported files, patches can be delivered:
 - **from exported files**, with :func:`iter_exported_patches` (or
   :func:`load_exported_patch`): files exported with
   ``normalization.export_values="raw"`` are normalized on load with each row's
-  ``Normalization_Offset_C<i>``/``Normalization_Scale_C<i>`` columns (or the
-  ``;``-separated ``normalization_offset``/``normalization_scale`` of earlier
-  tables); parameters are never recomputed.
+  ``Normalization_Offset_<ID>``/``Normalization_Scale_<ID>`` columns, each channel
+  by its ID in the row's ``normalization_channels`` order (tables written before
+  normalization v0.5.0 are refused); parameters are never recomputed.
 
 All delivery modes give the same arrays for the same configuration (raw files
 of resized or masked patches up to float32 rounding).
@@ -26,7 +26,7 @@ from __future__ import annotations
 import csv
 import json
 import os
-from collections.abc import Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
@@ -37,7 +37,7 @@ from cellpatcher.axes import normalize_axes, refuse_transposed_image_axes, refus
 from cellpatcher.extract import extract_patch
 from cellpatcher.io import read_array
 from cellpatcher.masking import apply_label_mask_to_patch
-from cellpatcher.normalization import PatchNormalization, parameters_from_row
+from cellpatcher.normalization import PatchNormalization, channel_order_from_row, parameters_from_row
 from cellpatcher.planes import apply_plane_choice, patch_plane_choice, select_mask_plane
 from cellpatcher.resize import resize_patch
 from cellpatcher.run_config_file import delivery_config, run_config_version
@@ -150,10 +150,11 @@ def load_exported_patch(row: Mapping, *, root_dir, run_config: Mapping | None = 
     Files exported with ``normalization.export_values="raw"`` (from
     *run_config*, the run's ``run_config.json``) are normalized on load with
     the row's parameter columns; normalized
-    files and runs without normalization are returned as stored.
+    files and runs without normalization are returned as stored. A row CellPatcher cannot normalize
+    (parameter columns written before normalization v0.5.0) is refused before its file is read.
     """
-    array = read_array(Path(root_dir) / str(row["patch_file"]))
-    return _normalize_on_load(row, array, run_config)
+    normalize = on_load_normalizer(row, run_config)
+    return normalize(read_array(Path(root_dir) / str(row["patch_file"])))
 
 
 def iter_exported_patches(metadata_file, *, root_dir=None) -> Iterator[tuple[dict, np.ndarray]]:
@@ -176,23 +177,30 @@ def iter_exported_patches(metadata_file, *, root_dir=None) -> Iterator[tuple[dic
         yield row, load_exported_patch(row, root_dir=root, run_config=run_configs[name])
 
 
-def _normalize_on_load(row: Mapping, array: np.ndarray, run_config: Mapping | None) -> np.ndarray:
-    """Normalize a loaded patch file when its run exported raw values (else return it as stored)."""
+def on_load_normalizer(row: Mapping, run_config: Mapping | None) -> Callable[[np.ndarray], np.ndarray]:
+    """Return what loading does to a row's file: normalize raw values with the row's parameters, or nothing.
+
+    Everything is read from the row and *run_config* here, before the file: a row whose parameters cannot be
+    read (columns written before normalization v0.5.0) is refused without reading any pixel.
+    """
     if run_config is not None:
         run_config_version(run_config, "run_config.json")
     settings = (run_config or {}).get("normalization") or {}
     if settings.get("export_values") != "raw":
-        return array
+        return _as_stored
     parameters = parameters_from_row(row, settings)
     if parameters is None:
-        return array
+        return _as_stored
     patch = _row_patch(row)
     clip = settings.get("clip")
-    return PatchNormalization(parameters).apply(
-        array,
-        patch_axes(delivery_config(run_config, "run_config.json", patch.source_relative_path), patch),
-        clip=tuple(clip) if clip else None,
-    )
+    normalization = PatchNormalization(parameters, channel_order_from_row(row))
+    axes = patch_axes(delivery_config(run_config, "run_config.json", patch.source_relative_path), patch)
+    return lambda array: normalization.apply(array, axes, clip=tuple(clip) if clip else None)
+
+
+def _as_stored(array: np.ndarray) -> np.ndarray:
+    """Return a loaded patch file unchanged (normalized files, runs without normalization)."""
+    return array
 
 
 def raw_export_array(patch, plane, plane_axes: str, array, config) -> np.ndarray:
