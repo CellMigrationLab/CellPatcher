@@ -32,6 +32,88 @@ Release v0.3.0
 Pin preprocessing v0.4.0rc4; prepare v0.2.0rc2
 
 ---
+## [0.5.0] - 2026-11-12 - Preprocessing v0.5.2, normalization v0.5.0: channels by canonical ID, parent-label masks (Stage 2 W3)
+
+The v0.5.0 release (12 November 2026, approved by the owner). It pins preprocessing `v0.5.2` (core and
+`zarr` extra; was `v0.5.1`) and normalization `v0.5.0` (was `v0.4.0`), the tag preprocessing `v0.5.2`
+pins (owner decision D-h; pip refuses two different direct URLs for one package). `__version__`,
+`setup.py` and every notebook (`RELEASE_TAG`, `current_version`, `notebook_latest_versions.yaml`) are
+`0.5.0`. It carries #104. Owner policy of 2026-11-10 (Spec ADR 0002 AR10): no backward compatibility
+for the removed behaviour below; old tables and runs are refused, not converted. The MorphoBricks-Spec
+test material is re-vendored at `69a58b3` (fixtures v38, v39, i136-i139). For unchanged inputs the
+exported outputs are identical to v0.4.0 apart from the normalization column names.
+
+### Breaking
+- **`patches.csv` normalization columns are named by channel ID, not by C index** (normalization
+  v0.5.0, Spec ADR 0003 HV2). `Normalization_Offset_C<i>`/`Normalization_Scale_C<i>` become
+  `Normalization_Offset_<ID>`/`Normalization_Scale_<ID>`, one pair per canonical channel ID in sorted
+  ID order (a file run: the description's IDs, `Fov.channel_ids`; in memory without IDs: `C<i>` by
+  position, `R`/`G`/`B` for RGB). Two columns are new, before them: `normalization_parameters_version`
+  (`2`) and `normalization_channels` (the patch's channel IDs in its own C order, `;`-separated, for
+  example `ACTIN;DNA`). Every channel is normalized with the parameters of its ID, never by position,
+  including split channels and raw patch files normalized on load. Code that reads these columns by
+  name or position must change.
+- **Old tables are refused, never converted.** A `patches.csv` written before normalization v0.5.0
+  (CellPatcher 0.4.0 or earlier: C-index columns without `normalization_parameters_version`, or the
+  `;`-separated `normalization_offset`/`normalization_scale` columns) is refused on load
+  (`load_exported_patch`, `iter_exported_patches`, `ExportedPatchTorchDataset`) with "run CellPatcher
+  again". The refusal comes before any patch file is read (08e5ae9).
+- **Preprocessing v0.5.1 runs are refused.** Preprocessing v0.5.2 (manifest version 5) and
+  normalization v0.5.0 are required; a run of an earlier preprocessing is refused
+  (`preprocessing_run_refused`), and `plane_histograms.csv` is read as schema 5 only.
+- **A `parent_labels` mask is never an object set.** In cell mode the resolver refuses it
+  (`A_MASK_NOT_INSTANCES`), with or without `cell.binary_mask_policy`; the hint no longer offers the
+  policy, and a policy on such a mask is a `ValueError` naming it. In random mode the mask is read as
+  an area (every non-zero pixel inside) with a shown warning, and recorded (see Added).
+- **A channel that only some planes of a fitted group have is refused** (`A_SCOPE_INCOMPLETE`);
+  images of different channel counts in one normalized run are still refused. An image whose own
+  channel IDs (`Fov.channel_ids`) differ from those of its `plane_histograms.csv` rows is refused
+  (`channel_id_mismatch`).
+
+### Added
+- `PatchRegion.normalization_channels` and the `normalization_channels` column: each patch keeps its
+  own C order of channel IDs.
+- `cellpatcher.patch_normalization`, a pure module holding `PatchNormalization` (re-exported) and
+  `refuse_earlier_parameter_row`.
+- `run_config.json` records `preprocessing.mask_conversions` when a `parent_labels` mask was read as
+  an area in random mode (conversion `parent_labels_as_area`); instance and binary areas record
+  nothing.
+- Resolver refusals (`A_MASK_UNCHECKED`, `A_SCOPE_INCOMPLETE`) for the sampling mask now come before
+  any read. CellPatcher declares no `parent_labels_support`.
+
+### Fixed (review of #104)
+- `20f804b`: a repeated channel ID, or text that is not a channel ID, in an in-memory image's
+  `image_metadata["channel_ids"]` is refused before a patch-scope fit, naming the image and the
+  setting. Before, the brick's error was caught as "zero intensity spread" and every patch was
+  discarded with a misleading warning.
+- `08e5ae9`: loading raw exported patches refuses a row of an earlier table before its file is read,
+  with what to do ("run CellPatcher again"), not the brick's "Fit the parameters again", which a
+  CellPatcher user cannot act on.
+- `adf86f6`: a test gives DNA and ACTIN disjoint pixel ranges and checks every normalization scope
+  of the Spec fixture v04 (split and not) against parameters pooled by ID; a mutation applying
+  parameters by position fails it. The biological-repeat scope had no such check.
+
+### Changed
+- Dependencies: preprocessing `v0.5.2` (tag `6d81bcf`; was `v0.5.1`), normalization `v0.5.0` (was
+  `v0.4.0`), both checked by `tests/test_dependency_pins.py` (release tags only).
+- Docs: `docs/normalization.md`, `docs/normalization_contract.md` and
+  `docs/configuration_reference.md` describe the ID-named columns and the parent-label rule.
+
+### Migration
+- Re-run preprocessing `v0.5.2` on the experiment (describe and publish it in the preprocessing
+  notebook first) and give CellPatcher that run's output folder; a run of preprocessing `v0.5.1` or
+  earlier is refused.
+- Re-run CellPatcher to write every `patches.csv` you want to reload or train from: a table written
+  by v0.4.0 or earlier is refused, not converted.
+- Code that reads `Normalization_Offset_C<i>`/`Normalization_Scale_C<i>` must read
+  `Normalization_Offset_<ID>`/`Normalization_Scale_<ID>` (the IDs are in `normalization_channels`),
+  and check `normalization_parameters_version`.
+- Do not use a `parent_labels` mask as the cell-mode object set; use an `instances` mask (or a
+  `binary` one with `cell.binary_mask_policy`).
+- Bricks that pin CellPatcher pin `v0.5.0` together with preprocessing `v0.5.2` and normalization
+  `v0.5.0`.
+
+---
 ## [0.4.0] - Preprocessing v0.5.1, the resolver, one shared mask labeller (Stage 2 W2: CP-4, CP-3, CP-2)
 
 The v0.4.0 release. It pins preprocessing `v0.5.1` (core and `zarr` extra; was `v0.5.0`) and
