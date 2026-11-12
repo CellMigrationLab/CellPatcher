@@ -82,8 +82,12 @@ class PatchRegion:
     - ``normalization_parameters``: the normalization brick's ``Parameters``
       of the patch (one offset and scale per channel of the image it holds),
       or ``None``. Not a column itself: :meth:`to_dict` writes it as one
-      ``Normalization_Offset_C<i>``/``Normalization_Scale_C<i>`` pair per
-      channel (normalization brick decisions N41, N42). The former
+      ``Normalization_Offset_<ID>``/``Normalization_Scale_<ID>`` pair per
+      channel ID (normalization v0.5.0, Spec ADR 0003 HV2), with
+      ``normalization_parameters_version``. The parameters' channels are sorted IDs.
+    - ``normalization_channels``: the patch's channel IDs in its own C order
+      (``None`` without normalization), written as the ``;``-separated column
+      ``normalization_channels`` beside the parameter columns. The former
       ``normalization_offset``/``normalization_scale`` attributes are
       deprecated read-only properties giving the old ``;``-separated text.
     - ``image_height``, ``image_width``: the Y/X size of the source image
@@ -187,9 +191,14 @@ class PatchRegion:
     # "own_object" (the share inside the object's own label). Not a column
     # itself: to_dict() writes one mask_fraction_<name> column per mask.
     mask_fractions: dict | None = field(default=None, repr=False)
+    # The patch's channel IDs in its own C order, for normalization_parameters (whose channels
+    # are sorted IDs): normalization v0.5.0 applies each channel by its ID, never by position.
+    # Not a field column: to_dict() writes it as normalization_channels (";"-separated) with the
+    # parameter columns, so a run without normalization keeps its columns.
+    normalization_channels: tuple[str, ...] | None = field(default=None, repr=False)
     # The normalization brick's Parameters. Not a column itself: to_dict()
-    # writes it as the per-channel Normalization_Offset_C<i>/
-    # Normalization_Scale_C<i> columns, which export.save_metadata_csv places
+    # writes it as the per-channel Normalization_Offset_<ID>/
+    # Normalization_Scale_<ID> columns, which export.save_metadata_csv places
     # right after normalization_exact. Last, so the fields before it are
     # still exactly the CSV's columns in order.
     normalization_parameters: object | None = field(default=None, repr=False)
@@ -234,8 +243,8 @@ class PatchRegion:
 
     def _deprecated_numbers(self, name: str, attribute: str) -> str | None:
         warnings.warn(
-            f"PatchRegion.{name} is deprecated: patches.csv now has one Normalization_Offset_C<i> and "
-            "Normalization_Scale_C<i> column per channel. Read PatchRegion.normalization_parameters "
+            f"PatchRegion.{name} is deprecated: patches.csv now has one Normalization_Offset_<ID> and "
+            "Normalization_Scale_<ID> column per channel ID. Read PatchRegion.normalization_parameters "
             "(.offset, .scale, .channels) instead.",
             DeprecationWarning,
             stacklevel=3,
@@ -250,24 +259,36 @@ class PatchRegion:
         data["height"] = self.height
         data["width"] = self.width
         if self.normalization_parameters is not None:
-            data.update(normalization_channel_columns(self.normalization_parameters))
+            data.update(normalization_channel_columns(self.normalization_parameters, self.normalization_channels))
         for name, fraction in (self.mask_fractions or {}).items():
             data[f"{MASK_FRACTION_PREFIX}{name}"] = fraction
         return data
 
 
 # PatchRegion fields written as several columns of their own, not as one.
-_NOT_COLUMNS = ("normalization_parameters", "mask_fractions")
+_NOT_COLUMNS = ("normalization_parameters", "normalization_channels", "mask_fractions")
 MASK_FRACTION_PREFIX = "mask_fraction_"
 
 
-def normalization_channel_columns(parameters) -> dict[str, str]:
-    """The ``Normalization_Offset_C<i>``/``Normalization_Scale_C<i>`` columns of *parameters*, grouped by channel."""
-    return {
+def normalization_channel_columns(parameters, channels: tuple[str, ...] | None = None) -> dict[str, str]:
+    """The per-channel columns of *parameters*: the parameters' version, *channels* and the ID-named pairs.
+
+    ``normalization_parameters_version`` (normalization v0.5.0), ``normalization_channels`` (the patch's channel
+    IDs in its C order, ``;``-separated; blank when not known) and one
+    ``Normalization_Offset_<ID>``/``Normalization_Scale_<ID>`` pair per channel ID, grouped by channel.
+    """
+    columns = {
         name: value
         for name, value in parameters.to_columns().items()
-        if name.startswith(("Normalization_Offset_C", "Normalization_Scale_C"))
+        if name.startswith(PARAMETER_PREFIXES) or name == PARAMETERS_VERSION_COLUMN
     }
+    columns[NORMALIZATION_CHANNELS_COLUMN] = ";".join(channels) if channels else ""
+    return columns
+
+
+PARAMETER_PREFIXES = ("Normalization_Offset_", "Normalization_Scale_")
+PARAMETERS_VERSION_COLUMN = "normalization_parameters_version"
+NORMALIZATION_CHANNELS_COLUMN = "normalization_channels"
 
 
 def no_patch_reason(n_regions: int, n_kept: int, n_normalized: int, n_patches: int) -> str | None:

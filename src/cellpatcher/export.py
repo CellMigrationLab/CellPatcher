@@ -7,7 +7,15 @@ from pathlib import Path
 import numpy as np
 
 from cellpatcher.positions import POSITION_TABLE_FILENAME, save_position_table_csv
-from cellpatcher.types import IMAGE_TABLE_COLUMNS, MASK_FRACTION_PREFIX, ImageRecord, PatchRegion
+from cellpatcher.types import (
+    _NOT_COLUMNS,
+    IMAGE_TABLE_COLUMNS,
+    MASK_FRACTION_PREFIX,
+    NORMALIZATION_CHANNELS_COLUMN,
+    PARAMETERS_VERSION_COLUMN,
+    ImageRecord,
+    PatchRegion,
+)
 
 # The per-image table written beside every patches.csv (see save_image_table_csv).
 IMAGE_TABLE_FILENAME = "images.csv"
@@ -31,7 +39,7 @@ def save_metadata_csv(patches, csv_path):
     # The CSV header follows PatchRegion's own field order, with the
     # computed height/width convenience columns inserted right after the
     # x1 coordinate they're derived from (rather than tacked on at the end).
-    header = [f.name for f in fields(PatchRegion) if f.name not in ("normalization_parameters", "mask_fractions")]
+    header = [f.name for f in fields(PatchRegion) if f.name not in _NOT_COLUMNS]
     x1_index = header.index("x1")
     header = header[: x1_index + 1] + ["height", "width"] + header[x1_index + 1 :]
     exact_index = header.index("normalization_exact")
@@ -56,19 +64,23 @@ def mask_fraction_columns(patches) -> list[str]:
 
 
 def normalization_columns(patches) -> list[str]:
-    """The per-channel parameter columns of *patches*, grouped by channel (normalization brick N41, N42).
+    """The per-channel parameter columns of *patches*, grouped by channel ID (normalization v0.5.0, ADR 0003 HV2).
 
-    One ``Normalization_Offset_C<i>``/``Normalization_Scale_C<i>`` pair for
-    every channel any patch has parameters for; a row of a split channel
-    leaves the other channels' pairs blank. None without normalization.
+    ``normalization_parameters_version`` and ``normalization_channels`` (the patch's channel IDs in its C order),
+    then one ``Normalization_Offset_<ID>``/``Normalization_Scale_<ID>`` pair for every channel ID any patch has
+    parameters for, in sorted ID order; a row of another channel leaves the other pairs blank. None without
+    normalization.
     """
     channels = sorted({
-        int(c)
+        channel
         for patch in patches
         if patch.normalization_parameters is not None
-        for c in patch.normalization_parameters.channels
+        for channel in patch.normalization_parameters.channels
     })
-    return [name for c in channels for name in (f"Normalization_Offset_C{c}", f"Normalization_Scale_C{c}")]
+    if not channels:
+        return []
+    pairs = [name for c in channels for name in (f"Normalization_Offset_{c}", f"Normalization_Scale_{c}")]
+    return [PARAMETERS_VERSION_COLUMN, NORMALIZATION_CHANNELS_COLUMN, *pairs]
 
 
 def save_image_table_csv(image_records, csv_path):
@@ -209,7 +221,13 @@ class PatchTableError(ValueError):
 # Columns of tables written by earlier CellPatcher versions, read but not fields themselves:
 # the ;-separated parameters of tables before 2026-10-28 (normalization brick N47).
 _LEGACY_PARAMETER_COLUMNS = ("normalization_offset", "normalization_scale")
+# Columns that are not PatchRegion fields: the computed size, the legacy parameters and the parameters' records.
+_OTHER_COLUMNS = {
+    "height", "width", *_LEGACY_PARAMETER_COLUMNS, PARAMETERS_VERSION_COLUMN, NORMALIZATION_CHANNELS_COLUMN,
+}
 _INTEGER_TEXT = re.compile(r"[+-]?[0-9]+")
+# A per-channel parameter column: Normalization_Offset_<ID> or Normalization_Scale_<ID>, the ID a Spec Token.
+_PARAMETER_COLUMN = re.compile(r"Normalization_(Offset|Scale)_[A-Za-z][A-Za-z0-9]*(?:_[A-Za-z0-9]+)*")
 _BOOLEAN_TEXT = {"true": True, "false": False}
 
 
@@ -220,7 +238,7 @@ def _field_kinds() -> dict[str, tuple[type, bool]]:
     hints = typing.get_type_hints(PatchRegion)
     kinds = {}
     for item in fields(PatchRegion):
-        if item.name in ("normalization_parameters", "mask_fractions"):
+        if item.name in _NOT_COLUMNS:
             continue
         arguments = typing.get_args(hints[item.name])
         optional = type(None) in arguments
@@ -365,10 +383,12 @@ def read_patch_table(csv_path) -> tuple[list[PatchRegion], dict | None]:
     rectangle, ``touches_border``, ``valid``); labels and ids stay text
     (``"001"`` is not a number). ``height``/``width`` must equal the
     rectangle's; ``mask_fraction_<name>`` columns give ``mask_fractions``;
-    ``Normalization_Offset_C<i>``/``Normalization_Scale_C<i>`` (or the
-    ``;``-separated ``normalization_offset``/``normalization_scale`` of tables
-    written before 2026-10-28) give ``normalization_parameters``, read with
-    the normalization settings of the run config. A ``repeat`` column of a
+    ``Normalization_Offset_<ID>``/``Normalization_Scale_<ID>`` with
+    ``normalization_parameters_version`` give ``normalization_parameters``, read with
+    the normalization settings of the run config, and ``normalization_channels`` the
+    patch's channel IDs in its C order (tables written before normalization v0.5.0,
+    with ``..._C<i>`` columns or the ``;``-separated ``normalization_offset``, are
+    refused row by row: run CellPatcher again). A ``repeat`` column of a
     table written before the rename is read as ``biological_repeat`` with a
     ``DeprecationWarning``. A column CellPatcher does not write, and two rows
     with one ``patch_id``, are refused. A column the table lacks (a table
@@ -415,13 +435,13 @@ def read_patch_table(csv_path) -> tuple[list[PatchRegion], dict | None]:
 
     kinds = _field_kinds()
     problems: list[str] = []
-    known = set(kinds) | {"height", "width", *_LEGACY_PARAMETER_COLUMNS}
+    known = set(kinds) | _OTHER_COLUMNS
     unknown = [
         name for name in header
         if name not in known
         and name == name.strip()  # a padded name is reported by _table_cells
         and not name.startswith(MASK_FRACTION_PREFIX)
-        and not re.fullmatch(r"Normalization_(Offset|Scale)_C[0-9]+", name)
+        and not _PARAMETER_COLUMN.fullmatch(name)
     ]
     if unknown:
         problems.append(f"columns CellPatcher does not write: {unknown}")
@@ -463,10 +483,10 @@ def read_patch_table(csv_path) -> tuple[list[PatchRegion], dict | None]:
                     "normalization settings (no config_file)"
                 )
             else:
-                from cellpatcher.normalization import parameters_from_row
+                from cellpatcher.normalization import normalization_fields
 
                 try:
-                    values["normalization_parameters"] = parameters_from_row(row, settings)
+                    values.update(normalization_fields(row, settings))
                 except ValueError as exc:
                     row_problems.append(f"normalization parameters: {exc}")
         if not row_problems:

@@ -25,9 +25,10 @@ pytestmark = [
     pytest.mark.filterwarnings("ignore::cellpatcher.normalization.NormalizationWarning"),
 ]
 
+# RGB parameters are recorded for the channel IDs R, G and B (normalization v0.5.0), sorted.
 SHARED_COLUMNS = [
-    "Normalization_Offset_C0", "Normalization_Scale_C0", "Normalization_Offset_C1", "Normalization_Scale_C1",
-    "Normalization_Offset_C2", "Normalization_Scale_C2",
+    "Normalization_Offset_B", "Normalization_Scale_B", "Normalization_Offset_G", "Normalization_Scale_G",
+    "Normalization_Offset_R", "Normalization_Scale_R",
 ]
 
 
@@ -150,11 +151,12 @@ def test_patch_scope_matches_stardist_normalization(image_axes):
         np.testing.assert_array_equal(array, _stardist_normalize(crop))
         parameters = patch.normalization_parameters
         assert parameters.method == "rgb percentile 1-99.8"
-        assert parameters.channels == (0, 1, 2)
+        assert parameters.channels == ("B", "G", "R")  # sorted IDs; the patch keeps its own C order
+        assert patch.normalization_channels == ("R", "G", "B")
         assert len(set(parameters.offset)) == 1 and len(set(parameters.scale)) == 1
         row = patch.to_dict()
-        assert [row[name] for name in SHARED_COLUMNS[0::2]] == [row["Normalization_Offset_C0"]] * 3
-        assert [row[name] for name in SHARED_COLUMNS[1::2]] == [row["Normalization_Scale_C0"]] * 3
+        assert [row[name] for name in SHARED_COLUMNS[0::2]] == [row["Normalization_Offset_R"]] * 3
+        assert [row[name] for name in SHARED_COLUMNS[1::2]] == [row["Normalization_Scale_R"]] * 3
 
 
 def test_an_rgb_patch_without_spread_becomes_zeros_and_is_kept():

@@ -14,7 +14,7 @@ before.
 
 ## The workflow
 
-1. **Install** CellPatcher: the preprocessing (v0.5.1) and normalization (v0.4.0) bricks are core
+1. **Install** CellPatcher: the preprocessing (v0.5.2) and normalization (v0.5.0) bricks are core
    dependencies. OME-Zarr images need the optional extra `pip install "cellpatcher[zarr]"` (the
    notebook's first cell installs it on Google Colab).
 2. **Describe the experiment and run the preprocessing notebook** on your experiment folder: publish
@@ -157,7 +157,9 @@ undone:
 | `normalization_scope` | the scope used |
 | `normalization_group` | the repeat group (e.g. `2026_01_01`), the image (e.g. `control/2026_01_01/a.tif`), or `<image>::<patch_id>` for the patch scope (`::t=<t>` with `per_time_point`) |
 | `normalization_exact` | `true` for exact parameters (8- and 16-bit images), `false` for histogram approximations (float images) |
-| `Normalization_Offset_C<i>`, `Normalization_Scale_C<i>` | the offset and scale of channel `i`, one pair per channel; a split-channel patch fills only its own channel's pair |
+| `normalization_parameters_version` | `2`: the parameter columns of normalization v0.5.0 (rows without it, written before, are refused on load: run CellPatcher again) |
+| `normalization_channels` | the patch's channel IDs in its own C order, `;`-separated (`ACTIN;DNA`); each channel is normalized with the pair of its ID, never by position |
+| `Normalization_Offset_<ID>`, `Normalization_Scale_<ID>` | the offset and scale of channel ID `<ID>` (the run's description's ID; for in-memory images without IDs, `C<i>` by position, or `R`, `G`, `B` for RGB), one pair per channel ID in sorted order; a split-channel patch fills only its own channel's pair |
 
 `run_config.json` records the normalization settings and which statistics were used
 (`normalization_inputs`: the CSV's SHA-256 and version as the run's manifest records them,

@@ -13,9 +13,9 @@ exported files, patches can be delivered:
 - **from exported files**, with :func:`iter_exported_patches` (or
   :func:`load_exported_patch`): files exported with
   ``normalization.export_values="raw"`` are normalized on load with each row's
-  ``Normalization_Offset_C<i>``/``Normalization_Scale_C<i>`` columns (or the
-  ``;``-separated ``normalization_offset``/``normalization_scale`` of earlier
-  tables); parameters are never recomputed.
+  ``Normalization_Offset_<ID>``/``Normalization_Scale_<ID>`` columns, each channel
+  by its ID in the row's ``normalization_channels`` order (tables written before
+  normalization v0.5.0 are refused); parameters are never recomputed.
 
 All delivery modes give the same arrays for the same configuration (raw files
 of resized or masked patches up to float32 rounding).
@@ -37,7 +37,7 @@ from cellpatcher.axes import normalize_axes, refuse_transposed_image_axes, refus
 from cellpatcher.extract import extract_patch
 from cellpatcher.io import read_array
 from cellpatcher.masking import apply_label_mask_to_patch
-from cellpatcher.normalization import PatchNormalization, parameters_from_row
+from cellpatcher.normalization import PatchNormalization, channel_order_from_row, parameters_from_row
 from cellpatcher.planes import apply_plane_choice, patch_plane_choice, select_mask_plane
 from cellpatcher.resize import resize_patch
 from cellpatcher.run_config_file import delivery_config, run_config_version
@@ -188,7 +188,7 @@ def _normalize_on_load(row: Mapping, array: np.ndarray, run_config: Mapping | No
         return array
     patch = _row_patch(row)
     clip = settings.get("clip")
-    return PatchNormalization(parameters).apply(
+    return PatchNormalization(parameters, channel_order_from_row(row)).apply(
         array,
         patch_axes(delivery_config(run_config, "run_config.json", patch.source_relative_path), patch),
         clip=tuple(clip) if clip else None,

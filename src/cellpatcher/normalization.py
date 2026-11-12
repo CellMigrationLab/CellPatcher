@@ -18,8 +18,18 @@ Implements ``docs/normalization_contract.md`` §6–§9 for ``config.normalizati
   here, after the brick's ``apply``: the brick never clips (its decision N19).
 - **Image types.** ``"fluorescence"`` normalizes each channel separately;
   ``"rgb"`` uses StarDist's percentile method, one offset and scale from the
-  R, G and B pixels pooled together (recorded for C0, C1 and C2), applied with
-  CSBDeep's float32 arithmetic by the brick.
+  R, G and B pixels pooled together (recorded for the channels ``R``, ``G`` and
+  ``B``), applied with CSBDeep's float32 arithmetic by the brick.
+- **Channels by ID** (normalization v0.5.0, Spec ADR 0003 HV2). Every channel is
+  named by its canonical channel ID, never by its C index: in a file run the ID of
+  each C index of an image is the image's own (``image_metadata["channel_ids"]``,
+  ``Fov.channel_ids``), and at a CSV scope its ``plane_histograms.csv`` row's, which
+  must agree. An in-memory image without channel IDs has no description: its
+  channels are named by position (``C0``, ``C1``, ...; ``R``, ``G``, ``B`` for
+  ``"rgb"``) at the patch scope only, whose parameters come from the patch itself.
+  The parameters hold the IDs in sorted order; :class:`PatchNormalization` keeps the
+  patch's own C order (``normalization_channels``) and applies each channel with
+  the parameters of its ID.
 - **Checks.** Every patched plane is linked to its CSV row with
   :func:`cellpatcher.statistics.check_planes` before anything is normalized.
 
@@ -36,7 +46,7 @@ from __future__ import annotations
 import warnings
 from collections import defaultdict
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -44,6 +54,12 @@ from morphobricks_normalization.records import SINGLE
 
 from cellpatcher.axes import normalize_axes
 from cellpatcher.masking import _label_to_2d
+from cellpatcher.patch_normalization import (  # PatchNormalization and the split are re-exported (their old home)
+    PatchNormalization,
+    channel_order_from_row,
+    image_channel_ids,
+)
+from cellpatcher.patch_normalization import split_channel_normalization as split_channel_normalization
 from cellpatcher.run_open import check_image_type, settings_statistics
 from cellpatcher.statistics import (
     PlaneStatistics,
@@ -59,7 +75,6 @@ if TYPE_CHECKING:
     from cellpatcher.config import CellPatcherConfig
 
 CSV_SCOPES = ("biological_repeat", "image")
-
 
 class NormalizationWarning(UserWarning):
     """A normalization runs, but with something the user should know (contract §14)."""
@@ -212,9 +227,11 @@ def run_settings(config) -> dict | None:
 def parameters_from_row(row: Mapping, settings: Mapping) -> object | None:
     """Read the brick ``Parameters`` of a ``patches.csv`` row, at its run's scope (brick #37); None if it has none.
 
-    *settings*: the row's ``run_config.json`` ``normalization``. ``Normalization_*_C<i>`` columns at a scope removed
+    *settings*: the row's ``run_config.json`` ``normalization``. ``Normalization_*_<ID>`` columns at a scope removed
     since (N29), which the brick refuses, are read as image-scope ones, keeping their recorded scope (it must be the
-    run's) and values (contract §7). ``;``-separated columns of earlier tables (N47): converted, scope checked.
+    run's) and values (contract §7). Rows written before normalization v0.5.0 (``Normalization_*_C<i>`` columns
+    without ``normalization_parameters_version``, or the ``;``-separated ``normalization_offset`` of earlier tables)
+    are refused, never converted (Spec ADR 0002 AR10): run CellPatcher again.
 
     Raises
     ------
@@ -224,122 +241,32 @@ def parameters_from_row(row: Mapping, settings: Mapping) -> object | None:
     from cellpatcher.setting_checks import REMOVED_NORMALIZATION_SCOPES
 
     mbn = require_normalization()
-    prefixes = ("Normalization_Offset_C", "Normalization_Scale_C")
+    prefixes = ("Normalization_Offset_", "Normalization_Scale_")
     pairs = any(str(name).startswith(prefixes) and value not in (None, "") for name, value in row.items())
-    if not pairs and not row.get("normalization_offset"):
+    if not pairs and row.get("normalization_offset"):
+        raise ValueError(
+            "The row has the ;-separated normalization_offset/normalization_scale columns of a patches.csv written "
+            "before the per-channel columns; such rows are not read (no conversion). Run CellPatcher again."
+        )
+    if not pairs:
         return None
     removed = (scope := settings.get("scope", "image")) in REMOVED_NORMALIZATION_SCOPES
-    if (removed or not pairs) and (recorded := row.get("normalization_scope")) != scope:
+    if removed and (recorded := row.get("normalization_scope")) != scope:
         raise ValueError(f"Column normalization_scope is {recorded!r}, but its run normalized at {scope!r}.")
-    if pairs:
-        brick = mbn.NormalizationSettings(
-            image_type=settings.get("image_type", "fluorescence"), method=settings.get("method", "percentile"),
-            percentile=tuple(settings.get("percentile", (1.0, 99.8))), scope="image" if removed else scope,
-        )
-        parameters = mbn.Parameters.from_columns({**row, "normalization_scope": "image"} if removed else row, brick)
-        return replace(parameters, scope=scope)
-    offsets = [float(value) for value in str(row["normalization_offset"]).split(";")]
-    scales = [float(value) for value in str(row.get("normalization_scale") or "").split(";")]
-    if len(offsets) != len(scales):
-        raise ValueError(f"{row.get('patch_id')}: {len(offsets)} normalization offsets but {len(scales)} scales.")
-    channels = (int(row["c"]),) if len(offsets) == 1 and row.get("c") not in (None, "") else None  # a split channel
-    return mbn.Parameters(
-        method=row.get("normalization_method") or "", scope=row.get("normalization_scope") or "",
-        group=row.get("normalization_group") or None, exact=row.get("normalization_exact") in (True, "true", "True"),
-        offset=tuple(offsets), scale=tuple(scales), channels=channels,
+    brick = mbn.NormalizationSettings(
+        image_type=settings.get("image_type", "fluorescence"), method=settings.get("method", "percentile"),
+        percentile=tuple(settings.get("percentile", (1.0, 99.8))), scope="image" if removed else scope,
     )
+    parameters = mbn.Parameters.from_columns({**row, "normalization_scope": "image"} if removed else row, brick)
+    return replace(parameters, scope=scope)
 
 
-@dataclass(frozen=True)
-class PatchNormalization:
-    """The normalization of one patch: the brick's ``Parameters``, one offset and scale per channel.
-
-    Attributes
-    ----------
-    parameters
-        ``morphobricks_normalization.Parameters``: the method name (e.g.
-        ``"percentile 1-99.8"``), ``normalization.scope``, the group key
-        (contract §7; None for the patch scope until :func:`finish_patch_groups`
-        knows the final ``patch_id``), exactness, and the offsets and scales
-        of the image channels the patch holds.
-    """
-
-    parameters: object
-
-    @property
-    def method(self) -> str:
-        return self.parameters.method
-
-    @property
-    def scope(self) -> str:
-        return self.parameters.scope
-
-    @property
-    def group(self) -> str | None:
-        return self.parameters.group
-
-    @property
-    def exact(self) -> bool:
-        return self.parameters.exact
-
-    @classmethod
-    def from_patch(cls, patch) -> PatchNormalization | None:
-        """The normalization recorded on a patch (``normalization_parameters``), or None when there is none."""
-        parameters = getattr(patch, "normalization_parameters", None)
-        return None if parameters is None else cls(parameters)
-
-    def unapply(self, array, axes: str) -> np.ndarray:
-        """Map normalized values back to raw units per channel, as float32: ``values * scale + offset``.
-
-        For RGB parameters the three channels share one offset and scale, so
-        this is the same mapping for each.
-        """
-        array = np.asarray(array)
-        axes = normalize_axes(axes, array.ndim)
-        offsets, scales = self.parameters.offset, self.parameters.scale
-        if "C" not in axes:
-            return (array.astype(np.float64) * scales[0] + offsets[0]).astype(np.float32)
-        channel_axis = axes.index("C")
-        out = np.empty(array.shape, dtype=np.float32)
-        for channel, (offset, scale) in enumerate(zip(offsets, scales)):
-            index = (slice(None),) * channel_axis + (channel,)
-            out[index] = array[index].astype(np.float64) * scale + offset
-        return out
-
-    def stamp(self, patch) -> None:
-        """Record the normalization on the patch: the ``normalization_*`` fields and ``normalization_parameters``."""
-        patch.normalization_method = self.method
-        patch.normalization_scope = self.scope
-        patch.normalization_group = self.group
-        patch.normalization_exact = self.exact
-        patch.normalization_parameters = self.parameters
-
-    def apply(self, array, axes: str, clip=None) -> np.ndarray:
-        """Normalize *array* (with *axes*) per channel into a new float32 array.
-
-        Computed by the brick's ``Parameters.apply``. *clip*
-        (``config.normalization.clip``) then limits the float32 values; with
-        the bounds rounded to float32 too, this equals clipping before
-        rounding, because rounding keeps the order of values.
-        """
-        array = np.asarray(array)
-        axes = normalize_axes(axes, array.ndim)
-        parameters = self.parameters
-        if "C" not in axes:
-            if parameters.channel_count != 1:
-                parameters = parameters.select([parameters.channels[0]])
-            out = parameters.apply(array)
-        else:
-            channel_axis = axes.index("C")
-            if array.shape[channel_axis] != parameters.channel_count:
-                raise ValueError(
-                    f"The patch has {array.shape[channel_axis]} channels but {parameters.channel_count} sets of "
-                    "normalization parameters."
-                )
-            out = parameters.apply(array, channel_axis=channel_axis)
-        if clip is not None:
-            np.clip(out, np.float32(clip[0]), np.float32(clip[1]), out=out)
-        return out
+def normalization_fields(row: Mapping, settings: Mapping) -> dict:
+    """Return a ``patches.csv`` row's ``normalization_parameters`` and ``normalization_channels`` (its C order)."""
+    return {
+        "normalization_parameters": parameters_from_row(row, settings),
+        "normalization_channels": channel_order_from_row(row),
+    }
 
 
 def group_parameters(config) -> list[dict]:
@@ -347,7 +274,7 @@ def group_parameters(config) -> list[dict]:
 
     For a CSV scope (``biological_repeat`` or ``image``), one entry per group
     and channel (and time point with ``per_time_point``), in sorted order:
-    ``group`` (as in ``normalization_group``), ``channel``, ``t``, ``planes``
+    ``group`` (as in ``normalization_group``), ``channel`` (its canonical ID), ``t``, ``planes``
     (CSV rows pooled), ``offset``, ``scale`` and ``exact``, or ``problem``
     when the group has no finite pixels or zero spread (which stops a run).
 
@@ -366,7 +293,7 @@ def group_parameters(config) -> list[dict]:
         result = normalizer._group_parameters(key)
         group = normalizer._mbn.group_name(key)
         t = key[1] if normalizer.settings.per_time_point else None
-        for channel in range(records[0].channel_count):
+        for channel in sorted({channel for record in records for channel in record.channels}):
             row = {"group": group, "channel": channel, "t": t, "planes": len(records)}
             if isinstance(result, str):
                 row["problem"] = result.split(": ", 1)[-1]
@@ -386,13 +313,6 @@ def finish_patch_groups(patches, per_time_point: bool) -> None:
         patch.normalization_group = f"{source}::{patch.patch_id}" + _time_suffix(patch.t, per_time_point)
         if patch.normalization_parameters is not None:
             patch.normalization_parameters = replace(patch.normalization_parameters, group=patch.normalization_group)
-
-
-def split_channel_normalization(patch, channel: int) -> None:
-    """Keep only *channel*'s parameters on a split channel patch (the brick's ``Parameters.select``, N46)."""
-    if patch.normalization_parameters is None:
-        return
-    patch.normalization_parameters = patch.normalization_parameters.select([channel])
 
 
 class Normalizer:
@@ -476,10 +396,11 @@ class Normalizer:
         cellpatcher.statistics.PreprocessingCheckError
             If a check of contract §5 fails.
         ValueError
-            If a group or patch has no finite pixels or zero spread, a CSV
-            scope lacks the images' ``source_relative_path``, the images
-            have different numbers of channels (normalization brick N43), or
-            ``"rgb"`` images are not three channels of an integer type.
+            If a group or patch has no finite pixels or zero spread, a channel
+            only some planes of a group have (``A_SCOPE_INCOMPLETE``), a CSV
+            scope lacks the images' ``source_relative_path``, an image's channel
+            IDs are not its rows' IDs, the images have different numbers of
+            channels, or ``"rgb"`` images are not three channels of an integer type.
         """
         by_image = defaultdict(list)
         for patch in patches:
@@ -488,15 +409,18 @@ class Normalizer:
         self._check_channel_counts(channel_planes, metadata)
         if self.settings.image_type == "rgb":
             self._check_rgb(channel_planes)
+        has_channels = "C" in normalize_axes(image_axes)
+        rgb = self.settings.image_type == "rgb"
+        channel_ids = {
+            index: image_channel_ids(metadata[index], len(channels), has_channels, rgb)
+            for index, channels in channel_planes.items()
+        }
 
         if self.statistics is not None:
             records = self._check(channel_planes, metadata, labels, image_axes)
-            normalizations = self._group_normalizations(records, by_image)
+            normalizations = self._group_normalizations(records, by_image, metadata)
         else:
-            has_channels = "C" in normalize_axes(image_axes)
-            normalizations = self._patch_normalizations(
-                channel_planes, masks, mask_axes, by_image, metadata, has_channels
-            )
+            normalizations = self._patch_normalizations(channel_planes, masks, mask_axes, by_image, channel_ids)
         for patch in patches:
             if id(patch) in normalizations:  # patches discarded under decision D8 are absent
                 normalizations[id(patch)].stamp(patch)
@@ -546,11 +470,16 @@ class Normalizer:
                 planes.append((plane, pixels))
         return dict(zip(keys, check_planes(self.statistics, planes)))
 
-    def _group_normalizations(self, records, by_image) -> dict[int, PatchNormalization]:
+    def _group_normalizations(
+        self, records: Mapping, by_image: Mapping, metadata: list
+    ) -> dict[int, PatchNormalization]:
+        """Give each image's patches its group's parameters, selected by the IDs of its rows in its C order."""
         level = self.settings.scope
         per_image = defaultdict(list)
         for (index, _), record in sorted(records.items()):
             per_image[index].append(record)
+        for index, channel_records in per_image.items():
+            _check_row_channel_ids(metadata[index], channel_records)
         failures, normalizations = [], {}
         for index, image_patches in by_image.items():
             channel_records = per_image[index]
@@ -563,10 +492,9 @@ class Normalizer:
                 failures.append(result)
                 continue
             group = self._mbn.group_name(key)
-            parameters = replace(
-                result.select(record.c for record in channel_records), scope=level, group=group
-            )
-            normalization = PatchNormalization(parameters)
+            order = tuple(record.channel for record in channel_records)  # the image's C order, by its rows' IDs
+            parameters = replace(result.select(order), scope=level, group=group)
+            normalization = PatchNormalization(parameters, order)
             for patch in image_patches:
                 normalizations[id(patch)] = normalization
         if failures:
@@ -618,20 +546,36 @@ class Normalizer:
             return self._mbn.fit(self._index[key], self._fit_settings)
         except self._mbn.NoValidPixelsError as exc:
             return f"{name}: no finite pixels ({exc})"
+        except self._mbn.ChannelScopeIncompleteError as exc:
+            # A channel only some planes of the group have: refused, never pooled over the planes with it
+            # (CellPatcher offers no partial_channels choice; Spec A_SCOPE_INCOMPLETE).
+            return f"{name}: {exc}"
         except ValueError as exc:
             return f"{name}: zero intensity spread for {self.settings.method} ({exc})"
 
     def _check_channel_counts(self, channel_planes, metadata) -> None:
-        """Refuse images with different numbers of channels (normalization brick decision N43)."""
+        """Refuse images with different numbers of channels in one normalized run (as before normalization v0.5.0).
+
+        Normalization v0.5.0 pools each channel by its ID, but CellPatcher does not yet patch images of different
+        channel counts in one normalized run (Spec Stage 3, gate G3): refused, never padded or dropped.
+        """
         counts = [
             (metadata[index].get("source_relative_path") or metadata[index].get("image_file") or f"image_{index}",
              len(channels))
             for index, channels in sorted(channel_planes.items())
         ]
-        if len({count for _, count in counts}) > 1:
-            from morphobricks_normalization.records import different_channel_counts
-
-            raise ValueError(different_channel_counts(counts, "The images of this run"))
+        by_count = defaultdict(list)
+        for name, count in counts:
+            by_count[count].append(name)
+        if len(by_count) > 1:
+            listed = "; ".join(
+                f"{count} channel(s): {', '.join(names[:3])}{' ...' if len(names) > 3 else ''}"
+                for count, names in sorted(by_count.items())
+            )
+            raise ValueError(
+                f"The images of this run have different numbers of channels ({listed}). CellPatcher normalizes images "
+                "of one channel count per run; patch each group of images in its own run."
+            )
 
     def _check_rgb(self, channel_planes) -> None:
         """Refuse ``"rgb"`` images that are not three integer channels, before any fit.
@@ -648,14 +592,12 @@ class Normalizer:
     # Patch scope -------------------------------------------------------------------------
 
     def _patch_normalizations(
-        self, channel_planes, masks, mask_axes, by_image, metadata, has_channels
+        self, channel_planes, masks, mask_axes, by_image, channel_ids
     ) -> dict[int, PatchNormalization]:
         failures, discarded, normalizations = [], [], {}
         for index, image_patches in by_image.items():
             channels = channel_planes[index]
-            # The image's channel indices: 0, 1, ... along its C axis, or the
-            # one channel it was selected as (image_metadata "c"), as for the CSV rows.
-            channel_ids = tuple(range(len(channels))) if has_channels else (int(metadata[index].get("c") or 0),)
+            order = channel_ids[index]  # the ID of each channel plane, in the image's C order
             labels_2d = None
             if self.region in ("mask", "bbox"):
                 labels_2d = _label_plane(masks[index], mask_axes, self.config.cell.mask_channel)
@@ -667,14 +609,14 @@ class Normalizer:
                     continue
                 values = np.stack([pixels[region] for pixels in channels])
                 try:
-                    parameters = self._mbn.fit(values, self._fit_settings, channel_axis=0)
+                    parameters = self._mbn.fit(values, self._fit_settings, channel_axis=0, channels=order)
                 except self._mbn.NoValidPixelsError:
                     discarded.append(f"{_describe(patch)}: no finite pixels in the region")
                     continue
                 except ValueError:
                     discarded.append(f"{_describe(patch)}: zero intensity spread for {self.settings.method}")
                     continue
-                normalizations[id(patch)] = PatchNormalization(replace(parameters, channels=channel_ids))
+                normalizations[id(patch)] = PatchNormalization(parameters, order)
         if failures:
             raise ValueError(
                 f"{len(failures)} patch(es) have no pixels for patch_region={self.region!r}:\n"
@@ -692,6 +634,27 @@ class Normalizer:
                 stacklevel=3,
             )
         return normalizations
+
+
+def _check_row_channel_ids(meta: Mapping, channel_records: list) -> None:
+    """Refuse an image whose own channel IDs are not those of its ``plane_histograms.csv`` rows, C index by C index."""
+    from morphobricks_preprocessing.validation import error
+
+    ids = meta.get("channel_ids")
+    if ids is None:
+        return
+    for record in channel_records:
+        if not 0 <= record.c < len(ids) or ids[record.c] != record.channel:
+            given = ids[record.c] if 0 <= record.c < len(ids) else None
+            raise PreprocessingCheckError([
+                error(
+                    "channel_id_mismatch",
+                    f"Channel C{record.c} of {meta.get('source_relative_path')} is {given!r} for the image but "
+                    f"{record.channel!r} in plane_histograms.csv ({record.plane_id}).",
+                    [str(meta.get("source_relative_path"))],
+                    "Run preprocessing again so its table describes the run's images.",
+                )
+            ])
 
 
 def _time_suffix(t, per_time_point: bool) -> str:

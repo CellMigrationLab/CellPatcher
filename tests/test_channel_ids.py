@@ -84,11 +84,79 @@ def test_an_unknown_channel_id_is_refused_by_the_resolver_before_anything_is_wri
     assert not (tmp_path / "out").exists()
 
 
-def test_v04_swapped_channel_order_is_refused_by_preprocessing_at_stage_1_2(tmp_path):
-    # v04: CTRL stores DNA, ACTIN and DrugA ACTIN, DNA. Preprocessing v0.5.1 processes one channel
-    # layout per experiment (R_HETEROGENEOUS_LAYOUT_NOT_ENABLED), so there is no such run to patch yet.
-    with pytest.raises(RuntimeError, match="2 channel layouts"):
-        _described_run(tmp_path, "v04")
+def test_v04_swapped_channel_order_is_patched_by_id(tmp_path):
+    # v04: CTRL stores DNA, ACTIN and DrugA ACTIN, DNA. Since preprocessing v0.5.2 (Stage 3 S3.3) the run
+    # exists: DNA by ID is C0 in CTRL and C1 in DrugA, and every DNA patch is cut from its own image's DNA plane.
+    run = _described_run(tmp_path, "v04")
+    rows, arrays = _tree(run, tmp_path / "out", ["DNA"])
+
+    assert {row["channel_id"] for row in rows} == {"DNA"}
+    assert {(row["condition"], row["c"]) for row in rows} == {("CTRL", "0"), ("DrugA", "1")}
+    for row in rows:
+        image = tifffile.imread(run.experiment / row["source_relative_path"])  # C, Y, X
+        plane = image[int(row["c"])][int(row["y0"]):int(row["y1"]), int(row["x0"]):int(row["x1"])]
+        np.testing.assert_array_equal(arrays[row["patch_id"]], plane)
+
+
+def _normalized_v04(run, output, scope, export_values="normalized"):
+    from cellpatcher.config import NormalizationConfig
+
+    config = _config(run, output, False)
+    config.export.image_format = "npy"
+    config.normalization = NormalizationConfig(enabled=True, method="minmax", scope=scope, export_values=export_values)
+    return run_patching_condition_repeat_tree(run.experiment, config=config, combine_metadata=True)
+
+
+@pytest.mark.parametrize("scope", ["image", "patch"])
+def test_v04_normalizes_each_channel_with_the_parameters_of_its_id(tmp_path, scope):
+    # W3 (normalization v0.5.0, Spec ADR 0003 HV2): the parameter columns are named by channel ID, and a
+    # multi-channel patch of DrugA (ACTIN, DNA) is normalized channel by channel with the parameters of its
+    # own IDs, never by position. normalization_channels records each patch's own C order.
+    run = _described_run(tmp_path, "v04")
+    results = _normalized_v04(run, tmp_path / "out", scope)
+    patches = [
+        (patch, array) for leaf in results
+        for patch, array in zip(leaf.result.patches, leaf.result.patch_arrays, strict=True)
+    ]
+    assert {patch.condition for patch, _ in patches} == {"CTRL", "DrugA"}
+    for patch, array in patches:
+        order = ("DNA", "ACTIN") if patch.condition == "CTRL" else ("ACTIN", "DNA")
+        assert patch.normalization_channels == order
+        assert patch.normalization_parameters.channels == ("ACTIN", "DNA")
+        image = tifffile.imread(run.experiment / patch.source_relative_path).astype(np.float64)
+        for c, channel in enumerate(order):
+            source = image[c] if scope == "image" else image[c][patch.y0:patch.y1, patch.x0:patch.x1]
+            low, high = source.min(), source.max()
+            index = patch.normalization_parameters.channels.index(channel)
+            assert (patch.normalization_parameters.offset[index], patch.normalization_parameters.scale[index]) == (
+                low, high - low
+            )
+            raw = image[c][patch.y0:patch.y1, patch.x0:patch.x1]
+            np.testing.assert_array_equal(array[c], ((raw - low) / (high - low)).astype(np.float32))
+    with (tmp_path / "out" / "patches.csv").open(newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+    assert {(row["condition"], row["normalization_channels"]) for row in rows} == {
+        ("CTRL", "DNA;ACTIN"), ("DrugA", "ACTIN;DNA")
+    }
+    assert {row["normalization_parameters_version"] for row in rows} == {"2"}
+    assert not [name for name in rows[0] if name.startswith("Normalization_") and name[-2:] in ("C0", "C1")]
+
+
+def test_v04_raw_patches_normalize_on_load_by_their_recorded_order(tmp_path):
+    # A raw export of a multi-channel DrugA patch is read back with its row's normalization_channels, so
+    # loading gives the arrays the run delivered (each channel by its ID).
+    from cellpatcher.delivery import iter_exported_patches
+
+    run = _described_run(tmp_path, "v04")
+    results = _normalized_v04(run, tmp_path / "out", "image", export_values="raw")
+    delivered = {
+        patch.patch_id: array for leaf in results
+        for patch, array in zip(leaf.result.patches, leaf.result.patch_arrays, strict=True)
+    }
+    loaded = list(iter_exported_patches(tmp_path / "out" / "patches.csv"))
+    assert {row["condition"] for row, _ in loaded} == {"CTRL", "DrugA"}
+    for row, array in loaded:
+        np.testing.assert_array_equal(array, delivered[row["patch_id"]])
 
 
 def test_one_id_gives_the_same_channel_whatever_its_c_index_in_each_image(tmp_path, monkeypatch):

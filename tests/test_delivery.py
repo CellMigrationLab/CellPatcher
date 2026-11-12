@@ -266,7 +266,7 @@ def test_a_row_is_read_at_the_scope_its_run_recorded():
 
     row = {"patch_id": "p", "normalization_method": "min-max", "normalization_scope": "condition",
            "normalization_group": "control", "normalization_exact": "true",
-           "Normalization_Offset_C0": "1.5", "Normalization_Scale_C0": "3.0"}
+           "normalization_parameters_version": "2", "Normalization_Offset_DNA": "1.5", "Normalization_Scale_DNA": "3.0"}
     removed = parameters_from_row(row, {"method": "minmax", "scope": "condition"})
     assert (removed.scope, removed.group, removed.offset, removed.scale) == ("condition", "control", (1.5,), (3.0,))
     for scope in ("image", "technical_repeat"):
@@ -280,19 +280,14 @@ def test_a_row_is_read_at_the_scope_its_run_recorded():
     assert parameters_from_row(image_row, {"method": "minmax"}).scope == "image"  # the configuration's default
 
 
-def test_a_row_of_an_earlier_table_is_read_at_the_scope_its_run_recorded():
-    # The ';'-separated columns CellPatcher converts itself (N47) get the brick's #37 check too.
+def test_a_row_of_an_earlier_table_is_refused_whatever_its_scope():
+    # W3: the ';'-separated columns of tables before the per-channel columns are no longer converted (N47
+    # superseded by normalization v0.5.0 and Spec ADR 0002 AR10): refused, at every scope.
     from cellpatcher.normalization import parameters_from_row
 
-    settings = {"method": "minmax"}
     old_row = {"patch_id": "p", "c": "", "normalization_method": "min-max", "normalization_scope": "image",
                "normalization_group": "a.tif", "normalization_offset": "1.5;2.0", "normalization_scale": "3.0;4.0",
                "normalization_exact": "true"}
-    assert parameters_from_row(old_row, settings).scope == "image"
-    for scope in ("patch", "biological_repeat", "condition"):
-        with pytest.raises(ValueError, match="its run normalized at"):
-            parameters_from_row(old_row, {**settings, "scope": scope})
-    condition_row = {**old_row, "normalization_scope": "condition", "normalization_group": "control"}
-    assert parameters_from_row(condition_row, {**settings, "scope": "condition"}).scope == "condition"
-    with pytest.raises(ValueError, match="'condition', but its run normalized at 'image'"):
-        parameters_from_row(condition_row, settings)
+    for scope in ("image", "patch", "biological_repeat", "condition"):
+        with pytest.raises(ValueError, match="Run CellPatcher again"):
+            parameters_from_row(old_row, {"method": "minmax", "scope": scope})

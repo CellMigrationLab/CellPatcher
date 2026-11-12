@@ -19,9 +19,9 @@
 | Tests       | `python tools/check.py` (pytest, Ruff and the MorphoBricks code rules against `tools/code_rules_baseline.json`, design v0.4 §9); `PYTHONPATH=src python -m pytest -q` for the tests alone |
 | Environment | `python -m pip install -e .` (add extras as needed: `.[test]`, `.[notebook]`, `.[torch]`) or `conda env create -f environment.yaml`                       |
 
-Key dependencies: `numpy`, `scipy`, `tifffile`, `imageio`, and the MorphoBricks bricks `morphobricks-preprocessing` and `morphobricks-normalization` from GitHub at pinned tags (preprocessing `v0.5.1`, normalization `v0.4.0`) (core, required; normalization is declared at the tag the preprocessing tag pins, owner decision D-h, checked by `tests/test_dependency_pins.py`; histograms, the plane table, plane IDs, pooling and normalization parameters are imported from `morphobricks_normalization`, not from their deprecated preprocessing paths). Optional extras: `ipywidgets`, `matplotlib`, `pillow`, `tqdm`, `joblib`, `jl-hidecode` (notebook extra); `torch` (optional `cellpatcher.torch_dataset` adapter only — never a core dependency); `morphobricks-preprocessing[zarr]` at the same tag (`zarr` extra, formerly `preprocessing`: OME-Zarr images and OME-NGFF label masks).
+Key dependencies: `numpy`, `scipy`, `tifffile`, `imageio`, and the MorphoBricks bricks `morphobricks-preprocessing` and `morphobricks-normalization` from GitHub at pinned tags (preprocessing `v0.5.2`, normalization `v0.5.0`) (core, required; normalization is declared at the tag the preprocessing tag pins, owner decision D-h, checked by `tests/test_dependency_pins.py`; histograms, the plane table, plane IDs, pooling and normalization parameters are imported from `morphobricks_normalization`, not from their deprecated preprocessing paths). Optional extras: `ipywidgets`, `matplotlib`, `pillow`, `tqdm`, `joblib`, `jl-hidecode` (notebook extra); `torch` (optional `cellpatcher.torch_dataset` adapter only — never a core dependency); `morphobricks-preprocessing[zarr]` at the same tag (`zarr` extra, formerly `preprocessing`: OME-Zarr images and OME-NGFF label masks).
 
-Current health snapshot (2026-11-11, v0.4.0 release prep (Stage 2 W2: CP-4, CP-3, CP-2, with #103): preprocessing `v0.5.1` and normalization `v0.4.0` installed from their tags, Python 3.11, Linux): `.[test,zarr,notebook]` with CPU `torch` 2.15.0: 2789 passed, 0 skipped (`python tools/check.py`; the smaller extras were not run). Preprocessing refuses Z>1 inputs (2-D planes only), so the tests that built Z-stacks use T.
+Current health snapshot (2026-11-12, W3 pins: preprocessing `v0.5.2` and normalization `v0.5.0` installed from their tags, Python 3.11, Linux): `.[test,zarr,notebook]` with CPU `torch` 2.15.0: 2802 passed, 0 skipped (`python tools/check.py --rules` clean; pytest with 3 workers; the smaller extras were not run). Preprocessing refuses Z>1 inputs (2-D planes only), so the tests that built Z-stacks use T.
 
 ---
 
@@ -418,9 +418,9 @@ Two ways to point CellPatcher at input data:
   normalization they are float32 normalized values, or with
   `normalization.export_values="raw"` the raw values (source dtype, float32
   when resized or masked) to be normalized on load with the row's
-  `Normalization_Offset_C<i>`/`Normalization_Scale_C<i>` columns (or the
-  `;`-separated `normalization_offset`/`normalization_scale` of tables
-  written before 2026-10-28)
+  `Normalization_Offset_<ID>`/`Normalization_Scale_<ID>` columns, by the
+  row's `normalization_channels` order (tables written before normalization
+  v0.5.0 are refused)
   (`cellpatcher.iter_exported_patches`, `ExportedPatchTorchDataset`).
 - In memory: eager arrays (`common.extract_arrays=True`, within
   `normalization.memory_limit`) or one patch at a time
@@ -489,8 +489,9 @@ run's description by `statistics.recorded_image_type` (follow-up C4; `Fov.image_
   OME-NGFF `labels/` masks become readable.
 - **Outputs:** optional columns appended to `patches.csv` —
   `source_relative_path`, four `normalization_*` columns and one
-  `Normalization_Offset_C<i>`/`Normalization_Scale_C<i>` pair per channel
-  (CellPatcher follow-up C1, normalization brick N41/N42; in memory
+  `Normalization_Offset_<ID>`/`Normalization_Scale_<ID>` pair per channel ID,
+  with `normalization_parameters_version` and `normalization_channels`
+  (CellPatcher follow-up C1, normalization brick N41/N42, ADR 0003 HV2; in memory
   `PatchRegion.normalization_parameters`, the brick's `Parameters`) — plus a
   `normalization` config section, a `normalization_inputs` object (with the
   experiment design's name and SHA-256 at the `biological_repeat` scope) and

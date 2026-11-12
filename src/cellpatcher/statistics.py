@@ -205,24 +205,31 @@ class SourcePlane:
 class ChannelRecord:
     """One channel of one row of ``plane_histograms.csv``.
 
-    A row (schema version 4) is an XYC plane holding one histogram per
-    channel; CellPatcher links and pools one channel at a time.
+    A row (schema version 5) is an XYC plane holding one histogram per
+    channel, named by canonical channel ID: the row's ``channels`` lists the IDs in
+    source order, entry ``i`` naming source channel ``C<i>`` (ADR 0003 HV1). CellPatcher
+    links one channel at a time by its C index and pools it by its ID.
 
     Attributes
     ----------
     record
         The row, a ``morphobricks_normalization.PlaneRecord``.
     c
-        The zero-based channel.
+        The zero-based channel (C index in the source image).
     """
 
     record: PlaneRecord
     c: int
 
     @property
+    def channel(self) -> str:
+        """The channel's canonical ID: the row's ``channels`` entry at its C index."""
+        return self.record.channels[self.c]
+
+    @property
     def histogram(self):
         """The channel's ``PlaneHistogram``."""
-        return self.record.channel_histogram(self.c)
+        return self.record.channel_histogram(self.channel)
 
     @property
     def source_relative_path(self) -> str:
@@ -303,14 +310,14 @@ class PlaneStatistics:
     def find_record(self, plane: SourcePlane) -> ChannelRecord | None:
         """``plane``'s channel of the row with its ``plane_id``, or None if the table has neither."""
         record = self._by_plane_id.get(plane.plane_id)
-        if record is None or not 0 <= plane.c < record.channel_count:
+        if record is None or not 0 <= plane.c < len(record.channels):
             return None
         return ChannelRecord(record, plane.c)
 
     def channel_records(self) -> Iterable[ChannelRecord]:
         """Every channel of every row, in table order."""
         for record in self.records:
-            for c in range(record.channel_count):
+            for c in range(len(record.channels)):
                 yield ChannelRecord(record, c)
 
 
