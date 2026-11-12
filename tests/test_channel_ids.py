@@ -206,3 +206,55 @@ def test_image_metadata_channel_ids_name_each_c():
     assert {(patch.c, patch.channel_id) for patch in result.patches} == {(0, "DNA"), (1, "ACTIN")}
     with pytest.raises(ValueError, match="names 1 channels, none for c=1"):
         run_patching(images=[image], config=config, image_metadata=[{"position_id": "p0", "channel_ids": ("DNA",)}])
+
+
+def _as_pre_v050_table(csv_path):
+    """Rewrite a normalized patches.csv as CellPatcher 0.4.0 wrote it: C-index columns, no version or C order."""
+    with csv_path.open(newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+    rename = {}
+    for row in rows:
+        for index, channel in enumerate(row["normalization_channels"].split(";")):
+            for kind in ("Offset", "Scale"):
+                rename[f"Normalization_{kind}_{channel}"] = f"Normalization_{kind}_C{index}"
+    dropped = ("normalization_parameters_version", "normalization_channels")
+    header = [rename.get(name, name) for name in rows[0] if name not in dropped]
+    with csv_path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, header)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({rename.get(name, name): value for name, value in row.items() if name not in dropped})
+
+
+def test_a_table_written_before_normalization_v050_is_refused_before_any_pixel_is_read(tmp_path, monkeypatch):
+    # Review of #104: loading raw exported patches read each file before refusing its row's old (C-index)
+    # parameter columns. The row is now refused first, with what to do, and no patch file is opened.
+    import cellpatcher.delivery as delivery
+    from cellpatcher.delivery import iter_exported_patches, load_exported_patch
+
+    run = _described_run(tmp_path, "v13")
+    _normalized_v04(run, tmp_path / "out", "image", export_values="raw")
+    csv_path = tmp_path / "out" / "patches.csv"
+    _as_pre_v050_table(csv_path)
+
+    def no_read(*args, **kwargs):
+        raise AssertionError("a patch file was read before the row was refused")
+
+    monkeypatch.setattr(delivery, "read_array", no_read)
+    expected = "without normalization_parameters_version.*run CellPatcher again"
+    with pytest.raises(ValueError, match=expected):
+        next(iter_exported_patches(csv_path))
+    with csv_path.open(newline="", encoding="utf-8") as handle:
+        row = next(csv.DictReader(handle))
+    run_config = __import__("json").loads((tmp_path / "out" / "run_config.json").read_text(encoding="utf-8"))
+    with pytest.raises(ValueError, match=expected):
+        load_exported_patch(row, root_dir=tmp_path / "out", run_config=run_config)
+
+    pytest.importorskip("torch")
+    import cellpatcher.torch_dataset as torch_dataset
+
+    monkeypatch.setattr(torch_dataset, "_load_exported_patch", no_read)
+    with pytest.raises(ValueError, match=expected):
+        tensors = torch_dataset.PatchTensorConfig(scale_policy="none")
+        torch_dataset.ExportedPatchTorchDataset(csv_path, axes="CYX", tensor_config=tensors)[0]
+

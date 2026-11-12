@@ -58,6 +58,7 @@ from cellpatcher.patch_normalization import (  # PatchNormalization and the spli
     PatchNormalization,
     channel_order_from_row,
     image_channel_ids,
+    refuse_earlier_parameter_row,
 )
 from cellpatcher.patch_normalization import split_channel_normalization as split_channel_normalization
 from cellpatcher.run_open import check_image_type, settings_statistics
@@ -241,14 +242,7 @@ def parameters_from_row(row: Mapping, settings: Mapping) -> object | None:
     from cellpatcher.setting_checks import REMOVED_NORMALIZATION_SCOPES
 
     mbn = require_normalization()
-    prefixes = ("Normalization_Offset_", "Normalization_Scale_")
-    pairs = any(str(name).startswith(prefixes) and value not in (None, "") for name, value in row.items())
-    if not pairs and row.get("normalization_offset"):
-        raise ValueError(
-            "The row has the ;-separated normalization_offset/normalization_scale columns of a patches.csv written "
-            "before the per-channel columns; such rows are not read (no conversion). Run CellPatcher again."
-        )
-    if not pairs:
+    if not refuse_earlier_parameter_row(row):  # no parameters; a row of an earlier table is refused
         return None
     removed = (scope := settings.get("scope", "image")) in REMOVED_NORMALIZATION_SCOPES
     if removed and (recorded := row.get("normalization_scope")) != scope:
