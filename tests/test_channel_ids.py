@@ -258,3 +258,56 @@ def test_a_table_written_before_normalization_v050_is_refused_before_any_pixel_i
         tensors = torch_dataset.PatchTensorConfig(scale_policy="none")
         torch_dataset.ExportedPatchTorchDataset(csv_path, axes="CYX", tensor_config=tensors)[0]
 
+
+@pytest.fixture
+def v04_distinct(tmp_path, monkeypatch):
+    """``v04`` with DNA pixels in 0..39 and ACTIN in 100..249, so parameters taken by position change the numbers.
+
+    Preprocessing's test writer draws every channel from 0..199, so at a CSV scope both IDs get the same
+    parameters and only the recorded order can tell a by-position mistake. Its image writer is replaced here
+    (private to preprocessing at the pinned tag) before the run is made, so the run records these pixels.
+    """
+    import morphobricks_preprocessing.testing_described as described
+
+    ranges = {"DNA": (0, 40), "ACTIN": (100, 250)}
+
+    def write_image(path, unit, seed):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        rng = np.random.default_rng(seed)
+        size = described.IMAGE_SIZE
+        planes = [rng.integers(*ranges[channel], (size, size), dtype=np.uint8) for channel in unit.channels]
+        tifffile.imwrite(path, np.stack(planes), photometric="minisblack", metadata={"axes": "CYX"})
+
+    monkeypatch.setattr(described, "_write_image", write_image)
+    return _described_run(tmp_path, "v04")
+
+
+@pytest.mark.parametrize("split", [False, True])
+@pytest.mark.parametrize("scope", ["biological_repeat", "image", "patch"])
+def test_v04_every_scope_pools_and_applies_each_channel_by_its_id(v04_distinct, tmp_path, scope, split):
+    # Review of #104: the parameters of each ID, pooled over the planes of that ID wherever its C index (CTRL
+    # stores DNA, ACTIN; DrugA ACTIN, DNA), applied to the plane of that ID; expected values from the pixels.
+    from cellpatcher.config import NormalizationConfig
+
+    run = v04_distinct
+    config = _config(run, tmp_path / "out", split)
+    config.normalization = NormalizationConfig(enabled=True, method="minmax", scope=scope)
+    results = run_patching_condition_repeat_tree(run.experiment, config=config, combine_metadata=True)
+    pairs = [(p, a) for leaf in results for p, a in zip(leaf.result.patches, leaf.result.patch_arrays, strict=True)]
+    images = {p.source_relative_path: tifffile.imread(run.experiment / p.source_relative_path).astype(np.float64)
+              for p, _ in pairs}
+    ids = {path: ("DNA", "ACTIN") if path.startswith("CTRL") else ("ACTIN", "DNA") for path in images}
+    assert {p.condition for p, _ in pairs} == {"CTRL", "DrugA"}
+    for patch, array in pairs:
+        own = images[patch.source_relative_path]
+        for position, c in enumerate([patch.c] if split else range(2)):
+            channel = ids[patch.source_relative_path][c]
+            if scope == "biological_repeat":  # one repeat group: every plane of this ID, in both conditions
+                pool = np.concatenate([image[ids[path].index(channel)].ravel() for path, image in images.items()])
+            elif scope == "image":
+                pool = own[c]
+            else:
+                pool = own[c][patch.y0:patch.y1, patch.x0:patch.x1]
+            raw = own[c][patch.y0:patch.y1, patch.x0:patch.x1]
+            expected = ((raw - pool.min()) / (pool.max() - pool.min())).astype(np.float32)
+            np.testing.assert_array_equal(array if split else array[position], expected, err_msg=patch.patch_id)
