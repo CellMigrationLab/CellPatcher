@@ -8,6 +8,9 @@ when a preprocessing run was read, a ``preprocessing`` section:
 - ``manifest_sha256``: the SHA-256 of its ``run_manifest.json`` when this call opened it, which
   names the run's images, masks, roles and table exactly (a manifest changed since is refused
   when the file is written: :func:`cellpatcher.run_open.refuse_changed_manifest`);
+- ``mask_conversions`` when random mode read a ``parent_labels`` mask as an area (W3,
+  experiment-v1 §4.5b): ``[{"mask_id": ..., "role": "region", "conversion": "parent_labels_as_area"}]``;
+  absent otherwise;
 - for a folder or tree run, ``layout``: the order of the arrays CellPatcher built from the roles
   the run recorded (T, Z, C, then Y, X; ``image`` and ``mask``), which delivers exported patches.
   Each image is read in its own roles (audit A-M1); when the images' layouts differ, ``image``
@@ -43,6 +46,7 @@ from cellpatcher.config import (
 )
 from cellpatcher.normalization import CSV_SCOPES, normalization_inputs, run_settings
 from cellpatcher.run_open import refuse_changed_manifest
+from cellpatcher.run_request import PARENT_LABELS_AS_AREA
 from cellpatcher.run_session import recalled, recalled_layouts
 from cellpatcher.setting_checks import REMOVED_NORMALIZATION_SCOPES
 
@@ -102,6 +106,10 @@ def _preprocessing_section(config: CellPatcherConfig) -> dict | None:
         raise RuntimeError(f"The preprocessing run {run} was not opened in this call, so it cannot be recorded.")
     refuse_changed_manifest(run, sha256)
     section: dict[str, Any] = {"run": str(run), "manifest_sha256": sha256}
+    area = recalled(PARENT_LABELS_AS_AREA, run) if file_run else None
+    if area is not None:
+        # experiment-v1 §4.5b: a parent_labels mask read as an area is recorded with its mask ID.
+        section["mask_conversions"] = [{"mask_id": area, "role": "region", "conversion": PARENT_LABELS_AS_AREA}]
     if file_run:
         section["layout"] = {"image": common.image_axes, "mask": common.mask_axes}
         images = recalled_layouts(run) or {}
