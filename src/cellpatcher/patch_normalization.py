@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import numpy as np
+from morphobricks_normalization.channels import check_channel_ids
 from morphobricks_normalization.rgb import RGB_CHANNELS
 
 from cellpatcher.axes import normalize_axes
@@ -187,10 +188,13 @@ def image_channel_ids(meta: Mapping, count: int, has_channels: bool, rgb: bool) 
     Raises
     ------
     ValueError
-        If ``channel_ids`` does not name every channel of the image, or has no ID for its ``c``.
+        If ``channel_ids`` does not name every channel of the image, has no ID for its ``c``, repeats an ID or
+        holds a text that is not a channel ID (refused here, before any fit, so that no patch is discarded for it).
     """
     ids = meta.get("channel_ids")
     where = meta.get("source_relative_path") or meta.get("image_file") or "an image"
+    if ids is not None:
+        ids = check_channel_ids(ids, f'{where}: image_metadata["channel_ids"]')
     if has_channels:
         if ids is None:
             if rgb and count == len(RGB_CHANNELS):

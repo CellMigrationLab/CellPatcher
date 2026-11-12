@@ -44,6 +44,26 @@ def test_in_memory_channels_are_named_by_position_and_file_runs_by_their_ids():
         image_channel_ids({"channel_ids": ("ACTIN", "DNA")}, 3, True, False)
 
 
+@pytest.mark.parametrize("ids", [("DNA", "DNA"), ("DNA", "my channel")])
+def test_repeated_or_malformed_channel_ids_are_refused_not_discarded_as_zero_spread(ids):
+    # Review of #104: at the patch scope a repeated or malformed ID reached the brick's fit, whose ValueError was
+    # caught as "zero intensity spread", so every patch was discarded with a misleading warning. Refused instead.
+    from cellpatcher.config import CellPatcherConfig, GridConfig, NormalizationConfig
+    from cellpatcher.normalization import image_channel_ids
+    from cellpatcher.pipeline import run_patching
+
+    with pytest.raises(ValueError, match='image_metadata\\["channel_ids"\\]'):
+        image_channel_ids({"channel_ids": ids}, 2, True, False)
+    with pytest.raises(ValueError, match='image_metadata\\["channel_ids"\\]'):
+        image_channel_ids({"channel_ids": ids, "c": 0}, 1, False, False)
+    config = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=8))
+    config.common.image_axes, config.common.extract_arrays = "CYX", True
+    config.normalization = NormalizationConfig(enabled=True, method="minmax", scope="patch")
+    image = np.random.default_rng(0).integers(0, 100, (2, 16, 16), dtype=np.uint8)
+    with pytest.raises(ValueError, match='image_metadata\\["channel_ids"\\]'):
+        run_patching(images=image, config=config, image_metadata=[{"position_id": "a", "channel_ids": ids}])
+
+
 def test_rows_of_earlier_tables_are_refused_never_converted():
     """W3 (normalization v0.5.0, Spec ADR 0002 AR10): C-index and ';'-separated rows are refused; ID rows read."""
     import morphobricks_normalization as mbn
