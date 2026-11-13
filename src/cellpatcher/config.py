@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import InitVar, dataclass, field
 
 from cellpatcher._deprecation import accept_deprecated_repeat
@@ -13,8 +14,6 @@ from cellpatcher.io import (
 )
 from cellpatcher.setting_checks import (
     MODES,
-    channel_id_selection,
-    channel_selection,
     check_cell_settings,
     check_common_settings,
     check_export_settings,
@@ -208,45 +207,43 @@ class ExtractionConfig:
     resize_order: int = 1
     apply_mask: bool = False
     mask_fill_value: float = 0.0
-    # Export one single-channel patch per channel of each region instead of
-    # one multichannel patch (requires a "C" axis in common.image_axes):
-    # True for every channel, or a list of channel indices for only those
-    # (CellPatcher follow-up C5), or, in a file run, a list of the channel IDs
-    # of the run's description, resolved per image (CP-3).
-    split_channels: bool | list[int] | list[str] = False
+    # Export one single-channel patch per channel of each region instead of one multichannel patch
+    # (requires a "C" axis): True for every channel, or a list of canonical channel IDs for only those,
+    # resolved in each image by its own channel IDs (a file run's description, CP-3; image_metadata
+    # "channel_ids" in memory). Never by position (owner decision of 13 November 2026).
+    split_channels: bool | list[str] = False
 
     def __post_init__(self) -> None:
         # output_size: None (no resize), an int (square) or a (height, width) pair of ints.
         check_extraction_settings(self)
 
-    def split_channel_indices(self, channel_count: int) -> tuple[int, ...]:
-        """The channels that get a single-channel patch of their own, for an image with *channel_count* channels.
+    def split_channel_indices(self, channel_ids: Sequence[str] | None, channel_count: int) -> tuple[int, ...]:
+        """Return the C indices that get a single-channel patch in an image whose channels are *channel_ids*.
 
-        Every channel for ``split_channels=True``, the selected ones (in
-        increasing order) for a list, and none for False.
+        Every channel for ``split_channels=True``, none for False, and for a list of IDs the C index of
+        each in this image, in increasing order (one ID may be a different C index in another image).
 
         Raises
         ------
         ValueError
-            If a selected index is not a channel of the image.
+            For a list of IDs when the image has no channel IDs, or IDs other than one per channel, or
+            an ID the image does not have.
         """
-        if channel_id_selection(self.split_channels) is not None:
-            raise ValueError(
-                f"extraction.split_channels={self.split_channels!r} names channel IDs, which only a described "
-                "preprocessing run has (a folder or tree run resolves them per image). Select in-memory images' "
-                "channels by index (0, 1, ...)."
-            )
-        selection = channel_selection(self.split_channels)
-        if selection is None:
+        if isinstance(self.split_channels, bool):
             return tuple(range(channel_count)) if self.split_channels else ()
-        outside = [channel for channel in selection if channel >= channel_count]
-        if outside:
+        if channel_ids is None or len(channel_ids) != channel_count:
             raise ValueError(
-                f"extraction.split_channels selects channel {', '.join(map(str, outside))}, but the image has "
-                f"{channel_count} channel{'' if channel_count == 1 else 's'} (indices 0 to {channel_count - 1}). "
-                "Select channels the images have, or True for every channel."
+                f"extraction.split_channels names channel IDs ({', '.join(self.split_channels)}), but the image's "
+                f"{channel_count} channel(s) are not named by ID ({channel_ids!r}). A file run names them from its "
+                'description; for an in-memory image give image_metadata["channel_ids"], one ID per C index.'
             )
-        return selection
+        missing = [channel for channel in self.split_channels if channel not in channel_ids]
+        if missing:
+            raise ValueError(
+                f"extraction.split_channels names {', '.join(missing)}, which the image (channels "
+                f"{', '.join(channel_ids)}) does not have. Name channel IDs every image has."
+            )
+        return tuple(sorted(list(channel_ids).index(channel) for channel in self.split_channels))
 
 
 @dataclass

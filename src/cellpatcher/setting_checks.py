@@ -13,9 +13,7 @@ section's ``__post_init__`` calls the same ``check_*_settings`` function.
 
 from __future__ import annotations
 
-import operator
 from collections.abc import Sequence
-from numbers import Integral
 from pathlib import PurePath
 
 from cellpatcher.fractions import (
@@ -158,57 +156,30 @@ def check_cell_settings(cell: object) -> None:
     check_strict_bool(cell.exclude_border, "exclude_border")
 
 
-def channel_id_selection(split_channels: object) -> tuple[str, ...] | None:
-    """Return the canonical channel IDs a list ``split_channels`` names, as given; None for any other value.
+def check_channel_selection(split_channels: object) -> None:
+    """Refuse a ``split_channels`` that is neither a bool nor a non-empty list of distinct canonical channel IDs.
 
-    Channel IDs (text) select the channels of a described preprocessing run (file runs, CP-3): each
-    is resolved to its C index **in each image** by the run's resolver (``RunInputs.resolve_request``).
-
-    Raises
-    ------
-    ValueError
-        If a list of text names an empty ID, names one twice, or mixes IDs with indices.
-    """
-    if not isinstance(split_channels, (list, tuple)) or not split_channels:
-        return None
-    texts = [isinstance(channel, str) for channel in split_channels]
-    if not any(texts):
-        return None
-    if not all(texts) or not all(split_channels):
-        raise ValueError(
-            "split_channels lists either channel indices (0, 1, ...) or channel IDs of the run's description "
-            f"(text), not a mix or an empty ID; got {split_channels!r}."
-        )
-    if len(set(split_channels)) != len(split_channels):
-        raise ValueError(f"split_channels lists a channel more than once: {list(split_channels)!r}.")
-    return tuple(split_channels)
-
-
-def channel_selection(split_channels: object) -> tuple[int, ...] | None:
-    """Return the channel indices a list ``split_channels`` selects, sorted; None for True or False.
+    Channels are chosen by their canonical channel ID only, never by position (owner decision of
+    13 November 2026): each ID is resolved to its C index **in each image** by the image's own channel IDs.
 
     Raises
     ------
     ValueError
-        If *split_channels* is neither a bool nor a non-empty list of distinct
-        non-negative channel indices (an ``int`` or NumPy integer each, never a bool).
+        For any other value, an empty ID or an ID listed twice.
     """
     if isinstance(split_channels, bool):
-        return None
+        return
     if (
         not isinstance(split_channels, (list, tuple))
         or not split_channels
-        or any(isinstance(channel, bool) or not isinstance(channel, Integral) or channel < 0
-               for channel in split_channels)
+        or not all(isinstance(channel, str) and channel for channel in split_channels)
     ):
         raise ValueError(
-            "split_channels must be a bool or a non-empty list of channel indices (0, 1, ...): True gives one "
-            "patch per channel, a list one patch per selected channel, False one multichannel patch; got "
-            f"{split_channels!r}."
+            "split_channels must be True (one patch per channel), False (one multichannel patch) or a non-empty "
+            f"list of canonical channel IDs (text, one patch per channel named); got {split_channels!r}."
         )
     if len(set(split_channels)) != len(split_channels):
         raise ValueError(f"split_channels lists a channel more than once: {list(split_channels)!r}.")
-    return tuple(sorted(operator.index(channel) for channel in split_channels))
 
 
 def check_extraction_settings(extraction: object) -> None:
@@ -227,8 +198,7 @@ def check_extraction_settings(extraction: object) -> None:
     check_strict_bool(extraction.apply_mask, "apply_mask")
     check_real_number(extraction.constant_values, "constant_values", finite=False)
     check_real_number(extraction.mask_fill_value, "mask_fill_value", finite=False)
-    if channel_id_selection(extraction.split_channels) is None:
-        channel_selection(extraction.split_channels)
+    check_channel_selection(extraction.split_channels)
 
 
 def check_export_settings(export: object) -> None:

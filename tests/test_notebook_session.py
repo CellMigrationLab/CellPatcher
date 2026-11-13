@@ -41,7 +41,8 @@ def test_the_summary_is_what_the_run_recorded(clean):
     summary = summarize_run(clean.output)
     assert summary.images == tuple(f"{c}/rep1/{n}.ome.tif" for c in ("ctrl", "drug") for n in ("a", "b"))
     assert summary.groups == ((("ctrl", "rep1", "single"), 2), (("drug", "rep1", "single"), 2))
-    assert (summary.layout, summary.mask_types, summary.channels) == ("CYX", ("Cells",), ("C0", "C1"))
+    # The channels offered are the canonical IDs of the run's description: channels are chosen by ID only.
+    assert (summary.layout, summary.mask_types, summary.channels) == ("CYX", ("Cells",), ("ch1", "ch2"))
     assert summary.experiment_root in {clean.experiment, clean.experiment.resolve()}
     assert not summary.moved_experiment and summary.masks_argument is None
 

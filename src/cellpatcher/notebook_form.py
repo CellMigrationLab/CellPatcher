@@ -249,7 +249,7 @@ class SettingsForm:
         """Offer the run's mask types, channels and plane axes."""
         self.mask_type.options = list(summary.mask_types)
         self.mask_type.value = summary.mask_types[0] if summary.mask_types else None
-        self.channels.options = [(name, index) for index, name in enumerate(summary.channels)]
+        self.channels.options = list(summary.channels)  # canonical channel IDs: chosen by ID, never by position
         self.channels.value = ()
         self.planes.show_for(summary.layout)
 
@@ -288,7 +288,7 @@ class SettingsForm:
                 output_size=self.output_size.value or None,
                 pad_mode="constant" if self.pad.value else "clip",
                 apply_mask=self.mode.value == "cell" and self.cell.apply_mask.value,
-                split_channels=sorted(self.channels.value) or False,
+                split_channels=list(self.channels.value) or False,
             ),
             export=ExportConfig(enabled=True, image_format=self.file_format.value),
             matching=MatchConfig(mask_type=mask_type),

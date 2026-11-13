@@ -512,6 +512,11 @@ from GitHub at a pinned version) **[D1]**.
   channel in its group (`Parameters.select([i])`, N46). RGB refuses any channel splitting. The
   notebook shows one checkbox per channel (`C0`, `C1`, ..., with the OME channel names when the
   header records them, `cellpatcher.io.channel_names`).
+  *Superseded (owner decision, 13 November 2026):* channels are chosen by canonical channel ID
+  only. The list of indices was removed, not deprecated: `split_channels` is `True`, `False` or a
+  list of channel IDs, each the C index it has in each image (a file run's description,
+  `image_metadata["channel_ids"]` in memory); the notebook offers the run's channel IDs. The
+  preparation helpers' `channel_policy="select"`/`"first"` and `channel_index` were removed too.
 - **CellPatcher v0.2.0 — reading through the preprocessing run** (MorphoBricks design v0.4,
   §6 and §8). *CP-1:* the plane statistics are opened with the brick's `RunInputs.open`.
   *CP-2a/b:* folder and tree runs read only through `RunInputs` (images, FOV keys, roles,

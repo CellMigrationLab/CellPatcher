@@ -32,6 +32,31 @@ Release v0.3.0
 Pin preprocessing v0.4.0rc4; prepare v0.2.0rc2
 
 ---
+## [Unreleased] - Channels are chosen by canonical channel ID only (owner decision, 13 November 2026)
+
+### Removed (breaking, no compatibility alias)
+- `extraction.split_channels` no longer takes channel indices (`[1]`, `[0, 2]`): it is `True`, `False`
+  or a list of canonical channel IDs (`["DNA"]`). A list of indices is not a valid value (`ValueError`
+  from the config's checks). Each ID is the C index it has **in each image**: in a folder or tree run by
+  the run's description (`Fov.channel_ids`; an ID some image lacks is still refused by the resolver,
+  `A_SCOPE_INCOMPLETE`, before any read), and for in-memory images by `image_metadata["channel_ids"]`
+  (refused without them). `ExtractionConfig.split_channel_indices` takes the image's channel IDs.
+- `prepare_image_for_patching`/`iter_image_planes_for_patching` lost `channel_policy="select"`/`"first"`
+  and `channel_index`; `iter_cell_planes_for_patching` lost `image_channel_index`. The other channel
+  policies (`"keep"`, `"repeat_to_rgb"`, `"max"`, `"mean"`) are unchanged.
+- `FileRun.channel_indices` and `ResolvedRun.channel_indices` (internal) were removed: a file run's
+  selected channels come from each image's own channel IDs.
+
+### Changed
+- The notebook's "Split channels" list offers the run's canonical channel IDs (every image's, in order of
+  first appearance; `RunSummary.channels`) and passes the IDs chosen, instead of the first image's channel
+  names by position.
+
+**Migration:** replace `split_channels=[i, ...]` by the IDs of those channels in the run's description;
+for in-memory images give `image_metadata=[{"channel_ids": (...)}, ...]`. A `run_config.json` written with
+a list of indices is refused when loaded.
+
+---
 ## [0.5.0] - 2026-11-12 - Preprocessing v0.5.2, normalization v0.5.0: channels by canonical ID, parent-label masks (Stage 2 W3)
 
 The v0.5.0 release (12 November 2026, approved by the owner). It pins preprocessing `v0.5.2` (core and

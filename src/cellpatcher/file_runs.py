@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Iterator, Mapping, Sequence
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING
 
@@ -56,7 +56,7 @@ from cellpatcher.run_reading import (
 )
 from cellpatcher.run_request import ObjectMask, resolve_run
 from cellpatcher.run_session import keep_in_session, remember, remember_layouts
-from cellpatcher.setting_checks import channel_id_selection, check_run_settings
+from cellpatcher.setting_checks import check_run_settings
 from cellpatcher.statistics import (
     PlaneStatistics,
     PreprocessingCheckError,
@@ -101,9 +101,6 @@ class FileRun:
         (:func:`cellpatcher.run_reading.mask_layout`); empty without masks.
     statistics
         The run's table for a CSV normalization scope, else None.
-    channel_indices
-        For ``extraction.split_channels`` naming channel IDs: each image's C indices of those IDs,
-        keyed by its path, as the run's resolver selected them (CP-3); empty otherwise.
     object_mask
         In ``cell`` mode, the object set the resolver selected by mask ID, with its conversion (CP-2);
         None otherwise.
@@ -114,7 +111,6 @@ class FileRun:
     mask_type: str | None
     mask_layouts: Mapping[str, str]
     statistics: PlaneStatistics | None
-    channel_indices: Mapping[str, tuple[int, ...]] = field(default_factory=dict)
     object_mask: ObjectMask | None = None
 
     @property
@@ -244,7 +240,8 @@ def open_file_run(
     by_id = config.mode == "cell" and config.matching.mask_id is not None  # the mask type is the selection's
     reads_type = use_masks and not by_id
     mask_type = _mask_type(config.matching.mask_type, inputs, f"mode={config.mode!r}") if reads_type else None
-    ids, cell = channel_id_selection(config.extraction.split_channels) or (), config.cell
+    split, cell = config.extraction.split_channels, config.cell
+    ids = () if isinstance(split, bool) else tuple(split)  # channel IDs; each image's are its own (Fov.channel_ids)
     mask_id = _cell_mask_id(config, inputs, mask_type) if use_masks else None
     region_id = _region_mask_id(config, inputs, mask_type) if use_masks else None
     resolved = resolve_run(
@@ -263,7 +260,7 @@ def open_file_run(
         _check_object_set(config, mask_type)
     remember_layouts(config.common.preprocessing_run, layouts, mask_layouts)
     statistics = _csv_statistics(config, inputs, layouts)
-    return FileRun(inputs, layouts, mask_type, mask_layouts, statistics, resolved.channel_indices, resolved.object_mask)
+    return FileRun(inputs, layouts, mask_type, mask_layouts, statistics, resolved.object_mask)
 
 
 def _cell_mask_id(config: CellPatcherConfig, inputs: RunInputs, mask_type: str | None) -> str | None:
@@ -492,8 +489,6 @@ def fov_metadata(run: FileRun, fov: Fov, config: CellPatcherConfig) -> dict:
         meta[name] = value
     if fov.channel_ids is not None:
         meta["channel_ids"] = fov.channel_ids  # each patch's channel_id is the ID of its c (CP-3)
-    if fov.relative_path in run.channel_indices:
-        meta["channel_indices"] = run.channel_indices[fov.relative_path]
     if run.mask_type is not None:
         meta["mask_file"] = mask_file_name(_record(run.inputs, fov, run.mask_type))
         if config.mode == "cell" and config.common.object_set is None:

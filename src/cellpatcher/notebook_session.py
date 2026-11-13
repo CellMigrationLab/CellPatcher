@@ -70,7 +70,8 @@ class RunSummary:
     groups
         ``((condition, biological_repeat, technical_repeat), number of images)``, sorted.
     channels
-        The channel names of the first image (``C0``, ``C1``, ... when it names none).
+        The canonical channel IDs of the run's description (``Fov.channel_ids``), every image's, in order of
+        first appearance: the channels ``extraction.split_channels`` can name. Empty when no image has any.
     layout
         The T and C axes some image of the run has (:func:`cellpatcher.run_reading.run_layout`); each
         image is read in its own roles.
@@ -147,7 +148,6 @@ def summarize_run(
     if not fovs:
         raise ValueError(f"The preprocessing run in {run} has no images.")
     groups = Counter(fov.key[:3] for fov in fovs)
-    names = fovs[0].channel_names or (None,) * fovs[0].c_count
     return RunSummary(
         run=run,
         experiment_root=inputs.experiment_root,
@@ -156,7 +156,7 @@ def summarize_run(
         moved_masks=given_masks is not None,
         images=tuple(fov.relative_path for fov in fovs),
         groups=tuple(sorted(groups.items())),
-        channels=tuple(name or f"C{index}" for index, name in enumerate(names)),
+        channels=tuple(dict.fromkeys(channel for fov in fovs for channel in fov.channel_ids or ())),
         layout=run_layout(fovs),
         mask_types=inputs.mask_types(),
         image_type=run_image_type(inputs),

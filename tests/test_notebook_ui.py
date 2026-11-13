@@ -54,6 +54,16 @@ def test_the_config_is_a_file_run_of_the_checked_run(clean):
     assert config.matching.mask_type is None  # grid reads no masks
 
 
+def test_the_split_channels_are_chosen_by_their_ids(clean):
+    # Owner decision of 13 November 2026: channels are chosen by canonical channel ID only, never by position.
+    notebook = _checked(clean)
+    notebook.form.mode.value = "grid"
+    assert list(notebook.form.channels.options) == ["ch1", "ch2"]
+    assert notebook.config().extraction.split_channels is False  # none chosen: every channel in each patch
+    notebook.form.channels.value = ("ch2",)
+    assert notebook.config().extraction.split_channels == ["ch2"]
+
+
 def test_preview_and_export_through_the_buttons(clean, tmp_path):
     notebook = _checked(clean)
     notebook.form.cell.size.value = "fixed"

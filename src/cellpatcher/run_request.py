@@ -3,8 +3,8 @@
 Spec ADR 0002 (resolver contract v2, preprocessing v0.5.2): CellPatcher does not interpret the
 experiment description itself. A file run builds one ``Request`` and reads through the ``FovSelection``s:
 
-- the channel IDs ``extraction.split_channels`` names, resolved to their C index **in each image**
-  (CP-3);
+- the channel IDs ``extraction.split_channels`` names, which every image must have (``A_SCOPE_INCOMPLETE``
+  otherwise; CP-3): each is then patched at its C index **in each image**, by the image's ``Fov.channel_ids``;
 - in ``mode="cell"``, the object set by its **mask ID** (``matching.mask_id``):
   ``MaskRequest(mask_id, "objects", cell.binary_mask_policy)`` (CP-2). An ``instances`` mask is
   read as stored (D47: an ``instances`` mask holding 0 and 1 is one object); a ``binary`` mask is
@@ -27,8 +27,7 @@ Every refusal of the resolver (``A_SCOPE_INCOMPLETE``, ``A_MASK_UNCHECKED``,
 from __future__ import annotations
 
 import warnings
-from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -108,9 +107,6 @@ class ResolvedRun:
 
     Attributes
     ----------
-    channel_indices
-        For ``extraction.split_channels`` naming channel IDs: each image's C indices of those IDs,
-        keyed by its path (CP-3); empty otherwise.
     object_mask
         The cell-mode object set (CP-2); None outside cell mode.
     region_mask
@@ -120,7 +116,6 @@ class ResolvedRun:
         then); the caller raises them (``PreprocessingCheckError``) before any read.
     """
 
-    channel_indices: Mapping[str, tuple[int, ...]] = field(default_factory=dict)
     object_mask: ObjectMask | None = None
     issues: tuple = ()
     region_mask: RegionMask | None = None
@@ -168,19 +163,13 @@ def resolve_run(
         ) from None
     if resolved.refused:
         return ResolvedRun(issues=tuple(_refusal_issue(refusal, ids, region_id) for refusal in resolved.refusals))
-    indices = {}
-    if ids:
-        indices = {
-            selection.relative_path: tuple(sorted(selection.index_of(channel) for channel in ids))
-            for selection in resolved.selections
-        }
     object_mask = None
     if mask_id is not None:
         object_mask = _object_mask([s.masks[0] for s in resolved.selections], connectivity)
     region_mask = None
     if region_id is not None:
         region_mask = _region_mask([s.masks[-1] for s in resolved.selections])
-    return ResolvedRun(indices, object_mask, region_mask=region_mask)
+    return ResolvedRun(object_mask, region_mask=region_mask)
 
 
 def _request(ids: tuple[str, ...], mask_id: str | None, policy: str | None, region_id: str | None) -> Request:

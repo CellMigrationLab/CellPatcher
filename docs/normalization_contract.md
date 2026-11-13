@@ -76,7 +76,7 @@ index per plane:
 |---|---|---|
 | Z | Z=1 only: the one plane passes (`z_policy="all"` names it `z000`, `"select"`/`"first"` pick it, `"max"`, `"mean"`, `"sum"` return it unchanged). Z>1 is refused under every `z_policy` (`ZStackNotSupportedError`, issue #83): project or select first with `convert --project` in morphobricks-preprocessing | `"keep"` over Z>1 (all slices in one patch) |
 | T | `t_policy="all"`, `"select"`, `"first"` | `"keep"` (all time points in one patch, the default) |
-| C | `split_channels=True` (one patch per channel) or a list of channel indices (one patch per selected channel), `channel_policy="select"`/`"first"`, or channels kept together in one patch | `channel_policy="max"`/`"mean"` (merged channels) and `"repeat_to_rgb"` in the preparation helpers |
+| C | `split_channels=True` (one patch per channel) or a list of canonical channel IDs (one patch per named channel; never by position), or channels kept together in one patch | `channel_policy="max"`/`"mean"` (merged channels) and `"repeat_to_rgb"` in the preparation helpers |
 
 Repeating a normalized grayscale patch to RGB stays available in the torch adapters
 (`PatchTensorConfig.channel_policy="repeat_to_rgb"`, only when named since v0.2.0, recorded per
@@ -276,7 +276,7 @@ The pairs are written by the normalization brick's `Parameters.to_columns()`, wi
 precision (Python `repr` of the float). A table has one pair for every channel any of its
 patches holds. A patch that keeps several channels fills every pair, and its `c` stays empty;
 a split-channel patch (`c` = `i`), including one of a channel selection
-(`split_channels=[i, ...]`, follow-up C5), fills only its own pair, from the group's
+(`split_channels=["<ID>", ...]`, follow-up C5, by channel ID only), fills only its own pair, from the group's
 `Parameters.select([i])` (normalization brick N46), and leaves the others blank; a table whose
 patches all come from one channel has only that channel's pair.
 An RGB patch (§6) fills `C0`, `C1` and `C2` with the same shared offset and scale.

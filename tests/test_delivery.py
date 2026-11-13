@@ -82,7 +82,7 @@ def _cell_config(csv_path):
 
 def _selected_channel_config(csv_path):
     config = _cell_config(csv_path)
-    config.extraction.split_channels = [1]  # one channel of two (CellPatcher follow-up C5)
+    config.extraction.split_channels = ["C1"]  # one channel of two, by its ID in the test description (C5, CP-3)
     return config
 
 

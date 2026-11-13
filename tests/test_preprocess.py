@@ -169,12 +169,6 @@ def test_prepare_image_for_patching_t_and_c_behaviors():
     out, ax = prepare_image_for_patching(np.zeros((2, 4, 1, 6, 7)), "TCZYX", t_policy="select", t_index=0, z_policy="max")
     assert out.shape == (4, 6, 7) and ax == "CYX"
 
-    out, ax = prepare_image_for_patching(np.zeros((4, 6, 7)), "CYX", channel_policy="select", channel_index=2)
-    assert out.shape == (6, 7) and ax == "YX"
-
-    out, ax = prepare_image_for_patching(np.zeros((4, 6, 7)), "CYX", channel_policy="first")
-    assert out.shape == (6, 7) and ax == "YX"
-
     out, ax = prepare_image_for_patching(np.zeros((4, 6, 7)), "CYX", channel_policy="mean")
     assert out.shape == (6, 7) and ax == "YX"
 
@@ -364,9 +358,14 @@ def test_prepare_labels_channel_error_message_clear():
         prepare_labels_for_cell_patching(np.zeros((2, 5, 6), dtype=np.int32), "CYX", channel_policy="error")
 
 
-def test_prepare_image_channel_select_missing_index_error_message():
-    with pytest.raises(ValueError, match=r"channel_policy='select' requires channel_index"):
-        prepare_image_for_patching(np.zeros((2, 6, 7)), "CYX", channel_policy="select")
+@pytest.mark.parametrize("policy", ["select", "first"])
+def test_an_image_channel_is_never_chosen_by_position(policy):
+    # Owner decision of 13 November 2026: channels are chosen by canonical channel ID only
+    # (extraction.split_channels); the positional policies and channel_index are gone.
+    with pytest.raises(ValueError, match=f"Unsupported channel_policy: {policy}"):
+        prepare_image_for_patching(np.zeros((2, 6, 7)), "CYX", channel_policy=policy)
+    with pytest.raises(TypeError, match="channel_index"):
+        prepare_image_for_patching(np.zeros((2, 6, 7)), "CYX", channel_index=0)
 
 
 def test_prepare_image_all_policy_error_message_points_to_iterator():

@@ -204,16 +204,18 @@ def prepare_image_for_patching(
     t_policy="error",
     t_index=None,
     channel_policy="keep",
-    channel_index=None,
 ):
     """Resolve the T, Z and C axes of an image to one 2D (optionally multichannel) plane.
 
+    ``channel_policy`` keeps the channels (``"keep"``), repeats one to three (``"repeat_to_rgb"``) or
+    projects them (``"max"``, ``"mean"``); a channel is never chosen by its position (owner decision of
+    13 November 2026: channels are chosen by canonical channel ID, ``extraction.split_channels``).
     The former per-image normalization (``normalize``/``percentile``) was
     removed in v0.1.1: normalize patches with ``config.normalization``.
     """
     return _prepare_image(
         image, axes, z_policy=z_policy, z_index=z_index, t_policy=t_policy, t_index=t_index,
-        channel_policy=channel_policy, channel_index=channel_index,
+        channel_policy=channel_policy,
     )
 
 
@@ -226,7 +228,6 @@ def _prepare_image(
     t_policy,
     t_index,
     channel_policy,
-    channel_index,
 ):
     arr = np.asarray(image)
     ax = normalize_axes(axes, arr.ndim)
@@ -248,12 +249,6 @@ def _prepare_image(
         pass
     elif channel_policy == "repeat_to_rgb":
         arr, ax = repeat_to_rgb(arr, ax)
-    elif channel_policy in {"select", "first"}:
-        idx = 0 if channel_policy == "first" else channel_index
-        arr, ax = _apply_axis_policy(
-            arr, ax, axis="C", policy="select", index=idx,
-            param_name="channel_policy", index_param_name="channel_index",
-        )
     elif channel_policy in {"max", "mean"}:
         arr, ax = _apply_axis_policy(
             arr, ax, axis="C", policy=channel_policy,
@@ -361,7 +356,6 @@ def iter_image_planes_for_patching(
     t_policy="error",
     t_index=None,
     channel_policy="keep",
-    channel_index=None,
 ):
     arr = np.asarray(image)
     ax = normalize_axes(axes, arr.ndim)
@@ -411,7 +405,6 @@ def iter_image_planes_for_patching(
                 t_policy=eff_t_policy,
                 t_index=eff_t_index,
                 channel_policy=channel_policy,
-                channel_index=channel_index,
             )
             yield PreparedPlane(array=out_arr, axes=out_axes, metadata=metadata, plane_id=_plane_id_for_metadata(metadata))
 
@@ -427,7 +420,6 @@ def iter_cell_planes_for_patching(
     t_policy="error",
     t_index=None,
     image_channel_policy="keep",
-    image_channel_index=None,
     label_channel_policy="error",
     label_channel_index=None,
 ):
@@ -492,7 +484,6 @@ def iter_cell_planes_for_patching(
                 t_policy=eff_t_policy,
                 t_index=eff_t_index,
                 channel_policy=image_channel_policy,
-                channel_index=image_channel_index,
             )
             prepared_labels, prepared_label_axes = prepare_labels_for_cell_patching(
                 lab,
