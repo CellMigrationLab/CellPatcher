@@ -301,11 +301,12 @@ def test_real_tiff_cell_mode_one_object_and_area_filters():
     assert result.patch_arrays[0].shape == (32, 32)
 
 
-def test_real_tiff_cell_mode_mask_channel_noop_for_2d_labels():
+def test_real_tiff_cell_mode_single_layer_labels_along_c_are_the_2d_labels():
+    # One label layer along C (mask_axes "CYX", length 1) gives the patches of the 2-D labels.
     image, labels = load_real_tiff_fixture()
     cfg = _cell_config(exclude_border=True)
-    cfg.cell.mask_channel = 0
-    result = run_patching(images=image, masks=labels, config=cfg, image_metadata=named(image))
+    cfg.common.mask_axes = "CYX"
+    result = run_patching(images=[image], masks=[labels[None]], config=cfg, image_metadata=named([image]))
     assert len(result.patches) == EXPECTED_CELL_PATCH_COUNT_EXCLUDE_BORDER
 
 

@@ -362,7 +362,7 @@ def _tcyx_run_with_tyx_masks(tmp_path):
 
 
 def test_a_file_run_with_t_masks_and_t_policy_keep_names_t_policy_not_mask_axes(tmp_path):
-    # Cross-brick test F7 (2026-11-03): the message named mask_channel and common.mask_axes,
+    # Cross-brick test F7 (2026-11-03): the message named the former mask_channel and common.mask_axes,
     # which a file run refuses; the real options are z_policy/t_policy or 2-D masks. (Converted to
     # T: preprocessing v0.4.0 refuses Z>1, so the Z form of this message cannot be reached.)
     image_folder, mask_folder = _tcyx_run_with_tyx_masks(tmp_path)

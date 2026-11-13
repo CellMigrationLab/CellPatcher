@@ -472,11 +472,12 @@ bricks (core dependencies, pinned tags in `setup.py`), CellPatcher:
   declares for each image (`Fov.image_type`, `rgb` or `channels` =
   fluorescence; the declared type wins and a contradicting setting is refused
   naming both, at every scope; CP-4). CellPatcher supports RGB units (P24);
-- lets `extraction.split_channels` list the channels to patch, by index or,
-  in a file run, by the channel IDs of the run's description, resolved per
-  image by `RunInputs.resolve_request` (CP-3; each split patch's `channel_id`
-  names its channel, `patch_id` keeps `c`) (follow-up
-  C5).
+- lets `extraction.split_channels` list the channels to patch by their
+  canonical channel IDs only, never by position (owner decision of 13
+  November 2026): in a file run those of the run's description, checked by
+  `RunInputs.resolve_request` (CP-3), in memory `image_metadata["channel_ids"]`;
+  each ID is the C index it has in each image (each split patch's `channel_id`
+  names its channel, `patch_id` keeps `c`) (follow-up C5).
 
 The notebook offers all of these, with the image type taken from the
 run's description by `statistics.recorded_image_type` (follow-up C4; `Fov.image_type` since CP-4). In summary:

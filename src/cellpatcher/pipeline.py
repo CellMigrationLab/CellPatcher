@@ -233,8 +233,8 @@ def _patch_array_axes(config: CellPatcherConfig) -> str:
     return axes.replace("C", "") if config.extraction.split_channels else axes
 
 
-def _check_split_channels(config: CellPatcherConfig, image_list) -> None:
-    """Refuse a channel selection the images cannot give, before any patch is made.
+def _check_split_channels(config: CellPatcherConfig, image_list, image_metadata: list | None = None) -> None:
+    """Refuse a channel selection the images cannot give (by their channel IDs), before any patch is made.
 
     Only the image shapes are read, so an in-memory run stops before patching
     and a folder or tree run (which exports once, at the end) before writing.
@@ -247,32 +247,34 @@ def _check_split_channels(config: CellPatcherConfig, image_list) -> None:
             f"extraction.split_channels={config.extraction.split_channels!r} needs a 'C' axis in "
             f"common.image_axes (got '{axes}')."
         )
-    for index, image in enumerate(image_list):
+    metadata = image_metadata if image_metadata is not None else [None] * len(image_list)
+    for index, (image, meta) in enumerate(zip(image_list, metadata, strict=True)):
         normalize_axes(axes, ndim=len(image.shape))
         try:
-            config.extraction.split_channel_indices(int(image.shape[axes.index("C")]))
+            config.extraction.split_channel_indices((meta or {}).get("channel_ids"), int(image.shape[axes.index("C")]))
         except ValueError as exc:
             raise ValueError(f"Image {index} of the run: {exc}") from None
 
 
-def _split_channel_patches(config: CellPatcherConfig, image_list, patches: list[PatchRegion], patch_arrays):
+def _split_channel_patches(config: CellPatcherConfig, image_list, patches: list[PatchRegion], patch_arrays, meta: list):
     """Replace each region by one region (and array) per selected channel of its source image.
 
-    Every channel patch keeps the parent's coordinates, provenance and
-    ``position_id``, and gets ``c`` set to its channel index (a ``c<index>``
-    level of its ``patch_id``, :mod:`cellpatcher.ids`). ``split_channels=True``
-    selects every channel, a list only those channels.
+    Every channel patch keeps the parent's coordinates, provenance and ``position_id``, and gets ``c`` set to its
+    channel index (a ``c<index>`` level of its ``patch_id``, :mod:`cellpatcher.ids`). ``split_channels=True`` selects
+    every channel, a list of channel IDs those channels, by the image's own IDs.
     """
-    _check_split_channels(config, image_list)
-    axes = normalize_axes(config.common.image_axes)
-    channel_axis = axes.index("C")
-    image_lookup = {f"image_{idx:04d}": image for idx, image in enumerate(image_list)}
+    _check_split_channels(config, image_list, meta)
+    channel_axis = normalize_axes(config.common.image_axes).index("C")
+    indices = config.extraction.split_channel_indices
+    selected = {  # each image's C indices of the selected channels, by its own channel IDs
+        f"image_{i:04d}": indices((data or {}).get("channel_ids"), image.shape[channel_axis])
+        for i, (image, data) in enumerate(zip(image_list, meta, strict=True))
+    }
 
     split_patches: list[PatchRegion] = []
     split_arrays = [] if patch_arrays is not None else None
     for index, patch in enumerate(patches):
-        image_shape = image_lookup[patch.image_id].shape
-        for channel in config.extraction.split_channel_indices(int(image_shape[channel_axis])):
+        for channel in selected[patch.image_id]:
             channel_patch = replace(patch, c=channel)
             split_channel_normalization(channel_patch, channel)
             split_patches.append(channel_patch)
@@ -583,7 +585,8 @@ def _build_result(
     )
     if config.extraction.split_channels:
         # Split after extraction/masking/resizing so each region is cropped once; filters saw the whole region.
-        patches, patch_arrays_internal = _split_channel_patches(config, image_list, patches, patch_arrays_internal)
+        split = _split_channel_patches(config, image_list, patches, patch_arrays_internal, metadata)
+        patches, patch_arrays_internal = split
     stamp_channel_ids(image_metadata, patches)
     _stamp_output_dimensions(config, patches, patch_arrays_internal)
     n_patches = _count_by_image(patches)
@@ -705,7 +708,6 @@ def _patch_planes(config: CellPatcherConfig, sources) -> PatchingResult:
     seen: dict = {}
     for index, (image_meta, planes) in enumerate(sources):
         meta = dict(image_meta or {})
-        selected = meta.pop("channel_indices", None)  # a file run's split_channels by ID: this image's C indices
         # The image's identity, shared by all of its planes (resolved here for folder runs, whose metadata
         # names the file; in-memory runs resolved it in run_patching before splitting), unique per source (D85).
         labels = _image_labels(config, meta)
@@ -736,7 +738,6 @@ def _patch_planes(config: CellPatcherConfig, sources) -> PatchingResult:
             continue
         plane_masks = [plane.mask for plane in planes]
         mask_axes = next((plane.mask_axes for plane in planes if plane.mask is not None), config.common.mask_axes)
-        extraction = config.extraction if selected is None else replace(config.extraction, split_channels=[*selected])
         plane_config = replace(
             config,
             common=replace(
@@ -750,7 +751,6 @@ def _patch_planes(config: CellPatcherConfig, sources) -> PatchingResult:
                 t_index=None,
             ),
             export=replace(config.export, enabled=False),
-            extraction=extraction,
         )
         token = _EAGER_BYTES_HELD.set(held if config.common.extract_arrays else None)
         try:
@@ -889,8 +889,8 @@ def run_patching(images=None, masks=None, config=None, image_metadata=None, frac
             for image in _normalize_images(images):
                 plane_choices(image.shape, config.common.image_axes, None, None, config.common, single_planes=True)
     if images is not None:
-        _check_split_channels(config, _normalize_images(images))
-        image_metadata = _identity_metadata(config, _normalize_images(images), image_metadata)
+        image_metadata = _identity_metadata(config, _normalize_images(images), image_metadata)  # one entry per image
+        _check_split_channels(config, _normalize_images(images), image_metadata)
     refuse_unsupported_inputs(config.common.image_axes, config.common.mask_axes, images, masks)
     if config.mode == "cell" and masks is not None:
         check_mask_policy(config, _normalize_masks(masks), resolved_patch_region(config))

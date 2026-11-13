@@ -78,7 +78,10 @@ def _single_z_plane(arr: np.ndarray, idx: int, method: str) -> np.ndarray:
 
 
 def project_axis(array, axes, axis, method):
-    """Take *axis* out of *array*: ``"first"`` plane, or ``"max"``/``"mean"``/``"sum"`` over a C or T axis.
+    """Take *axis* out of *array*: ``"first"`` plane (T or Z), or ``"max"``/``"mean"``/``"sum"`` over a C or T axis.
+
+    A channel is never taken by its position (owner decision of 13 November 2026): ``"first"`` over C is
+    refused; choose channels by canonical channel ID (``extraction.split_channels``).
 
     An array with more than one Z plane is refused whichever axis is projected (issue #83): with
     one Z plane the projection names return it unchanged, with more they raise
@@ -95,6 +98,8 @@ def project_axis(array, axes, axis, method):
     method = str(method).lower()
     if axis == "Z" and method in {"max", "mean", "sum"}:
         return _single_z_plane(arr, idx, method), normalized_axes[:idx] + normalized_axes[idx + 1 :]
+    if method == "first" and axis == "C":
+        raise ValueError("A channel is never taken by its position: project C with 'max', 'mean' or 'sum'.")
     if method == "first":
         out = np.take(arr, 0, axis=idx)
     elif method == "max":
@@ -204,16 +209,18 @@ def prepare_image_for_patching(
     t_policy="error",
     t_index=None,
     channel_policy="keep",
-    channel_index=None,
 ):
     """Resolve the T, Z and C axes of an image to one 2D (optionally multichannel) plane.
 
+    ``channel_policy`` keeps the channels (``"keep"``), repeats one to three (``"repeat_to_rgb"``) or
+    projects them (``"max"``, ``"mean"``); a channel is never chosen by its position (owner decision of
+    13 November 2026: channels are chosen by canonical channel ID, ``extraction.split_channels``).
     The former per-image normalization (``normalize``/``percentile``) was
     removed in v0.1.1: normalize patches with ``config.normalization``.
     """
     return _prepare_image(
         image, axes, z_policy=z_policy, z_index=z_index, t_policy=t_policy, t_index=t_index,
-        channel_policy=channel_policy, channel_index=channel_index,
+        channel_policy=channel_policy,
     )
 
 
@@ -226,7 +233,6 @@ def _prepare_image(
     t_policy,
     t_index,
     channel_policy,
-    channel_index,
 ):
     arr = np.asarray(image)
     ax = normalize_axes(axes, arr.ndim)
@@ -248,12 +254,6 @@ def _prepare_image(
         pass
     elif channel_policy == "repeat_to_rgb":
         arr, ax = repeat_to_rgb(arr, ax)
-    elif channel_policy in {"select", "first"}:
-        idx = 0 if channel_policy == "first" else channel_index
-        arr, ax = _apply_axis_policy(
-            arr, ax, axis="C", policy="select", index=idx,
-            param_name="channel_policy", index_param_name="channel_index",
-        )
     elif channel_policy in {"max", "mean"}:
         arr, ax = _apply_axis_policy(
             arr, ax, axis="C", policy=channel_policy,
@@ -276,10 +276,11 @@ def prepare_labels_for_cell_patching(
     z_index=None,
     t_policy="error",
     t_index=None,
-    channel_policy="error",
-    channel_index=None,
 ):
     """Prepare labels for cell patching to a single YX plane.
+
+    A label mask has one layer: a C axis of length 1 is dropped, and more layers are refused. A layer is
+    never chosen by its position (owner decision of 13 November 2026): give each layer as its own mask.
 
     Notes:
         z_policy='max' (and 'mean'/'sum') is accepted only when Z is absent or has one
@@ -304,23 +305,14 @@ def prepare_labels_for_cell_patching(
         arr, ax, axis="Z", policy=z_policy, index=z_index, allowed_project_methods={"max"}, label_context=True
     )
 
-    if channel_policy == "error":
-        arr, ax = _apply_axis_policy(
-            arr, ax, axis="C", policy="error", label_context=True,
-            param_name="channel_policy",
-        )
-    elif channel_policy == "first":
-        arr, ax = _apply_axis_policy(
-            arr, ax, axis="C", policy="first", label_context=True,
-            param_name="channel_policy",
-        )
-    elif channel_policy == "select":
-        arr, ax = _apply_axis_policy(
-            arr, ax, axis="C", policy="select", index=channel_index, label_context=True,
-            param_name="channel_policy", index_param_name="channel_index",
-        )
-    else:
-        raise ValueError(f"Unsupported channel_policy for labels: {channel_policy}")
+    c_axis = axis_index(ax, "C")
+    if c_axis is not None:
+        if arr.shape[c_axis] != 1:
+            raise ValueError(
+                f"The labels have {arr.shape[c_axis]} layers along C; cell mode needs a single-layer label mask, "
+                "and a layer is never chosen by its position. Give each layer as its own mask."
+            )
+        arr, ax = np.take(arr, 0, axis=c_axis), ax.replace("C", "")  # the one layer
 
     # Unlike prepare_image_for_patching, labels must end up as *exactly*
     # 'YX' (no leftover channel axis), since downstream cell-mode code
@@ -361,7 +353,6 @@ def iter_image_planes_for_patching(
     t_policy="error",
     t_index=None,
     channel_policy="keep",
-    channel_index=None,
 ):
     arr = np.asarray(image)
     ax = normalize_axes(axes, arr.ndim)
@@ -411,7 +402,6 @@ def iter_image_planes_for_patching(
                 t_policy=eff_t_policy,
                 t_index=eff_t_index,
                 channel_policy=channel_policy,
-                channel_index=channel_index,
             )
             yield PreparedPlane(array=out_arr, axes=out_axes, metadata=metadata, plane_id=_plane_id_for_metadata(metadata))
 
@@ -427,9 +417,6 @@ def iter_cell_planes_for_patching(
     t_policy="error",
     t_index=None,
     image_channel_policy="keep",
-    image_channel_index=None,
-    label_channel_policy="error",
-    label_channel_index=None,
 ):
     img = np.asarray(image)
     lab = np.asarray(labels)
@@ -492,7 +479,6 @@ def iter_cell_planes_for_patching(
                 t_policy=eff_t_policy,
                 t_index=eff_t_index,
                 channel_policy=image_channel_policy,
-                channel_index=image_channel_index,
             )
             prepared_labels, prepared_label_axes = prepare_labels_for_cell_patching(
                 lab,
@@ -501,8 +487,6 @@ def iter_cell_planes_for_patching(
                 z_index=eff_z_index,
                 t_policy=eff_t_policy,
                 t_index=eff_t_index,
-                channel_policy=label_channel_policy,
-                channel_index=label_channel_index,
             )
 
             # Image and label preparation ran independently above; verify

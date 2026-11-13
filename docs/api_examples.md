@@ -187,7 +187,7 @@ image_yx, image_axes = prepare_image_for_patching(
     t_index=0,
 )
 
-labels_yx, mask_axes = prepare_labels_for_cell_patching(
+labels_yx, mask_axes = prepare_labels_for_cell_patching(  # one label layer: a mask is never picked by C index
     labels_series,
     "TYX",
     t_policy="select",

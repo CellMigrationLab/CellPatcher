@@ -16,8 +16,8 @@ from cellpatcher.types import PatchRegion
 def _refuse_plane_axes(mask_axes: str, labels: np.ndarray) -> None:
     """Refuse labels with a Z or T axis, naming ``z_policy``/``t_policy`` (or 2-D masks).
 
-    A Z or T axis is not a label channel, so ``mask_channel`` cannot pick a plane, and a file
-    run refuses ``common.mask_axes`` (its masks are read in the roles the run recorded).
+    A Z or T axis is not a label layer, and a file run refuses ``common.mask_axes`` (its masks are
+    read in the roles the run recorded).
     """
     planes = [axis for axis in "TZ" if len(mask_axes) == labels.ndim and axis in mask_axes]
     if planes:
@@ -27,7 +27,7 @@ def _refuse_plane_axes(mask_axes: str, labels: np.ndarray) -> None:
             f"{' and '.join(planes)} planes, but cell mode needs one 2-D (YX) label plane per "
             f"patch. Set {policies} (e.g. 'all' for one patch per plane, or 'first'/'select' "
             "for one plane), or give 2-D (YX) masks (in a file run: the preprocessing run's "
-            "masks). mask_channel selects a label channel (C), not a plane."
+            "masks)."
             + (
                 " A Z axis longer than 1 is refused under every z_policy: project or select it first "
                 "with `convert --project` in morphobricks-preprocessing."
@@ -118,7 +118,11 @@ class CellSegmentationStrategy(BasePatchStrategy):
         return selected.astype(np.int32, copy=False), False
 
     def _select_label_plane(self, labels):
-        """Return the one 2-D label plane of *labels* (its ``mask_channel``), or refuse them."""
+        """Return the one 2-D label plane of *labels* (a single-layer label mask), or refuse them.
+
+        A C axis of length 1 is dropped; a mask of several layers is refused, never one chosen by its position
+        (owner decision of 13 November 2026): give each layer as its own mask.
+        """
         # A plain 2D label array needs no channel handling at all.
         arr = np.asarray(labels)
         if arr.ndim == 2:
@@ -128,34 +132,20 @@ class CellSegmentationStrategy(BasePatchStrategy):
         # arr.ndim > 2: a channel (or other extra) axis must be resolved
         # down to 2D explicitly -- there's no safe default to guess here.
         _refuse_plane_axes(self.mask_axes, arr)
-        if self.config.mask_channel is None:
-            raise ValueError(
-                "mask_channel is required for multidimensional labels. "
-                "Set config.mask_channel and config.common.mask_axes (e.g. mask_axes='CYX')."
-            )
         if len(self.mask_axes) != arr.ndim:
             raise ValueError(
                 f"mask_axes length ({len(self.mask_axes)}) must match labels.ndim ({arr.ndim})."
             )
         c_axis = axis_index(self.mask_axes, "C")
-        if c_axis is None:
+        if c_axis is None or arr.shape[c_axis] != 1:
             raise ValueError(
-                f"mask_axes '{self.mask_axes}' does not contain a 'C' axis, "
-                "which is required for multidimensional label channel selection."
+                f"The labels (mask_axes '{self.mask_axes}', shape {arr.shape}) are not one label layer: cell mode "
+                "needs a single-layer label mask, and a layer is never chosen by its position. Give each layer as "
+                "its own mask."
             )
-        c_size = arr.shape[c_axis]
-        ch = self.config.mask_channel  # None or an integer >= 0 (check_cell_settings)
-        if ch < 0 or ch >= c_size:
-            raise ValueError(
-                f"mask_channel {ch} is out of bounds for C axis of size {c_size} "
-                f"(mask_axes='{self.mask_axes}')."
-            )
-        selected = np.take(arr, ch, axis=c_axis)
+        selected = np.take(arr, 0, axis=c_axis)  # the one layer
         if selected.ndim != 2:
-            raise ValueError(
-                f"After selecting channel {ch} from axis {c_axis}, "
-                f"the result is {selected.ndim}D; expected 2D."
-            )
+            raise ValueError(f"The labels' one layer is {selected.ndim}D; expected 2D (YX).")
         return selected
 
     def generate_regions(self, *, image_shape, labels=None, image_id=None, axes: str = "YX") -> list[PatchRegion]:

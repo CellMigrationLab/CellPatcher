@@ -122,8 +122,8 @@ def scan_cell_objects(*, image_shape, labels, image_id=None, config=None, image_
     image_shape:
         Shape tuple of the image (used to determine spatial dimensions).
     labels:
-        Integer label array (2D ``YX``, or multidimensional when
-        ``mask_axes`` and ``config.mask_channel`` are set), used as stored (D47);
+        Integer label array, one layer (2D ``YX``, or with ``mask_axes`` naming a C axis of
+        length 1), used as stored (D47);
         ``config.binary_mask_policy`` is refused with it, as in ``run_patching``.
         A boolean mask is labelled only with that policy.
     image_id:

@@ -139,8 +139,8 @@ channels never share parameters (except the three channels of an RGB image).
   the run. Z is separate: Z=1 passes (`z_policy` names or returns that one plane), Z>1 is refused whatever
   `z_policy` says (issue #83); project or select first with `convert --project` in morphobricks-preprocessing.
 - **Channels** may be kept together in one patch (each channel gets its own parameters, listed
-  in channel order) or split with `extraction.split_channels=True`, or `[i, ...]` for only the
-  selected channels. A single-channel patch keeps the parameters of its channel in the image's
+  in channel order) or split with `extraction.split_channels=True`, or a list of canonical channel IDs
+  (`["DNA", ...]`, never positions) for only those channels. A single-channel patch keeps the parameters of its channel in the image's
   group, so selecting channels never changes their values.
 - **OME-Zarr images** (folders ending in `.zarr`) are read like TIFF files; their masks can be a
   mask folder or the label images inside them, as the preprocessing run paired them (a label

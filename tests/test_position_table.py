@@ -251,7 +251,7 @@ def test_a_file_runs_fov_metadata_carries_the_ids_of_its_description():
         channel_ids=("C0",),
     )
     config = CellPatcherConfig(mode="grid")
-    run = SimpleNamespace(mask_type=None, channel_indices={})
+    run = SimpleNamespace(mask_type=None)
 
     meta = fov_metadata(run, described, config)
     assert (meta["repeat_group"], meta["condition_id"], meta["technical_repeat_id"]) == ("rg1", "c1", "tr1")

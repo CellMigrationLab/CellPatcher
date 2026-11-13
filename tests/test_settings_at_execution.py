@@ -1,10 +1,10 @@
 """Every scientific setting is re-checked where a run executes, without coercion (release blocker 38).
 
-``int(True)`` is 1, ``int("1")`` is 1 and ``int(1.9)`` is 1, so ``cell.mask_channel`` read through
-``int()`` could pick the wrong label channel, and the normalization settings were checked at
-construction only, so ``cfg.normalization.per_time_point = 1`` (set later) went through as a
-truthy flag. The config dataclasses are mutable and documented as edited in place, so each
-setting below is mutated after construction and must be refused when the run executes.
+``int(True)`` is 1, ``int("1")`` is 1 and ``int(1.9)`` is 1, so an index read through ``int()``
+could pick the wrong plane, and the normalization settings were checked at construction only, so
+``cfg.normalization.per_time_point = 1`` (set later) went through as a truthy flag. The config
+dataclasses are mutable and documented as edited in place, so each setting below is mutated after
+construction and must be refused when the run executes.
 """
 
 import dataclasses
@@ -36,11 +36,10 @@ from cellpatcher.strategies.cell import CellSegmentationStrategy
 
 IMAGE = np.arange(64 * 64, dtype=np.uint16).reshape(64, 64)
 META = [{"position_id": "fov"}]
-NOT_INTEGERS = [True, False, np.True_, "1", 1.9, 1.0, np.float64(1.0), float("nan"), [1], b"1"]
 
 
-def _two_channel_labels():
-    """Channel 0 has one object (label 7), channel 1 has two (labels 3 and 4)."""
+def _two_layer_labels():
+    """Layer 0 has one object (label 7), layer 1 has two (labels 3 and 4)."""
     labels = np.zeros((2, 64, 64), dtype=np.int32)
     labels[0, 10:20, 10:20] = 7
     labels[1, 10:20, 10:20] = 3
@@ -48,49 +47,30 @@ def _two_channel_labels():
     return labels
 
 
-def _cell_config(mask_channel):
+def _cell_config():
     config = CellPatcherConfig(mode="cell", cell=CellConfig(patch_size=8, exclude_border=False))
     config.common.mask_axes = "CYX"
-    config.cell.mask_channel = mask_channel  # after construction: __post_init__ never sees it
     return config
 
 
-@pytest.mark.parametrize("bad", NOT_INTEGERS + [-1], ids=repr)
-def test_a_mask_channel_that_is_no_integer_is_refused_when_constructed(bad):
-    with pytest.raises(ValueError, match="mask_channel"):
-        CellConfig(mask_channel=bad)
-
-
-@pytest.mark.parametrize("bad", NOT_INTEGERS + [-1], ids=repr)
-def test_a_mask_channel_edited_after_construction_is_refused_by_run_patching(bad):
-    # Former code: int(True), int("1") and int(1.9) were all channel 1.
-    with pytest.raises(ValueError, match="mask_channel"):
-        run_patching(images=[IMAGE], masks=[_two_channel_labels()], config=_cell_config(bad), image_metadata=META)
-
-
-@pytest.mark.parametrize("bad", NOT_INTEGERS, ids=repr)
-def test_a_mask_channel_edited_after_construction_is_refused_by_the_strategy_and_the_scan(bad):
+def test_a_label_mask_of_several_layers_is_refused_wherever_it_is_read():
+    # Owner decision of 13 November 2026: a mask layer is never chosen by its position (cell.mask_channel was
+    # removed); a label mask has one layer.
+    with pytest.raises(ValueError, match="single-layer label mask"):
+        run_patching(images=[IMAGE], masks=[_two_layer_labels()], config=_cell_config(), image_metadata=META)
     cell = CellConfig(patch_size=8)
-    cell.mask_channel = bad
-    with pytest.raises(ValueError, match="mask_channel"):
+    with pytest.raises(ValueError, match="single-layer label mask"):
         CellSegmentationStrategy(cell, mask_axes="CYX").generate_regions(
-            image_shape=(64, 64), labels=_two_channel_labels(), image_id="image_0000"
+            image_shape=(64, 64), labels=_two_layer_labels(), image_id="image_0000"
         )
-    with pytest.raises(ValueError, match="mask_channel"):
-        scan_cell_objects(image_shape=(64, 64), labels=_two_channel_labels(), config=cell, mask_axes="CYX")
+    with pytest.raises(ValueError, match="single-layer label mask"):
+        scan_cell_objects(image_shape=(64, 64), labels=_two_layer_labels(), config=cell, mask_axes="CYX")
 
 
-@pytest.mark.parametrize(("channel", "labels"), [(0, {7}), (1, {3, 4}), (np.int64(1), {3, 4}), (np.int32(0), {7})])
-def test_python_and_numpy_integers_select_their_own_label_channel(channel, labels):
-    result = run_patching(
-        images=[IMAGE], masks=[_two_channel_labels()], config=_cell_config(channel), image_metadata=META
-    )
-    assert {patch.label_id for patch in result.patches} == labels
-
-
-def test_a_mask_channel_outside_the_mask_is_still_refused_where_the_mask_is_read():
-    with pytest.raises(ValueError, match="out of bounds"):
-        run_patching(images=[IMAGE], masks=[_two_channel_labels()], config=_cell_config(2), image_metadata=META)
+def test_a_label_mask_of_one_layer_along_c_is_its_labels():
+    labels = _two_layer_labels()[1:]
+    result = run_patching(images=[IMAGE], masks=[labels], config=_cell_config(), image_metadata=META)
+    assert {patch.label_id for patch in result.patches} == {3, 4}
 
 
 def _normalization_config(setting, value, **fixed):
@@ -182,7 +162,6 @@ BAD_VALUES = {
     "common.t_index": INTEGER + [-1],
     "common.object_set": TEXT,
     "cell.patch_size": [True, 8.0, "8px", 0, -4, None],
-    "cell.mask_channel": NOT_INTEGERS + [-1],
     "cell.center_on": CHOICE + [None],
     "cell.exclude_border": FLAG,
     "cell.min_area": INTEGER + [0, None],
@@ -280,16 +259,6 @@ def test_a_setting_of_the_wrong_type_edited_after_construction_is_refused_by_pat
         patch_array(patches[0], IMAGE, _with_setting(name, value))
 
 
-def test_a_mask_channel_edited_after_construction_is_refused_by_patch_array():
-    config = _cell_config(1)
-    config.extraction.apply_mask = True
-    labels = _two_channel_labels()
-    patch = run_patching(images=[IMAGE], masks=[labels], config=config, image_metadata=META).patches[0]
-    config.cell.mask_channel = True  # np.take reads True as channel 1
-    with pytest.raises(ValueError, match="mask_channel"):
-        patch_array(patch, IMAGE, config, mask=labels)
-
-
 def _region_values(config, masks=None):
     patches = run_patching(images=[IMAGE], masks=masks, config=config, image_metadata=META).patches
     return [[(name, type(value), value) for name, value in sorted(vars(patch).items())] for patch in patches]
@@ -297,7 +266,7 @@ def _region_values(config, masks=None):
 
 def test_numpy_integer_sizes_give_the_patches_of_python_integers():
     # Former code of this change: an np.int64 patch_size made np.int64 coordinates and np.bool_ flags.
-    labels = _two_channel_labels()[1]
+    labels = _two_layer_labels()[1]
     for section, settings in (("cell", {"patch_size": 8}), ("random", {"patch_size": 8, "n_patches": 5, "seed": 2})):
         python = CellPatcherConfig(mode=section)
         numpy = CellPatcherConfig(mode=section)
@@ -338,7 +307,7 @@ def test_a_valid_config_is_unchanged_by_the_execution_time_checks():
 
 @pytest.mark.parametrize(
     ("name", "value"),
-    [("normalization.per_time_point", 1), ("normalization.memory_limit", "4"), ("cell.mask_channel", 1.9),
+    [("normalization.per_time_point", 1), ("normalization.memory_limit", "4"), ("cell.patch_size", 8.0),
      ("random.min_mask_fraction", True), ("extraction.pad_mode", 1)],
     ids=repr,
 )

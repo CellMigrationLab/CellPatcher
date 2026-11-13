@@ -46,24 +46,21 @@ def _tree(run, output, split_channels):
         return list(csv.DictReader(handle)), arrays
 
 
-def test_v13_channels_by_id_are_the_channels_by_index(tmp_path):
-    # v13 declares DNA, ACTIN in C order for every unit: ACTIN by ID is C index 1 by index, the same
-    # patches and patch_id bytes; only the appended channel_id column says which channel it is.
+def test_v13_a_channel_by_id_is_that_channel_of_every_channel_split(tmp_path):
+    # v13 declares DNA, ACTIN in C order for every unit: ACTIN by ID gives the ACTIN patches of
+    # split_channels=True, the same patch_id bytes (c1) and arrays. Channels are chosen by ID only.
     run = _described_run(tmp_path, "v13")
     by_id, id_arrays = _tree(run, tmp_path / "by_id", ["ACTIN"])
-    by_index, index_arrays = _tree(run, tmp_path / "by_index", [1])
+    every, every_arrays = _tree(run, tmp_path / "every", True)
 
     assert by_id and {(row["c"], row["channel_id"]) for row in by_id} == {("1", "ACTIN")}
-    assert {row["channel_id"] for row in by_index} == {"ACTIN"}  # an index selection is named too
-    assert [row["patch_id"] for row in by_id] == [row["patch_id"] for row in by_index]
+    assert {(row["c"], row["channel_id"]) for row in every} == {("0", "DNA"), ("1", "ACTIN")}
+    assert [row["patch_id"] for row in by_id] == [row["patch_id"] for row in every if row["channel_id"] == "ACTIN"]
     assert all(row["patch_id"].startswith("/".join(
         (row["condition"], row["biological_repeat"], row["technical_repeat"], row["position_id"], "c1/")
     )) for row in by_id)  # the unchanged FOV identity leads it
     for patch_id, array in id_arrays.items():
-        np.testing.assert_array_equal(array, index_arrays[patch_id])
-
-    every, _ = _tree(run, tmp_path / "every", True)
-    assert {(row["c"], row["channel_id"]) for row in every} == {("0", "DNA"), ("1", "ACTIN")}
+        np.testing.assert_array_equal(array, every_arrays[patch_id])
 
 
 def test_a_multichannel_patch_has_no_channel_id(tmp_path):
@@ -187,13 +184,16 @@ def test_one_id_gives_the_same_channel_whatever_its_c_index_in_each_image(tmp_pa
         assert f"/c{row['c']}/" in row["patch_id"]
 
 
-def test_in_memory_images_have_no_channel_ids():
+def test_in_memory_images_without_channel_ids_cannot_be_selected_by_id():
     image = np.zeros((2, 16, 16), dtype=np.uint16)
     config = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=8))
     config.common.image_axes = "CYX"
     config.extraction.split_channels = ["DNA"]
-    with pytest.raises(ValueError, match="names channel IDs, which only a described preprocessing run has"):
+    with pytest.raises(ValueError, match=r'not named by ID .*image_metadata\["channel_ids"\]'):
         run_patching(images=[image], config=config, image_metadata=named([image]))
+    metadata = [{"position_id": "p0", "channel_ids": ("ACTIN", "DNA")}]  # named: selected by ID, never position
+    result = run_patching(images=[image], config=config, image_metadata=metadata)
+    assert {(patch.c, patch.channel_id) for patch in result.patches} == {(1, "DNA")}
 
 
 def test_image_metadata_channel_ids_name_each_c():

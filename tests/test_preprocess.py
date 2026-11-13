@@ -94,6 +94,11 @@ def test_project_axis_refuses_first_of_several_z_planes_with_the_guards_message(
     assert out.shape == (1, 4, 5) and axes == "ZYX"
 
 
+def test_project_axis_never_takes_the_first_channel():
+    with pytest.raises(ValueError, match="never taken by its position"):
+        project_axis(np.ones((2, 3, 4)), "CYX", "C", "first")
+
+
 def test_project_axis_cyx_mean_over_c():
     arr = np.ones((2, 3, 4))
     out, ax = project_axis(arr, "CYX", "C", "mean")
@@ -169,12 +174,6 @@ def test_prepare_image_for_patching_t_and_c_behaviors():
     out, ax = prepare_image_for_patching(np.zeros((2, 4, 1, 6, 7)), "TCZYX", t_policy="select", t_index=0, z_policy="max")
     assert out.shape == (4, 6, 7) and ax == "CYX"
 
-    out, ax = prepare_image_for_patching(np.zeros((4, 6, 7)), "CYX", channel_policy="select", channel_index=2)
-    assert out.shape == (6, 7) and ax == "YX"
-
-    out, ax = prepare_image_for_patching(np.zeros((4, 6, 7)), "CYX", channel_policy="first")
-    assert out.shape == (6, 7) and ax == "YX"
-
     out, ax = prepare_image_for_patching(np.zeros((4, 6, 7)), "CYX", channel_policy="mean")
     assert out.shape == (6, 7) and ax == "YX"
 
@@ -213,10 +212,10 @@ def test_prepare_labels_for_cell_patching_behaviors():
     out, ax = prepare_labels_for_cell_patching(labels, "YX")
     assert out.shape == (2, 2) and ax == "YX"
 
-    out, ax = prepare_labels_for_cell_patching(np.zeros((2, 4, 5), dtype=np.int32), "CYX", channel_policy="select", channel_index=0)
+    out, ax = prepare_labels_for_cell_patching(np.zeros((1, 4, 5), dtype=np.int32), "CYX")  # one layer along C
     assert out.shape == (4, 5) and ax == "YX"
 
-    out, ax = prepare_labels_for_cell_patching(np.zeros((4, 5, 2), dtype=np.int32), "YXC", channel_policy="select", channel_index=1)
+    out, ax = prepare_labels_for_cell_patching(np.zeros((4, 5, 1), dtype=np.int32), "YXC")
     assert out.shape == (4, 5) and ax == "YX"
 
     with pytest.raises(ValueError):
@@ -359,14 +358,25 @@ def test_iter_image_mixed_policy_metadata_semantics():
     assert [p.metadata for p in planes] == [{"t": 0}, {"t": 1}]
 
 
-def test_prepare_labels_channel_error_message_clear():
-    with pytest.raises(ValueError, match=r"channel_policy='error'"):
-        prepare_labels_for_cell_patching(np.zeros((2, 5, 6), dtype=np.int32), "CYX", channel_policy="error")
+def test_a_label_mask_of_several_layers_is_refused_never_one_picked():
+    # Owner decision of 13 November 2026: a mask layer is never chosen by its position.
+    with pytest.raises(ValueError, match="2 layers along C.*single-layer label mask"):
+        prepare_labels_for_cell_patching(np.zeros((2, 5, 6), dtype=np.int32), "CYX")
+    with pytest.raises(TypeError, match="channel_policy"):
+        prepare_labels_for_cell_patching(np.zeros((1, 5, 6), dtype=np.int32), "CYX", channel_policy="first")
+    with pytest.raises(TypeError, match="label_channel_index"):
+        labels = np.zeros((1, 5, 6), int)
+        next(iter_cell_planes_for_patching(np.zeros((5, 6)), "YX", labels, "CYX", label_channel_index=0))
 
 
-def test_prepare_image_channel_select_missing_index_error_message():
-    with pytest.raises(ValueError, match=r"channel_policy='select' requires channel_index"):
-        prepare_image_for_patching(np.zeros((2, 6, 7)), "CYX", channel_policy="select")
+@pytest.mark.parametrize("policy", ["select", "first"])
+def test_an_image_channel_is_never_chosen_by_position(policy):
+    # Owner decision of 13 November 2026: channels are chosen by canonical channel ID only
+    # (extraction.split_channels); the positional policies and channel_index are gone.
+    with pytest.raises(ValueError, match=f"Unsupported channel_policy: {policy}"):
+        prepare_image_for_patching(np.zeros((2, 6, 7)), "CYX", channel_policy=policy)
+    with pytest.raises(TypeError, match="channel_index"):
+        prepare_image_for_patching(np.zeros((2, 6, 7)), "CYX", channel_index=0)
 
 
 def test_prepare_image_all_policy_error_message_points_to_iterator():

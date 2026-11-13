@@ -566,7 +566,7 @@ def test_a_selected_channel_row_fills_only_its_channel_pair(experiment, tmp_path
     # CellPatcher follow-up C5: the group's Parameters.select([i]) (N46).
     root, stacks, csv_path = experiment
     config = _config(csv_path)
-    config.extraction.split_channels = [1]
+    config.extraction.split_channels = ["C1"]  # by its ID in the test description
     config.export.enabled, config.common.output_dir = True, str(tmp_path / "out")
     _tree(root, config, combine_metadata=True)
 

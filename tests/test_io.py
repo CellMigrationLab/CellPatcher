@@ -390,7 +390,7 @@ def test_the_former_matchers_are_gone():
 @pytest.mark.parametrize("mask_axes", ["CYX", "YXC"])
 def test_mask_axes_cannot_read_a_named_z_stack_as_label_channels(tmp_path, mask_axes):
     # A mask whose header names a Z axis passes find_masks. common.mask_axes with a C axis
-    # used to override that header and read the Z slices as label channels (with
+    # used to override that header and read the Z slices as label channels (with the former
     # cell.mask_channel). Since CP-2a file runs read masks in the roles the preprocessing run
     # recorded, and refuse any common.mask_axes but the default with a migration message.
     from cellpatcher import CellPatcherConfig
@@ -401,7 +401,6 @@ def test_mask_axes_cannot_read_a_named_z_stack_as_label_channels(tmp_path, mask_
     write_tiff(mask_dir / "a_cells.tif", np.stack([labels, labels]), "ZYX")
     config = CellPatcherConfig(mode="cell")
     config.common.mask_axes = mask_axes
-    config.cell.mask_channel = 0
     config.cell.exclude_border = False
     with pytest.raises(ValueError, match=rf"common\.mask_axes='{mask_axes}': each image's \(and mask's\) axes are the roles"):
         run_patching_pipeline(img_dir, config=config, mask_folder_path=mask_dir)
