@@ -36,6 +36,7 @@ from cellpatcher.mask_policy import resolved_masks
 from cellpatcher.normalization import (
     CSV_SCOPES,
     check_image_type,
+    fit_settings,
     repeat_groups,
     validate_normalization,
 )
@@ -46,6 +47,7 @@ from cellpatcher.pipeline import (
 )
 from cellpatcher.run_open import _refuse_other_file, open_run, statistics_of
 from cellpatcher.run_reading import (
+    chosen_planes,
     fov_layout,
     iter_fov_planes,
     mask_file_name,
@@ -56,6 +58,7 @@ from cellpatcher.run_reading import (
 )
 from cellpatcher.run_request import ObjectMask, resolve_run
 from cellpatcher.run_session import keep_in_session, remember, remember_layouts
+from cellpatcher.scope_check import refuse_incomplete_scopes
 from cellpatcher.setting_checks import check_run_settings
 from cellpatcher.statistics import (
     PlaneStatistics,
@@ -216,7 +219,9 @@ def open_file_run(
     """Open ``common.preprocessing_run`` with where the experiment and masks are now, before any read.
 
     *use_masks* (:func:`masks_used`) says whether masks are read; *masks_root* is where the
-    run's masks folder is now (None: where the run recorded it) either way. Must be called
+    run's masks folder is now (None: where the run recorded it) either way. At a CSV normalization
+    scope, a group of the run's planes some of which lack a channel is refused now
+    (:mod:`cellpatcher.scope_check`, issue #107). Must be called
     inside :func:`cellpatcher.run_session.statistics_session`: the run's table is kept there
     for the call's normalization.
 
@@ -353,7 +358,7 @@ def _csv_statistics(
     The image type every position's unit declares (``Fov.image_type``, at every scope: the
     declared type wins over ``normalization.image_type``), then at a CSV scope the run's own
     table and (for ``biological_repeat``) the repeat groups of its description; every image
-    must have rows in the table.
+    must have rows in the table, and every group of the run's planes its channels in every plane (#107).
     """
     settings = normalization_settings(config, inputs)
     if settings.enabled:
@@ -367,6 +372,13 @@ def _csv_statistics(
         repeat_groups(statistics)
     rows_only = PlaneStatistics(statistics.plane_histograms, statistics.records, statistics.csv_sha256)
     check_images(rows_only, dict(layouts))
+    planes = [  # issue #107: before any read, from the table and the planes z_policy/t_policy choose
+        (fov.relative_path, choice.index("Z"), choice.index("T"))
+        for fov in inputs.fovs()
+        for choice in chosen_planes(fov, layouts[fov.relative_path], config.common, single_planes=True)
+    ]
+    groups = repeat_groups(statistics) if settings.scope == "biological_repeat" else None
+    refuse_incomplete_scopes(statistics.records, fit_settings(settings), groups, planes)
     return statistics
 
 

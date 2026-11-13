@@ -101,6 +101,15 @@ def _plane_shape(fov: Fov, layout: str) -> tuple[int, ...]:
     return tuple(lengths[axis] for axis in layout)
 
 
+def chosen_planes(fov: Fov, layout: str, common: CommonConfig, *, single_planes: bool = False) -> list[PlaneChoice]:
+    """Return the planes ``z_policy``/``t_policy`` choose in an image, from the run's records: no pixel is read.
+
+    The planes :func:`iter_fov_planes` reads (its mask checks aside). Raises like
+    :func:`cellpatcher.planes.plane_choices`.
+    """
+    return plane_choices(_plane_shape(fov, layout), layout, None, "YX", common, single_planes=single_planes)
+
+
 def read_fov(inputs: RunInputs, fov: Fov, layout: str, choice: PlaneChoice | None = None) -> tuple[np.ndarray, str]:
     """Read an image, or the planes *choice* names, through ``RunInputs.read_plane``.
 
