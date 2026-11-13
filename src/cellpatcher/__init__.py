@@ -44,16 +44,13 @@ from cellpatcher.export import (
 from cellpatcher.io import (
     SINGLE_BIOLOGICAL_REPEAT_LABEL,
     SINGLE_CONDITION_LABEL,
-    SINGLE_REPEAT_LABEL,
     SINGLE_TECHNICAL_REPEAT_LABEL,
     SUPPORTED_EXTENSIONS,
     ConditionRepeatFolder,
-    discover_condition_repeat_folders,
     list_supported_files,
     read_array,
     read_array_shape,
     write_array,
-    run_patching_from_folders,
 )
 from cellpatcher.filters import compute_threshold, filter_regions, foreground_fraction
 from cellpatcher.object_geometry import (
@@ -79,6 +76,7 @@ from cellpatcher.preprocess import (
     select_axis_index,
 )
 from cellpatcher.resize import normalize_output_size, resize_patch, resize_patches
+from cellpatcher.run_open import load_plane_statistics
 from cellpatcher.statistics import (
     PlaneStatistics,
     PreprocessingCheckError,
@@ -86,7 +84,6 @@ from cellpatcher.statistics import (
     SourcePlane,
     check_images,
     check_planes,
-    load_plane_statistics,
 )
 from cellpatcher.strategies import (
     CellSegmentationStrategy,
@@ -124,7 +121,6 @@ __all__ = [
     "write_array",
     "read_array_shape",
     "validate_image_and_mask_folders",
-    "run_patching_from_folders",
     "load_config",
     "save_default_config",
     "save_config_for_mode",
@@ -134,10 +130,8 @@ __all__ = [
     "run_patching_condition_repeat_tree",
     "ConditionRepeatResult",
     "ConditionRepeatFolder",
-    "discover_condition_repeat_folders",
     "SINGLE_CONDITION_LABEL",
     "SINGLE_BIOLOGICAL_REPEAT_LABEL",
-    "SINGLE_REPEAT_LABEL",
     "SINGLE_TECHNICAL_REPEAT_LABEL",
     "sanitize_filename",
     "patch_metadata_to_rows",

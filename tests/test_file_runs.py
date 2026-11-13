@@ -209,10 +209,9 @@ def test_file_runs_read_through_run_inputs_only(tmp_path, monkeypatch):
     def refused(*args, **kwargs):
         raise AssertionError("CellPatcher read or paired a file itself")
 
-    for name in ("read_array", "discover_images"):
-        monkeypatch.setattr(cellpatcher.io, name, refused)
+    monkeypatch.setattr(cellpatcher.io, "read_array", refused)
     # CellPatcher's own file readers and header checks are gone (CP-2b).
-    for module, name in ((cellpatcher.io, "read_image"), (cellpatcher.io, "conform_axes"), (cellpatcher.io, "pair_masks"),
+    for module, name in ((cellpatcher.io, "discover_images"), (cellpatcher.io, "read_image"), (cellpatcher.io, "conform_axes"), (cellpatcher.io, "pair_masks"),
                          (cellpatcher.io, "refuse_image_header_axes"), (cellpatcher.io, "refuse_mask_header_axes"),
                          (cellpatcher.planes, "read_file_plane"), (cellpatcher.planes, "iter_file_planes")):
         assert not hasattr(module, name), name
@@ -362,7 +361,7 @@ def test_a_second_open_in_one_call_refuses_a_manifest_changed_since_the_first(tm
             open_run(run.output)
 
 
-@pytest.mark.parametrize("version", [3, "2", None])
+@pytest.mark.parametrize("version", [1, 3, "2", None])
 def test_a_run_config_of_an_unknown_version_is_refused_by_every_reader(tmp_path, version):
     from cellpatcher import PatchTableError, iter_exported_patches, read_patch_table
     from cellpatcher.orchestration import load_config
@@ -373,7 +372,7 @@ def test_a_run_config_of_an_unknown_version_is_refused_by_every_reader(tmp_path,
     run_patching_condition_repeat_tree(run.experiment, config=config, combine_metadata=True)  # files as delivered
     path = tmp_path / "out" / "run_config.json"
     path.write_text(json.dumps({**json.loads(path.read_text(encoding="utf-8")), "run_config_version": version}))
-    refusal = rf"run_config_version {version!r}; this CellPatcher reads versions 1, 2"
+    refusal = rf"run_config_version {version!r}; this CellPatcher reads version 2 only"
     with pytest.raises(ValueError, match=refusal):
         load_config(path)
     with pytest.raises(ValueError, match=refusal):

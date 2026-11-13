@@ -580,6 +580,6 @@ def test_the_single_labels_are_the_normalization_brick_single():
 
     import cellpatcher
 
-    for name in ("SINGLE_CONDITION_LABEL", "SINGLE_BIOLOGICAL_REPEAT_LABEL", "SINGLE_REPEAT_LABEL",
+    for name in ("SINGLE_CONDITION_LABEL", "SINGLE_BIOLOGICAL_REPEAT_LABEL",
                  "SINGLE_TECHNICAL_REPEAT_LABEL"):
         assert getattr(cellpatcher, name) is SINGLE

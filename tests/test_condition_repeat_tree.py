@@ -8,8 +8,6 @@ from cellpatcher.io import (
     SINGLE_BIOLOGICAL_REPEAT_LABEL,
     SINGLE_CONDITION_LABEL,
     SINGLE_TECHNICAL_REPEAT_LABEL,
-    discover_condition_repeat_folders,
-    list_supported_files,
     write_array,
 )
 from cellpatcher.orchestration import load_config, run_patching_condition_repeat_tree
@@ -17,133 +15,9 @@ from cellpatcher.pipeline import RUN_CONFIG_FILENAME, run_patching
 from tests.helpers import make_synthetic_cell_image_and_labels, named
 from tests.helpers import preprocessed_tree as _tree
 
-pytestmark = pytest.mark.filterwarnings("ignore:discover_condition_repeat_folders is deprecated:DeprecationWarning")
-
 
 def _write_image(path, shape=(16, 16)):
     write_array(path, np.ones(shape, dtype=np.float32))
-
-
-# discover_condition_repeat_folders: deprecated (audit A-m4; warning checked in test_deprecations.py)
-
-
-def test_discover_explicit_repeat_subfolders(tmp_path):
-    root = tmp_path / "raw_data"
-    _write_image(root / "treated" / "2026_01_01" / "a.tif")
-    _write_image(root / "treated" / "2026_01_02" / "b.tif")
-    _write_image(root / "control" / "2026_01_01" / "c.tif")
-
-    leaves = discover_condition_repeat_folders(root)
-    found = {(leaf.condition, leaf.biological_repeat) for leaf in leaves}
-    assert found == {
-        ("control", "2026_01_01"),
-        ("treated", "2026_01_01"),
-        ("treated", "2026_01_02"),
-    }
-    for leaf in leaves:
-        assert leaf.mask_folder is None
-
-
-def test_discover_single_repeat_flat_condition_folder(tmp_path):
-    root = tmp_path / "raw_data"
-    _write_image(root / "control" / "c.tif")
-
-    leaves = discover_condition_repeat_folders(root)
-    assert len(leaves) == 1
-    leaf = leaves[0]
-    assert leaf.condition == "control"
-    assert leaf.biological_repeat == SINGLE_BIOLOGICAL_REPEAT_LABEL
-    assert leaf.image_folder == root / "control"
-
-
-def test_discover_mixed_conditions_explicit_and_single_repeat(tmp_path):
-    root = tmp_path / "raw_data"
-    _write_image(root / "treated" / "2026_01_01" / "a.tif")
-    _write_image(root / "control" / "c.tif")
-
-    leaves = discover_condition_repeat_folders(root)
-    found = {(leaf.condition, leaf.biological_repeat) for leaf in leaves}
-    assert found == {("treated", "2026_01_01"), ("control", SINGLE_BIOLOGICAL_REPEAT_LABEL)}
-
-
-def test_discover_mixing_loose_images_and_subfolders_raises(tmp_path):
-    root = tmp_path / "raw_data"
-    _write_image(root / "treated" / "loose.tif")
-    _write_image(root / "treated" / "2026_01_01" / "a.tif")
-
-    # The preprocessing brick's discovery error "tiff_outside_leaf" (a warning before v0.3.2).
-    with pytest.raises(ValueError, match=r"\[tiff_outside_leaf\] 1 image is in folders that also contain subfolders.*treated/loose.tif"):
-        discover_condition_repeat_folders(root)
-
-
-def test_discover_mirrors_mask_root_for_both_layouts(tmp_path):
-    image_root = tmp_path / "raw_data"
-    mask_root = tmp_path / "masks"
-    _write_image(image_root / "treated" / "2026_01_01" / "a.tif")
-    _write_image(image_root / "control" / "c.tif")
-    mask_root.mkdir(parents=True)
-
-    leaves = discover_condition_repeat_folders(image_root, mask_root_path=mask_root)
-    by_condition = {leaf.condition: leaf for leaf in leaves}
-    assert by_condition["treated"].mask_folder == mask_root / "treated" / "2026_01_01"
-    assert by_condition["control"].mask_folder == mask_root / "control"
-
-
-def test_discover_skips_empty_condition_folder(tmp_path):
-    root = tmp_path / "raw_data"
-    (root / "empty").mkdir(parents=True)
-    _write_image(root / "control" / "c.tif")
-
-    # Left out as by the preprocessing brick ("empty_folder"), but not silently.
-    with pytest.warns(UserWarning, match=r"\[empty_folder\].*\(empty\)"):
-        leaves = discover_condition_repeat_folders(root)
-    assert [leaf.condition for leaf in leaves] == ["control"]
-
-
-def test_discover_flat_root_is_single_condition_and_repeat(tmp_path):
-    image_root = tmp_path / "experiment"
-    mask_root = tmp_path / "masks"
-    _write_image(image_root / "a.tif")
-    _write_image(image_root / "b.tif")
-    mask_root.mkdir()
-
-    leaves = discover_condition_repeat_folders(image_root, mask_root_path=mask_root)
-    assert len(leaves) == 1
-    leaf = leaves[0]
-    assert (leaf.condition, leaf.biological_repeat) == (SINGLE_CONDITION_LABEL, SINGLE_BIOLOGICAL_REPEAT_LABEL)
-    assert leaf.image_folder == image_root
-    assert leaf.mask_folder == mask_root
-
-
-def test_discover_root_mixing_loose_images_and_subfolders_raises(tmp_path):
-    root = tmp_path / "experiment"
-    _write_image(root / "loose.tif")
-    _write_image(root / "control" / "c.tif")
-
-    with pytest.raises(ValueError, match=r"\[tiff_outside_leaf\].*\(loose.tif\)"):
-        discover_condition_repeat_folders(root)
-
-
-def test_discover_ignores_hidden_subfolders(tmp_path):
-    flat_root = tmp_path / "flat_experiment"
-    _write_image(flat_root / "a.tif")
-    _write_image(flat_root / ".ipynb_checkpoints" / "a-checkpoint.tif")
-    leaves = discover_condition_repeat_folders(flat_root)
-    assert [(leaf.condition, leaf.biological_repeat) for leaf in leaves] == [
-        (SINGLE_CONDITION_LABEL, SINGLE_BIOLOGICAL_REPEAT_LABEL)
-    ]
-
-    condition_root = tmp_path / "condition_experiment"
-    _write_image(condition_root / "control" / "c.tif")
-    _write_image(condition_root / "control" / ".ipynb_checkpoints" / "c-checkpoint.tif")
-    _write_image(condition_root / ".ipynb_checkpoints" / "control" / "c.tif")
-    leaves = discover_condition_repeat_folders(condition_root)
-    assert [(leaf.condition, leaf.biological_repeat) for leaf in leaves] == [("control", SINGLE_BIOLOGICAL_REPEAT_LABEL)]
-
-
-def test_discover_missing_root_raises(tmp_path):
-    with pytest.raises(ValueError, match="does not exist"):
-        discover_condition_repeat_folders(tmp_path / "missing")
 
 
 # ---------------------------------------------------------------------------
@@ -408,38 +282,6 @@ def test_save_run_config_false_skips_run_config_json(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_discover_technical_repeat_subfolders_inside_a_repeat(tmp_path):
-    root = tmp_path / "raw_data"
-    _write_image(root / "treated" / "2026_01_01" / "B02" / "a.tif")
-    _write_image(root / "treated" / "2026_01_01" / "B03" / "b.tif")
-    _write_image(root / "treated" / "2026_01_02" / "c.tif")  # a repeat without wells
-    _write_image(root / "control" / "d.tif")  # a condition without repeats
-
-    leaves = discover_condition_repeat_folders(root, mask_root_path=tmp_path)
-    found = [(leaf.condition, leaf.biological_repeat, leaf.technical_repeat) for leaf in leaves]
-    assert found == [
-        ("control", SINGLE_BIOLOGICAL_REPEAT_LABEL, SINGLE_TECHNICAL_REPEAT_LABEL),
-        ("treated", "2026_01_01", "B02"),
-        ("treated", "2026_01_01", "B03"),
-        ("treated", "2026_01_02", SINGLE_TECHNICAL_REPEAT_LABEL),
-    ]
-    by_well = {leaf.technical_repeat: leaf for leaf in leaves if leaf.biological_repeat == "2026_01_01"}
-    assert by_well["B02"].image_folder == root / "treated" / "2026_01_01" / "B02"
-    assert by_well["B02"].mask_folder == tmp_path / "treated" / "2026_01_01" / "B02"
-    assert by_well["B02"].relative_folder.as_posix() == "treated/2026_01_01/B02"
-    # Without a technical level the output path keeps the two-level layout.
-    single = [leaf for leaf in leaves if leaf.biological_repeat == "2026_01_02"][0]
-    assert single.relative_folder.as_posix() == "treated/2026_01_02"
-
-
-def test_discover_repeat_mixing_images_and_technical_subfolders_raises(tmp_path):
-    root = tmp_path / "raw_data"
-    _write_image(root / "treated" / "2026_01_01" / "loose.tif")
-    _write_image(root / "treated" / "2026_01_01" / "B02" / "a.tif")
-    with pytest.raises(ValueError, match=r"\[tiff_outside_leaf\].*treated/2026_01_01/loose.tif"):
-        discover_condition_repeat_folders(root)
-
-
 def test_tree_stamps_technical_repeat_and_mirrors_it_in_the_output(tmp_path):
     image_root = tmp_path / "raw_data"
     for well in ("B02", "B03"):
@@ -514,42 +356,6 @@ def test_tree_cell_mode_finds_masks_in_mirrored_technical_repeat_folders(tmp_pat
         assert {p.technical_repeat for p in r.result.patches} == {r.technical_repeat}
 
 
-def test_discover_skips_system_files_and_folders_like_preprocessing(tmp_path):
-    # Issue #46: "._img.tif" and __MACOSX are not images or conditions (preprocessing's is_system_name).
-    root = tmp_path / "raw_data"
-    _write_image(root / "ctrl" / "r1" / "a.tif")
-    _write_image(root / "ctrl" / "r1" / "._a.tif")
-    _write_image(root / "__MACOSX" / "ctrl" / "r1" / "._a.tif")
-    (root / "ctrl" / "Thumbs.db").write_bytes(b"x")
-    leaves = discover_condition_repeat_folders(root)
-    assert [(leaf.condition, leaf.biological_repeat) for leaf in leaves] == [("ctrl", "r1")]
-    assert [p.name for p in list_supported_files(leaves[0].image_folder)] == ["a.tif"]
-
-
-def test_discover_a_resource_fork_does_not_make_a_condition_look_mixed(tmp_path):
-    root = tmp_path / "raw_data"
-    _write_image(root / "ctrl" / "r1" / "a.tif")
-    _write_image(root / "ctrl" / "._stray.tif")
-    leaves = discover_condition_repeat_folders(root)
-    assert [(leaf.condition, leaf.biological_repeat) for leaf in leaves] == [("ctrl", "r1")]
-
-
-def test_discover_wells_inside_a_biological_repeat_folder_named_single(tmp_path):
-    # Issue #43: a real biological-repeat folder named "single" is a normal
-    # level; its well subfolders are technical repeats (as in preprocessing).
-    root = tmp_path / "raw_data"
-    _write_image(root / "ctrl" / "single" / "wellA" / "img1.tif")
-    _write_image(root / "ctrl" / "single" / "wellB" / "img2.tif")
-
-    (tmp_path / "masks_root").mkdir()
-    leaves = discover_condition_repeat_folders(root, mask_root_path=tmp_path / "masks_root")
-    found = [(leaf.condition, leaf.biological_repeat, leaf.technical_repeat) for leaf in leaves]
-    assert found == [("ctrl", "single", "wellA"), ("ctrl", "single", "wellB")]
-    assert leaves[0].image_folder == root / "ctrl" / "single" / "wellA"
-    assert leaves[0].mask_folder == tmp_path / "masks_root" / "ctrl" / "single" / "wellA"
-    assert leaves[0].relative_folder.as_posix() == "ctrl/single/wellA"
-
-
 def test_tree_runs_wells_inside_a_biological_repeat_folder_named_single(tmp_path):
     image_root = tmp_path / "raw_data"
     _write_image(image_root / "ctrl" / "single" / "wellA" / "img1.tif")
@@ -564,95 +370,3 @@ def test_tree_runs_wells_inside_a_biological_repeat_folder_named_single(tmp_path
         ("ctrl", "single", "wellA"): {"img1.tif"},
         ("ctrl", "single", "wellB"): {"img2.tif"},
     }
-
-
-# ---------------------------------------------------------------------------
-# Issue #45 (owner decision of 2026-10-30): images are discovered with the
-# preprocessing brick's discover_experiment. Each case below was accepted by
-# CellPatcher's former folder walk, as the comment says.
-# ---------------------------------------------------------------------------
-
-
-def _preprocessing_leaves(root):
-    from morphobricks_preprocessing import discover_experiment
-
-    result = discover_experiment(root)
-    return [(leaf.relative_path, leaf.labels, leaf.images) for leaf in result.leaves]
-
-
-def test_discovery_is_the_preprocessing_bricks(tmp_path):
-    root = tmp_path / "raw_data"
-    for path in (
-        "treated/2026_01_01/B02/a.tif",
-        "treated/2026_01_01/B03/b.ome.tif",
-        "treated/2026_01_02/c.TIFF",
-        "control/d.tif",
-        "control2/single/wellA/e.tif",
-        "control2/single/wellA/notes.txt",  # not an image: ignored, as before
-    ):
-        if path.endswith(".txt"):
-            (root / path).write_text("x")
-        else:
-            _write_image(root / path)
-    _write_image(root / "control" / ".ipynb_checkpoints" / "d-checkpoint.tif")
-
-    leaves = discover_condition_repeat_folders(root)
-    ours = [
-        (
-            leaf.image_folder.relative_to(root).as_posix(),
-            (leaf.condition, leaf.biological_repeat, leaf.technical_repeat),
-            tuple(path.relative_to(root).as_posix() for path in list_supported_files(leaf.image_folder)),
-        )
-        for leaf in leaves
-    ]
-    assert ours == _preprocessing_leaves(root)
-
-
-@pytest.mark.parametrize("name", ["b.png", "b.npy", "b.jpeg", "b.bmp", "b.gif"])
-def test_a_tree_refuses_images_in_formats_no_longer_read(tmp_path, name):
-    # Former walk: b.<ext> was an image of control/r1 and was patched.
-    root = tmp_path / "raw_data"
-    _write_image(root / "control" / "r1" / "a.tif")
-    write_array(root / "control" / "r1" / name, np.ones((16, 16), np.uint8))
-    with pytest.raises(ValueError, match=rf"in a format CellPatcher no longer reads: control/r1/{name}\."):
-        discover_condition_repeat_folders(root)
-
-
-def test_a_png_beside_condition_folders_is_refused_by_name(tmp_path):
-    # Former walk: refused as a folder mixing images with subfolders; still refused, by name.
-    root = tmp_path / "raw_data"
-    _write_image(root / "control" / "a.tif")
-    write_array(root / "overview.png", np.ones((16, 16), np.uint8))
-    with pytest.raises(ValueError, match=r"no longer reads: overview.png\."):
-        discover_condition_repeat_folders(root)
-
-
-@pytest.mark.parametrize(
-    ("paths", "refusal"),
-    [
-        # Former walk: the technical-repeat folder's own images were patched, the folder below ignored.
-        (["c/b/t/a.tif", "c/b/t/deeper/x.tif"], r"\[folder_too_deep\].*\(c/b/t/deeper\).*\[tiff_outside_leaf\].*\(c/b/t/a.tif\)"),
-        (["c/b/t/deeper/x.tif"], r"\[folder_too_deep\].*\(c/b/t/deeper\)"),
-        # Former walk: two conditions, "Ctrl" and "ctrl".
-        (["Ctrl/a.tif", "ctrl/b.tif"], r"\[case_conflict\].*Ctrl, ctrl"),
-        # Former walk: a biological repeat labeled "Single", another than the "single" of a missing level.
-        (["c/Single/a.tif"], r"\[reserved_folder_name\].*c/Single"),
-        # Former walk: a biological repeat "single" next to "r2", read as two repeats.
-        (["c/single/a.tif", "c/r2/b.tif"], r"\[reserved_folder_name\].*c/single"),
-    ],
-)
-def test_a_tree_refuses_what_the_preprocessing_brick_refuses(tmp_path, paths, refusal):
-    root = tmp_path / "raw_data"
-    for path in paths:
-        _write_image(root / path)
-    with pytest.raises(ValueError, match=refusal):
-        discover_condition_repeat_folders(root)
-
-
-def test_a_mask_root_inside_the_image_root_is_refused_before_discovery(tmp_path):
-    # Its folders would be read as conditions. Former walk: "masks" became a condition.
-    root = tmp_path / "raw_data"
-    _write_image(root / "control" / "a.tif")
-    _write_image(root / "masks" / "control" / "a_cells.tif")
-    with pytest.raises(ValueError, match=r"\[masks_inside_experiment\].*\(masks\)"):
-        discover_condition_repeat_folders(root, mask_root_path=root / "masks")

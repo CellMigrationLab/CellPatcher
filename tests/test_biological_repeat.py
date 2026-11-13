@@ -1,11 +1,13 @@
-"""The ``biological_repeat`` column and the deprecated ``repeat`` alias.
+"""The ``biological_repeat`` column; the old ``repeat`` name is refused.
 
 ``repeat`` was renamed ``biological_repeat`` (PatchRegion field, CommonConfig
-field, patches.csv column). The old name must keep working for a transition,
-with exactly one DeprecationWarning per use and identical output.
+field, patches.csv column). Its transition alias was removed in the
+compatibility sweep (CP-1, Spec ADR 0002 AR11 (6)): the old name is refused
+everywhere, never read as the biological repeat.
 """
 
 import csv
+import dataclasses
 import json
 import warnings
 
@@ -13,29 +15,16 @@ import numpy as np
 import pytest
 
 import cellpatcher
-from cellpatcher._deprecation import upgrade_legacy_repeat_column
 from cellpatcher.config import CellPatcherConfig, CommonConfig
 from cellpatcher.io import (
     SINGLE_BIOLOGICAL_REPEAT_LABEL,
     SINGLE_CONDITION_LABEL,
-    SINGLE_REPEAT_LABEL,
-    ConditionRepeatFolder,
-    discover_condition_repeat_folders,
     write_array,
 )
-from cellpatcher.orchestration import (
-    ConditionRepeatResult,
-    apply_overrides,
-    load_config,
-)
+from cellpatcher.orchestration import ConditionRepeatResult, apply_overrides, load_config
 from cellpatcher.pipeline import RUN_CONFIG_FILENAME, run_patching
 from cellpatcher.types import PatchRegion
-from tests.helpers import named
 from tests.helpers import preprocessed_tree as _tree
-
-# discover_condition_repeat_folders is deprecated (audit round 2, A-m4); its warning is checked in
-# tests/test_deprecations.py, and these tests check its results while it remains.
-pytestmark = pytest.mark.filterwarnings("ignore:discover_condition_repeat_folders is deprecated:DeprecationWarning")
 
 
 def _run(config):
@@ -151,161 +140,42 @@ def test_tree_flat_root_is_single_condition_and_single_biological_repeat(tmp_pat
 
 def test_single_label_constants():
     assert SINGLE_BIOLOGICAL_REPEAT_LABEL == "single"
-    assert SINGLE_REPEAT_LABEL == SINGLE_BIOLOGICAL_REPEAT_LABEL
     assert SINGLE_CONDITION_LABEL == "single"
-    assert cellpatcher.SINGLE_BIOLOGICAL_REPEAT_LABEL == cellpatcher.SINGLE_REPEAT_LABEL == "single"
+    assert cellpatcher.SINGLE_BIOLOGICAL_REPEAT_LABEL == "single"
     assert "SINGLE_BIOLOGICAL_REPEAT_LABEL" in cellpatcher.__all__
-    assert "SINGLE_REPEAT_LABEL" in cellpatcher.__all__
+    assert not hasattr(cellpatcher, "SINGLE_REPEAT_LABEL")  # CP-2: the old name is gone
 
 
-# --- deprecated `repeat` alias ------------------------------------------------
+# --- the removed `repeat` name is refused ------------------------------------
 
 
-def test_config_repeat_attribute_warns_once_and_gives_identical_output(tmp_path):
-    new_cfg = _export_config(tmp_path / "new")
-    new_cfg.common.condition = "treated"
-    new_cfg.common.biological_repeat = "2026_01_01"
-    _run(new_cfg)
-
-    old_cfg = _export_config(tmp_path / "old")
-    old_cfg.common.condition = "treated"
-    with pytest.warns(DeprecationWarning, match="biological_repeat") as records:
-        old_cfg.common.repeat = "2026_01_01"
-    assert len(_deprecations(records)) == 1
-
-    with warnings.catch_warnings(record=True) as run_records:
-        warnings.simplefilter("always")
-        _run(old_cfg)
-    assert _deprecations(run_records) == []
-
-    assert (tmp_path / "old" / "patches.csv").read_text() == (tmp_path / "new" / "patches.csv").read_text()
-    old_run_config = json.loads((tmp_path / "old" / RUN_CONFIG_FILENAME).read_text())
-    new_run_config = json.loads((tmp_path / "new" / RUN_CONFIG_FILENAME).read_text())
-    old_run_config["common"].pop("output_dir")
-    new_run_config["common"].pop("output_dir")
-    assert old_run_config == new_run_config
+def test_the_repeat_keyword_is_refused():
+    with pytest.raises(TypeError, match="repeat"):
+        CommonConfig(condition="treated", repeat="2026_01_01")
+    with pytest.raises(TypeError, match="repeat"):
+        PatchRegion(patch_id="p", y1=4, x1=4, repeat="2026_01_01")
 
 
-def test_common_config_repeat_keyword_warns_once():
-    with pytest.warns(DeprecationWarning, match="CommonConfig") as records:
-        common = CommonConfig(condition="treated", repeat="2026_01_01")
-    assert len(_deprecations(records)) == 1
-    assert common == CommonConfig(condition="treated", biological_repeat="2026_01_01")
-    # The warning points at the caller, not at CellPatcher internals.
-    assert records[0].filename == __file__
-
-
-def test_config_repeat_attribute_read_warns_once():
+def test_the_repeat_attribute_is_refused():
     common = CommonConfig(biological_repeat="2026_01_01")
-    with pytest.warns(DeprecationWarning) as records:
-        assert common.repeat == "2026_01_01"
-    assert len(_deprecations(records)) == 1
+    with pytest.raises(AttributeError):
+        _ = common.repeat
+    with pytest.raises(AttributeError):
+        common.repeat = "2026_02_02"  # slots=True (Q-CP-c): never a silent new attribute
+    patch = PatchRegion(patch_id="p", y1=4, x1=4, biological_repeat="2026_01_01")
+    assert not hasattr(patch, "repeat")
+    assert "repeat" not in patch.to_dict()
+    assert "repeat" not in {field.name for field in dataclasses.fields(ConditionRepeatResult)}
 
 
-def test_conflicting_repeat_and_biological_repeat_raise():
-    with pytest.warns(DeprecationWarning), pytest.raises(TypeError, match="conflicting"):
-        CommonConfig(biological_repeat="2026_01_01", repeat="2026_02_02")
+def test_apply_overrides_refuses_the_repeat_key():
+    with pytest.raises(ValueError, match="Unknown field 'repeat'"):
+        apply_overrides(CellPatcherConfig(), {"common.repeat": "2026_01_01"})
 
 
-def test_apply_overrides_repeat_key_warns_once():
-    with pytest.warns(DeprecationWarning) as records:
-        cfg = apply_overrides(CellPatcherConfig(), {"common.repeat": "2026_01_01"})
-    assert len(_deprecations(records)) == 1
-    assert cfg.common.biological_repeat == "2026_01_01"
-
-
-def test_pipeline_overrides_repeat_key_gives_identical_csv(tmp_path):
-    _run(apply_overrides(_export_config(tmp_path / "new"), {"common.biological_repeat": "2026_01_01"}))
-    with pytest.warns(DeprecationWarning) as records:
-        _run(apply_overrides(_export_config(tmp_path / "old"), {"common.repeat": "2026_01_01"}))
-    assert len(_deprecations(records)) == 1
-    assert (tmp_path / "old" / "patches.csv").read_text() == (tmp_path / "new" / "patches.csv").read_text()
-
-
-def test_load_config_with_legacy_repeat_key_warns_once(tmp_path):
-    legacy = {"mode": "whole_fov", "common": {"condition": "treated", "repeat": "2026_01_01"}}
+def test_load_config_refuses_a_repeat_key(tmp_path):
+    legacy = {"run_config_version": 2, "mode": "whole_fov", "common": {"condition": "treated", "repeat": "2026_01_01"}}
     path = tmp_path / "legacy_config.json"
     path.write_text(json.dumps(legacy))
-
-    with pytest.warns(DeprecationWarning) as records:
-        cfg = load_config(path)
-    assert len(_deprecations(records)) == 1
-    assert cfg.common.biological_repeat == "2026_01_01"
-
-
-def test_patch_region_repeat_keyword_and_attribute_warn_once_each():
-    expected = PatchRegion(patch_id="p", y1=4, x1=4, biological_repeat="2026_01_01")
-    with pytest.warns(DeprecationWarning, match="PatchRegion") as records:
-        patch = PatchRegion(patch_id="p", y1=4, x1=4, repeat="2026_01_01")
-    assert len(_deprecations(records)) == 1
-    assert patch == expected
-    assert patch.to_dict() == expected.to_dict()
-    assert "repeat" not in patch.to_dict()
-
-    with pytest.warns(DeprecationWarning) as records:
-        patch.repeat = "2026_02_02"
-    assert len(_deprecations(records)) == 1
-    assert patch.biological_repeat == "2026_02_02"
-
-
-def test_run_patching_with_repeat_config_gives_identical_patches():
-    image = np.ones((16, 16), dtype=np.float32)
-    new_cfg = CellPatcherConfig(mode="whole_fov", common=CommonConfig(biological_repeat="2026_01_01"))
-    with pytest.warns(DeprecationWarning):
-        old_cfg = CellPatcherConfig(mode="whole_fov", common=CommonConfig(repeat="2026_01_01"))
-    assert run_patching(images=image, config=old_cfg,
-        image_metadata=named(image)).patches == run_patching(images=image, config=new_cfg,
-        image_metadata=named(image)).patches
-
-
-def test_discovery_and_tree_results_expose_deprecated_repeat_alias(tmp_path):
-    _build_tree(tmp_path / "images")
-    leaves = discover_condition_repeat_folders(tmp_path / "images")
-    assert isinstance(leaves[0], ConditionRepeatFolder)
-    with pytest.warns(DeprecationWarning, match="ConditionRepeatFolder.repeat") as records:
-        assert leaves[0].repeat == leaves[0].biological_repeat
-    assert len(_deprecations(records)) == 1
-
-    results = _tree(tmp_path / "images", config=CellPatcherConfig(mode="whole_fov"))
-    assert isinstance(results[0], ConditionRepeatResult)
-    with pytest.warns(DeprecationWarning, match="ConditionRepeatResult.repeat") as records:
-        assert results[0].repeat == results[0].biological_repeat
-    assert len(_deprecations(records)) == 1
-
-
-# --- reading a pre-rename patches.csv ------------------------------------------
-
-
-def test_legacy_repeat_column_is_read_as_biological_repeat_with_one_warning():
-    fieldnames = ["patch_id", "condition", "repeat", "image_file"]
-    rows = [
-        {"patch_id": "p0", "condition": "treated", "repeat": "2026_01_01", "image_file": "a.tif"},
-        {"patch_id": "p1", "condition": "treated", "repeat": "2026_02_02", "image_file": "b.tif"},
-    ]
-    with pytest.warns(DeprecationWarning, match="patches.csv") as records:
-        upgraded = upgrade_legacy_repeat_column(fieldnames, rows, "old/patches.csv")
-    assert len(_deprecations(records)) == 1
-    assert [row["biological_repeat"] for row in upgraded] == ["2026_01_01", "2026_02_02"]
-    assert all("repeat" not in row for row in upgraded)
-    assert list(upgraded[0]) == ["patch_id", "condition", "biological_repeat", "image_file"]
-
-
-def test_current_csv_rows_are_left_unchanged_without_warning():
-    rows = [{"patch_id": "p0", "biological_repeat": "2026_01_01"}]
-    with warnings.catch_warnings(record=True) as records:
-        warnings.simplefilter("always")
-        assert upgrade_legacy_repeat_column(["patch_id", "biological_repeat"], rows, "patches.csv") == rows
-    assert _deprecations(records) == []
-
-
-def test_torch_dataset_reads_legacy_repeat_column(tmp_path):
-    pytest.importorskip("torch")
-    from cellpatcher.torch_dataset import ExportedPatchTorchDataset, PatchTensorConfig
-
-    np.save(tmp_path / "p0.npy", np.ones((8, 8), dtype=np.float32))
-    (tmp_path / "patches.csv").write_text("patch_id,condition,repeat,patch_file\np0,treated,2026_01_01,p0.npy\n")
-    with pytest.warns(DeprecationWarning) as records:
-        dataset = ExportedPatchTorchDataset(tmp_path / "patches.csv",
-                                            tensor_config=PatchTensorConfig(scale_policy="none"))
-    assert len(_deprecations(records)) == 1
-    assert dataset[0]["patch"]["biological_repeat"] == "2026_01_01"
+    with pytest.raises(TypeError, match="repeat"):
+        load_config(path)

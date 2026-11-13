@@ -90,12 +90,24 @@ def test_match_config_holds_the_mask_type_and_mask_id_only():
     with pytest.raises(ValueError, match="matching.mask_id must be None or a non-empty name"):
         MatchConfig(mask_id=" ")
     config = MatchConfig()
-    with pytest.raises(ValueError, match="removed in CellPatcher v0.1.1"):
-        config.strategy = "exact_or_suffix"  # never silently ignored, old default included
+    with pytest.raises(AttributeError):
+        config.strategy = "exact_or_suffix"  # Q-CP-c: slots=True, never silently set
     for name, value in (("strategy", "exact_or_suffix"), ("mask_suffixes", ("_mask",)), ("case_sensitive", False),
                         ("ignore_unrequested_masks", False), ("strategy", None)):
-        with pytest.raises(ValueError, match=f"{name} were removed in CellPatcher v0.1.1.*mask_type"):
+        with pytest.raises(TypeError, match=name):
             MatchConfig(**{name: value})
+
+
+@pytest.mark.parametrize("section", ["common", "cell", "random", "grid", "whole_fov", "filters", "export",
+                                     "extraction", "matching", "normalization"])
+def test_an_unknown_config_attribute_is_refused(section):
+    # Q-CP-c (compatibility sweep): every config dataclass has slots, so a typo is an AttributeError,
+    # never an attribute nobody reads.
+    config = CellPatcherConfig()
+    with pytest.raises(AttributeError):
+        getattr(config, section).no_such_setting = 1
+    with pytest.raises(AttributeError):
+        config.no_such_section = 1
 
 
 def test_an_old_run_config_with_the_former_matching_fails_clearly(tmp_path):
@@ -104,6 +116,7 @@ def test_an_old_run_config_with_the_former_matching_fails_clearly(tmp_path):
     from cellpatcher.orchestration import load_config
 
     old = {
+        "run_config_version": 2,
         "mode": "cell",
         "matching": {
             "strategy": "exact_or_suffix",
@@ -113,12 +126,8 @@ def test_an_old_run_config_with_the_former_matching_fails_clearly(tmp_path):
         },
     }
     (tmp_path / "run_config.json").write_text(json.dumps(old))
-    # Removed in v0.1.1 (owner decision): every former option is named, with mask_type as the way.
-    with pytest.raises(
-        ValueError,
-        match="case_sensitive, ignore_unrequested_masks, mask_suffixes, strategy were removed in CellPatcher "
-        "v0.1.1.*matching.mask_type",
-    ):
+    # Removed in v0.1.1; since the compatibility sweep (CP-7) unknown keys of the section.
+    with pytest.raises(TypeError, match="strategy"):
         load_config(tmp_path / "run_config.json")
     old["matching"] = {"mask_type": "cells"}
     (tmp_path / "run_config.json").write_text(json.dumps(old))
@@ -397,16 +406,29 @@ def test_save_config_for_mode_default_values_match_dataclass_defaults(tmp_path):
 
 
 def test_the_mask_source_settings_are_removed(tmp_path):
-    # Removed in v0.2.0 (CP-2b): old main still accepted them (refused for file runs only, unused
-    # in memory). A file written before holds their defaults, which had no effect: it still loads.
+    # Removed in v0.2.0 (CP-2b); since the compatibility sweep (CP-9) unknown keys, at their old
+    # defaults too: only version-2 files are read, and version 2 never wrote them.
     from cellpatcher.config import CommonConfig
 
     with pytest.raises(TypeError, match="mask_source"):
         CommonConfig(mask_source="ngff_labels")
     path = tmp_path / "run_config.json"
-    path.write_text(json.dumps({"mode": "grid", "common": {"mask_source": "tiff_tree", "mask_label_name": None}}))
-    assert load_config(path).common == CommonConfig()
-    for name, value in (("mask_source", "ngff_labels"), ("mask_label_name", "cells")):
-        path.write_text(json.dumps({"mode": "cell", "common": {name: value}}))
-        with pytest.raises(ValueError, match=rf"common.{name}={value!r} was removed in CellPatcher v0.2.0.*mask_type"):
+    for common in ({"mask_source": "tiff_tree", "mask_label_name": None}, {"mask_label_name": "cells"}):
+        path.write_text(json.dumps({"run_config_version": 2, "mode": "grid", "common": common}))
+        with pytest.raises(TypeError, match="mask_"):
             load_config(path)
+
+
+def test_saved_configs_carry_the_version_and_a_file_without_one_is_refused(tmp_path):
+    # CP-8 (compatibility sweep, A15): version 2 only; save_default_config/save_config_for_mode write it.
+    for path in (save_default_config(tmp_path / "default.json"), save_config_for_mode("grid", tmp_path / "g.json")):
+        data = json.loads(path.read_text())
+        assert data["run_config_version"] == 2
+        load_config(path)
+        del data["run_config_version"]
+        path.write_text(json.dumps(data))
+        with pytest.raises(ValueError, match=r"has no run_config_version.*version 2 only.*save_default_config"):
+            load_config(path)
+    path.write_text(json.dumps({"run_config_version": 1, "mode": "grid"}))
+    with pytest.raises(ValueError, match="run_config_version 1; this CellPatcher reads version 2 only"):
+        load_config(path)

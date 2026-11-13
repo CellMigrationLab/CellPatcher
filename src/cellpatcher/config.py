@@ -1,16 +1,13 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import InitVar, dataclass, field
+from dataclasses import dataclass, field
 
-from cellpatcher._deprecation import accept_deprecated_repeat
 from cellpatcher.fractions import check_choice
 from cellpatcher.io import (
-    REMOVED_MATCHING_OPTIONS,
     SINGLE_BIOLOGICAL_REPEAT_LABEL,
     SINGLE_CONDITION_LABEL,
     SINGLE_TECHNICAL_REPEAT_LABEL,
-    refuse_removed_matching,
 )
 from cellpatcher.setting_checks import (
     MODES,
@@ -28,8 +25,7 @@ from cellpatcher.setting_checks import (
 )
 
 
-@accept_deprecated_repeat
-@dataclass
+@dataclass(slots=True)
 class CommonConfig:
     # The axes of in-memory arrays given to run_patching (canonical, Y before X). Folder and
     # tree runs read each image and mask in the roles the preprocessing run recorded, refuse
@@ -44,7 +40,7 @@ class CommonConfig:
     # The shared-CSV-contract labels (AGENTS.md §5) of in-memory run_patching; None is "single",
     # as for a missing folder level. Folder and tree runs take each image's from the run and
     # refuse other values. technical_repeat (well/dish/coverslip) is overridden per image by
-    # image_metadata["technical_repeat"]; `repeat` is a deprecated alias of biological_repeat.
+    # image_metadata["technical_repeat"].
     condition: str | None = SINGLE_CONDITION_LABEL
     biological_repeat: str | None = SINGLE_BIOLOGICAL_REPEAT_LABEL
     technical_repeat: str | None = SINGLE_TECHNICAL_REPEAT_LABEL
@@ -53,7 +49,7 @@ class CommonConfig:
     # axis (the behaviour before these options existed). "all": one patch
     # per plane; "first"/"select" (with z_index/t_index): one plane. T and Z
     # differ: every T length works, but Z>1 is refused under every z_policy
-    # (issue #83; Z=1 passes, "max"/"mean"/"sum" return that plane unchanged).
+    # (issue #83). CellPatcher combines no planes: there is no Z projection.
     # Masks follow the image's planes when they have the same Z/T length and
     # are shared otherwise.
     z_policy: str = "keep"
@@ -70,7 +66,7 @@ class CommonConfig:
         check_common_settings(self)
 
 
-@dataclass
+@dataclass(slots=True)
 class CellConfig:
     """Parameters of ``mode='cell'``.
 
@@ -104,7 +100,7 @@ class CellConfig:
         check_cell_settings(self)
 
 
-@dataclass
+@dataclass(slots=True)
 class RandomConfig:
     """Parameters of ``mode='random'``.
 
@@ -132,7 +128,7 @@ class RandomConfig:
         check_random_settings(self)
 
 
-@dataclass
+@dataclass(slots=True)
 class WholeFOVConfig:
     """Parameters of ``mode='whole_fov'``.
 
@@ -150,7 +146,7 @@ class WholeFOVConfig:
         check_whole_fov_settings(self)
 
 
-@dataclass
+@dataclass(slots=True)
 class GridConfig:
     tile_size: int = 128
     overlap: float = 0.0
@@ -174,7 +170,7 @@ class GridConfig:
         check_partial_mode(self)
 
 
-@dataclass
+@dataclass(slots=True)
 class FilterConfig:
     min_foreground_fraction: float | None = None
     foreground_threshold: float | str | None = None
@@ -184,7 +180,7 @@ class FilterConfig:
         check_filter_settings(self)
 
 
-@dataclass
+@dataclass(slots=True)
 class ExportConfig:
     enabled: bool = False
     save_metadata_csv: bool = True
@@ -198,7 +194,7 @@ class ExportConfig:
         check_export_settings(self)
 
 
-@dataclass
+@dataclass(slots=True)
 class ExtractionConfig:
     pad_mode: str = "clip"
     constant_values: float = 0.0
@@ -225,11 +221,14 @@ class ExtractionConfig:
         Raises
         ------
         ValueError
-            For a list of IDs when the image has no channel IDs, or IDs other than one distinct canonical ID
-            per channel (the normalization brick's ``check_channel_ids``), or an ID the image does not have.
+            For image channel IDs that are not distinct canonical IDs (the normalization brick's
+            ``check_channel_ids``; checked whatever ``split_channels`` is), for a list of IDs when the image
+            has no channel ID per channel, or an ID the image does not have.
         """
         from morphobricks_normalization.channels import check_channel_ids
 
+        if channel_ids is not None:
+            channel_ids = check_channel_ids(channel_ids, 'image_metadata["channel_ids"]')  # e.g. ["DNA", "DNA"]
         if isinstance(self.split_channels, bool):
             return tuple(range(channel_count)) if self.split_channels else ()
         if channel_ids is None or len(channel_ids) != channel_count:
@@ -238,7 +237,6 @@ class ExtractionConfig:
                 f"{channel_count} channel(s) are not named by ID ({channel_ids!r}). A file run names them from its "
                 'description; for an in-memory image give image_metadata["channel_ids"], one ID per C index.'
             )
-        channel_ids = check_channel_ids(channel_ids, 'image_metadata["channel_ids"]')  # e.g. ["DNA", "DNA"] refused
         missing = [channel for channel in self.split_channels if channel not in channel_ids]
         if missing:
             raise ValueError(
@@ -248,7 +246,7 @@ class ExtractionConfig:
         return tuple(sorted(list(channel_ids).index(channel) for channel in self.split_channels))
 
 
-@dataclass
+@dataclass(slots=True)
 class NormalizationConfig:
     """Normalization with the statistics of the preprocessing brick (``docs/normalization_contract.md``).
 
@@ -345,11 +343,7 @@ class NormalizationConfig:
             self.clip = tuple(float(value) for value in self.clip)
 
 
-# The default of the removed options below: "not given".
-_NOT_GIVEN = object()
-
-
-@dataclass
+@dataclass(slots=True)
 class MatchConfig:
     """Which masks to pair with the images.
 
@@ -369,36 +363,16 @@ class MatchConfig:
     cell.binary_mask_policy)``) and its refusals stop the run before any read.
     None (default): the description's one mask whose source type is the mask
     type above. Given with ``mask_type``, the two must name the same mask.
-
-    The former options ``strategy``, ``mask_suffixes``, ``case_sensitive``
-    and ``ignore_unrequested_masks`` were removed in v0.1.1: given here, set
-    later or found in an old ``run_config.json``, they are refused by name
-    with a ``ValueError`` saying to use ``mask_type``.
     """
 
     mask_type: str | None = None
     mask_id: str | None = None
-    strategy: InitVar[object] = _NOT_GIVEN
-    mask_suffixes: InitVar[object] = _NOT_GIVEN
-    case_sensitive: InitVar[object] = _NOT_GIVEN
-    ignore_unrequested_masks: InitVar[object] = _NOT_GIVEN
 
-    def __post_init__(self, strategy, mask_suffixes, case_sensitive, ignore_unrequested_masks) -> None:
-        given = dict(zip(REMOVED_MATCHING_OPTIONS, (strategy, mask_suffixes, case_sensitive, ignore_unrequested_masks)))
-        refuse_removed_matching(
-            "MatchConfig", {name: value for name, value in given.items() if value is not _NOT_GIVEN}
-        )
+    def __post_init__(self) -> None:
         check_match_settings(self)
 
-    def __setattr__(self, name, value) -> None:
-        # The former options are not fields: setting one after construction
-        # (cfg.matching.strategy = "substring") must not be silently ignored.
-        if name in REMOVED_MATCHING_OPTIONS:
-            refuse_removed_matching(f"matching.{name}", {name: value})
-        super().__setattr__(name, value)
 
-
-@dataclass
+@dataclass(slots=True)
 class CellPatcherConfig:
     """Top-level configuration for a CellPatcher run.
 

@@ -54,13 +54,12 @@ from morphobricks_normalization.records import SINGLE
 
 from cellpatcher.axes import normalize_axes
 from cellpatcher.masking import _label_to_2d
-from cellpatcher.patch_normalization import (  # PatchNormalization and the split are re-exported (their old home)
+from cellpatcher.patch_normalization import (
     PatchNormalization,
     channel_order_from_row,
     image_channel_ids,
     refuse_earlier_parameter_row,
 )
-from cellpatcher.patch_normalization import split_channel_normalization as split_channel_normalization
 from cellpatcher.run_open import check_image_type, settings_statistics
 from cellpatcher.scope_check import group_failures
 from cellpatcher.statistics import (
@@ -229,31 +228,23 @@ def run_settings(config) -> dict | None:
 def parameters_from_row(row: Mapping, settings: Mapping) -> object | None:
     """Read the brick ``Parameters`` of a ``patches.csv`` row, at its run's scope (brick #37); None if it has none.
 
-    *settings*: the row's ``run_config.json`` ``normalization``. ``Normalization_*_<ID>`` columns at a scope removed
-    since (N29), which the brick refuses, are read as image-scope ones, keeping their recorded scope (it must be the
-    run's) and values (contract §7). Rows written before normalization v0.5.0 (``Normalization_*_C<i>`` columns
-    without ``normalization_parameters_version``, or the ``;``-separated ``normalization_offset`` of earlier tables)
-    are refused, never converted (Spec ADR 0002 AR10): run CellPatcher again.
+    *settings*: the row's ``run_config.json`` ``normalization``. Rows written before normalization v0.5.0
+    (``Normalization_*_C<i>`` columns without ``normalization_parameters_version``) are refused, never converted
+    (Spec ADR 0002 AR10): run CellPatcher again.
 
     Raises
     ------
     ValueError
         If the row's scope is not its run's, or its parameters cannot be read.
     """
-    from cellpatcher.setting_checks import REMOVED_NORMALIZATION_SCOPES
-
     mbn = require_normalization()
     if not refuse_earlier_parameter_row(row):  # no parameters; a row of an earlier table is refused
         return None
-    removed = (scope := settings.get("scope", "image")) in REMOVED_NORMALIZATION_SCOPES
-    if removed and (recorded := row.get("normalization_scope")) != scope:
-        raise ValueError(f"Column normalization_scope is {recorded!r}, but its run normalized at {scope!r}.")
     brick = mbn.NormalizationSettings(
         image_type=settings.get("image_type", "fluorescence"), method=settings.get("method", "percentile"),
-        percentile=tuple(settings.get("percentile", (1.0, 99.8))), scope="image" if removed else scope,
+        percentile=tuple(settings.get("percentile", (1.0, 99.8))), scope=settings.get("scope", "image"),
     )
-    parameters = mbn.Parameters.from_columns({**row, "normalization_scope": "image"} if removed else row, brick)
-    return replace(parameters, scope=scope)
+    return mbn.Parameters.from_columns(row, brick)
 
 
 def normalization_fields(row: Mapping, settings: Mapping) -> dict:

@@ -16,8 +16,6 @@ from tests.helpers import named
 
 KEPT = PatchTensorConfig(scale_policy="none")
 """The channels and values as exported (channel_policy defaults to "keep" since v0.2.0)."""
-OLD_DEFAULTS = PatchTensorConfig(channel_policy="repeat_to_rgb", scale_policy="auto")
-"""The behaviour of PatchTensorConfig() before v0.2.0, now only when named."""
 
 
 def test_tensor_config_validation():
@@ -31,6 +29,8 @@ def test_tensor_config_validation():
     with pytest.raises(ValueError):
         PatchTensorConfig(scale_policy="bad")
     with pytest.raises(ValueError):
+        PatchTensorConfig(scale_policy="auto")
+    with pytest.raises(ValueError):
         PatchTensorConfig(scale_policy="none", squeeze_singleton_zt="yes")
     with pytest.raises(ValueError):
         PatchTensorConfig(scale_policy="none", reject_non_singleton_zt=1)
@@ -40,10 +40,10 @@ def test_tensor_config_validation():
 
 def test_patch_array_to_tensor_core_behaviors():
     rgb = PatchTensorConfig(channel_policy="repeat_to_rgb", scale_policy="none")
-    t = patch_array_to_tensor(np.array([[0, 255]], dtype=np.uint8), axes="YX", config=OLD_DEFAULTS)
+    t = patch_array_to_tensor(np.array([[0, 255]], dtype=np.uint8), axes="YX", config=rgb)
     assert tuple(t.shape) == (3, 1, 2)
     assert str(t.dtype).endswith("float32")
-    assert float(t.max()) == pytest.approx(1.0)
+    assert float(t.max()) == pytest.approx(255.0)
 
     t = patch_array_to_tensor(np.ones((2, 3), dtype=np.uint8), axes="YX", config=KEPT)
     assert tuple(t.shape) == (1, 2, 3)
@@ -81,7 +81,7 @@ def test_patch_array_to_tensor_core_behaviors():
     with pytest.raises(ValueError, match="iter_image_planes_for_patching"):
         patch_array_to_tensor(np.ones((2, 4, 5), dtype=np.uint16), axes="TYX", config=rgb)
 
-    t = patch_array_to_tensor(np.array([[0.5, 2.0]], dtype=np.float64), axes="YX", config=OLD_DEFAULTS)
+    t = patch_array_to_tensor(np.array([[0.5, 2.0]], dtype=np.float64), axes="YX", config=rgb)
     assert float(t.max()) == pytest.approx(2.0)
 
     t = patch_array_to_tensor(
@@ -95,10 +95,6 @@ def test_patch_array_to_tensor_core_behaviors():
 def test_patch_array_to_tensor_scale_and_dtype_policies():
     arr = np.array([[0, 65535]], dtype=np.uint16)
 
-    t_auto = patch_array_to_tensor(arr, axes="YX", config=PatchTensorConfig(scale_policy="auto"))
-    assert str(t_auto.dtype).endswith("float32")
-    assert float(t_auto.max()) == pytest.approx(1.0)
-
     t_none = patch_array_to_tensor(
         arr,
         axes="YX",
@@ -107,19 +103,13 @@ def test_patch_array_to_tensor_scale_and_dtype_policies():
     assert str(t_none.dtype).endswith("float32")
     assert float(t_none.max()) == pytest.approx(65535.0)
 
-    # scale_policy is ignored when dtype_policy='keep'
     t_keep_none = patch_array_to_tensor(
         arr,
         axes="YX",
         config=PatchTensorConfig(channel_policy="keep", dtype_policy="keep", scale_policy="none"),
     )
-    t_keep_auto = patch_array_to_tensor(
-        arr,
-        axes="YX",
-        config=PatchTensorConfig(channel_policy="keep", dtype_policy="keep", scale_policy="auto"),
-    )
     assert "uint16" in str(t_keep_none.dtype)
-    np.testing.assert_array_equal(t_keep_none.numpy(), t_keep_auto.numpy())
+    np.testing.assert_array_equal(t_keep_none.numpy(), arr[np.newaxis])
 
 
 def test_patch_array_to_tensor_invalid_axes_and_noncontiguous():

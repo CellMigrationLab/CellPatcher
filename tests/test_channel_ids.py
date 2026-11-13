@@ -208,6 +208,22 @@ def test_image_metadata_channel_ids_name_each_c():
         run_patching(images=[image], config=config, image_metadata=[{"position_id": "p0", "channel_ids": ("DNA",)}])
 
 
+@pytest.mark.parametrize("split_channels", [True, ["DNA"]])
+def test_repeated_in_memory_channel_ids_are_refused_when_channels_are_split(split_channels):
+    # Review LOW issue: split_channels=True returned every C index before the IDs were checked, so
+    # ["DNA", "DNA"] was accepted and two channel patches were both stamped "DNA".
+    image = np.zeros((2, 16, 16), dtype=np.uint16)
+    config = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=8))
+    config.common.image_axes = "CYX"
+    config.extraction.split_channels = split_channels
+    metadata = [{"position_id": "p0", "channel_ids": ("DNA", "DNA")}]
+    with pytest.raises(ValueError, match="DNA are listed more than once"):
+        run_patching(images=[image], config=config, image_metadata=metadata)
+    assert config.extraction.split_channel_indices(("DNA", "ACTIN"), 2) in {(0, 1), (0,)}
+    with pytest.raises(ValueError, match="listed more than once"):
+        config.extraction.split_channel_indices(("DNA", "DNA"), 2)
+
+
 def _as_pre_v050_table(csv_path):
     """Rewrite a normalized patches.csv as CellPatcher 0.4.0 wrote it: C-index columns, no version or C order."""
     with csv_path.open(newline="", encoding="utf-8") as handle:

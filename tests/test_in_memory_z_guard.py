@@ -15,7 +15,7 @@ from cellpatcher.planes import iter_image_planes
 from cellpatcher.preprocess import iter_image_planes_for_patching, prepare_image_for_patching
 from tests.helpers import named
 
-Z_POLICIES = ["keep", "all", "first", "select", "max", "mean", "sum"]
+Z_POLICIES = ["keep", "all", "first", "select"]
 
 
 def _stack(depth, axes="ZYX"):

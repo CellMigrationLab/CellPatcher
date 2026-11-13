@@ -15,7 +15,8 @@ from cellpatcher.config import CellPatcherConfig, GridConfig, NormalizationConfi
 from cellpatcher.delivery import iter_exported_patches, iter_patch_arrays
 from cellpatcher.orchestration import load_config, run_patching_condition_repeat_tree, run_patching_pipeline
 from cellpatcher.pipeline import RUN_CONFIG_FILENAME, run_patching
-from cellpatcher.statistics import PreprocessingCheckError, recorded_image_type
+from cellpatcher.run_open import recorded_image_type
+from cellpatcher.statistics import PreprocessingCheckError
 from tests.helpers import as_file_run, run_described
 
 pytestmark = [

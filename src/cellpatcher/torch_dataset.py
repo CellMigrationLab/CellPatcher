@@ -2,11 +2,9 @@ from dataclasses import dataclass
 from pathlib import Path
 import csv
 import json
-import warnings
 
 import numpy as np
 
-from cellpatcher._deprecation import upgrade_legacy_repeat_column
 from cellpatcher.axes import axis_index, normalize_axes, refuse_transposed_inputs, require_spatial_axes
 from cellpatcher.config import CellPatcherConfig, CommonConfig, ExtractionConfig
 from cellpatcher.delivery import _refuse_file, on_load_normalizer, patch_array, patch_axes
@@ -19,22 +17,8 @@ except ImportError as exc:  # pragma: no cover - exercised in runtime import che
     raise ImportError("Install torch to use cellpatcher.torch_dataset.") from exc
 
 
-class ScalePolicyDeprecationWarning(DeprecationWarning):
-    """``PatchTensorConfig(scale_policy='auto')`` divided an integer patch by its dtype maximum.
-
-    ``"auto"`` is no longer a default (v0.2.0, CP-4): it is only used when a caller names it, and
-    stays deprecated in favour of ``config.normalization`` (contract §15). A ``DeprecationWarning``
-    raised inside a library is hidden by Python's default warning filters; this one is shown (the
-    filter below). Each dataset item also records the divisor (``scale_divisor``).
-    """
-
-
-# Show the rescaling warning once per place it is raised, also when warnings are left at Python's defaults.
-warnings.filterwarnings("default", category=ScalePolicyDeprecationWarning)
-
-SCALE_POLICIES = ("none", "auto")
-"""``PatchTensorConfig.scale_policy`` choices: keep the values, or divide an integer patch by its dtype
-maximum (deprecated)."""
+SCALE_POLICIES = ("none",)
+"""``PatchTensorConfig.scale_policy`` choices: keep the values (normalize with ``config.normalization``)."""
 CHANNEL_POLICIES = ("keep", "repeat_to_rgb")
 """``PatchTensorConfig.channel_policy`` choices: keep the channels as exported, or repeat one channel to three."""
 
@@ -43,10 +27,10 @@ CHANNEL_POLICIES = ("keep", "repeat_to_rgb")
 class PatchTensorConfig:
     """How a patch array becomes a ``(C, H, W)`` tensor in the torch adapters.
 
-    *scale_policy* has no default (v0.2.0, CP-4): ``"none"`` keeps the values, ``"auto"``
-    (deprecated) divides an integer patch by its dtype maximum, as the default did before, and
-    is recorded per item (``scale_divisor``). It is refused when omitted, so code written for the
-    old default stops with an error instead of receiving values 65535 times larger without a word.
+    *scale_policy* has no default (v0.2.0, CP-4): ``"none"``, the only choice, keeps the values
+    (normalization is ``config.normalization``). It is refused when omitted, so code written for
+    the old default (dividing an integer patch by its dtype maximum) stops with an error instead of
+    receiving values up to 65535 times larger without a word.
     *channel_policy* defaults to ``"keep"``, the channels as exported; ``"repeat_to_rgb"`` (the
     default before v0.2.0) repeats a single channel to three, recorded per item
     (``channel_repeat``).
@@ -64,15 +48,14 @@ class PatchTensorConfig:
         if self.scale_policy is None:
             raise TypeError(
                 "PatchTensorConfig needs an explicit scale_policy (also as the torch datasets' tensor_config): "
-                "'none' keeps the values; 'auto' (deprecated) divides an integer patch by its dtype maximum, "
-                "the default before CellPatcher v0.2.0. Normalize patches with config.normalization."
+                "'none' keeps the values. Normalize patches with config.normalization."
             )
         if self.channel_policy not in CHANNEL_POLICIES:
             raise ValueError("channel_policy must be one of: 'keep', 'repeat_to_rgb'.")
         if self.dtype_policy not in {"float32", "keep"}:
             raise ValueError("dtype_policy must be one of: 'float32', 'keep'.")
         if self.scale_policy not in SCALE_POLICIES:
-            raise ValueError("scale_policy must be one of: 'none', 'auto'.")
+            raise ValueError("scale_policy must be 'none' (normalize patches with config.normalization).")
         for name in ("squeeze_singleton_zt", "reject_non_singleton_zt", "return_metadata"):
             if not isinstance(getattr(self, name), bool):
                 raise ValueError(f"{name} must be a bool.")
@@ -99,29 +82,6 @@ def _squeeze_zt_axes(array: np.ndarray, axes: str, config: PatchTensorConfig) ->
                 out = np.take(out, indices=0, axis=idx)
                 out_axes = out_axes.replace(axis_name, "")
     return out, out_axes
-
-
-def scale_divisor(array: np.ndarray, config: PatchTensorConfig) -> float:
-    """Return what :func:`patch_array_to_tensor` divides *array*'s values by: 1.0 unless it rescales.
-
-    Parameters
-    ----------
-    array
-        The patch array, before it becomes a tensor.
-    config
-        The tensor settings.
-
-    Returns
-    -------
-    float
-        The dtype maximum of an integer *array* with ``dtype_policy="float32"`` and
-        ``scale_policy="auto"`` (deprecated), else 1.0.
-    """
-    dtype = np.asarray(array).dtype
-    if config.dtype_policy != "float32" or config.scale_policy != "auto" or not np.issubdtype(dtype, np.integer):
-        return 1.0
-    maximum = np.iinfo(dtype).max
-    return float(maximum) if maximum > 0 else 1.0
 
 
 def channel_repeat(array: np.ndarray, *, axes: str, config: PatchTensorConfig) -> int:
@@ -186,21 +146,6 @@ def patch_array_to_tensor(array, *, axes, config=None):
 
     if cfg.dtype_policy == "float32":
         chw = chw.astype(np.float32, copy=False)
-        # Integer source data is assumed to span its dtype's full range, so
-        # dividing by that max rescales it into [0, 1] like a normalized
-        # float image; float source data is left as-is.
-        divisor = scale_divisor(arr, cfg)
-        if divisor != 1.0:
-            # Deprecated (docs/normalization_contract.md §15); normalized
-            # patches are float and never rescaled here.
-            warnings.warn(
-                f"PatchTensorConfig(scale_policy='auto') divided an integer patch by its dtype maximum "
-                f"({divisor:g}); this is deprecated: normalize patches with config.normalization "
-                "(cellpatcher.config.NormalizationConfig), and set scale_policy='none' to keep the values.",
-                ScalePolicyDeprecationWarning,
-                stacklevel=2,
-            )
-            chw = chw / divisor
     # torch.from_numpy requires a C-contiguous array; the axis moves above
     # can leave a non-contiguous view.
     chw = np.ascontiguousarray(chw)
@@ -321,7 +266,6 @@ class PatchTorchDataset(torch.utils.data.Dataset):
             "label_id": patch.label_id,
             "patch": patch.to_dict(),
             "extra_metadata": self._extra_metadata.get(patch.image_id, {}),
-            "scale_divisor": scale_divisor(array, self._tensor_config),
             "channel_repeat": channel_repeat(array, axes=axes, config=self._tensor_config),
         }
 
@@ -375,9 +319,11 @@ class ExportedPatchTorchDataset(torch.utils.data.Dataset):
             fieldnames = reader.fieldnames or []
             if "patch_id" not in fieldnames:
                 raise ValueError("metadata_file must contain a 'patch_id' column.")
-            # A patches.csv written before `repeat` was renamed
-            # `biological_repeat` is still readable (with a DeprecationWarning).
-            self._rows = upgrade_legacy_repeat_column(fieldnames, list(reader), str(self._metadata_file))
+            if "repeat" in fieldnames:
+                raise ValueError(
+                    "metadata_file has a 'repeat' column, which CellPatcher does not write; run CellPatcher again."
+                )
+            self._rows = list(reader)
 
     def __len__(self):
         return len(self._rows)
@@ -475,6 +421,5 @@ class ExportedPatchTorchDataset(torch.utils.data.Dataset):
             "patch": row,
             "extra_metadata": self._extra_metadata.get(image_id, {}),
             "path": str(path),
-            "scale_divisor": scale_divisor(array, self._tensor_config),
             "channel_repeat": channel_repeat(array, axes=self._axes, config=self._tensor_config),
         }

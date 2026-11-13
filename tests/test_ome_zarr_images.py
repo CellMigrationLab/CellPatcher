@@ -13,7 +13,6 @@ import pytest
 from cellpatcher.config import CellPatcherConfig, GridConfig
 from cellpatcher.file_runs import validate_image_and_mask_folders
 from cellpatcher.io import (
-    discover_condition_repeat_folders,
     list_supported_files,
     read_array,
     write_array,
@@ -34,10 +33,6 @@ needs_zarr = pytest.mark.skipif(
     reason="needs the 'zarr' extra",
 )
 
-# discover_condition_repeat_folders is deprecated (audit round 2, A-m4); its warning is checked in
-# tests/test_deprecations.py, and these tests check its results while it remains.
-pytestmark = pytest.mark.filterwarnings("ignore:discover_condition_repeat_folders is deprecated:DeprecationWarning")
-
 
 def _fake_store(path):
     """A folder that is named like an OME-Zarr image (enough for discovery)."""
@@ -56,27 +51,6 @@ def test_zarr_folders_are_listed_as_images(tmp_path):
     write_array(tmp_path / "a.tif", np.zeros((4, 4), dtype=np.uint8))
     (tmp_path / "notes").mkdir()
     assert [p.name for p in list_supported_files(tmp_path)] == ["a.tif", "b.ome.zarr"]
-
-
-def test_discovery_treats_a_store_as_an_image_and_never_enters_it(tmp_path):
-    root = tmp_path / "experiment"
-    _fake_store(root / "control" / "a.ome.zarr")
-    _fake_store(root / "treated" / "bio1" / "wellA" / "b.zarr")
-
-    leaves = discover_condition_repeat_folders(root)
-    assert [(leaf.condition, leaf.biological_repeat, leaf.technical_repeat) for leaf in leaves] == [
-        ("control", "single", "single"),
-        ("treated", "bio1", "wellA"),
-    ]
-    assert leaves[0].image_folder == root / "control"
-
-
-def test_a_store_next_to_subfolders_is_a_mixed_folder(tmp_path):
-    root = tmp_path / "experiment"
-    _fake_store(root / "control" / "a.ome.zarr")
-    (root / "control" / "bio1").mkdir()
-    with pytest.raises(ValueError, match=r"\[tiff_outside_leaf\].*control/a.ome.zarr"):
-        discover_condition_repeat_folders(root)
 
 
 @needs_zarr
@@ -205,12 +179,8 @@ def test_tiff_masks_are_paired_beside_the_stores_own_label_images(tmp_path, labe
 def test_ome_zarr_planes_link_to_preprocessing_rows(tmp_path):
     import morphobricks_preprocessing as mbp
 
-    from cellpatcher.statistics import (
-        SourcePlane,
-        check_images,
-        check_planes,
-        load_plane_statistics,
-    )
+    from cellpatcher.run_open import load_plane_statistics
+    from cellpatcher.statistics import SourcePlane, check_images, check_planes
 
     root = tmp_path / "experiment"
     data = np.random.default_rng(0).integers(0, 255, (2, 3, 16, 16), dtype=np.uint8)

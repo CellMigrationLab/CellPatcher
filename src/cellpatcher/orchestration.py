@@ -8,14 +8,13 @@ from pathlib import Path
 import json
 from typing import Any
 
-from cellpatcher._deprecation import accept_deprecated_repeat
 from cellpatcher.config import CellPatcherConfig
 from cellpatcher.file_runs import FileRun, leaves, masks_used, open_file_run, patch_fovs, run_config_for
-from cellpatcher.io import SINGLE_TECHNICAL_REPEAT_LABEL, ConditionRepeatFolder, refuse_removed_matching
+from cellpatcher.io import SINGLE_TECHNICAL_REPEAT_LABEL, ConditionRepeatFolder
 from cellpatcher.export import IMAGE_TABLE_FILENAME, save_image_table_csv, save_metadata_csv
 from cellpatcher.positions import POSITION_TABLE_FILENAME, save_position_table_csv
 from cellpatcher.pipeline import RUN_CONFIG_FILENAME, PatchingResult
-from cellpatcher.run_config_file import config_from_dict, run_config_data
+from cellpatcher.run_config_file import RUN_CONFIG_VERSION, config_from_dict, run_config_data
 from cellpatcher.run_session import statistics_session
 
 # Sections always written regardless of mode
@@ -33,7 +32,7 @@ _MODE_SECTIONS: dict[str, tuple[str, ...]] = {
 def _config_to_mode_dict(config: CellPatcherConfig) -> dict:
     """Serialize only the sections relevant to *config.mode*."""
     full = asdict(config)
-    result: dict = {"mode": full["mode"]}
+    result: dict = {"run_config_version": RUN_CONFIG_VERSION, "mode": full["mode"]}
     for section in _COMMON_SECTIONS:
         result[section] = full[section]
     for section in _MODE_SECTIONS.get(config.mode, ()):
@@ -108,10 +107,7 @@ def apply_overrides(config: CellPatcherConfig, overrides: dict[str, Any]) -> Cel
                     f"Valid sections: {[f.name for f in cfg.__dataclass_fields__.values()]}."  # type: ignore[attr-defined]
                 )
             sub = getattr(cfg, section)
-            # Checked on the class so a deprecated alias property (e.g.
-            # "common.repeat") is recognised without its getter warning; the
-            # setattr below then warns exactly once.
-            if field not in getattr(sub, "__dataclass_fields__", {}) and not hasattr(type(sub), field):
+            if field not in getattr(sub, "__dataclass_fields__", {}):
                 raise ValueError(
                     f"Unknown field '{field}' in config section '{section}'."
                 )
@@ -164,7 +160,7 @@ def save_default_config(path) -> Path:
     config = default_config()
     out = Path(path)
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(asdict(config), indent=2))
+    out.write_text(json.dumps({"run_config_version": RUN_CONFIG_VERSION, **asdict(config)}, indent=2))
     return out
 
 
@@ -251,7 +247,6 @@ def run_patching_pipeline(
     config: CellPatcherConfig | None = None,
     mask_folder_path: str | os.PathLike | None = None,
     overrides: dict[str, Any] | None = None,
-    **removed_options: object,
 ) -> PatchingResult:
     """Patch the images of a clean preprocessing run of one condition and biological repeat.
 
@@ -337,10 +332,6 @@ def run_patching_pipeline(
         * ``'grid'`` and ``'whole_fov'`` read none; given, it only says
           where the run's masks folder is now (its masks are checked there,
           as for the tree run).
-    strategy, mask_suffixes, case_sensitive:
-        Former matching options, removed in v0.1.1 and refused by name:
-        the masks are those the preprocessing run paired; choose the mask
-        type with ``config.matching.mask_type``.
     overrides:
         Optional dotted-path overrides applied on top of *config* before
         running.  Keys follow the same ``"<section>.<field>"`` convention as
@@ -367,7 +358,6 @@ def run_patching_pipeline(
         file runs read these from the run and its arguments (the message says so).
     """
     config = _checked_config(config, overrides)
-    refuse_removed_matching("run_patching_pipeline", removed_options)
     with statistics_session():
         # grid/whole_fov read no masks: a masks folder given for them only says where the run's is now.
         use_masks = masks_used(config, mask_folder_path)
@@ -396,7 +386,6 @@ def _checked_config(config: CellPatcherConfig | None, overrides: dict[str, Any] 
     return apply_overrides(config, overrides) if overrides else config
 
 
-@accept_deprecated_repeat
 @dataclass
 class ConditionRepeatResult:
     """One leaf's outcome from :func:`run_patching_condition_repeat_tree`.
@@ -404,8 +393,7 @@ class ConditionRepeatResult:
     ``technical_repeat`` is the leaf's technical-repeat folder (a well, a
     dish), or ``SINGLE_TECHNICAL_REPEAT_LABEL`` when the biological-repeat
     folder held its images directly; ``relative_folder`` is where its outputs
-    go under ``output_dir``. ``repeat`` is a deprecated alias of
-    ``biological_repeat``.
+    go under ``output_dir``.
     """
     condition: str
     biological_repeat: str
@@ -423,7 +411,6 @@ def run_patching_condition_repeat_tree(
     overrides: dict[str, Any] | None = None,
     combine_metadata: bool = False,
     progress_callback: Callable[[int, int, ConditionRepeatFolder | None], object] | None = None,
-    **removed_options: object,
 ) -> list[ConditionRepeatResult]:
     """Patch every image of a clean preprocessing run, one leaf per
     ``<condition>/<biological_repeat>[/<technical_repeat>]``.
@@ -507,7 +494,6 @@ def run_patching_condition_repeat_tree(
         raise ValueError(
             "combine_metadata=True requires config.export.enabled=True and config.common.output_dir to be set."
         )
-    refuse_removed_matching("run_patching_condition_repeat_tree", removed_options)
     use_masks = masks_used(config, mask_root_path)
     with statistics_session():
         run = open_file_run(
