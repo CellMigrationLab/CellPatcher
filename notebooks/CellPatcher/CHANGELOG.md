@@ -32,6 +32,23 @@ Release v0.3.0
 Pin preprocessing v0.4.0rc4; prepare v0.2.0rc2
 
 ---
+## [Unreleased] - A refusal leaves nothing behind: groups fitted before any read, files staged (#107)
+
+### Fixed
+- A folder or tree run normalized at a CSV scope (`biological_repeat`, `image`) fits every group of
+  the planes it patches from `plane_histograms.csv` when the run is opened, and refuses a group that
+  cannot be fitted before any image is read. On Spec fixture `v17` (`PHASE` in 4 of 8 planes of the
+  repeat group `R002`, `scope="biological_repeat"`) the run was refused with `A_SCOPE_INCOMPLETE` only
+  after 6 `RunInputs.read_plane` calls, leaving 5 patch files without `patches.csv` or
+  `run_config.json`; it is now refused with the same message, with 0 reads and nothing written. The
+  notebook's table of group parameters still shows such a group as a problem row (it opens the run
+  without the check).
+- An exporting run that stops for any reason leaves no patch file: its files go to a hidden staging
+  folder in `output_dir` (`.cellpatcher-partial-<random>`) and are moved into place only when the
+  whole run has succeeded (`cellpatcher.staging`). The files, tables and recorded paths of a run that
+  succeeds are unchanged.
+
+---
 ## [0.5.0] - 2026-11-12 - Preprocessing v0.5.2, normalization v0.5.0: channels by canonical ID, parent-label masks (Stage 2 W3)
 
 The v0.5.0 release (12 November 2026, approved by the owner). It pins preprocessing `v0.5.2` (core and

@@ -203,7 +203,7 @@ planes and what to do:
 | *... another position_id than their rows* | A `position_id` given in `image_metadata` is not the one the preprocessing recorded (the image name). Leave it to the image name, or give the recorded one. |
 | *... another role than the axis mapping confirmed in the preprocessing brick* | In-memory runs: `common.image_axes` differs from the axes confirmed in the preprocessing notebook. (Folder and tree runs take the run's roles and declare no axes.) |
 | *Normalization needs one plane per patch* | Set `t_policy` to `"all"`, `"first"` or `"select"`. A Z axis longer than 1 is refused (Z>1 is never patched, issue #83): project or select it first with `convert --project` in morphobricks-preprocessing. |
-| *... cannot be computed for N group(s)* | A group has no finite pixels or no intensity spread: choose a larger scope or another method. |
+| *... cannot be computed for N group(s)* | A group has no finite pixels or no intensity spread: choose a larger scope or another method. Or `A_SCOPE_INCOMPLETE`: a channel only some planes of the group have (Spec fixture `v17`), never fitted over part of the group nor filled in: choose groups whose planes all have it (the image scope) or leave the channel out. Folder and tree runs fit every group of the planes they patch from `plane_histograms.csv` when the run is opened, so this stops them before any image is read or any file written (issue #107). |
 | *Keeping the normalized patches in memory needs about ...* | Use `iter_patch_arrays`, export to files, or raise `normalization.memory_limit`. |
 | *Reading the OME-Zarr image ... needs the zarr package* | `pip install "cellpatcher[zarr]"`. |
 

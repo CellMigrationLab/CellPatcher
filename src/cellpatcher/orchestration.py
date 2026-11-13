@@ -17,6 +17,7 @@ from cellpatcher.positions import POSITION_TABLE_FILENAME, save_position_table_c
 from cellpatcher.pipeline import RUN_CONFIG_FILENAME, PatchingResult
 from cellpatcher.run_config_file import config_from_dict, run_config_data
 from cellpatcher.run_session import statistics_session
+from cellpatcher.staging import staged_folder, staged_output
 
 # Sections always written regardless of mode
 _COMMON_SECTIONS = ("common", "filters", "export", "extraction", "normalization")
@@ -372,7 +373,8 @@ def run_patching_pipeline(
         # grid/whole_fov read no masks: a masks folder given for them only says where the run's is now.
         use_masks = masks_used(config, mask_folder_path)
         run = open_file_run(
-            config, image_folder_path, mask_folder_path, use_masks=use_masks, where="run_patching_pipeline"
+            config, image_folder_path, mask_folder_path, use_masks=use_masks, where="run_patching_pipeline",
+            fit_groups=True,
         )
         groups = leaves(run)
         labels = {(leaf.condition, leaf.biological_repeat) for leaf, _ in groups}
@@ -510,14 +512,14 @@ def run_patching_condition_repeat_tree(
     refuse_removed_matching("run_patching_condition_repeat_tree", removed_options)
     use_masks = masks_used(config, mask_root_path)
     with statistics_session():
-        run = open_file_run(
-            config, image_root_path, mask_root_path, use_masks=use_masks, where="run_patching_condition_repeat_tree"
-        )
+        where = "run_patching_condition_repeat_tree"
+        run = open_file_run(config, image_root_path, mask_root_path, use_masks=use_masks, where=where, fit_groups=True)
         groups = leaves(run)
-        results = _patch_leaves(config, run, groups, combine_metadata, progress_callback)
-        if combine_metadata:  # in the session: its normalization_inputs come from the run opened above
-            tree_config = run_config_for(config, run, (SINGLE_TECHNICAL_REPEAT_LABEL,) * 3)
-            _write_combined_metadata(tree_config, Path(config.common.output_dir), results)
+        with staged_output(config.common.output_dir if config.export.enabled else None):  # all leaves or none (#107)
+            results = _patch_leaves(config, run, groups, combine_metadata, progress_callback)
+            if combine_metadata:  # in the session: its normalization_inputs come from the run opened above
+                tree_config = run_config_for(config, run, (SINGLE_TECHNICAL_REPEAT_LABEL,) * 3)
+                _write_combined_metadata(tree_config, Path(config.common.output_dir), results)
     if progress_callback is not None:
         progress_callback(len(groups), len(groups), None)
     return results
@@ -565,8 +567,8 @@ def _patch_leaves(
 def _write_combined_metadata(config: CellPatcherConfig, output_dir: Path, results: list[ConditionRepeatResult]) -> None:
     """Write one run_config.json, one patches.csv and one images.csv covering every leaf of a tree run."""
     data = run_config_data(config)  # before the file is created: a refusal leaves none
-    output_dir.mkdir(parents=True, exist_ok=True)
-    with (output_dir / RUN_CONFIG_FILENAME).open("w", encoding="utf-8") as f:
+    folder = staged_folder(output_dir)  # in the tree run's staging folder: the paths recorded are output_dir's
+    with (folder / RUN_CONFIG_FILENAME).open("w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, default=str)
 
     all_patches = []
@@ -582,12 +584,12 @@ def _write_combined_metadata(config: CellPatcherConfig, output_dir: Path, result
 
     if config.export.save_metadata_csv:
         csv_path = output_dir / "patches.csv"
-        save_metadata_csv(all_patches, csv_path)
+        save_metadata_csv(all_patches, folder / "patches.csv")
         # Every image of every leaf, with those that gave no patch.
         image_table_path = output_dir / IMAGE_TABLE_FILENAME
         records = [record for leaf_result in results for record in leaf_result.result.image_records]
-        save_image_table_csv(records, image_table_path)
-        save_position_table_csv(records, output_dir / POSITION_TABLE_FILENAME)  # every position of every leaf
+        save_image_table_csv(records, folder / IMAGE_TABLE_FILENAME)
+        save_position_table_csv(records, folder / POSITION_TABLE_FILENAME)  # every position of every leaf
         for leaf_result in results:
             leaf_result.result.metadata_file = str(csv_path)
             leaf_result.result.image_table_file = str(image_table_path)

@@ -45,12 +45,12 @@ from __future__ import annotations
 
 import warnings
 from collections import defaultdict
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
 import numpy as np
-from morphobricks_normalization.records import SINGLE
+from morphobricks_normalization.records import SINGLE, PlaneRecord
 
 from cellpatcher.axes import normalize_axes
 from cellpatcher.masking import _label_to_2d
@@ -468,36 +468,35 @@ class Normalizer:
         self, records: Mapping, by_image: Mapping, metadata: list
     ) -> dict[int, PatchNormalization]:
         """Give each image's patches its group's parameters, selected by the IDs of its rows in its C order."""
-        level = self.settings.scope
         per_image = defaultdict(list)
         for (index, _), record in sorted(records.items()):
             per_image[index].append(record)
         for index, channel_records in per_image.items():
             _check_row_channel_ids(metadata[index], channel_records)
-        failures, normalizations = [], {}
+        keys = {index: self.group_key(per_image[index][0].record) for index in by_image}
+        self.refuse_failed_groups(keys.values())  # every channel of an image is in one row, so in one group
+        normalizations = {}
         for index, image_patches in by_image.items():
-            channel_records = per_image[index]
-            # Every channel of an image is in the same row, so in the same group.
-            key = self._group_key(channel_records[0].record)
-            if key not in self._groups:
-                self._groups[key] = self._group_parameters(key)
-            result = self._groups[key]
-            if isinstance(result, str):
-                failures.append(result)
-                continue
-            group = self._mbn.group_name(key)
-            order = tuple(record.channel for record in channel_records)  # the image's C order, by its rows' IDs
-            parameters = replace(result.select(order), scope=level, group=group)
+            order = tuple(record.channel for record in per_image[index])  # the image's C order, by its rows' IDs
+            group = self._mbn.group_name(keys[index])
+            parameters = replace(self._groups[keys[index]].select(order), scope=self.settings.scope, group=group)
             normalization = PatchNormalization(parameters, order)
             for patch in image_patches:
                 normalizations[id(patch)] = normalization
+        return normalizations
+
+    def refuse_failed_groups(self, keys: Iterable[tuple]) -> None:
+        """Fit each group of *keys* once; raise one ValueError naming every group that cannot be (contract §7)."""
+        keys = set(keys)
+        for key in keys - self._groups.keys():
+            self._groups[key] = self._group_parameters(key)
+        failures = sorted({self._groups[key] for key in keys if isinstance(self._groups[key], str)})
         if failures:
             raise ValueError(
-                "Normalization parameters cannot be computed for "
-                f"{len(set(failures))} group(s):\n" + "\n".join(f"  - {f}" for f in sorted(set(failures)))
+                f"Normalization parameters cannot be computed for {len(failures)} group(s):\n"
+                + "\n".join(f"  - {failure}" for failure in failures)
                 + "\nChoose a larger scope or another method (contract §7)."
             )
-        return normalizations
 
     def _check_repeat_labels(self, channel_planes: Mapping, metadata: list, labels: list) -> None:
         """Refuse images whose condition and biological repeat no FOV of the run's description has."""
@@ -529,7 +528,8 @@ class Normalizer:
                 warnings.warn(issue.message, NormalizationWarning, stacklevel=3)
             self._index = groups
 
-    def _group_key(self, record) -> tuple:
+    def group_key(self, record: PlaneRecord) -> tuple:
+        """Return the key of the group *record* (a plane_histograms.csv row) belongs to at the run's scope."""
         return self._mbn.group_key(record, self._fit_settings, self.repeat_groups)
 
     def _group_parameters(self, key):

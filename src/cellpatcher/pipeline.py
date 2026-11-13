@@ -38,6 +38,7 @@ from cellpatcher.normalization import (
 )
 from cellpatcher.run_config_file import run_config_data
 from cellpatcher.run_session import one_session
+from cellpatcher.staging import staged_folder, staged_output
 from cellpatcher.statistics import _preprocessing
 from cellpatcher.planes import iter_image_planes, plane_choices, splits_planes
 from cellpatcher.resize import normalize_output_size, resize_patches
@@ -622,29 +623,27 @@ def _finish_result(
         if config.common.output_dir is None:
             raise ValueError("common.output_dir is required when export.enabled is True.")
 
-        # Write the full run config first and stamp every patch's
-        # config_file before export_patches runs, so the patches.csv it
-        # writes below already includes that column (see
-        # _stamp_image_metadata's docstring for the same ordering concern).
+        # The run config first, stamping every patch's config_file before patches.csv is written.
+        # Files go to a staging folder until the run succeeds: a stopped run leaves none (#107).
         out_dir = Path(config.common.output_dir)
-        out_dir.mkdir(parents=True, exist_ok=True)
-        if config.export.save_run_config:
-            config_path = out_dir / RUN_CONFIG_FILENAME
-            data = run_config_data(config)  # before the file is created: a refusal leaves none
-            with config_path.open("w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2, default=str)
-            for patch in patches:
-                patch.config_file = RUN_CONFIG_FILENAME
-
-        exported_files = export_patches(
-            patches,
-            patch_arrays_internal if export_arrays is None else export_arrays,
-            config.common.output_dir,
-            image_format=config.export.image_format,
-            save_metadata=config.export.save_metadata_csv,
-            metadata_filename="patches.csv",
-            image_records=image_records,
-        )
+        with staged_output(out_dir):
+            folder = staged_folder(out_dir)
+            if config.export.save_run_config:
+                data = run_config_data(config)  # before the file is created: a refusal leaves none
+                with (folder / RUN_CONFIG_FILENAME).open("w", encoding="utf-8") as f:
+                    json.dump(data, f, indent=2, default=str)
+                for patch in patches:
+                    patch.config_file = RUN_CONFIG_FILENAME
+            written = export_patches(
+                patches,
+                patch_arrays_internal if export_arrays is None else export_arrays,
+                folder,
+                image_format=config.export.image_format,
+                save_metadata=config.export.save_metadata_csv,
+                metadata_filename="patches.csv",
+                image_records=image_records,
+            )
+        exported_files = [str(out_dir / Path(path).name) for path in written]  # where they are now
         if config.export.save_metadata_csv:
             metadata_file = str(out_dir / "patches.csv")
             image_table_file = str(out_dir / IMAGE_TABLE_FILENAME)

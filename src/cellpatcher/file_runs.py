@@ -35,6 +35,7 @@ from cellpatcher.io import (
 from cellpatcher.mask_policy import resolved_masks
 from cellpatcher.normalization import (
     CSV_SCOPES,
+    Normalizer,
     check_image_type,
     repeat_groups,
     validate_normalization,
@@ -46,6 +47,7 @@ from cellpatcher.pipeline import (
 )
 from cellpatcher.run_open import _refuse_other_file, open_run, statistics_of
 from cellpatcher.run_reading import (
+    chosen_planes,
     fov_layout,
     iter_fov_planes,
     mask_file_name,
@@ -216,11 +218,14 @@ def open_file_run(
     *,
     use_masks: bool,
     where: str,
+    fit_groups: bool = False,
 ) -> FileRun:
     """Open ``common.preprocessing_run`` with where the experiment and masks are now, before any read.
 
     *use_masks* (:func:`masks_used`) says whether masks are read; *masks_root* is where the
-    run's masks folder is now (None: where the run recorded it) either way. Must be called
+    run's masks folder is now (None: where the run recorded it) either way. With *fit_groups*
+    (the routes that patch the whole run), a CSV normalization scope's groups are fitted now and
+    one that cannot be is refused (:func:`_refuse_unfittable_groups`, issue #107). Must be called
     inside :func:`cellpatcher.run_session.statistics_session`: the run's table is kept there
     for the call's normalization.
 
@@ -262,7 +267,7 @@ def open_file_run(
         mask_layouts = {fov.relative_path: mask_layout(_record(inputs, fov, mask_type)) for fov in fovs}
         _check_object_set(config, mask_type)
     remember_layouts(config.common.preprocessing_run, layouts, mask_layouts)
-    statistics = _csv_statistics(config, inputs, layouts)
+    statistics = _csv_statistics(config, inputs, layouts, fit_groups=fit_groups)
     return FileRun(inputs, layouts, mask_type, mask_layouts, statistics, resolved.channel_indices, resolved.object_mask)
 
 
@@ -349,14 +354,14 @@ def _check_object_set(config: CellPatcherConfig, mask_type: str) -> None:
 
 
 def _csv_statistics(
-    config: CellPatcherConfig, inputs: RunInputs, layouts: Mapping[str, str]
+    config: CellPatcherConfig, inputs: RunInputs, layouts: Mapping[str, str], *, fit_groups: bool
 ) -> PlaneStatistics | None:
     """Check a CSV normalization scope against the opened run, before any image is read.
 
     The image type every position's unit declares (``Fov.image_type``, at every scope: the
     declared type wins over ``normalization.image_type``), then at a CSV scope the run's own
     table and (for ``biological_repeat``) the repeat groups of its description; every image
-    must have rows in the table.
+    must have rows in the table; with *fit_groups*, every group of the run's planes can be fitted.
     """
     settings = normalization_settings(config, inputs)
     if settings.enabled:
@@ -370,7 +375,28 @@ def _csv_statistics(
         repeat_groups(statistics)
     rows_only = PlaneStatistics(statistics.plane_histograms, statistics.records, statistics.csv_sha256)
     check_images(rows_only, dict(layouts))
+    if fit_groups:
+        _refuse_unfittable_groups(replace(config, normalization=settings), inputs, layouts, statistics)
     return statistics
+
+
+def _refuse_unfittable_groups(
+    config: CellPatcherConfig, inputs: RunInputs, layouts: Mapping[str, str], statistics: PlaneStatistics
+) -> None:
+    """Fit, from the table alone, every group of the planes the run patches; refuse those that cannot be (#107).
+
+    The planes are those ``z_policy``/``t_policy`` choose, from the run's records; the refusal is the patching's
+    (``Normalization parameters cannot be computed``; ``A_SCOPE_INCOMPLETE`` for a channel only some planes of a
+    group have), before any image is read or file written, as the run's other consumers refuse it.
+    """
+    groups = repeat_groups(statistics) if config.normalization.scope == "biological_repeat" else None
+    normalizer, keys = Normalizer(config, statistics, groups), set()
+    for fov in inputs.fovs():
+        records = statistics.records_for_image(fov.relative_path)
+        for choice in chosen_planes(fov, layouts[fov.relative_path], config.common, single_planes=True):
+            z, t = choice.index("Z"), choice.index("T")  # None: an axis the image does not have
+            keys.update(normalizer.group_key(row) for row in records if z in (None, row.z) and t in (None, row.t))
+    normalizer.refuse_failed_groups(keys)
 
 
 def normalization_settings(config: CellPatcherConfig, inputs: RunInputs) -> NormalizationConfig:

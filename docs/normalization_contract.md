@@ -218,7 +218,10 @@ parameters, always per channel.
 - All CSV rows of the group are pooled, including planes of the same images that were not
   patched (for example Z slices without cells).
 - A group with no finite pixels, or whose parameters have zero or non-finite scale, is an
-  error (normalization contract §1.2.4).
+  error (normalization contract §1.2.4), and so is a channel only some planes of the group
+  have (`A_SCOPE_INCOMPLETE`; never fitted over part of the group). A folder or tree run fits
+  every group of the planes it patches when the run is opened, from the table alone, and
+  refuses these before any image is read or file written (issue #107).
 
 ## 8. Patch scope
 
