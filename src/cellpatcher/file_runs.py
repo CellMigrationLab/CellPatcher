@@ -35,8 +35,8 @@ from cellpatcher.io import (
 from cellpatcher.mask_policy import resolved_masks
 from cellpatcher.normalization import (
     CSV_SCOPES,
-    Normalizer,
     check_image_type,
+    fit_settings,
     repeat_groups,
     validate_normalization,
 )
@@ -58,6 +58,7 @@ from cellpatcher.run_reading import (
 )
 from cellpatcher.run_request import ObjectMask, resolve_run
 from cellpatcher.run_session import keep_in_session, remember, remember_layouts
+from cellpatcher.scope_check import refuse_incomplete_scopes
 from cellpatcher.setting_checks import channel_id_selection, check_run_settings
 from cellpatcher.statistics import (
     PlaneStatistics,
@@ -224,8 +225,8 @@ def open_file_run(
 
     *use_masks* (:func:`masks_used`) says whether masks are read; *masks_root* is where the
     run's masks folder is now (None: where the run recorded it) either way. With *fit_groups*
-    (the routes that patch the whole run), a CSV normalization scope's groups are fitted now and
-    one that cannot be is refused (:func:`_refuse_unfittable_groups`, issue #107). Must be called
+    (the routes that patch the whole run), a CSV normalization scope's groups some of whose planes
+    lack a channel are refused now (:mod:`cellpatcher.scope_check`, issue #107). Must be called
     inside :func:`cellpatcher.run_session.statistics_session`: the run's table is kept there
     for the call's normalization.
 
@@ -361,7 +362,7 @@ def _csv_statistics(
     The image type every position's unit declares (``Fov.image_type``, at every scope: the
     declared type wins over ``normalization.image_type``), then at a CSV scope the run's own
     table and (for ``biological_repeat``) the repeat groups of its description; every image
-    must have rows in the table; with *fit_groups*, every group of the run's planes can be fitted.
+    must have rows in the table; with *fit_groups*, every group of the run's planes has its channels in every plane.
     """
     settings = normalization_settings(config, inputs)
     if settings.enabled:
@@ -375,28 +376,15 @@ def _csv_statistics(
         repeat_groups(statistics)
     rows_only = PlaneStatistics(statistics.plane_histograms, statistics.records, statistics.csv_sha256)
     check_images(rows_only, dict(layouts))
-    if fit_groups:
-        _refuse_unfittable_groups(replace(config, normalization=settings), inputs, layouts, statistics)
+    if fit_groups:  # issue #107: before any read, from the table and the planes z_policy/t_policy choose
+        planes = [
+            (fov.relative_path, choice.index("Z"), choice.index("T"))
+            for fov in inputs.fovs()
+            for choice in chosen_planes(fov, layouts[fov.relative_path], config.common, single_planes=True)
+        ]
+        groups = repeat_groups(statistics) if settings.scope == "biological_repeat" else None
+        refuse_incomplete_scopes(statistics.records, fit_settings(settings), groups, planes)
     return statistics
-
-
-def _refuse_unfittable_groups(
-    config: CellPatcherConfig, inputs: RunInputs, layouts: Mapping[str, str], statistics: PlaneStatistics
-) -> None:
-    """Fit, from the table alone, every group of the planes the run patches; refuse those that cannot be (#107).
-
-    The planes are those ``z_policy``/``t_policy`` choose, from the run's records; the refusal is the patching's
-    (``Normalization parameters cannot be computed``; ``A_SCOPE_INCOMPLETE`` for a channel only some planes of a
-    group have), before any image is read or file written, as the run's other consumers refuse it.
-    """
-    groups = repeat_groups(statistics) if config.normalization.scope == "biological_repeat" else None
-    normalizer, keys = Normalizer(config, statistics, groups), set()
-    for fov in inputs.fovs():
-        records = statistics.records_for_image(fov.relative_path)
-        for choice in chosen_planes(fov, layouts[fov.relative_path], config.common, single_planes=True):
-            z, t = choice.index("Z"), choice.index("T")  # None: an axis the image does not have
-            keys.update(normalizer.group_key(row) for row in records if z in (None, row.z) and t in (None, row.t))
-    normalizer.refuse_failed_groups(keys)
 
 
 def normalization_settings(config: CellPatcherConfig, inputs: RunInputs) -> NormalizationConfig:

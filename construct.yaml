@@ -62,8 +62,8 @@ extra_files:
 - src/cellpatcher/run_reading.py: CellPatcher/src/cellpatcher/run_reading.py
 - src/cellpatcher/run_request.py: CellPatcher/src/cellpatcher/run_request.py
 - src/cellpatcher/run_session.py: CellPatcher/src/cellpatcher/run_session.py
+- src/cellpatcher/scope_check.py: CellPatcher/src/cellpatcher/scope_check.py
 - src/cellpatcher/setting_checks.py: CellPatcher/src/cellpatcher/setting_checks.py
-- src/cellpatcher/staging.py: CellPatcher/src/cellpatcher/staging.py
 - src/cellpatcher/statistics.py: CellPatcher/src/cellpatcher/statistics.py
 - src/cellpatcher/strategies/__init__.py: CellPatcher/src/cellpatcher/strategies/__init__.py
 - src/cellpatcher/strategies/base.py: CellPatcher/src/cellpatcher/strategies/base.py

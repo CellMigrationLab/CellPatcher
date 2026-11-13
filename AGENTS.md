@@ -388,9 +388,7 @@ Two ways to point CellPatcher at input data:
   filters and normalization) (v0.1.2's last column `image_read_transposed`
   was removed in v0.2.0, CP-2b). There is no
   `failed` status: a failing image stops the run with an error before any
-  table is written, and leaves no patch file either (issue #107:
-  `cellpatcher.staging` writes a run's files to `output_dir/.cellpatcher-partial-<random>`
-  and moves them into place only when the whole run succeeds). Every `patches.csv` row joins exactly one `images.csv`
+  table is written. Every `patches.csv` row joins exactly one `images.csv`
   row on `condition`/`biological_repeat`/`technical_repeat`/`image_id`/
   `image_file`, with the same `position_id`. In memory: `PatchingResult.image_records`. Documented in
   `docs/configuration_reference.md` ("Per-image table").

@@ -32,21 +32,20 @@ Release v0.3.0
 Pin preprocessing v0.4.0rc4; prepare v0.2.0rc2
 
 ---
-## [Unreleased] - A refusal leaves nothing behind: groups fitted before any read, files staged (#107)
+## [Unreleased] - A partial channel in a normalization group is refused before any read (#107)
 
 ### Fixed
-- A folder or tree run normalized at a CSV scope (`biological_repeat`, `image`) fits every group of
-  the planes it patches from `plane_histograms.csv` when the run is opened, and refuses a group that
-  cannot be fitted before any image is read. On Spec fixture `v17` (`PHASE` in 4 of 8 planes of the
-  repeat group `R002`, `scope="biological_repeat"`) the run was refused with `A_SCOPE_INCOMPLETE` only
-  after 6 `RunInputs.read_plane` calls, leaving 5 patch files without `patches.csv` or
-  `run_config.json`; it is now refused with the same message, with 0 reads and nothing written. The
-  notebook's table of group parameters still shows such a group as a problem row (it opens the run
-  without the check).
-- An exporting run that stops for any reason leaves no patch file: its files go to a hidden staging
-  folder in `output_dir` (`.cellpatcher-partial-<random>`) and are moved into place only when the
-  whole run has succeeded (`cellpatcher.staging`). The files, tables and recorded paths of a run that
-  succeeds are unchanged.
+- A folder or tree run normalized at a CSV scope (`biological_repeat`, `image`) checks, when the run
+  is opened and from `plane_histograms.csv` alone, that every group of the planes it patches has each
+  of its channels in every plane (`cellpatcher.scope_check`), and refuses a group that does not with
+  `A_SCOPE_INCOMPLETE` before any image is read. On Spec fixture `v17` (`PHASE` in 4 of 8 planes of
+  the repeat group `R002`, `scope="biological_repeat"`) the run was refused only after 6
+  `RunInputs.read_plane` calls, leaving 5 patch files without `patches.csv` or `run_config.json`; it
+  is now refused with 0 reads and nothing written. Nothing is fitted up front: no finite pixels and
+  zero spread are still refused by the patching, only for a group a kept patch uses. The notebook's
+  table of group parameters opens the run without the check.
+- Not changed: a run that stops for another reason after exporting some patches (a failing image, a
+  full disk) can still leave those files without their tables (owner decision, 13 November 2026).
 
 ---
 ## [0.5.0] - 2026-11-12 - Preprocessing v0.5.2, normalization v0.5.0: channels by canonical ID, parent-label masks (Stage 2 W3)
