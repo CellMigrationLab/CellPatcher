@@ -35,15 +35,17 @@ Pin preprocessing v0.4.0rc4; prepare v0.2.0rc2
 ## [Unreleased] - A partial channel in a normalization group is refused before any read (#107)
 
 ### Fixed
-- A folder or tree run normalized at a CSV scope (`biological_repeat`, `image`) checks, when the run
-  is opened and from `plane_histograms.csv` alone, that every group of the planes it patches has each
-  of its channels in every plane (`cellpatcher.scope_check`), and refuses a group that does not with
-  `A_SCOPE_INCOMPLETE` before any image is read. On Spec fixture `v17` (`PHASE` in 4 of 8 planes of
+- A file run normalized at a CSV scope (`biological_repeat`, `image`) checks, when the run is opened
+  and from `plane_histograms.csv` alone, that every group of the planes it patches has each of its
+  channels in every plane (`cellpatcher.scope_check`), and refuses a group that does not with
+  `A_SCOPE_INCOMPLETE` before any image is read, with the message the patching gives (the normalization
+  brick's own refusal). On Spec fixture `v17` (`PHASE` in 4 of 8 planes of
   the repeat group `R002`, `scope="biological_repeat"`) the run was refused only after 6
   `RunInputs.read_plane` calls, leaving 5 patch files without `patches.csv` or `run_config.json`; it
   is now refused with 0 reads and nothing written. Nothing is fitted up front: no finite pixels and
-  zero spread are still refused by the patching, only for a group a kept patch uses. The notebook's
-  table of group parameters opens the run without the check.
+  zero spread are still refused by the patching, only for a group a kept patch uses. Every route that
+  opens a file run checks it, so the notebook's preview and table of group parameters refuse such a run
+  with the same message (they listed the group as a problem row before).
 - Not changed: a run that stops for another reason after exporting some patches (a failing image, a
   full disk) can still leave those files without their tables (owner decision, 13 November 2026).
 

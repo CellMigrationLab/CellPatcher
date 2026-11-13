@@ -19,7 +19,7 @@ from cellpatcher.orchestration import run_patching_condition_repeat_tree, run_pa
 from tests.helpers import preprocess
 from tests.test_described_ids import _described_run
 
-_SCOPE_INCOMPLETE = r"(?s)R002: A_SCOPE_INCOMPLETE: channel PHASE is present in 4 of 8 planes"
+_SCOPE_INCOMPLETE = r"(?s)R002: A_SCOPE_INCOMPLETE: in this group, channel PHASE is present in 4 of 8 planes"
 
 
 def _config(run_output, output, *, scope="biological_repeat"):
@@ -55,14 +55,46 @@ def test_v17_tree_run_refuses_the_partial_channel_before_any_read_or_write(tmp_p
     assert not (tmp_path / "out").exists()
 
 
+def _v17_r002_only(tmp_path):
+    """Spec ``v17`` without its repeat R001: one condition and biological repeat (``CTRL``/``rep2``), so a folder run
+    patches it (v0.5.0 read its 8 images before refusing ``R002``); ``PHASE`` is in 4 of its 8 planes."""
+    from morphobricks_preprocessing.testing_described import make_described_run
+
+    from tests.test_described_ids import _fixture
+
+    text = _fixture("v17").decode("utf-8")
+    start, end = text.index("[repeats.R001]"), text.index("[repeats.R002]")
+    text = (text[:start] + text[end:]).replace('repeats = ["R001", "R002"]', 'repeats = ["R002"]').replace(
+        'technical_repeats = ["acquisition_1", "acquisition_2", "single"]',
+        'technical_repeats = ["acquisition_1", "acquisition_2"]',
+    )
+    return make_described_run(tmp_path / "run", text.encode("utf-8"))
+
+
 @pytest.mark.filterwarnings("ignore::UserWarning")
 def test_v17_folder_run_refuses_the_partial_channel_before_any_read_or_write(tmp_path, monkeypatch):
-    run = _described_run(tmp_path, "v17")
+    # One leaf, so this is the partial channel's refusal, not run_patching_pipeline's "patches one" check.
+    run = _v17_r002_only(tmp_path)
     reads = _no_reads(monkeypatch)
     with pytest.raises(ValueError, match=_SCOPE_INCOMPLETE):
         run_patching_pipeline(run.experiment, config=_config(run.output, tmp_path / "out"))
     assert reads == []
     assert not (tmp_path / "out").exists()
+
+
+@pytest.mark.filterwarnings("ignore::UserWarning")
+def test_the_refusal_before_any_read_is_the_patchings_word_for_word(tmp_path, monkeypatch):
+    # One refusal, one message: the brick's A_SCOPE_INCOMPLETE, in the patching's "cannot be computed" list.
+    import cellpatcher.file_runs
+
+    run = _v17_r002_only(tmp_path)
+    with pytest.raises(ValueError) as early:
+        run_patching_pipeline(run.experiment, config=_config(run.output, tmp_path / "early"))
+    monkeypatch.setattr(cellpatcher.file_runs, "refuse_incomplete_scopes", lambda *args: None)
+    with pytest.raises(ValueError) as late:  # the patching reaches the group after reading its images
+        run_patching_pipeline(run.experiment, config=_config(run.output, tmp_path / "late"))
+    assert str(early.value) == str(late.value)
+    assert "A channel is not fitted over part of a group" in str(early.value)
 
 
 @pytest.mark.filterwarnings("ignore::UserWarning")

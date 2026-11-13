@@ -62,6 +62,7 @@ from cellpatcher.patch_normalization import (  # PatchNormalization and the spli
 )
 from cellpatcher.patch_normalization import split_channel_normalization as split_channel_normalization
 from cellpatcher.run_open import check_image_type, settings_statistics
+from cellpatcher.scope_check import group_failures
 from cellpatcher.statistics import (
     PlaneStatistics,
     PreprocessingCheckError,
@@ -492,11 +493,7 @@ class Normalizer:
             for patch in image_patches:
                 normalizations[id(patch)] = normalization
         if failures:
-            raise ValueError(
-                "Normalization parameters cannot be computed for "
-                f"{len(set(failures))} group(s):\n" + "\n".join(f"  - {f}" for f in sorted(set(failures)))
-                + "\nChoose a larger scope or another method (contract §7)."
-            )
+            raise group_failures(failures)
         return normalizations
 
     def _check_repeat_labels(self, channel_planes: Mapping, metadata: list, labels: list) -> None:

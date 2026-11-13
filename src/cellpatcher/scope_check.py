@@ -18,9 +18,6 @@ from collections.abc import Iterable, Mapping
 
 import morphobricks_normalization as mbn
 
-_LISTED = 5
-"""The planes named per channel, then how many more (as the brick's own refusal)."""
-
 
 def refuse_incomplete_scopes(
     records: Iterable[mbn.PlaneRecord],
@@ -45,8 +42,12 @@ def refuse_incomplete_scopes(
     Raises
     ------
     ValueError
-        Naming every such group and channel, with how many of the group's planes have it and which lack it.
+        :func:`group_failures` with the brick's ``A_SCOPE_INCOMPLETE`` refusal of every such group, the message
+        the patching would give.
     """
+    # The RGB exemption and the channel-presence test below copy the brick's private _record_items and
+    # _lacking_planes, until it offers a public check-only helper (morphobricks-normalization#96). The refusal
+    # itself is the brick's: fit raises ChannelScopeIncompleteError on a group's rows before pooling any pixel.
     if settings.image_type == "rgb":  # R, G and B are pooled together: the brick refuses no partial channel
         return
     records = tuple(records)
@@ -63,18 +64,26 @@ def refuse_incomplete_scopes(
     failures = []
     for key in sorted(keys):
         rows = index[key]
-        for channel in sorted({channel for row in rows for channel in row.channels}):
-            lacking = [row.plane_id for row in rows if not row.has_channel(channel)]
-            if lacking:
-                failures.append(
-                    f"{mbn.group_name(key)}: A_SCOPE_INCOMPLETE: channel {channel} is present in "
-                    f"{len(rows) - len(lacking)} of {len(rows)} planes (absent from {', '.join(lacking[:_LISTED])}"
-                    + (f" and {len(lacking) - _LISTED} more)" if len(lacking) > _LISTED else ")")
-                )
+        channels = {channel for row in rows for channel in row.channels}
+        if all(row.has_channel(channel) for row in rows for channel in channels):
+            continue  # complete: never fitted here, so no-pixel and zero-spread refusals stay the patching's
+        try:
+            mbn.fit(rows, settings)
+        except mbn.ChannelScopeIncompleteError as exc:
+            failures.append(f"{mbn.group_name(key)}: {exc}")  # as Normalizer._group_parameters words it
     if failures:
-        raise ValueError(
-            f"Normalization parameters cannot be computed for {len(failures)} group channel(s):\n"
-            + "\n".join(f"  - {failure}" for failure in failures)
-            + "\nA channel is never fitted over part of a group nor filled in: choose a scope whose groups have it "
-            "in every plane (the image scope), or leave the channel out (contract §7)."
-        )
+        raise group_failures(failures)
+
+
+def group_failures(failures: Iterable[str]) -> ValueError:
+    """Return the refusal of the groups whose parameters cannot be computed, one ``"<group>: <why>"`` each (§7).
+
+    The one wording of this refusal, whether the run is opened (:func:`refuse_incomplete_scopes`) or patched
+    (:class:`cellpatcher.normalization.Normalizer`).
+    """
+    failures = sorted(set(failures))
+    return ValueError(
+        f"Normalization parameters cannot be computed for {len(failures)} group(s):\n"
+        + "\n".join(f"  - {failure}" for failure in failures)
+        + "\nChoose a larger scope or another method (contract §7)."
+    )

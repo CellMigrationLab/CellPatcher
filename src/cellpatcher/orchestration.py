@@ -372,8 +372,7 @@ def run_patching_pipeline(
         # grid/whole_fov read no masks: a masks folder given for them only says where the run's is now.
         use_masks = masks_used(config, mask_folder_path)
         run = open_file_run(
-            config, image_folder_path, mask_folder_path, use_masks=use_masks, where="run_patching_pipeline",
-            fit_groups=True,
+            config, image_folder_path, mask_folder_path, use_masks=use_masks, where="run_patching_pipeline"
         )
         groups = leaves(run)
         labels = {(leaf.condition, leaf.biological_repeat) for leaf, _ in groups}
@@ -511,8 +510,9 @@ def run_patching_condition_repeat_tree(
     refuse_removed_matching("run_patching_condition_repeat_tree", removed_options)
     use_masks = masks_used(config, mask_root_path)
     with statistics_session():
-        where = "run_patching_condition_repeat_tree"
-        run = open_file_run(config, image_root_path, mask_root_path, use_masks=use_masks, where=where, fit_groups=True)
+        run = open_file_run(
+            config, image_root_path, mask_root_path, use_masks=use_masks, where="run_patching_condition_repeat_tree"
+        )
         groups = leaves(run)
         results = _patch_leaves(config, run, groups, combine_metadata, progress_callback)
         if combine_metadata:  # in the session: its normalization_inputs come from the run opened above
