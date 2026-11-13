@@ -26,7 +26,7 @@ Masks follow the image's planes or are shared (see the [config reference](config
 | Z stack, one projected image wanted | A recorded projection step in morphobricks-preprocessing, then patch the 2-D result | CellPatcher combines no Z planes (issue #83) |
 | Time series, patch every frame | `iter_image_planes_for_patching(..., t_policy="all")` | One 2D workflow per frame (a Z stack is refused, issue #83) |
 | Multichannel image, keep all channels | Use `image_axes="CYX"` or `"YXC"` | Preserves channel data |
-| Label time series | `prepare_labels_for_cell_patching(..., t_policy="select", t_index=0)` | Labels must resolve to one `YX` plane (more than one Z plane is refused) |
+| Label time series | `prepare_labels_for_cell_patching(..., t_policy="select", t_index=0)` | Labels must resolve to one `YX` plane (more than one Z plane is refused) and have one layer: a C axis of length 1 is dropped, more layers are refused, never one picked by position |
 | DINO-like RGB input | `prepare_image_for_patching(..., channel_policy="repeat_to_rgb")` | Explicit model-facing prep |
 
 ## Image preparation helpers

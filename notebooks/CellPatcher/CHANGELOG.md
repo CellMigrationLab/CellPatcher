@@ -32,7 +32,7 @@ Release v0.3.0
 Pin preprocessing v0.4.0rc4; prepare v0.2.0rc2
 
 ---
-## [Unreleased] - Channels are chosen by canonical channel ID only (owner decision, 13 November 2026)
+## [Unreleased] - Channels by canonical channel ID only; one label layer per mask (owner decisions, 13 November 2026)
 
 ### Removed (breaking, no compatibility alias)
 - `extraction.split_channels` no longer takes channel indices (`[1]`, `[0, 2]`): it is `True`, `False`
@@ -40,12 +40,22 @@ Pin preprocessing v0.4.0rc4; prepare v0.2.0rc2
   from the config's checks). Each ID is the C index it has **in each image**: in a folder or tree run by
   the run's description (`Fov.channel_ids`; an ID some image lacks is still refused by the resolver,
   `A_SCOPE_INCOMPLETE`, before any read), and for in-memory images by `image_metadata["channel_ids"]`
-  (refused without them). `ExtractionConfig.split_channel_indices` takes the image's channel IDs.
+  (refused without them). `ExtractionConfig.split_channel_indices` takes the image's channel IDs. Both the
+  list and each image's IDs are checked with the normalization brick's `check_channel_ids`: an ID that is not
+  canonical, or one given twice (`["DNA", "DNA"]`, which named C0), is refused.
 - `prepare_image_for_patching`/`iter_image_planes_for_patching` lost `channel_policy="select"`/`"first"`
   and `channel_index`; `iter_cell_planes_for_patching` lost `image_channel_index`. The other channel
   policies (`"keep"`, `"repeat_to_rgb"`, `"max"`, `"mean"`) are unchanged.
 - `FileRun.channel_indices` and `ResolvedRun.channel_indices` (internal) were removed: a file run's
   selected channels come from each image's own channel IDs.
+- A mask layer is never chosen by its position either: `CellConfig.mask_channel` was removed, and so were
+  `prepare_labels_for_cell_patching(channel_policy=, channel_index=)` and
+  `iter_cell_planes_for_patching(label_channel_policy=, label_channel_index=)`. A label mask has **one
+  layer**: an in-memory label array may have a C axis of length 1 (dropped), and one of several layers is
+  refused (give each layer as its own mask). File runs are unchanged: preprocessing refuses masks with a
+  channel axis.
+- `project_axis(..., "C", "first")` is refused: a channel is never taken by its position (`"max"`, `"mean"`
+  and `"sum"` over C, and `"first"` over T or Z, are unchanged).
 
 ### Changed
 - The notebook's "Split channels" list offers the run's canonical channel IDs (every image's, in order of
@@ -53,8 +63,9 @@ Pin preprocessing v0.4.0rc4; prepare v0.2.0rc2
   names by position.
 
 **Migration:** replace `split_channels=[i, ...]` by the IDs of those channels in the run's description;
-for in-memory images give `image_metadata=[{"channel_ids": (...)}, ...]`. A `run_config.json` written with
-a list of indices is refused when loaded.
+for in-memory images give `image_metadata=[{"channel_ids": (...)}, ...]`. Drop `cell.mask_channel` and give
+each label layer as its own mask. A `run_config.json` written with a list of indices, or with
+`cell.mask_channel`, is refused when loaded.
 
 ---
 ## [0.5.0] - 2026-11-12 - Preprocessing v0.5.2, normalization v0.5.0: channels by canonical ID, parent-label masks (Stage 2 W3)

@@ -594,7 +594,7 @@ class Normalizer:
             order = channel_ids[index]  # the ID of each channel plane, in the image's C order
             labels_2d = None
             if self.region in ("mask", "bbox"):
-                labels_2d = _label_plane(masks[index], mask_axes, self.config.cell.mask_channel)
+                labels_2d = _label_plane(masks[index], mask_axes)
             for patch in image_patches:
                 try:
                     region = _region_selection(patch, self.region, labels_2d, channels[0].shape)
@@ -676,17 +676,14 @@ def _channel_planes(image, axes: str) -> list[np.ndarray]:
     return list(moved.reshape(channels, height, width))
 
 
-def _label_plane(mask, mask_axes: str, mask_channel) -> np.ndarray:
-    """The (Y, X) label plane of a mask (selecting ``cell.mask_channel`` when it has channels)."""
+def _label_plane(mask, mask_axes: str) -> np.ndarray:
+    """The (Y, X) label plane of a single-layer mask; a mask of several layers is refused, never one picked."""
     if mask is None:
         raise ValueError("normalization.patch_region 'mask'/'bbox' needs the masks of cell mode.")
     array = np.asarray(mask)
     axes = normalize_axes(mask_axes, array.ndim)
     if "C" in axes and array.shape[axes.index("C")] != 1:
-        if mask_channel is None:
-            raise ValueError("Masks with several channels need cell.mask_channel to choose the label channel.")
-        array = np.take(array, mask_channel, axis=axes.index("C"))
-        axes = axes.replace("C", "")
+        raise ValueError("A mask of several layers along C is refused: cell mode needs a single-layer label mask.")
     return _label_to_2d(array, axes)
 
 

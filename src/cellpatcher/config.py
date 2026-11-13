@@ -93,7 +93,6 @@ class CellConfig:
     """
 
     patch_size: int | str = "auto"
-    mask_channel: int | None = None
     center_on: str = "bbox_center"
     exclude_border: bool = True
     min_area: int = 1
@@ -226,9 +225,11 @@ class ExtractionConfig:
         Raises
         ------
         ValueError
-            For a list of IDs when the image has no channel IDs, or IDs other than one per channel, or
-            an ID the image does not have.
+            For a list of IDs when the image has no channel IDs, or IDs other than one distinct canonical ID
+            per channel (the normalization brick's ``check_channel_ids``), or an ID the image does not have.
         """
+        from morphobricks_normalization.channels import check_channel_ids
+
         if isinstance(self.split_channels, bool):
             return tuple(range(channel_count)) if self.split_channels else ()
         if channel_ids is None or len(channel_ids) != channel_count:
@@ -237,6 +238,7 @@ class ExtractionConfig:
                 f"{channel_count} channel(s) are not named by ID ({channel_ids!r}). A file run names them from its "
                 'description; for an in-memory image give image_metadata["channel_ids"], one ID per C index.'
             )
+        channel_ids = check_channel_ids(channel_ids, 'image_metadata["channel_ids"]')  # e.g. ["DNA", "DNA"] refused
         missing = [channel for channel in self.split_channels if channel not in channel_ids]
         if missing:
             raise ValueError(

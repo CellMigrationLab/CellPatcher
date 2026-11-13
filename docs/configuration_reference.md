@@ -68,7 +68,6 @@ Settings for cell/object-centred patching. A mask is required in this mode.
 | Field | Type | Default | Notes |
 |---|---|---|---|
 | `patch_size` | `int \| str` | `"auto"` | Patch side length in pixels (square). Use `"auto"` for per-cell adaptive sizing based on bounding box, or call `scan_cell_patch_size()` to determine a good fixed value first. |
-| `mask_channel` | `int \| None` | `None` | Channel index to select from multi-channel label **arrays** passed in memory (e.g. `0` for first channel). Leave `None` for 2-D masks. Mask files from a mask folder cannot have a channel axis (see `common.mask_axes`). |
 | `center_on` | `str` | `"bbox_center"` | Patch centre strategy: `"bbox_center"` (centre of bounding box) or `"centroid"` (centre of mass). |
 | `exclude_border` | `bool` | `True` | When `True`, objects whose bounding box touches the image border are skipped. |
 | `min_area` | `int` | `1` | Minimum object area in pixels. Objects smaller than this are skipped. Must be `>= 1`. |

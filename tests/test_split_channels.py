@@ -170,10 +170,26 @@ def test_selecting_every_channel_id_gives_the_patches_of_true():
 
 
 @pytest.mark.parametrize("selection", [[], [0], [1, 3], [np.int64(2)], ["DNA", 1], [""], ["DNA", "DNA"], [True], 1,
-                                       "DNA"])
+                                       "DNA", ["my channel"]])
 def test_a_channel_selection_is_true_false_or_distinct_channel_ids(selection):
     with pytest.raises(ValueError, match="split_channels"):
         ExtractionConfig(split_channels=selection)
+
+
+@pytest.mark.parametrize("ids", [("DNA", "DNA", "TUB"), ("DNA", "my channel", "TUB"), ("DNA", 1, "TUB")])
+def test_an_images_channel_ids_must_be_distinct_canonical_ids(ids):
+    # Review of #109: ("DNA", "DNA") silently named C0 for DNA. Each image's IDs are checked with the
+    # normalization brick's check_channel_ids, as the patch normalization does.
+    image = _channel_image()
+    with pytest.raises(ValueError, match=r'Image 0 of the run: image_metadata\["channel_ids"\]'):
+        run_patching(images=[image], config=_grid_config(split_channels=["DNA"]),
+                     image_metadata=[{"image_file": "img.tif", "channel_ids": ids}])
+
+
+def test_metadata_of_another_length_is_named_before_the_channel_check():
+    images = [_channel_image(), _channel_image()]
+    with pytest.raises(ValueError, match="image_metadata must have exactly one entry per image"):
+        run_patching(images=images, config=_grid_config(split_channels=["DNA"]), image_metadata=_named(images[:1]))
 
 
 def test_an_in_memory_image_without_channel_ids_has_no_channel_to_name():

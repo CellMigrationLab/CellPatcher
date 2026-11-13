@@ -180,75 +180,38 @@ def test_labels_shape_mismatch_raises():
         s.generate_regions(image_shape=(5, 5), labels=np.zeros((4, 5)))
 
 
-def test_3d_labels_without_mask_channel_raises():
-    s = CellSegmentationStrategy(CellConfig(mask_channel=None), mask_axes="CYX")
-    with pytest.raises(ValueError):
-        s.generate_regions(image_shape=(5, 5), labels=np.zeros((2, 5, 5)))
-
-
-def test_3d_labels_with_valid_mask_channel_works():
-    labels = np.zeros((2, 5, 5), dtype=int)
-    labels[1, 2:4, 2:4] = 1
-    s = CellSegmentationStrategy(CellConfig(mask_channel=1, exclude_border=False), mask_axes="CYX")
-    patches = s.generate_regions(image_shape=(5, 5), labels=labels)
-    assert len(patches) == 1
-
-
-def test_invalid_mask_channel_raises():
-    labels = np.zeros((2, 5, 5), dtype=int)
-    s = CellSegmentationStrategy(CellConfig(mask_channel=3), mask_axes="CYX")
-    with pytest.raises(ValueError):
-        s.generate_regions(image_shape=(5, 5), labels=labels)
-
-
 # ---------------------------------------------------------------------------
-# mask_axes-aware channel selection tests
+# One label layer per mask: a layer is never chosen by its position (owner decision of 13 November 2026)
 # ---------------------------------------------------------------------------
 
-def test_cyx_mask_selects_correct_channel():
-    """CYX layout: channel axis is 0. mask_channel=1 picks labels[1]."""
-    labels = np.zeros((3, 6, 6), dtype=int)
-    labels[1, 2:4, 2:4] = 7  # only channel 1 has an object
-    s = CellSegmentationStrategy(CellConfig(mask_channel=1, exclude_border=False), mask_axes="CYX")
-    patches = s.generate_regions(image_shape=(6, 6), labels=labels)
-    assert len(patches) == 1
-    assert patches[0].label_id == 7
+@pytest.mark.parametrize("shape, axes", [((2, 5, 5), "CYX"), ((5, 5, 3), "YXC")])
+def test_a_label_mask_of_several_layers_is_refused(shape, axes):
+    s = CellSegmentationStrategy(CellConfig(exclude_border=False), mask_axes=axes)
+    with pytest.raises(ValueError, match="single-layer label mask.*never chosen by its position"):
+        s.generate_regions(image_shape=(5, 5), labels=np.zeros(shape, dtype=int))
 
 
-def test_yxc_mask_selects_correct_channel():
-    """YXC layout: channel axis is 2. mask_channel=2 picks labels[:,:,2].
-    Under the old channel-first assumption this would wrongly look at axis 0.
-    """
-    labels = np.zeros((6, 6, 3), dtype=int)
-    labels[2:4, 2:4, 2] = 5  # only channel index 2 (last axis) has an object
-    s = CellSegmentationStrategy(CellConfig(mask_channel=2, exclude_border=False), mask_axes="YXC")
+@pytest.mark.parametrize("axes", ["CYX", "YXC"])
+def test_a_single_layer_along_c_is_the_label_plane(axes):
+    plane = np.zeros((6, 6), dtype=int)
+    plane[2:4, 2:4] = 7
+    labels = plane[None] if axes == "CYX" else plane[..., None]
+    s = CellSegmentationStrategy(CellConfig(exclude_border=False), mask_axes=axes)
     patches = s.generate_regions(image_shape=(6, 6), labels=labels)
-    assert len(patches) == 1
-    assert patches[0].label_id == 5
+    assert [patch.label_id for patch in patches] == [7]
 
 
 def test_multidim_labels_without_c_axis_raises():
-    """mask_axes='YXZ' has no C axis — must raise ValueError."""
+    """mask_axes='YXZ' has no C axis: refused, naming z_policy (a Z axis is not a label layer)."""
     labels = np.zeros((6, 6, 2), dtype=int)
-    s = CellSegmentationStrategy(CellConfig(mask_channel=0), mask_axes="YXZ")
-    with pytest.raises(ValueError, match="C"):
+    s = CellSegmentationStrategy(CellConfig(), mask_axes="YXZ")
+    with pytest.raises(ValueError, match="Z"):
         s.generate_regions(image_shape=(6, 6), labels=labels)
 
 
-def test_multidim_labels_with_mask_channel_none_raises():
-    """3D labels with mask_axes='CYX' but mask_channel=None must raise ValueError."""
-    labels = np.zeros((2, 6, 6), dtype=int)
-    s = CellSegmentationStrategy(CellConfig(mask_channel=None), mask_axes="CYX")
-    with pytest.raises(ValueError, match="mask_channel"):
-        s.generate_regions(image_shape=(6, 6), labels=labels)
-
-
-def test_out_of_range_mask_channel_raises():
-    """mask_channel=5 for a C axis of size 2 must raise ValueError."""
-    labels = np.zeros((2, 6, 6), dtype=int)
-    s = CellSegmentationStrategy(CellConfig(mask_channel=5), mask_axes="CYX")
-    with pytest.raises(ValueError, match="out of bounds"):
-        s.generate_regions(image_shape=(6, 6), labels=labels)
+def test_cell_config_has_no_mask_channel():
+    with pytest.raises(TypeError, match="mask_channel"):
+        CellConfig(mask_channel=0)
 
 
 # ---------------------------------------------------------------------------
@@ -384,14 +347,14 @@ def test_cell_strategy_empty_labels_raises():
 def test_cell_strategy_mask_axes_length_mismatch_raises():
     """mask_axes length must match labels.ndim for multidimensional labels."""
     labels = np.zeros((2, 2, 5, 5), dtype=int)  # ndim=4
-    s = CellSegmentationStrategy(CellConfig(mask_channel=0), mask_axes="CYX")  # len=3
+    s = CellSegmentationStrategy(CellConfig(), mask_axes="CYX")  # len=3
     with pytest.raises(ValueError, match="mask_axes"):
         s.generate_regions(image_shape=(5, 5), labels=labels)
 
 
 def test_cell_strategy_4d_labels_produces_non_2d_selected_raises():
-    """4D labels with TCYX axes → channel selection would leave T → raises, naming t_policy."""
+    """4D labels with TCYX axes: the T axis is refused, naming t_policy."""
     labels = np.zeros((2, 2, 5, 5), dtype=int)  # TCYX: T=2, C=2, Y=5, X=5
-    s = CellSegmentationStrategy(CellConfig(mask_channel=0), mask_axes="TCYX")
+    s = CellSegmentationStrategy(CellConfig(), mask_axes="TCYX")
     with pytest.raises(ValueError, match="have T planes.*Set common.t_policy"):
         s.generate_regions(image_shape=(5, 5), labels=labels)

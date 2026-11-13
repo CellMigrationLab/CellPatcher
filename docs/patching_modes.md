@@ -47,7 +47,7 @@ Key parameters to know:
 - `matching.mask_id` (file runs: the description's mask ID of the object set)
 - `apply_mask` (in `ExtractionConfig`)
 - `mask_fill_value` (fill value used when `apply_mask=True`)
-- `mask_channel` (required for multi-channel label arrays in memory; mask files with a channel axis are refused: save one mask type per file, e.g. `<image>_cells.tif` and `<image>_nuclei.tif`)
+- one label layer per mask: an in-memory label array may have a C axis of length 1 (named in `common.mask_axes`), and a mask of several layers is refused, never one layer chosen by its position (owner decision of 13 November 2026; `mask_channel` was removed). Mask files with a channel axis are refused: save one mask type per file, e.g. `<image>_cells.tif` and `<image>_nuclei.tif`
 - labels must resolve to one 2D `YX` plane (use preprocessing helpers for C/Z/T labels)
 
 Notes:

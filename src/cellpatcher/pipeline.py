@@ -889,8 +889,8 @@ def run_patching(images=None, masks=None, config=None, image_metadata=None, frac
             for image in _normalize_images(images):
                 plane_choices(image.shape, config.common.image_axes, None, None, config.common, single_planes=True)
     if images is not None:
+        image_metadata = _identity_metadata(config, _normalize_images(images), image_metadata)  # one entry per image
         _check_split_channels(config, _normalize_images(images), image_metadata)
-        image_metadata = _identity_metadata(config, _normalize_images(images), image_metadata)
     refuse_unsupported_inputs(config.common.image_axes, config.common.mask_axes, images, masks)
     if config.mode == "cell" and masks is not None:
         check_mask_policy(config, _normalize_masks(masks), resolved_patch_region(config))

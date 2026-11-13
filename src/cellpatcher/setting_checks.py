@@ -133,11 +133,7 @@ def check_filter_settings(filters: object) -> None:
 
 
 def check_cell_settings(cell: object) -> None:
-    """Refuse a ``CellConfig`` with a bad choice, ``mask_channel``, size or area bound, or ``exclude_border``.
-
-    ``mask_channel`` is None or an integer >= 0 (an ``int`` or NumPy integer, never a bool, text or
-    a float such as 1.9); that it is a channel of the mask is checked where the mask is read.
-    """
+    """Refuse a ``CellConfig`` with a bad choice, size or area bound, or ``exclude_border``."""
     check_choice(cell.center_on, CENTER_ON, "center_on")
     _check_binary_mask_policy(cell.binary_mask_policy)
     check_integer(cell.binary_mask_connectivity, "binary_mask_connectivity", minimum=1)
@@ -146,8 +142,6 @@ def check_cell_settings(cell: object) -> None:
             "binary_mask_connectivity must be 1 (4-connected) or 2 (8-connected); "
             f"got {cell.binary_mask_connectivity!r}."
         )
-    if cell.mask_channel is not None:
-        check_integer(cell.mask_channel, "mask_channel", minimum=0)
     if not isinstance(cell.patch_size, str) or cell.patch_size != "auto":
         check_integer(cell.patch_size, "patch_size", minimum=1)
     check_integer(cell.min_area, "min_area", minimum=1)
@@ -165,21 +159,19 @@ def check_channel_selection(split_channels: object) -> None:
     Raises
     ------
     ValueError
-        For any other value, an empty ID or an ID listed twice.
+        For any other value, or an ID the normalization brick's ``check_channel_ids`` refuses (not a canonical
+        channel ID, an index, or an ID listed twice).
     """
+    from morphobricks_normalization.channels import check_channel_ids
+
     if isinstance(split_channels, bool):
         return
-    if (
-        not isinstance(split_channels, (list, tuple))
-        or not split_channels
-        or not all(isinstance(channel, str) and channel for channel in split_channels)
-    ):
+    if not isinstance(split_channels, (list, tuple)) or not split_channels:
         raise ValueError(
             "split_channels must be True (one patch per channel), False (one multichannel patch) or a non-empty "
             f"list of canonical channel IDs (text, one patch per channel named); got {split_channels!r}."
         )
-    if len(set(split_channels)) != len(split_channels):
-        raise ValueError(f"split_channels lists a channel more than once: {list(split_channels)!r}.")
+    check_channel_ids(split_channels, "extraction.split_channels")
 
 
 def check_extraction_settings(extraction: object) -> None:
