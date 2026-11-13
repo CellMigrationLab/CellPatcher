@@ -13,4 +13,4 @@ dependencies:
 - menuinst>=2
 - truststore>=0.10.4
 - certifi
-- jupyterlab=4.4.0
+- jupyterlab=4.5.11
