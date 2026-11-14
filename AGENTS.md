@@ -311,8 +311,8 @@ label image (its type is its name); `config.matching.mask_type` picks the type (
 the only one). The run checks every image's and mask's axes against its header (design
 v0.4 §3; nothing is read transposed) and refuses masks with a channel axis or unnamed
 extra axes (one mask type per file, named Z/T axes). Removed in CP-2b:
-`common.mask_source`/`mask_label_name` (a config file holding their defaults still
-loads), `io.read_image`/`conform_axes`/`read_ngff_mask`, the header-axis checks
+`common.mask_source`/`mask_label_name` (since the compatibility sweep a config
+file holding them, at any value, is refused as `TypeError`), `io.read_image`/`conform_axes`/`read_ngff_mask`, the header-axis checks
 (`io.refuse_image_header_axes`, `refuse_mask_header_axes`) and `planes.read_file_plane`.
 
 Two ways to point CellPatcher at input data:

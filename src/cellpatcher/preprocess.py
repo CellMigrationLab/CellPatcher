@@ -132,18 +132,28 @@ def _apply_axis_policy(
     param_name=None,
     index_param_name=None,
 ):
-    """Collapse one axis of *arr* by *policy*; a Z axis with more than one plane is refused first."""
-    # If the array doesn't have this axis at all, there's nothing to
-    # collapse -- return it unchanged rather than erroring.
-    idx = axis_index(axes, axis)
-    if idx is None:
-        return arr, axes
+    """Collapse one axis of *arr* by *policy*; a Z axis with more than one plane is refused first.
 
+    The policy is checked first, also when *arr* has no such axis (then it is returned unchanged), so an
+    unknown policy is never accepted because an image happens to lack the axis.
+    """
     # Error messages should name the actual caller-facing parameter (e.g.
     # "channel_policy" instead of the generic axis name) when the caller
     # supplied one.
     _policy_param = param_name if param_name is not None else f"{axis.lower()}_policy"
     _index_param = index_param_name if index_param_name is not None else f"{axis.lower()}_index"
+    if policy not in {"error", "first", "select", *(allowed_project_methods or ())}:
+        if label_context:
+            raise ValueError(f"Unsupported {_policy_param} for labels: {policy}")
+        raise ValueError(f"Unsupported {_policy_param}: {policy}")
+    if policy == "select" and index is None:
+        raise ValueError(f"{_policy_param}='select' requires {_index_param}.")
+
+    # If the array doesn't have this axis at all, there's nothing to
+    # collapse -- return it unchanged.
+    idx = axis_index(axes, axis)
+    if idx is None:
+        return arr, axes
 
     if axis == "Z":
         refuse_z_stack(arr.shape, axes, "The labels" if label_context else "The image")
@@ -164,19 +174,12 @@ def _apply_axis_policy(
         return select_axis_index(arr, axes, axis, 0)
 
     if policy == "select":
-        if index is None:
-            raise ValueError(f"{_policy_param}='select' requires {_index_param}.")
         return select_axis_index(arr, axes, axis, index)
 
-    # Projection policies (max/mean/sum/...) collapse the whole axis via a
+    # Projection policies (max/mean over C) collapse the whole axis via a
     # reduction instead of picking one index; which methods are valid
-    # depends on the axis (e.g. labels only ever allow 'max').
-    if allowed_project_methods and policy in allowed_project_methods:
-        return project_axis(arr, axes, axis, policy)
-
-    if label_context:
-        raise ValueError(f"Unsupported {_policy_param} for labels: {policy}")
-    raise ValueError(f"Unsupported {_policy_param}: {policy}")
+    # depends on the axis (none for T or Z).
+    return project_axis(arr, axes, axis, policy)
 
 
 def prepare_image_for_patching(

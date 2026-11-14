@@ -308,11 +308,16 @@ def test_patch_torch_dataset_real_fixture_smoke():
     assert "label_id" in sample
 
 
-def _write_csv(path, fieldnames, rows):
+def _write_csv(path, fieldnames, rows, *, complete=True):
+    """Write a hand-made patches.csv; *complete* adds every other column CellPatcher writes, empty (Q-CP-a)."""
     import csv
 
+    from cellpatcher.export import written_columns
+
+    if complete:
+        fieldnames = list(fieldnames) + [name for name in written_columns() if name not in fieldnames]
     with open(path, "w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=fieldnames)
+        w = csv.DictWriter(f, fieldnames=fieldnames, restval="")
         w.writeheader()
         for r in rows:
             w.writerow(r)
@@ -439,9 +444,18 @@ def test_exported_patch_torch_dataset_error_cases(tmp_path):
         ExportedPatchTorchDataset(tmp_path / "missing.csv", tensor_config=KEPT)
 
     bad_csv = tmp_path / "bad.csv"
-    _write_csv(bad_csv, ["image_id"], [{"image_id": "image_0000"}])
-    with pytest.raises(ValueError, match="patch_id"):
+    _write_csv(bad_csv, ["image_id"], [{"image_id": "image_0000"}], complete=False)
+    with pytest.raises(ValueError, match="missing columns CellPatcher writes.*'patch_id'"):
         ExportedPatchTorchDataset(bad_csv, tensor_config=KEPT)
+
+    # Q-CP-a: the full header, as read_patch_table requires it; one missing column is refused.
+    from cellpatcher.export import written_columns
+
+    short = [name for name in written_columns() if name != "position_id"]
+    short_csv = tmp_path / "short.csv"
+    _write_csv(short_csv, short, [{"patch_id": "p1"}], complete=False)
+    with pytest.raises(ValueError, match=r"missing columns CellPatcher writes in every patches.csv: \['position_id'\]"):
+        ExportedPatchTorchDataset(short_csv, tensor_config=KEPT)
 
     csv_missing_patch = tmp_path / "missing_patch.csv"
     _write_csv(csv_missing_patch, ["patch_id"], [{"patch_id": "not_here"}])

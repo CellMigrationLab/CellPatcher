@@ -91,10 +91,19 @@ guessed, defaulted or converted. **Breaking changes:**
   (`cfg.matching.strategy = ...`, a typo) raises `AttributeError` instead of creating an attribute
   nobody reads.
 
+- `ExportedPatchTorchDataset` applies the same full-header rule as `read_patch_table`: a
+  `patches.csv` missing any column CellPatcher writes is refused.
+
 ### Fixed
 - With `extraction.split_channels=True`, repeated in-memory `image_metadata["channel_ids"]`
   (`["DNA", "DNA"]`) are refused: the IDs are checked with the normalization brick's
   `check_channel_ids` before the `True` shortcut (review finding).
+- Every route checks each image's `channel_ids` where `channel_id` is stamped
+  (`cellpatcher.ids.stamp_channel_ids`): distinct canonical IDs, and one per C index of an image with a
+  C axis. A 2-channel image given `("DNA", "ACT", "TUB")` no longer stamps `c0=DNA`, `c1=ACT`, and
+  `("DNA", "DNA")` with a supplied `c` and no split is refused (review of #110).
+- The preprocessing helpers check `z_policy`/`t_policy` before looking for the axis, so
+  `z_policy="max"` or an unknown `t_policy` is refused on a YX image too (review of #110).
 
 ---
 ## [Unreleased] - A partial channel in a normalization group is refused before any read (#107)

@@ -586,7 +586,7 @@ def _build_result(
         # Split after extraction/masking/resizing so each region is cropped once; filters saw the whole region.
         split = _split_channel_patches(config, image_list, patches, patch_arrays_internal, metadata)
         patches, patch_arrays_internal = split
-    stamp_channel_ids(image_metadata, patches)
+    stamp_channel_ids(image_metadata, patches, image_list, config.common.image_axes)
     _stamp_output_dimensions(config, patches, patch_arrays_internal)
     n_patches = _count_by_image(patches)
     for record in records:

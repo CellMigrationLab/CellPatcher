@@ -9,7 +9,7 @@ from cellpatcher.axes import axis_index, normalize_axes, refuse_transposed_input
 from cellpatcher.config import CellPatcherConfig, CommonConfig, ExtractionConfig
 from cellpatcher.delivery import _refuse_file, on_load_normalizer, patch_array, patch_axes
 from cellpatcher.io import read_array
-from cellpatcher.export import sanitize_filename
+from cellpatcher.export import sanitize_filename, written_columns
 
 try:
     import torch
@@ -317,8 +317,14 @@ class ExportedPatchTorchDataset(torch.utils.data.Dataset):
         with self._metadata_file.open("r", newline="", encoding="utf-8") as f:
             reader = csv.DictReader(f)
             fieldnames = reader.fieldnames or []
-            if "patch_id" not in fieldnames:
-                raise ValueError("metadata_file must contain a 'patch_id' column.")
+            # The full header CellPatcher writes, as read_patch_table requires it (Q-CP-a): a missing
+            # column is refused, never read as empty.
+            missing = [name for name in written_columns() if name not in fieldnames]
+            if missing:
+                raise ValueError(
+                    f"metadata_file is missing columns CellPatcher writes in every patches.csv: {missing}. "
+                    "Export the patches again with this CellPatcher."
+                )
             if "repeat" in fieldnames:
                 raise ValueError(
                     "metadata_file has a 'repeat' column, which CellPatcher does not write; run CellPatcher again."

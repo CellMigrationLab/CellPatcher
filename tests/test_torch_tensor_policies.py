@@ -73,10 +73,19 @@ def test_the_default_channel_policy_keeps_one_channel_and_its_values(torch_datas
     assert caught == []
 
 
+def _table(folder, cells):
+    """A patches.csv of one row with every column CellPatcher writes (Q-CP-a), *cells* filled, others empty."""
+    from cellpatcher.export import written_columns
+
+    header = list(cells) + [name for name in written_columns() if name not in cells]
+    row = [cells.get(name, "") for name in header]
+    (folder / "patches.csv").write_text(",".join(header) + "\n" + ",".join(row) + "\n", encoding="utf-8")
+    return folder / "patches.csv"
+
+
 def _exported(folder, array):
     np.save(folder / "p.npy", array)
-    (folder / "patches.csv").write_text("patch_id,patch_file\np1,p.npy\n", encoding="utf-8")
-    return folder / "patches.csv"
+    return _table(folder, {"patch_id": "p1", "patch_file": "p.npy"})
 
 
 def test_the_torch_datasets_need_a_tensor_config_with_a_scale_policy(torch_dataset, tmp_path):
@@ -108,7 +117,7 @@ def test_the_channel_repeat_is_reachable_by_name_and_recorded_per_item(torch_dat
 def test_the_exported_dataset_refuses_a_repeat_column(torch_dataset, tmp_path):
     # Compatibility sweep CP-1: an old patches.csv's `repeat` column is no longer read as biological_repeat.
     np.save(tmp_path / "p.npy", np.ones((4, 4), dtype=np.uint16))
-    (tmp_path / "patches.csv").write_text("patch_id,repeat,patch_file\np1,r1,p.npy\n", encoding="utf-8")
+    _table(tmp_path, {"patch_id": "p1", "repeat": "r1", "patch_file": "p.npy"})
     with pytest.raises(ValueError, match="'repeat' column"):
         torch_dataset.ExportedPatchTorchDataset(
             tmp_path / "patches.csv", tensor_config=torch_dataset.PatchTensorConfig(scale_policy="none")
