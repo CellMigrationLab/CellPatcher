@@ -38,8 +38,8 @@ The v0.6.0 release (14 November 2026; the version is the owner's proposal: it re
 behaviour). It pins preprocessing `v0.5.3` (core and `zarr` extra; was `v0.5.2`) and normalization
 `v0.6.0` (was `v0.5.0`), the tag preprocessing `v0.5.3` pins (owner decision D-h; pip refuses two
 different direct URLs for one package). `__version__`, `setup.py` and every notebook (`RELEASE_TAG`,
-`current_version`, `notebook_latest_versions.yaml`) are `0.6.0`. It carries #108 (issue #107), #109
-and the compatibility sweep #110. Owner policy of 2026-11-10 (Spec ADR 0002 AR10): no backward compatibility for the removed behaviour
+`current_version`, `notebook_latest_versions.yaml`) are `0.6.0`. It carries #106 (installer pins),
+#108 (issue #107), #109 and the compatibility sweep #110. Owner policy of 2026-11-10 (Spec ADR 0002 AR10): no backward compatibility for the removed behaviour
 below; old settings are refused, not converted. Neither new pin changes a format: run manifest version
 5, `plane_histograms.csv` schema version 5 and resolver contract version 2 are those of v0.5.0, so a
 preprocessing v0.5.2 run is read as it is. The MorphoBricks-Spec test material stays at `69a58b3`
@@ -99,11 +99,11 @@ guessed, defaulted or converted. **Breaking changes:**
 #### Changed
 - `read_patch_table` requires the full current header (Q-CP-a): a table missing any column
   CellPatcher writes (`cellpatcher.export.written_columns()`) is refused, never read with the field
-  at its default. Hand-made test tables in MorphoRelate and MorphoEmbed need every column.
+  at its default. MorphoRelate's hand-made test tables need every column before it pins v0.6.0
+  (MorphoEmbed, MorphoObjects, MorphoFeature and fiberfeatures read only tables CellPatcher wrote).
 - The config dataclasses are `@dataclass(slots=True)` (Q-CP-c): setting an unknown attribute
   (`cfg.matching.strategy = ...`, a typo) raises `AttributeError` instead of creating an attribute
   nobody reads.
-
 - `ExportedPatchTorchDataset` applies the same full-header rule as `read_patch_table`: a
   `patches.csv` missing any column CellPatcher writes is refused.
 
@@ -163,8 +163,8 @@ guessed, defaulted or converted. **Breaking changes:**
 ### Changed
 - Dependencies: preprocessing `v0.5.3` (tag `3aa3b25`; was `v0.5.2`), a pin release that pins
   normalization `v0.6.0` and changes nothing in the package API; normalization `v0.6.0` (tag `95e1d6d`;
-  was `v0.5.0`), which only adds the `morphobricks_normalization.stain` module and an optional
-  `histology` extra that CellPatcher neither uses nor installs (its legacy API and `plane_histograms.csv`
+  was `v0.5.0`), which only adds new modules (`stain`, `stain_presets`, `optical_density`,
+  `scalar_inputs`) and an optional `histology` extra that CellPatcher neither uses nor installs (its legacy API and `plane_histograms.csv`
   schema 5 are unchanged). Both are checked by `tests/test_dependency_pins.py` (release tags only).
 - The notebook's "Split channels" list offers the run's canonical channel IDs (every image's, in order
   of first appearance; `RunSummary.channels`) and passes the IDs chosen, instead of the first image's
@@ -183,6 +183,17 @@ guessed, defaulted or converted. **Breaking changes:**
   or file written.
 - Preprocessing v0.5.2 runs need not be re-run: preprocessing v0.5.3 reads them as they are.
 - Code that used a transition path removed by #110 moves to the current name given above (`biological_repeat`, `SINGLE_BIOLOGICAL_REPEAT_LABEL`, `run_patching_pipeline`, `cellpatcher.run_open`, `cellpatcher.patch_normalization`); config files need `run_config_version: 2`; a hand-made `patches.csv` needs every column CellPatcher writes (`cellpatcher.export.written_columns()`); exports normalized at the removed `condition`/`technical_repeat` scopes are made again.
+- `z_policy="max"`/`"mean"`/`"sum"` on Z: use `"keep"`, `"first"` or `"select"`, or record the Z
+  projection as a morphobricks-preprocessing step. An export whose `run_config.json` records one of
+  them is no longer a valid CellPatcher setting.
+- `PatchTensorConfig(scale_policy="auto")`: use `"none"` and scale the tensors yourself; dataset items
+  no longer carry `scale_divisor`.
+- Delete `common.mask_source`, `common.mask_label_name` and `normalization.experiment_design` from
+  config files (each is now an unknown key, `TypeError`).
+- Code that sets an attribute the config classes do not have now gets `AttributeError` (slots): fix
+  the name.
+- Regenerate a `patches.csv` that has a `repeat` column or `;`-separated normalization parameter
+  columns: it is refused.
 - Bricks that pin CellPatcher pin `v0.6.0` together with preprocessing `v0.5.3` and normalization
   `v0.6.0`.
 
