@@ -93,7 +93,7 @@ from cellpatcher.strategies import (
 )
 from cellpatcher.types import PatchRegion
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"
 
 __all__ = [
     "PatchRegion",

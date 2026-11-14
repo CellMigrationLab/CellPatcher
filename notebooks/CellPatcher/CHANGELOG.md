@@ -32,13 +32,26 @@ Release v0.3.0
 Pin preprocessing v0.4.0rc4; prepare v0.2.0rc2
 
 ---
-## [Unreleased] - Compatibility sweep: transition code and redundant guards removed (CP-1..CP-15, Q-CP-a/b/c)
+## [0.6.0] - 2026-11-14 - Channels by canonical ID only, transition code removed, partial channels refused before any read; preprocessing v0.5.3, normalization v0.6.0
+
+The v0.6.0 release (14 November 2026; the version is the owner's proposal: it removes public
+behaviour). It pins preprocessing `v0.5.3` (core and `zarr` extra; was `v0.5.2`) and normalization
+`v0.6.0` (was `v0.5.0`), the tag preprocessing `v0.5.3` pins (owner decision D-h; pip refuses two
+different direct URLs for one package). `__version__`, `setup.py` and every notebook (`RELEASE_TAG`,
+`current_version`, `notebook_latest_versions.yaml`) are `0.6.0`. It carries #106 (installer pins),
+#108 (issue #107), #109 and the compatibility sweep #110. Owner policy of 2026-11-10 (Spec ADR 0002 AR10): no backward compatibility for the removed behaviour
+below; old settings are refused, not converted. Neither new pin changes a format: run manifest version
+5, `plane_histograms.csv` schema version 5 and resolver contract version 2 are those of v0.5.0, so a
+preprocessing v0.5.2 run is read as it is. The MorphoBricks-Spec test material stays at `69a58b3`
+(preprocessing v0.5.3 vendors the same commit).
+
+### Breaking: compatibility sweep (#110; CP-1..CP-15, Q-CP-a/b/c)
 
 The code is not in production, so the transition paths kept for earlier CellPatcher versions are
 removed (inventory `compat-sweep-inventory-2026-11-13`). The scientific refusals stay: nothing is
 guessed, defaulted or converted. **Breaking changes:**
 
-### Removed
+#### Removed
 - **`repeat` alias of `biological_repeat`** (CP-1, Spec ADR 0002 AR11 (6)): `cellpatcher._deprecation`
   is deleted. `CommonConfig(repeat=)`, `PatchRegion(repeat=)`, `ConditionRepeatFolder(repeat=)`,
   `ConditionRepeatResult(repeat=)` are a `TypeError`; the `repeat` attribute is gone;
@@ -83,18 +96,18 @@ guessed, defaulted or converted. **Breaking changes:**
   of the removed projection), in `CommonConfig`, `project_axis` and the preprocessing helpers.
   `"keep"`, `"all"`, `"first"` and `"select"` remain.
 
-### Changed
+#### Changed
 - `read_patch_table` requires the full current header (Q-CP-a): a table missing any column
   CellPatcher writes (`cellpatcher.export.written_columns()`) is refused, never read with the field
-  at its default. Hand-made test tables in MorphoRelate and MorphoEmbed need every column.
+  at its default. MorphoRelate's hand-made test tables need every column before it pins v0.6.0
+  (MorphoEmbed, MorphoObjects, MorphoFeature and fiberfeatures read only tables CellPatcher wrote).
 - The config dataclasses are `@dataclass(slots=True)` (Q-CP-c): setting an unknown attribute
   (`cfg.matching.strategy = ...`, a typo) raises `AttributeError` instead of creating an attribute
   nobody reads.
-
 - `ExportedPatchTorchDataset` applies the same full-header rule as `read_patch_table`: a
   `patches.csv` missing any column CellPatcher writes is refused.
 
-### Fixed
+#### Fixed
 - With `extraction.split_channels=True`, repeated in-memory `image_metadata["channel_ids"]`
   (`["DNA", "DNA"]`) are refused: the IDs are checked with the normalization brick's
   `check_channel_ids` before the `True` shortcut (review finding).
@@ -105,59 +118,84 @@ guessed, defaulted or converted. **Breaking changes:**
 - The preprocessing helpers check `z_policy`/`t_policy` before looking for the axis, so
   `z_policy="max"` or an unknown `t_policy` is refused on a YX image too (review of #110).
 
----
-## [Unreleased] - A partial channel in a normalization group is refused before any read (#107)
-
-### Fixed
-- A file run normalized at a CSV scope (`biological_repeat`, `image`) checks, when the run is opened
-  and from `plane_histograms.csv` alone, that every group of the planes it patches has each of its
-  channels in every plane (`cellpatcher.scope_check`), and refuses a group that does not with
-  `A_SCOPE_INCOMPLETE` before any image is read, with the message the patching gives (the normalization
-  brick's own refusal). On Spec fixture `v17` (`PHASE` in 4 of 8 planes of
-  the repeat group `R002`, `scope="biological_repeat"`) the run was refused only after 6
-  `RunInputs.read_plane` calls, leaving 5 patch files without `patches.csv` or `run_config.json`; it
-  is now refused with 0 reads and nothing written. Nothing is fitted up front: no finite pixels and
-  zero spread are still refused by the patching, only for a group a kept patch uses. Every route that
-  opens a file run checks it, so the notebook's preview and table of group parameters refuse such a run
-  with the same message (they listed the group as a problem row before).
-- Not changed: a run that stops for another reason after exporting some patches (a failing image, a
-  full disk) can still leave those files without their tables (owner decision, 13 November 2026).
-
----
-## [Unreleased] - Channels by canonical channel ID only; one label layer per mask (owner decisions, 13 November 2026)
-
-### Removed (breaking, no compatibility alias)
-- `extraction.split_channels` no longer takes channel indices (`[1]`, `[0, 2]`): it is `True`, `False`
-  or a list of canonical channel IDs (`["DNA"]`). A list of indices is not a valid value (`ValueError`
-  from the config's checks). Each ID is the C index it has **in each image**: in a folder or tree run by
-  the run's description (`Fov.channel_ids`; an ID some image lacks is still refused by the resolver,
+### Breaking (removed, no compatibility alias; #109, owner decisions of 13 November 2026)
+- **Channels are chosen by canonical channel ID only, never by position.** `extraction.split_channels`
+  no longer takes channel indices (`[1]`, `[0, 2]`): it is `True`, `False` or a list of canonical
+  channel IDs (`["DNA"]`). A list of indices is not a valid value (`ValueError` from the config's
+  checks). Each ID is the C index it has **in each image**: in a folder or tree run by the run's
+  description (`Fov.channel_ids`; an ID some image lacks is still refused by the resolver,
   `A_SCOPE_INCOMPLETE`, before any read), and for in-memory images by `image_metadata["channel_ids"]`
-  (refused without them). `ExtractionConfig.split_channel_indices` takes the image's channel IDs. Both the
-  list and each image's IDs are checked with the normalization brick's `check_channel_ids`: an ID that is not
-  canonical, or one given twice (`["DNA", "DNA"]`, which named C0), is refused.
+  (refused without them). `ExtractionConfig.split_channel_indices` takes the image's channel IDs. Both
+  the list and each image's IDs are checked with the normalization brick's `check_channel_ids`: an ID
+  that is not canonical, or one given twice (`["DNA", "DNA"]`, which named C0), is refused.
 - `prepare_image_for_patching`/`iter_image_planes_for_patching` lost `channel_policy="select"`/`"first"`
   and `channel_index`; `iter_cell_planes_for_patching` lost `image_channel_index`. The other channel
   policies (`"keep"`, `"repeat_to_rgb"`, `"max"`, `"mean"`) are unchanged.
 - `FileRun.channel_indices` and `ResolvedRun.channel_indices` (internal) were removed: a file run's
   selected channels come from each image's own channel IDs.
-- A mask layer is never chosen by its position either: `CellConfig.mask_channel` was removed, and so were
+- **A mask layer is never chosen by its position either, and a label mask has one layer.**
+  `CellConfig.mask_channel` was removed, and so were
   `prepare_labels_for_cell_patching(channel_policy=, channel_index=)` and
-  `iter_cell_planes_for_patching(label_channel_policy=, label_channel_index=)`. A label mask has **one
-  layer**: an in-memory label array may have a C axis of length 1 (dropped), and one of several layers is
-  refused (give each layer as its own mask). File runs are unchanged: preprocessing refuses masks with a
-  channel axis.
-- `project_axis(..., "C", "first")` is refused: a channel is never taken by its position (`"max"`, `"mean"`
-  and `"sum"` over C, and `"first"` over T or Z, are unchanged).
+  `iter_cell_planes_for_patching(label_channel_policy=, label_channel_index=)`. An in-memory label
+  array may have a C axis of length 1 (dropped); one of several layers is refused (give each layer as
+  its own mask). File runs are unchanged: preprocessing refuses masks with a channel axis.
+- `project_axis(..., "C", "first")` is refused: a channel is never taken by its position (`"max"`,
+  `"mean"` and `"sum"` over C, and `"first"` over T or Z, are unchanged).
+- A `run_config.json` written with a list of channel indices in `split_channels`, or with
+  `cell.mask_channel`, is refused when loaded.
+
+### Fixed (#108, issue #107)
+- **A partial channel in a normalization group is refused before any read.** A file run normalized at
+  a CSV scope (`biological_repeat`, `image`) checks, when the run is opened and from
+  `plane_histograms.csv` alone, that every group of the planes it patches has each of its channels in
+  every plane (`cellpatcher.scope_check`), and refuses a group that does not with `A_SCOPE_INCOMPLETE`
+  before any image is read, with the message the patching gives (the normalization brick's own
+  refusal). On Spec fixture `v17` (`PHASE` in 4 of 8 planes of the repeat group `R002`,
+  `scope="biological_repeat"`) the run was refused only after 6 `RunInputs.read_plane` calls, leaving
+  5 patch files without `patches.csv` or `run_config.json`; it is now refused with 0 reads and nothing
+  written. Nothing is fitted up front: no finite pixels and zero spread are still refused by the
+  patching, only for a group a kept patch uses. Every route that opens a file run checks it, so the
+  notebook's preview and table of group parameters refuse such a run with the same message (they
+  listed the group as a problem row before).
+- Not changed: a run that stops for another reason after exporting some patches (a failing image, a
+  full disk) can still leave those files without their tables (owner decision, 13 November 2026).
 
 ### Changed
-- The notebook's "Split channels" list offers the run's canonical channel IDs (every image's, in order of
-  first appearance; `RunSummary.channels`) and passes the IDs chosen, instead of the first image's channel
-  names by position.
+- Dependencies: preprocessing `v0.5.3` (tag `3aa3b25`; was `v0.5.2`), a pin release that pins
+  normalization `v0.6.0` and changes nothing in the package API; normalization `v0.6.0` (tag `95e1d6d`;
+  was `v0.5.0`), which only adds new modules (`stain`, `stain_presets`, `optical_density`,
+  `scalar_inputs`) and an optional `histology` extra that CellPatcher neither uses nor installs (its legacy API and `plane_histograms.csv`
+  schema 5 are unchanged). Both are checked by `tests/test_dependency_pins.py` (release tags only).
+- The notebook's "Split channels" list offers the run's canonical channel IDs (every image's, in order
+  of first appearance; `RunSummary.channels`) and passes the IDs chosen, instead of the first image's
+  channel names by position (#109).
+- Installer pins (#106): Pillow `13.0.0` and JupyterLab `4.5.11` in `requirements.txt`,
+  `requirements_gpu.txt` and `environment.yaml` (regenerated from the notebooks' `requirements.yaml`).
 
-**Migration:** replace `split_channels=[i, ...]` by the IDs of those channels in the run's description;
-for in-memory images give `image_metadata=[{"channel_ids": (...)}, ...]`. Drop `cell.mask_channel` and give
-each label layer as its own mask. A `run_config.json` written with a list of indices, or with
-`cell.mask_channel`, is refused when loaded.
+### Migration
+- Replace `split_channels=[i, ...]` by the IDs of those channels in the run's description; for
+  in-memory images give `image_metadata=[{"channel_ids": (...)}, ...]`.
+- Drop `cell.mask_channel` and give each label layer as its own mask.
+- Write a new `run_config.json` for a run whose saved one lists channel indices or sets
+  `cell.mask_channel`: it is refused when loaded.
+- Nothing to migrate for #107: a run with a channel that only some planes of a normalization group
+  have was already refused (`A_SCOPE_INCOMPLETE`, v0.5.0); it is now refused before any image is read
+  or file written.
+- Preprocessing v0.5.2 runs need not be re-run: preprocessing v0.5.3 reads them as they are.
+- Code that used a transition path removed by #110 moves to the current name given above (`biological_repeat`, `SINGLE_BIOLOGICAL_REPEAT_LABEL`, `run_patching_pipeline`, `cellpatcher.run_open`, `cellpatcher.patch_normalization`); config files need `run_config_version: 2`; a hand-made `patches.csv` needs every column CellPatcher writes (`cellpatcher.export.written_columns()`); exports normalized at the removed `condition`/`technical_repeat` scopes are made again.
+- `z_policy="max"`/`"mean"`/`"sum"` on Z: use `"keep"`, `"first"` or `"select"`, or record the Z
+  projection as a morphobricks-preprocessing step. An export whose `run_config.json` records one of
+  them is no longer a valid CellPatcher setting.
+- `PatchTensorConfig(scale_policy="auto")`: use `"none"` and scale the tensors yourself; dataset items
+  no longer carry `scale_divisor`.
+- Delete `common.mask_source`, `common.mask_label_name` and `normalization.experiment_design` from
+  config files (each is now an unknown key, `TypeError`).
+- Code that sets an attribute the config classes do not have now gets `AttributeError` (slots): fix
+  the name.
+- Regenerate a `patches.csv` that has a `repeat` column or `;`-separated normalization parameter
+  columns: it is refused.
+- Bricks that pin CellPatcher pin `v0.6.0` together with preprocessing `v0.5.3` and normalization
+  `v0.6.0`.
 
 ---
 ## [0.5.0] - 2026-11-12 - Preprocessing v0.5.2, normalization v0.5.0: channels by canonical ID, parent-label masks (Stage 2 W3)
