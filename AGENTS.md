@@ -21,7 +21,7 @@
 
 Key dependencies: `numpy`, `scipy`, `tifffile`, `imageio`, and the MorphoBricks bricks `morphobricks-preprocessing` and `morphobricks-normalization` from GitHub at pinned tags (preprocessing `v0.5.5`, normalization `v0.6.1`) (core, required; normalization is declared at the tag the preprocessing tag pins, owner decision D-h, checked by `tests/test_dependency_pins.py`; histograms, the plane table, plane IDs, pooling and normalization parameters are imported from `morphobricks_normalization`, not from their deprecated preprocessing paths). Optional extras: `ipywidgets`, `matplotlib`, `pillow`, `tqdm`, `joblib`, `jl-hidecode` (notebook extra); `torch` (optional `cellpatcher.torch_dataset` adapter only — never a core dependency); `morphobricks-preprocessing[zarr]` at the same tag (`zarr` extra, formerly `preprocessing`: OME-Zarr images and OME-NGFF label masks).
 
-Current health snapshot (2026-11-14, v0.6.0 release prep with the compatibility sweep #110: preprocessing `v0.5.3` and normalization `v0.6.0` installed from their tags, Python 3.11, Linux): `.[test,zarr,notebook]` with CPU `torch` 2.15.0: 2726 passed, 0 skipped (`python tools/check.py`, code rules and Ruff clean; the smaller extras were not run). Preprocessing refuses Z>1 inputs (2-D planes only), so the tests that built Z-stacks use T.
+Current health snapshot (2026-11-14, v0.6.1 release prep: preprocessing `v0.5.5` and normalization `v0.6.1` installed from their tags in a fresh venv, Python 3.11, Linux): `.[test,zarr,notebook]` with CPU `torch` 2.15.0: 2779 passed, 0 skipped (`python tools/check.py`, code rules and Ruff clean; the smaller extras were not run). Preprocessing refuses Z>1 inputs (2-D planes only), so the tests that built Z-stacks use T.
 
 ---
 
