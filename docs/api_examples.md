@@ -362,3 +362,44 @@ dataset = ExportedPatchTorchDataset(
 ```
 
 `patches.csv` includes a `patch_file` column with the exact exported filename for every row (written by `export_patches`), and `ExportedPatchTorchDataset` uses it by default. The dataset refuses a `patches.csv` missing any column CellPatcher writes (as `read_patch_table` does); rows whose `patch_file` is empty fall back to reconstructing filenames from sanitized `patch_id` values. If your workflow uses custom filenames in a different column, pass `filename_column` to use that instead. When multiple formats exist for a patch and neither `patch_file` nor `filename_column` resolves it, pass `prefer_format="npy"` or `prefer_format="tif"`; if no preference is given and multiple formats exist, a `ValueError` is raised. Rows loaded from `patches.csv` are returned as strings in `sample["patch"]`; convert fields to numbers if your downstream code needs typed values. A `patches.csv` written before the `repeat` → `biological_repeat` rename (a `repeat` column) is refused: export the patches again.
+
+
+## Patch geometry for other bricks: checks and execution windows
+
+MorphoFeature hands CellPatcher's patches to the feature bricks as `bounds = (y0, y1, x0, x1)`:
+half-open (`pixel_edge` in MorphoBricks-Spec ADR 0004's coordinate types; pixel `i` spans
+`[i, i+1)`) in the frame of the 2D plane they lie in, with the plane's `(H, W)` shape. These pure
+helpers check and grow such rectangles; they read no pixel and never convert a value.
+
+- `check_patch_bounds(bounds, shape)` returns the rectangle as plain ints when it is four integers,
+  non-empty and inside the plane; `check_region_mask(mask, shape)` checks a region mask of the plane.
+  Both raise `PatchBoundsError` (a `ValueError`).
+- `context_bounds(bounds, margin, shape)` gives the **execution window** of a patch (ADR 0004,
+  decisions EW4/EW5): the patch grown by `margin = (my, mx)` pixels per axis, clipped at the plane
+  edge (nothing is padded), as a frozen `WindowRecord`:
+
+  | Field | Value |
+  | --- | --- |
+  | `context_bounds` | `(max(0, y0 - my), min(H, y1 + my), max(0, x0 - mx), min(W, x1 + mx))`, half-open, plane frame |
+  | `origin` | `(y, x)` of the window in the plane: `(context_bounds[0], context_bounds[2])` |
+  | `margin_requested` | `(my, my, mx, mx)` (top, bottom, left, right) |
+  | `margin_clipped` | the margin kept per side; equal to the requested one except where the plane edge cuts it |
+  | `local_interior` | the patch in window-local coordinates: `bounds` minus `origin` per axis |
+  | `plane_shape` | `(height, width)` of the plane the window lies in |
+
+  Every argument holds Python or NumPy integers: a float (even `1.0`) or boolean is a `TypeError`;
+  a negative margin, a shape that is not positive, or bounds that are not a non-empty rectangle inside
+  the plane are a `PatchBoundsError`. The patch keeps its global `bounds` and `patch_id`; a provider
+  converts a window-local coordinate `l` back to the plane with `origin + l`.
+
+```python
+from cellpatcher import context_bounds
+
+window = context_bounds((0, 256, 900, 1000), (67, 30), (300, 1000))
+window.context_bounds    # (0, 300, 870, 1000)
+window.origin            # (0, 870)
+window.margin_requested  # (67, 67, 30, 30)
+window.margin_clipped    # (0, 44, 30, 0): the top and right sides reach the plane edge
+window.local_interior    # (0, 256, 30, 130)
+# plane[0:300, 870:1000] is the window; window_array[0:256, 30:130] is the patch itself.
+```
