@@ -32,7 +32,20 @@ Release v0.3.0
 Pin preprocessing v0.4.0rc4; prepare v0.2.0rc2
 
 ---
-## [Unreleased] - Compatibility sweep: transition code and redundant guards removed (CP-1..CP-15, Q-CP-a/b/c)
+## [0.6.0] - 2026-11-14 - Channels and masks by canonical ID only, compatibility sweep: old options, short tables and old run configs refused
+
+The v0.6.0 release. It carries #108, #109 and #110, and is breaking in a 0.x package. The pins are
+unchanged: preprocessing `v0.5.2` (core and `zarr` extra) and normalization `v0.5.0`. The installer pins
+Pillow 13.0.0 and JupyterLab 4.5.11 (#106, merged after v0.5.0). `__version__`,
+`setup.py` and every notebook (`RELEASE_TAG`, `current_version`, `notebook_latest_versions.yaml`) are
+`0.6.0`. Nothing is guessed, defaulted or converted: what is removed below is refused with a message that
+names the fix. **Migration for the other bricks (MorphoRelate, MorphoEmbed):** hand-made `patches.csv`
+test tables need every column CellPatcher writes (`cellpatcher.export.written_columns()`) and no `repeat`
+column; config files and `run_config.json` need `run_config_version: 2`; `z_policy` is one of `keep`,
+`all`, `first`, `select` (not `max`/`mean`/`sum`); channels are chosen by canonical ID and a mask has one
+layer. The three groups of changes follow.
+
+**Part 1 - Compatibility sweep: transition code and redundant guards removed (CP-1..CP-15, Q-CP-a/b/c)**
 
 The code is not in production, so the transition paths kept for earlier CellPatcher versions are
 removed (inventory `compat-sweep-inventory-2026-11-13`). The scientific refusals stay: nothing is
@@ -106,7 +119,7 @@ guessed, defaulted or converted. **Breaking changes:**
   `z_policy="max"` or an unknown `t_policy` is refused on a YX image too (review of #110).
 
 ---
-## [Unreleased] - A partial channel in a normalization group is refused before any read (#107)
+**Part 2 - A partial channel in a normalization group is refused before any read (#107, #108)**
 
 ### Fixed
 - A file run normalized at a CSV scope (`biological_repeat`, `image`) checks, when the run is opened
@@ -124,7 +137,7 @@ guessed, defaulted or converted. **Breaking changes:**
   full disk) can still leave those files without their tables (owner decision, 13 November 2026).
 
 ---
-## [Unreleased] - Channels by canonical channel ID only; one label layer per mask (owner decisions, 13 November 2026)
+**Part 3 - Channels by canonical channel ID only; one label layer per mask (owner decisions, 13 November 2026, #109)**
 
 ### Removed (breaking, no compatibility alias)
 - `extraction.split_channels` no longer takes channel indices (`[1]`, `[0, 2]`): it is `True`, `False`
