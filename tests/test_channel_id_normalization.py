@@ -65,7 +65,10 @@ def test_repeated_or_malformed_channel_ids_are_refused_not_discarded_as_zero_spr
 
 
 def test_rows_of_earlier_tables_are_refused_never_converted():
-    """W3 (normalization v0.5.0, Spec ADR 0002 AR10): C-index and ';'-separated rows are refused; ID rows read."""
+    """W3 (normalization v0.5.0, Spec ADR 0002 AR10): C-index rows are refused; ID rows read.
+
+    The ';'-separated columns of earlier tables are unknown columns, refused by read_patch_table (CP-5).
+    """
     import morphobricks_normalization as mbn
 
     from cellpatcher.normalization import parameters_from_row
@@ -73,16 +76,12 @@ def test_rows_of_earlier_tables_are_refused_never_converted():
     settings = {"method": "minmax", "percentile": [1.0, 99.8]}
     old_row = {
         "patch_id": "p", "c": "", "normalization_method": "min-max", "normalization_scope": "image",
-        "normalization_group": "a.tif", "normalization_offset": "1.5;2.0", "normalization_scale": "3.0;4.0",
-        "normalization_exact": "true",
+        "normalization_group": "a.tif", "normalization_exact": "true",
     }
-    with pytest.raises(ValueError, match="written before the per-channel columns"):
-        parameters_from_row(old_row, settings)
-    c_index_row = {**old_row, "normalization_offset": "", "normalization_scale": "",
-                   "Normalization_Offset_C0": "1.5", "Normalization_Scale_C0": "3.0"}
+    c_index_row = {**old_row, "Normalization_Offset_C0": "1.5", "Normalization_Scale_C0": "3.0"}
     with pytest.raises(ValueError, match="normalization_parameters_version"):
         parameters_from_row(c_index_row, settings)
     parameters = mbn.Parameters("min-max", "image", "a.tif", True, (1.5, 2.0), (3.0, 4.0), ("ACTIN", "DNA"))
-    new_row = {**old_row, "normalization_offset": "", "normalization_scale": "", **parameters.to_columns()}
+    new_row = {**old_row, **parameters.to_columns()}
     assert parameters_from_row(new_row, settings) == parameters
     assert parameters_from_row({"patch_id": "p", "normalization_method": ""}, settings) is None

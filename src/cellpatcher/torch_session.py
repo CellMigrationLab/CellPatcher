@@ -4,8 +4,8 @@ The notebook (:mod:`cellpatcher.notebook_torch`) only shows the result. The patc
 with :class:`cellpatcher.torch_dataset.ExportedPatchTorchDataset` from the export's
 ``patches.csv``, with the array axes every row records (``output_axes``), and kept as exported:
 every channel (``channel_policy="keep"``: a channel is never repeated or dropped to fit a model)
-and the values unscaled (``scale_policy="none"``: an integer patch is not divided by its type's
-maximum, which is deprecated; normalization is CellPatcher's ``config.normalization``).
+and the values unscaled (``scale_policy="none"``: normalization is CellPatcher's
+``config.normalization``).
 Files exported with raw values are normalized on load with each row's parameters, as everywhere
 else. The first patches are stacked into one batch with PyTorch's ``default_collate``, as a
 ``DataLoader`` does. Patches of different sizes are refused, never

@@ -32,6 +32,80 @@ Release v0.3.0
 Pin preprocessing v0.4.0rc4; prepare v0.2.0rc2
 
 ---
+## [Unreleased] - Compatibility sweep: transition code and redundant guards removed (CP-1..CP-15, Q-CP-a/b/c)
+
+The code is not in production, so the transition paths kept for earlier CellPatcher versions are
+removed (inventory `compat-sweep-inventory-2026-11-13`). The scientific refusals stay: nothing is
+guessed, defaulted or converted. **Breaking changes:**
+
+### Removed
+- **`repeat` alias of `biological_repeat`** (CP-1, Spec ADR 0002 AR11 (6)): `cellpatcher._deprecation`
+  is deleted. `CommonConfig(repeat=)`, `PatchRegion(repeat=)`, `ConditionRepeatFolder(repeat=)`,
+  `ConditionRepeatResult(repeat=)` are a `TypeError`; the `repeat` attribute is gone;
+  `apply_overrides({"common.repeat": ...})` and a `common.repeat` key in a config file are refused;
+  `read_patch_table` and `ExportedPatchTorchDataset` refuse a `patches.csv` with a `repeat` column
+  instead of reading it as the biological repeat.
+- `SINGLE_REPEAT_LABEL` (CP-2): use `SINGLE_BIOLOGICAL_REPEAT_LABEL` (same value).
+- `discover_condition_repeat_folders` and `DISCOVER_DEPRECATION` (CP-3), with the helpers only it
+  used (`cellpatcher.io.discover_images`): discovery is the preprocessing brick's.
+  `ConditionRepeatFolder` stays (the tree run's progress callback).
+- `run_patching_from_folders` (CP-4): call `run_patching_pipeline`.
+- `PatchRegion.normalization_offset`/`normalization_scale` properties and the `;`-separated
+  parameter columns of tables before 2026-10-28 (CP-5): such a column is now an unknown column,
+  refused by `read_patch_table`.
+- `PatchTensorConfig(scale_policy="auto")` (CP-6): divide-by-dtype-maximum, its
+  `ScalePolicyDeprecationWarning` and global warning filter, the `scale_divisor()` helper and each
+  dataset item's `scale_divisor` key. `scale_policy` stays required; `"none"` is the only choice.
+- Matching options removed in v0.1.1 (`strategy`, `mask_suffixes`, `case_sensitive`,
+  `ignore_unrequested_masks`) are no longer refused by name (CP-7): `REMOVED_MATCHING_OPTIONS`,
+  `MASK_LAYOUT_HELP`, `refuse_removed_matching`, the `MatchConfig` `InitVar`s and `__setattr__` and
+  the `**removed_options` of `run_patching_pipeline`, `run_patching_condition_repeat_tree` and
+  `validate_image_and_mask_folders` are deleted. They are now unexpected keywords (`TypeError`).
+- Config files without `run_config_version`, and version 1 (CP-8, A15): every reader reads version 2
+  only and names the fix; `save_default_config` and `save_config_for_mode` write
+  `run_config_version: 2`.
+- `common.mask_source`/`mask_label_name` and `normalization.experiment_design` are no longer dropped
+  from a config file at their old defaults (CP-9): any of them is an unknown key (`TypeError`).
+- Exports normalized at the removed `condition`/`technical_repeat` scopes no longer load as image
+  scope (CP-10): they are refused, saying to run CellPatcher again.
+- Re-exports at old homes (CP-11): `cellpatcher.statistics.load_plane_statistics`/`open_run`/
+  `recorded_image_type`/`statistics_of` (import them from `cellpatcher.run_open`; the package-level
+  `cellpatcher.load_plane_statistics` stays) and `cellpatcher.normalization.split_channel_normalization`
+  (from `cellpatcher.patch_normalization`).
+- The `imageio` fallback for TIFF files (CP-12; `tifffile` is required, so a multi-series TIFF is
+  always refused) and the NumPy nearest-neighbour resize fallback (CP-13; `scipy` is required).
+- The `is not None` check on the table's `position_id` in `check_planes` (CP-14): normalization's
+  `PlaneRecord.position_id` is required.
+- The pointed message for `binary_mask_policy="single_object"` (CP-15): it is refused by the
+  ordinary choice check.
+- `z_policy="max"`/`"mean"`/`"sum"` on Z (Q-CP-b): CellPatcher combines no planes, so the
+  projection names are refused for Z, also over one plane (they returned that plane in the dtype
+  of the removed projection), in `CommonConfig`, `project_axis` and the preprocessing helpers.
+  `"keep"`, `"all"`, `"first"` and `"select"` remain.
+
+### Changed
+- `read_patch_table` requires the full current header (Q-CP-a): a table missing any column
+  CellPatcher writes (`cellpatcher.export.written_columns()`) is refused, never read with the field
+  at its default. Hand-made test tables in MorphoRelate and MorphoEmbed need every column.
+- The config dataclasses are `@dataclass(slots=True)` (Q-CP-c): setting an unknown attribute
+  (`cfg.matching.strategy = ...`, a typo) raises `AttributeError` instead of creating an attribute
+  nobody reads.
+
+- `ExportedPatchTorchDataset` applies the same full-header rule as `read_patch_table`: a
+  `patches.csv` missing any column CellPatcher writes is refused.
+
+### Fixed
+- With `extraction.split_channels=True`, repeated in-memory `image_metadata["channel_ids"]`
+  (`["DNA", "DNA"]`) are refused: the IDs are checked with the normalization brick's
+  `check_channel_ids` before the `True` shortcut (review finding).
+- Every route checks each image's `channel_ids` where `channel_id` is stamped
+  (`cellpatcher.ids.stamp_channel_ids`): distinct canonical IDs, and one per C index of an image with a
+  C axis. A 2-channel image given `("DNA", "ACT", "TUB")` no longer stamps `c0=DNA`, `c1=ACT`, and
+  `("DNA", "DNA")` with a supplied `c` and no split is refused (review of #110).
+- The preprocessing helpers check `z_policy`/`t_policy` before looking for the axis, so
+  `z_policy="max"` or an unknown `t_policy` is refused on a YX image too (review of #110).
+
+---
 ## [Unreleased] - A partial channel in a normalization group is refused before any read (#107)
 
 ### Fixed

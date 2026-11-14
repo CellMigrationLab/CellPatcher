@@ -316,7 +316,20 @@ def assign_patch_ids(patches) -> None:
         )
 
 
-def stamp_channel_ids(image_metadata: Sequence[Mapping] | None, patches: Sequence) -> None:
+def _channel_count(image: object, image_axes: str) -> int | None:
+    """Return *image*'s length along C in *image_axes*, or None when it has no C axis."""
+    from cellpatcher.axes import normalize_axes
+
+    axes = normalize_axes(image_axes, len(image.shape))
+    return int(image.shape[axes.index("C")]) if "C" in axes else None
+
+
+def stamp_channel_ids(
+    image_metadata: Sequence[Mapping] | None,
+    patches: Sequence,
+    images: Sequence | None = None,
+    image_axes: str | None = None,
+) -> None:
     """Set each patch's ``channel_id``: the canonical ID of its channel ``c`` (CP-3).
 
     ``image_metadata[i]["channel_ids"]`` is the ID of every C index of image *i*, in C order; a
@@ -324,18 +337,35 @@ def stamp_channel_ids(image_metadata: Sequence[Mapping] | None, patches: Sequenc
     a different C index in another image). A patch without ``c`` (every channel in one patch,
     or an image without a C axis) gets none. ``patch_id`` is not changed: it keeps ``c``.
 
+    Every image's IDs are checked first, whether or not it gave patches or its channels are split:
+    distinct canonical IDs (the normalization brick's ``check_channel_ids``) and, when *images* and
+    their *image_axes* are given and an image has a C axis, one ID per C index.
+
     Raises
     ------
     ValueError
-        If ``channel_ids`` is not a sequence of non-empty text, or holds no ID for a patch's ``c``.
+        If ``channel_ids`` are not distinct canonical IDs, are not one per C index of an image with a
+        C axis, or hold no ID for a patch's ``c``.
     """
-    per_image = {f"image_{index:04d}": meta for index, meta in enumerate(image_metadata or ())}
+    from morphobricks_normalization.channels import check_channel_ids
+
+    per_image = {}
+    for index, meta in enumerate(image_metadata or ()):
+        ids = (meta or {}).get("channel_ids")
+        if ids is not None:
+            where = f'image {index}: image_metadata["channel_ids"]'
+            ids = check_channel_ids(ids, where)  # e.g. ("DNA", "DNA") refused
+            count = _channel_count(images[index], image_axes) if images is not None else None
+            if count is not None and len(ids) != count:
+                raise ValueError(
+                    f"{where} names {len(ids)} channel(s) ({', '.join(ids)}) for an image with {count} channel(s) "
+                    "along C: give exactly one ID per C index, in C order."
+                )
+        per_image[f"image_{index:04d}"] = ids
     for patch in patches:
-        ids = (per_image.get(patch.image_id) or {}).get("channel_ids")
+        ids = per_image.get(patch.image_id)
         if ids is None or patch.c is None:
             continue
-        if isinstance(ids, str) or not all(isinstance(value, str) and value for value in ids):
-            raise ValueError(f'image_metadata["channel_ids"] must be channel IDs (text) by C index, not {ids!r}.')
         if patch.c >= len(ids):
             raise ValueError(f'image_metadata["channel_ids"] names {len(ids)} channels, none for c={patch.c}.')
         patch.channel_id = ids[patch.c]

@@ -154,7 +154,7 @@ def test_p25_normalization_pools_by_the_runs_repeat_group_not_the_folder_name(tm
     # The repeat groups are Fov.repeat_group through RunInputs (owner answer 3, AR11 (3)), never the derived
     # experiment_design.csv (an output only, which preprocessing v0.5.1 always writes; the next test changes it).
     from cellpatcher.normalization import repeat_groups
-    from cellpatcher.statistics import load_plane_statistics
+    from cellpatcher.run_open import load_plane_statistics
 
     run = _described_run(tmp_path, name)
     histograms = str(run.output / "plane_histograms.csv")
@@ -170,7 +170,7 @@ def test_a_missing_repeat_group_is_refused_never_grouped_by_folder(tmp_path, mon
     from morphobricks_preprocessing.run_inputs import RunInputs
 
     from cellpatcher.normalization import repeat_groups
-    from cellpatcher.statistics import load_plane_statistics
+    from cellpatcher.run_open import load_plane_statistics
 
     run = _described_run(tmp_path, "v30")
     statistics = load_plane_statistics(run.output / "plane_histograms.csv")
@@ -187,7 +187,7 @@ def test_one_folder_with_two_repeat_groups_is_refused(tmp_path, monkeypatch):
     from morphobricks_preprocessing.run_inputs import RunInputs
 
     from cellpatcher.normalization import repeat_groups
-    from cellpatcher.statistics import load_plane_statistics
+    from cellpatcher.run_open import load_plane_statistics
 
     run = _described_run(tmp_path, "v03")
     statistics = load_plane_statistics(run.output / "plane_histograms.csv")
@@ -202,17 +202,18 @@ def test_one_folder_with_two_repeat_groups_is_refused(tmp_path, monkeypatch):
     assert [issue.code for issue in error.value.issues] == ["repeat_group_conflict"]
 
 
-def test_a_saved_config_naming_an_experiment_design_is_refused():
+def test_a_saved_config_with_an_experiment_design_is_refused():
     # normalization.experiment_design was removed (owner answer 3): the repeat groups are the run's
-    # description's. A file written before holds None, which loads; one naming a file is refused.
+    # description's. Since the compatibility sweep (CP-9) the key is unknown, at its old default too.
     from cellpatcher.run_config_file import config_from_dict
 
     section = {"enabled": True, "scope": "biological_repeat"}
-    loaded = config_from_dict({"run_config_version": 2, "normalization": {**section, "experiment_design": None}})
-    assert loaded.normalization.scope == "biological_repeat"
-    named = {**section, "experiment_design": "experiment_design.csv"}
-    with pytest.raises(ValueError, match="experiment_design='experiment_design.csv' was removed"):
-        config_from_dict({"run_config_version": 2, "normalization": named})
+    assert config_from_dict({"run_config_version": 2, "normalization": section}).normalization.scope == (
+        "biological_repeat"
+    )
+    for value in (None, "experiment_design.csv"):
+        with pytest.raises(TypeError, match="experiment_design"):
+            config_from_dict({"run_config_version": 2, "normalization": {**section, "experiment_design": value}})
 
 
 # Every run is described ---------------------------------------------------------------------------
@@ -270,7 +271,7 @@ def test_a_tree_run_on_an_undescribed_run_is_refused_before_anything_is_written(
 
 def test_the_statistics_of_an_undescribed_run_are_refused(tmp_path):
     # A CSV scope of run_patching opens the run through its table: refused the same way.
-    from cellpatcher.statistics import load_plane_statistics
+    from cellpatcher.run_open import load_plane_statistics
 
     _, output = _undescribed_run(tmp_path)
     with pytest.raises(PreprocessingCheckError) as raised:

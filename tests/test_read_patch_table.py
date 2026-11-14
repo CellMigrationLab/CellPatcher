@@ -23,7 +23,7 @@ from cellpatcher.config import (
     GridConfig,
     NormalizationConfig,
 )
-from cellpatcher.export import save_metadata_csv
+from cellpatcher.export import save_metadata_csv, written_columns
 from cellpatcher.io import write_array
 from cellpatcher.pipeline import RUN_CONFIG_FILENAME, run_patching
 from cellpatcher.types import PatchRegion
@@ -75,7 +75,35 @@ def test_labels_stay_text_in_a_tree_run(tmp_path):
     assert len(patches) == sum(len(leaf.result.patches) for leaf in leaves)
 
 
-def _write(path, header, rows):
+# What save_metadata_csv writes in a column a hand-made table leaves out (an empty cell is None).
+_WRITTEN_DEFAULTS = {"touches_border": "false", "valid": "true"}
+
+
+def _complete(header, rows):
+    """*header* and *rows* with every column CellPatcher writes that *header* lacks appended, as written.
+
+    ``height``/``width`` are the rectangle's when its cells are integers; other added cells are
+    ``touches_border``/``valid``'s defaults or empty. Since the compatibility sweep (Q-CP-a)
+    read_patch_table refuses a table without one of these columns.
+    """
+    missing = [name for name in written_columns() if name not in header]
+    completed = []
+    for row in rows:
+        cells = dict(zip(header, row[: len(header)], strict=True))  # a longer row stays as given
+        added = []
+        for name in missing:
+            value = _WRITTEN_DEFAULTS.get(name, "")
+            low, high = {"height": ("y0", "y1"), "width": ("x0", "x1")}.get(name, (None, None))
+            if low is not None and str(cells.get(low, "")).isdigit() and str(cells.get(high, "")).isdigit():
+                value = str(int(cells[high]) - int(cells[low]))
+            added.append(value)
+        completed.append(list(row) + added)
+    return list(header) + missing, completed
+
+
+def _write(path, header, rows, *, complete=True):
+    if complete:
+        header, rows = _complete(header, rows)
     with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
         writer.writerow(header)
@@ -83,7 +111,7 @@ def _write(path, header, rows):
     return path
 
 
-def test_a_table_without_config_reads_with_defaults_for_columns_it_lacks(tmp_path):
+def test_a_hand_made_table_without_config_reads(tmp_path):
     path = _write(tmp_path / "patches.csv", ["patch_id", "condition", "y0", "y1", "x0", "x1", "label_id"],
                   [["p1", "NA-free", "0", "4", "2", "6", "7"]])
     (patch,), run_config = read_patch_table(path)
@@ -92,13 +120,29 @@ def test_a_table_without_config_reads_with_defaults_for_columns_it_lacks(tmp_pat
     assert patch.touches_border is False and patch.resized is None and patch.mask_fractions is None
 
 
+def test_a_table_missing_a_written_column_is_refused_not_defaulted(tmp_path):
+    # Q-CP-a (compatibility sweep): a column the table lacks no longer leaves its field at the default,
+    # so position_id or biological_repeat is never None because a table was short.
+    header, rows = _complete(["patch_id", "y0", "y1", "x0", "x1"], [["p", "0", "4", "0", "4"]])
+    for dropped in ("position_id", "biological_repeat", "resized"):
+        index = header.index(dropped)
+        kept_header = header[:index] + header[index + 1:]
+        kept_rows = [row[:index] + row[index + 1:] for row in rows]
+        path = _write(tmp_path / f"{dropped}.csv", kept_header, kept_rows, complete=False)
+        with pytest.raises(PatchTableError, match=rf"missing columns \['{dropped}'\]"):
+            read_patch_table(path)
+    path = _write(tmp_path / "short.csv", ["patch_id", "y0", "y1", "x0", "x1"], [["p", "0", "4", "0", "4"]],
+                  complete=False)
+    with pytest.raises(PatchTableError, match=r"missing columns \['image_id', 'mode', 'condition'"):
+        read_patch_table(path)
+
+
 @pytest.mark.parametrize("header, row, match", [
     (["patch_id", "y0", "y1", "x0", "x1"], ["p", "0", "4.0", "0", "4"], r"y1='4.0' is not an integer"),
     (["patch_id", "y0", "y1", "x0", "x1"], ["p", "0", "", "0", "4"], "y1 is empty"),
     (["patch_id", "y0", "y1", "x0", "x1"], ["p", "4", "0", "0", "4"], "must be greater"),
     (["patch_id", "y0", "y1", "x0", "x1", "resized"], ["p", "0", "4", "0", "4", "yes"], "not true or false"),
     (["patch_id", "y0", "y1", "x0", "x1", "height"], ["p", "0", "4", "0", "4", "5"], "not the rectangle's 4"),
-    (["patch_id", "y0", "y1", "x0"], ["p", "0", "4", "0"], r"missing columns \['x1'\]"),
     (["patch_id", "y0", "y1", "x0", "x1", "colour"], ["p", "0", "4", "0", "4", "red"], "does not write"),
     (["patch_id", "y0", "y1", "x0", "x1"], ["p", "0", "4", "0", "4", "extra"], "more cell"),
     (["patch_id", "y0", "y1", "x0", "x1", "config_file"], ["p", "0", "4", "0", "4", "gone.json"], "does not exist"),
@@ -136,12 +180,20 @@ def test_parameters_need_the_run_config(tmp_path):
         read_patch_table(csv_path)
 
 
-def test_an_old_repeat_column_reads_as_biological_repeat(tmp_path):
+def test_an_old_repeat_column_is_refused(tmp_path):
+    # CP-1 (Spec ADR 0002 AR11 (6)): never read as biological_repeat.
     path = _write(tmp_path / "patches.csv", ["patch_id", "condition", "repeat", "y0", "y1", "x0", "x1"],
                   [["p", "ctrl", "2026_01_01", "0", "4", "0", "4"]])
-    with pytest.warns(DeprecationWarning, match="renamed"):
-        (patch,), _ = read_patch_table(path)
-    assert patch.biological_repeat == "2026_01_01"
+    with pytest.raises(PatchTableError, match=r"columns CellPatcher does not write: \['repeat'\]"):
+        read_patch_table(path)
+
+
+def test_the_old_semicolon_parameter_columns_are_refused(tmp_path):
+    # CP-5: the ;-separated normalization_offset/normalization_scale are unknown columns.
+    path = _write(tmp_path / "patches.csv", ["patch_id", "y0", "y1", "x0", "x1", "normalization_offset"],
+                  [["p", "0", "4", "0", "4", "0.0;1.0"]])
+    with pytest.raises(PatchTableError, match=r"does not write: \['normalization_offset'\]"):
+        read_patch_table(path)
 
 
 def test_written_patches_round_trip_without_a_run(tmp_path):
@@ -234,6 +286,9 @@ def test_every_structural_problem_is_listed(tmp_path):
 
 
 def test_blank_lines_are_still_skipped(tmp_path):
-    path = _write_text(tmp_path / "patches.csv", "patch_id,y0,y1,x0,x1\np,0,4,0,4\n\nq,0,4,0,4\n")
+    header, (row_p, row_q) = _complete(["patch_id", "y0", "y1", "x0", "x1"],
+                                       [["p", "0", "4", "0", "4"], ["q", "0", "4", "0", "4"]])
+    text = "\n".join([",".join(header), ",".join(row_p), "", ",".join(row_q)]) + "\n"
+    path = _write_text(tmp_path / "patches.csv", text)
     patches, _ = read_patch_table(path)
     assert [patch.patch_id for patch in patches] == ["p", "q"]

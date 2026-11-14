@@ -204,8 +204,50 @@ def test_image_metadata_channel_ids_name_each_c():
     metadata = [{"position_id": "p0", "channel_ids": ("DNA", "ACTIN")}]
     result = run_patching(images=[image], config=config, image_metadata=metadata)
     assert {(patch.c, patch.channel_id) for patch in result.patches} == {(0, "DNA"), (1, "ACTIN")}
-    with pytest.raises(ValueError, match="names 1 channels, none for c=1"):
+    with pytest.raises(ValueError, match=r"names 1 channel\(s\) \(DNA\) for an image with 2 channel\(s\)"):
         run_patching(images=[image], config=config, image_metadata=[{"position_id": "p0", "channel_ids": ("DNA",)}])
+
+
+def test_channel_ids_of_the_wrong_length_are_refused_on_every_route():
+    # Review of #110 (MEDIUM): with split_channels=True a 2-channel image given three IDs stamped
+    # c0=DNA, c1=ACT without a word. stamp_channel_ids checks every image's IDs, every route.
+    image = np.zeros((2, 16, 16), dtype=np.uint16)
+    metadata = [{"position_id": "p0", "channel_ids": ("DNA", "ACT", "TUB")}]
+    for split in (True, False):
+        config = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=8))
+        config.common.image_axes = "CYX"
+        config.extraction.split_channels = split
+        with pytest.raises(ValueError, match=r"names 3 channel\(s\) \(DNA, ACT, TUB\) for an image with 2"):
+            run_patching(images=[image], config=config, image_metadata=metadata)
+
+
+def test_repeated_channel_ids_are_refused_without_a_split():
+    # Review of #110 (MEDIUM): with split_channels=False and a supplied c, ("DNA", "DNA") was
+    # written to channel_id unchecked.
+    image = np.zeros((16, 16), dtype=np.uint16)
+    config = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=8))
+    metadata = [{"position_id": "p0", "c": 1, "channel_ids": ("DNA", "DNA")}]
+    with pytest.raises(ValueError, match="DNA are listed more than once"):
+        run_patching(images=[image], config=config, image_metadata=metadata)
+    metadata = [{"position_id": "p0", "c": 1, "channel_ids": ("ACTIN", "DNA")}]
+    patch = run_patching(images=[image], config=config, image_metadata=metadata).patches[0]
+    assert (patch.c, patch.channel_id) == (1, "DNA")
+
+
+@pytest.mark.parametrize("split_channels", [True, ["DNA"]])
+def test_repeated_in_memory_channel_ids_are_refused_when_channels_are_split(split_channels):
+    # Review LOW issue: split_channels=True returned every C index before the IDs were checked, so
+    # ["DNA", "DNA"] was accepted and two channel patches were both stamped "DNA".
+    image = np.zeros((2, 16, 16), dtype=np.uint16)
+    config = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=8))
+    config.common.image_axes = "CYX"
+    config.extraction.split_channels = split_channels
+    metadata = [{"position_id": "p0", "channel_ids": ("DNA", "DNA")}]
+    with pytest.raises(ValueError, match="DNA are listed more than once"):
+        run_patching(images=[image], config=config, image_metadata=metadata)
+    assert config.extraction.split_channel_indices(("DNA", "ACTIN"), 2) in {(0, 1), (0,)}
+    with pytest.raises(ValueError, match="listed more than once"):
+        config.extraction.split_channel_indices(("DNA", "DNA"), 2)
 
 
 def _as_pre_v050_table(csv_path):

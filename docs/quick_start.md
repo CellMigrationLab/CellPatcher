@@ -59,7 +59,7 @@ Patching modes work on 2D Y/X arrays. If your data has Z, T, or C axes, resolve 
 | `TCYX` image + `TYX` labels (cell mode) | Expand T, preserve channels | `iter_cell_planes_for_patching(image, "TCYX", labels, "TYX", t_policy="all")` | Sequence of `CYX` pairs |
 | Any layout without labels (`random`, `grid`, `whole_fov`) | Selecting one plane or per-slice expansion | `prepare_image_for_patching(...)` to select; `iter_image_planes_for_patching(...)` for per-slice | `YX` array or sequence of `YX` arrays |
 
-> **Z projection:** `z_policy="max"` (also `"mean"` and `"sum"`) is accepted only when Z is absent or has a single plane, which is returned unchanged; a real Z stack raises `ZStackNotSupportedError` (issue #83), as does `select`/`first` on it, and the public helpers `select_axis_index` and `project_axis`. To reduce a stack to one plane, use a recorded projection step in [morphobricks-preprocessing](https://github.com/CellMigrationLab/morphobricks-preprocessing/issues/176). For an integer Z=1 image, `mean` and `sum` keep the output dtype of the earlier projection (`mean` is float64, `sum` the numpy accumulator type), so results stay bitwise identical to before; the source dtype is not kept.
+> **Z projection:** CellPatcher projects no Z axis: `z_policy="max"`, `"mean"` and `"sum"` are refused (since the compatibility sweep; `project_axis` refuses them over Z too). A real Z stack raises `ZStackNotSupportedError` under every `z_policy` (issue #83), as do the public helpers `select_axis_index` and `project_axis`. To reduce a stack to one plane, use a recorded projection step in [morphobricks-preprocessing](https://github.com/CellMigrationLab/morphobricks-preprocessing/issues/176).
 
 > **Principle:** CellPatcher never silently projects Z/T axes, merges channels, or normalizes intensities. All preprocessing is explicit.
 
@@ -275,7 +275,7 @@ Practical guidance:
 - `PatchTensorConfig(channel_policy="repeat_to_rgb", scale_policy=...)` supports only 1- or 3-channel patches; each item records the repetition (`channel_repeat`).
 - For >3 channels (for example Cell Painting), implement an explicit 6->3 mapping in your Torch transform.
 - Apply DINO/ImageNet-style normalization in that same transform stage.
-- `scale_policy="auto"` in `PatchTensorConfig` is only dtype-based integer scaling, not model normalization (the default before v0.2.0, now only when named); it is deprecated in favour of `config.normalization` (it warns when it rescales, and each item records the divisor as `scale_divisor`).
+- `PatchTensorConfig(scale_policy="none")` is the only scale policy: normalize with `config.normalization` (the former dtype-based `"auto"` scaling was removed and is refused).
 
 Visual QA tip (recommended):
 

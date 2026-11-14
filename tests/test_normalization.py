@@ -162,7 +162,7 @@ def test_config_defaults_and_validation():
 
 def test_a_run_config_without_normalization_loads_as_off(tmp_path):
     path = tmp_path / "run_config.json"
-    path.write_text(json.dumps({"mode": "grid"}), encoding="utf-8")
+    path.write_text(json.dumps({"run_config_version": 2, "mode": "grid"}), encoding="utf-8")
     assert load_config(path).normalization == NormalizationConfig()
 
 
@@ -585,7 +585,7 @@ def test_the_brick_gives_the_parameters_and_arrays_of_the_earlier_code(experimen
     """Bit-identical to pooling each channel's histograms with the brick's method functions, clip included."""
     import morphobricks_normalization as mbn
 
-    from cellpatcher.statistics import load_plane_statistics
+    from cellpatcher.run_open import load_plane_statistics
 
     root, stacks, csv_path = experiment
     config = _config(
@@ -660,15 +660,6 @@ def test_run_config_records_the_brick_settings_and_the_description(experiment, t
             assert "description_sha256" not in inputs
 
 
-def test_the_old_offset_and_scale_attributes_are_deprecated(experiment):
-    root, _, csv_path = experiment
-    (leaf, *_) = _tree(root, _config(csv_path))
-    patch = leaf.result.patches[0]
-    with pytest.warns(DeprecationWarning, match="normalization_parameters"):
-        offset = patch.normalization_offset
-    assert offset == ";".join(repr(value) for value in patch.normalization_parameters.offset)
-
-
 # ---------------------------------------------------------------------------
 # The biological-repeat scope: the repeat groups of the description (follow-up C2, owner answer 3)
 # ---------------------------------------------------------------------------
@@ -730,7 +721,9 @@ def test_repeat_groups_missing_a_condition_are_reported(tmp_path):
         _tree(root, config)
 
 
-def test_raw_patches_of_a_removed_scope_still_normalize_on_load(experiment, tmp_path):
+def test_raw_patches_of_a_removed_scope_are_refused_on_load(experiment, tmp_path):
+    # CP-10 (compatibility sweep): an export normalized at a removed scope is no longer re-labelled
+    # image scope to get past the normalization brick; it is refused, saying to run CellPatcher again.
     from cellpatcher import iter_exported_patches
 
     root, _, csv_path = experiment
@@ -738,19 +731,17 @@ def test_raw_patches_of_a_removed_scope_still_normalize_on_load(experiment, tmp_
     config.export.enabled, config.common.output_dir = True, str(tmp_path / "out")
     config.normalization.export_values = "raw"
     results = _tree(root, config, combine_metadata=True)
-    delivered = {p.patch_id: a for leaf in results for p, a in zip(leaf.result.patches, leaf.result.patch_arrays)}
+    assert any(leaf.result.patches for leaf in results)
 
     # The same files as a run at the removed condition scope would have left them, rows included (#37).
     run_config, table = tmp_path / "out" / RUN_CONFIG_FILENAME, tmp_path / "out" / "patches.csv"
     saved = json.loads(run_config.read_text(encoding="utf-8"))
     run_config.write_text(json.dumps({**saved, "normalization": {**saved["normalization"], "scope": "condition"}}))
-    with pytest.raises(ValueError, match="The 'condition' scope was removed"):
+    with pytest.raises(ValueError, match="The 'condition' scope was removed.*run CellPatcher again"):
         load_config(run_config)
     table.write_text(table.read_text(encoding="utf-8").replace(",image,", ",condition,"), encoding="utf-8")
-    loaded = list(iter_exported_patches(table))
-    assert len(loaded) == len(delivered) and {row["normalization_scope"] for row, _ in loaded} == {"condition"}
-    for row, array in loaded:
-        np.testing.assert_array_equal(array, delivered[row["patch_id"]])
+    with pytest.raises(ValueError, match="Scope 'condition' does not exist"):
+        list(iter_exported_patches(table))
 
 
 def _messages(run):

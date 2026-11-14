@@ -15,7 +15,7 @@ and read where it is now). Then:
 
 The settings that told CellPatcher how to read files (``common.image_axes``, ``mask_axes`` and
 the labels) are refused for file runs with a migration message; in-memory ``run_patching``
-keeps them. ``mask_source`` and ``mask_label_name`` were removed in v0.2.0 (CP-2b).
+keeps them.
 """
 
 from __future__ import annotations
@@ -27,11 +27,7 @@ from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING
 
 from cellpatcher.ids import object_set_from_mask_type, validate_object_set
-from cellpatcher.io import (
-    SINGLE_CONDITION_LABEL,
-    ConditionRepeatFolder,
-    refuse_removed_matching,
-)
+from cellpatcher.io import SINGLE_CONDITION_LABEL, ConditionRepeatFolder
 from cellpatcher.mask_policy import resolved_masks
 from cellpatcher.normalization import (
     CSV_SCOPES,
@@ -531,7 +527,6 @@ def validate_image_and_mask_folders(
     *,
     preprocessing_run: str | os.PathLike | None = None,
     mask_type: str | None = None,
-    **removed_options: object,
 ) -> dict[Path, Path]:
     """Return the mask of every image of a clean preprocessing run, as the run paired them.
 
@@ -549,8 +544,6 @@ def validate_image_and_mask_folders(
         The run's output folder (``common.preprocessing_run`` of a file run).
     mask_type
         The mask type (``matching.mask_type``); None: the run's only type.
-    **removed_options
-        The matching options removed in v0.1.1, refused by name.
 
     Returns
     -------
@@ -567,7 +560,6 @@ def validate_image_and_mask_folders(
     """
     from morphobricks_preprocessing.masks import FOLDER
 
-    refuse_removed_matching("validate_image_and_mask_folders", removed_options)
     if preprocessing_run is None:
         _refuse_without_run("validate_image_and_mask_folders", "preprocessing_run=")
     inputs = open_run(preprocessing_run, experiment_root=image_folder_path, masks_root=mask_folder_path)

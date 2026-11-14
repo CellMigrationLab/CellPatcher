@@ -1,10 +1,6 @@
-import warnings
 from dataclasses import dataclass, field, fields
 
-from cellpatcher._deprecation import accept_deprecated_repeat
 
-
-@accept_deprecated_repeat
 @dataclass
 class PatchRegion:
     """Coordinate-first patch descriptor used across the backend.
@@ -36,9 +32,7 @@ class PatchRegion:
     exist so a single CSV row is enough to deterministically reconstruct the
     exported patch array without re-deriving it from the run's config file.
     - ``condition``, ``biological_repeat``: experimental group / biological
-      replicate label, from ``CellPatcherConfig.common``. ``repeat`` is a
-      deprecated alias of ``biological_repeat`` (constructor keyword and
-      attribute; each use emits a ``DeprecationWarning``).
+      replicate label, from ``CellPatcherConfig.common``.
     - ``technical_repeat``: technical replicate within the biological repeat
       (a well, a dish, a coverslip), from ``CellPatcherConfig.common`` or
       per image from ``image_metadata``; never a biological repeat. Tree runs
@@ -87,9 +81,7 @@ class PatchRegion:
       ``normalization_parameters_version``. The parameters' channels are sorted IDs.
     - ``normalization_channels``: the patch's channel IDs in its own C order
       (``None`` without normalization), written as the ``;``-separated column
-      ``normalization_channels`` beside the parameter columns. The former
-      ``normalization_offset``/``normalization_scale`` attributes are
-      deprecated read-only properties giving the old ``;``-separated text.
+      ``normalization_channels`` beside the parameter columns.
     - ``image_height``, ``image_width``: the Y/X size of the source image
       (plane) the rectangle ``y0/y1/x0/x1`` lies in; set by ``run_patching``
       for every patch, whether or not arrays are extracted.
@@ -230,28 +222,6 @@ class PatchRegion:
     @property
     def has_z(self) -> bool:
         return self.z0 is not None and self.z1 is not None
-
-    @property
-    def normalization_offset(self) -> str | None:
-        """Deprecated: the offsets as ``;``-separated text; read ``normalization_parameters``."""
-        return self._deprecated_numbers("normalization_offset", "offset")
-
-    @property
-    def normalization_scale(self) -> str | None:
-        """Deprecated: the scales as ``;``-separated text; read ``normalization_parameters``."""
-        return self._deprecated_numbers("normalization_scale", "scale")
-
-    def _deprecated_numbers(self, name: str, attribute: str) -> str | None:
-        warnings.warn(
-            f"PatchRegion.{name} is deprecated: patches.csv now has one Normalization_Offset_<ID> and "
-            "Normalization_Scale_<ID> column per channel ID. Read PatchRegion.normalization_parameters "
-            "(.offset, .scale, .channels) instead.",
-            DeprecationWarning,
-            stacklevel=3,
-        )
-        if self.normalization_parameters is None:
-            return None
-        return ";".join(repr(float(value)) for value in getattr(self.normalization_parameters, attribute))
 
     def to_dict(self) -> dict:
         """The ``patches.csv`` row: every field, ``height``/``width``, and the per-channel parameter columns."""

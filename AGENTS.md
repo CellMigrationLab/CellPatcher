@@ -21,7 +21,7 @@
 
 Key dependencies: `numpy`, `scipy`, `tifffile`, `imageio`, and the MorphoBricks bricks `morphobricks-preprocessing` and `morphobricks-normalization` from GitHub at pinned tags (preprocessing `v0.5.2`, normalization `v0.5.0`) (core, required; normalization is declared at the tag the preprocessing tag pins, owner decision D-h, checked by `tests/test_dependency_pins.py`; histograms, the plane table, plane IDs, pooling and normalization parameters are imported from `morphobricks_normalization`, not from their deprecated preprocessing paths). Optional extras: `ipywidgets`, `matplotlib`, `pillow`, `tqdm`, `joblib`, `jl-hidecode` (notebook extra); `torch` (optional `cellpatcher.torch_dataset` adapter only — never a core dependency); `morphobricks-preprocessing[zarr]` at the same tag (`zarr` extra, formerly `preprocessing`: OME-Zarr images and OME-NGFF label masks).
 
-Current health snapshot (2026-11-12, v0.5.0 release prep (Stage 2 W3): preprocessing `v0.5.2` and normalization `v0.5.0` installed from their tags, Python 3.11, Linux): `.[test,zarr,notebook]` with CPU `torch` 2.15.0: 2811 passed, 0 skipped (`python tools/check.py`, code rules and Ruff clean; the smaller extras were not run). Preprocessing refuses Z>1 inputs (2-D planes only), so the tests that built Z-stacks use T.
+Current health snapshot (2026-11-13, compatibility sweep CP-1..CP-15: preprocessing `v0.5.2` and normalization `v0.5.0` installed from their tags, Python 3.11, Linux): `.[test,zarr,notebook]` with CPU `torch` 2.15.0: 2718 passed, 0 skipped (`python tools/check.py`, code rules and Ruff clean; the smaller extras were not run). Preprocessing refuses Z>1 inputs (2-D planes only), so the tests that built Z-stacks use T.
 
 ---
 
@@ -51,7 +51,8 @@ These rules override other implementation preferences.
   *added* (as optional, default-`None` fields) without violating this rule;
   existing ones may not be renamed or have their meaning changed.
   (`biological_repeat` was renamed from `repeat` with explicit owner
-  approval; `repeat` remains a deprecated alias for a transition — see §5.
+  approval; the old name is refused everywhere since the compatibility
+  sweep — see §5.
   The *format* of `patch_id` was changed with explicit owner approval,
   decision D44 of 2026-10-26: it is now built by `cellpatcher.ids` from the
   FOV identity and the patch's own coordinates, never from run order — see
@@ -69,9 +70,7 @@ These rules override other implementation preferences.
   variables.
 * **Never break public interfaces** without explicit user approval:
   `run_patching`, `run_patching_pipeline`, `run_patching_condition_repeat_tree`,
-  config dataclasses, `read_array`, `validate_image_and_mask_folders`,
-  `discover_condition_repeat_folders` (deprecated since 2026-11-03, audit A-m4:
-  it warns until it is removed; nothing in CellPatcher uses it), `scan_cell_patch_size`,
+  config dataclasses, `read_array`, `validate_image_and_mask_folders`, `scan_cell_patch_size`,
   `prepare_image_for_patching`, `iter_image_planes_for_patching`. Other
   repos (and notebooks) import these.
 * **Keep public pipeline functionality usable from three contexts:** Jupyter
@@ -185,8 +184,8 @@ environment.yaml
 CellPatcher-specific conventions:
 
 * **File runs read through a clean preprocessing run** (v0.2.0, CP-2a; design
-  v0.4 §6): `run_patching_pipeline`, `run_patching_condition_repeat_tree` and
-  `run_patching_from_folders` need `common.preprocessing_run` (else
+  v0.4 §6): `run_patching_pipeline` and `run_patching_condition_repeat_tree`
+  need `common.preprocessing_run` (else
   `no_preprocessing_run` with the preprocessing command). Every run must have a
   published experiment description (Spec ADR 0002 AR10, owner policy of
   2026-11-10): `cellpatcher.run_open.open_run` refuses one without
@@ -217,7 +216,8 @@ CellPatcher-specific conventions:
   version 2 (`cellpatcher.run_config_file`): `run_config_version` and a
   `preprocessing` section (the run, its manifest's SHA-256, a file run's array
   layout); a file run records no `image_axes`/`mask_axes`/labels; readers
-  refuse other versions. Grid/whole-FOV folder runs accept `mask_folder_path`
+  refuse other versions and a file without one (config files written by
+  `save_default_config`/`save_config_for_mode` carry version 2). Grid/whole-FOV folder runs accept `mask_folder_path`
   (where the run's masks folder is now), and `normalization.experiment_root`/
   `masks_root` say where a moved experiment is for `run_patching` at a CSV
   scope (owner decisions of 2026-11-02).
@@ -231,9 +231,10 @@ CellPatcher-specific conventions:
   of its own (`io.pair_masks` was removed in CP-2b); the former matching
   options (`strategy`, `mask_suffixes`, `case_sensitive`,
   `ignore_unrequested_masks`) and matchers (`find_candidate_matches`, ...)
-  were removed in v0.1.1 (D86, owner decision 2026-10-31): the options are
-  refused by name, also in an old `run_config.json`, pointing to
-  `matching.mask_type`.
+  were removed in v0.1.1 (D86, owner decision 2026-10-31); since the
+  compatibility sweep they are plain unknown keywords or keys (`TypeError`).
+  The config dataclasses have `slots=True`: setting an unknown attribute
+  raises `AttributeError`.
 * `scan_cell_patch_size` computes dataset-level patch-size recommendations.
 * `ExtractionConfig.apply_mask` is cell-mode oriented and clears pixels
   outside selected labels before resize/export.
@@ -259,9 +260,10 @@ CellPatcher-specific conventions:
 * Strategies generate strictly 2D Y/X regions. Z/T stacks become planes
   either with `common.z_policy`/`t_policy` in the pipeline
   (`cellpatcher.planes`; default `"keep"` keeps all planes in each patch;
-  CellPatcher combines no planes, issue #83: `z_policy="max"`/`"mean"`/`"sum"` return the plane of an
-  image with no Z axis or one Z plane unchanged and raise `ZStackNotSupportedError` for more (a Z
-  projection is a recorded step of morphobricks-preprocessing), and a file-run image with more than one Z plane is refused with it, as
+  CellPatcher combines no planes, issue #83: there is no Z projection policy (`"max"`/`"mean"`/`"sum"`
+  are refused for Z since the compatibility sweep; a Z projection is a recorded step of
+  morphobricks-preprocessing), an image with more than one Z plane raises `ZStackNotSupportedError`,
+  and a file-run image with more than one Z plane is refused with it, as
   preprocessing v0.4.0 already refuses such an experiment)
   or, for in-memory workflows, with the preprocessing helpers; C/Z/T
   handling is otherwise a separate
@@ -301,9 +303,7 @@ refused by the preprocessing run (`duplicate_mask`). Since preprocessing v0.4.0r
 discovers, pairs and reads no file itself for any run: `validate_image_and_mask_folders`
 returns the run's recorded pairing and lazy delivery reads through the run
 (`iter_run_patch_arrays`). What the preprocessing run applied: images are found with
-its `discover_experiment` (TIFF files and OME-Zarr images; `io.discover_images` still
-wraps it for `discover_condition_repeat_folders`, refusing PNG, JPEG, BMP, GIF, NumPy
-and microscope-format images by name, `io.UNSUPPORTED_IMAGE_EXTENSIONS`), and masks are
+its `discover_experiment` (TIFF files and OME-Zarr images), and masks are
 paired by its `find_masks`: a TIFF file `<mask type>/<image's folders>/<image name>.tif`
 or `<image's folders>/<image name>_<mask type>.tif` in a masks folder outside the
 experiment, the image name being its `position_id` (D85), or an OME-Zarr image's own
@@ -311,8 +311,8 @@ label image (its type is its name); `config.matching.mask_type` picks the type (
 the only one). The run checks every image's and mask's axes against its header (design
 v0.4 §3; nothing is read transposed) and refuses masks with a channel axis or unnamed
 extra axes (one mask type per file, named Z/T axes). Removed in CP-2b:
-`common.mask_source`/`mask_label_name` (a config file holding their defaults still
-loads), `io.read_image`/`conform_axes`/`read_ngff_mask`, the header-axis checks
+`common.mask_source`/`mask_label_name` (since the compatibility sweep a config
+file holding them, at any value, is refused as `TypeError`), `io.read_image`/`conform_axes`/`read_ngff_mask`, the header-axis checks
 (`io.refuse_image_header_axes`, `refuse_mask_header_axes`) and `planes.read_file_plane`.
 
 Two ways to point CellPatcher at input data:
@@ -324,13 +324,11 @@ Two ways to point CellPatcher at input data:
 - `run_patching_condition_repeat_tree(image_root_path, ...)` — the
   `<condition>/<biological_repeat_YYYY_MM_DD>[/<technical_repeat>]/` layout
   from §6, as the preprocessing run recorded it (its FOV keys; since CP-2a
-  nothing is walked by CellPatcher, and the deprecated
-  `discover_condition_repeat_folders` is not used; both keep their historical
-  `condition_repeat` names; the level below each condition is the biological repeat). Also accepts a
+  nothing is walked by CellPatcher; the function keeps its historical
+  `condition_repeat` name; the level below each condition is the biological repeat). Also accepts a
   condition folder holding images directly with **no biological-repeat
   subfolder**; that case is treated as a single implicit biological repeat,
-  labeled `cellpatcher.SINGLE_BIOLOGICAL_REPEAT_LABEL` (`"single"`; the
-  older name `SINGLE_REPEAT_LABEL` is the same constant), consistently
+  labeled `cellpatcher.SINGLE_BIOLOGICAL_REPEAT_LABEL` (`"single"`), consistently
   through input discovery, processing (stamped as `common.biological_repeat`
   on every patch from that condition), and output (its own
   `<output_dir>/<condition>/single/` subfolder, same as an explicit
@@ -362,7 +360,8 @@ Two ways to point CellPatcher at input data:
   `preprocessing` = {`run`, `manifest_sha256`, and for a folder or tree run
   `layout` (`image`, `mask`)}; a folder or tree run records no
   `common.image_axes`/`mask_axes`/labels (MorphoRelate's `common.image_axes`
-  check then reports "not checked"). Readers refuse versions other than 1 and 2.
+  check then reports "not checked"). Readers refuse any other version, and a
+  file without one.
 - For `run_patching_condition_repeat_tree`, one `patches.csv` +
   `run_config.json` pair per
   `<condition>/<biological_repeat>[/<technical_repeat>]/` output folder by
@@ -427,8 +426,9 @@ Two ways to point CellPatcher at input data:
   (`cellpatcher.iter_patch_arrays`, `PatchTorchDataset`); every delivery mode
   gives the same arrays. The torch adapters never rescale or repeat channels
   unless asked (v0.2.0, CP-4): `PatchTensorConfig.scale_policy` has no default
-  (omitted: `TypeError`), `channel_policy` defaults to `"keep"`, and each item
-  records `scale_divisor` and `channel_repeat`.
+  (omitted: `TypeError`; `"none"` is the only choice since the compatibility
+  sweep removed the deprecated `"auto"`), `channel_policy` defaults to
+  `"keep"`, and each item records `channel_repeat`.
 - Read back for other bricks (D86): `cellpatcher.read_patch_table(csv)` gives a
   `patches.csv` as typed `PatchRegion` objects plus its `run_config.json`
   (the inverse of `save_metadata_csv`); `cellpatcher.object_sides`/
@@ -535,14 +535,12 @@ from its position, not its name; a missing level is the value `"single"`
 of the `PatchRegion` field, the `CommonConfig` field, the `patches.csv`
 column and the `run_config.json` key (also the `ConditionRepeatFolder`/
 `ConditionRepeatResult` attribute); values and folder behaviour are
-unchanged. For a transition, the old name still works with one
-`DeprecationWarning` per use: `CommonConfig(repeat=...)`,
-`PatchRegion(repeat=...)`, `config.common.repeat`/`patch.repeat`/
-`leaf.repeat` reads and writes, `apply_overrides({"common.repeat": ...})`,
-`load_config` of an older `run_config.json`, and `ExportedPatchTorchDataset`
-on an older `patches.csv` with a `repeat` column. Output is always written
-as `biological_repeat`. Downstream readers of CellPatcher CSVs should read
-`biological_repeat` (and may fall back to `repeat` for older files).
+unchanged. The transition alias was removed in the compatibility sweep
+(Spec ADR 0002 AR11 (6)): `repeat=` is a `TypeError`, a `repeat` attribute
+or override key is refused, and a `patches.csv` with a `repeat` column is
+refused by `read_patch_table` and `ExportedPatchTorchDataset`, never read as
+the biological repeat. `read_patch_table` also refuses a table missing any
+column CellPatcher writes (nothing is defaulted to None).
 
 **Spatial sampling rule:** one FOV means one independently selected XY acquisition position. `position_id` is the shared identifier when one file does not map 1:1 to one position (for example one TIFF per z-plane or a multi-position container). `image_file` remains file provenance. Z/C/T indices describe observations within a position and never create new spatial FOVs.
 
@@ -704,9 +702,9 @@ here as new feature-extraction/analysis repos are created.
 | Term            | Definition                                                                                       |
 | --------------- | ------------------------------------------------------------------------------------------------- |
 | Condition       | An experimental group (e.g. `treated`, `control`). A `PatchRegion`/CSV column in CellPatcher, set via `CellPatcherConfig.common.condition` or discovered per folder by `run_patching_condition_repeat_tree` (§5) |
-| Biological repeat | A biological replicate, identified by date: the shared column `biological_repeat` (formerly `repeat`, still accepted as a deprecated alias). Same status as Condition above (`common.biological_repeat`); see also Single repeat |
+| Biological repeat | A biological replicate, identified by date: the shared column `biological_repeat` (formerly `repeat`, now refused). Same status as Condition above (`common.biological_repeat`); see also Single repeat |
 | Technical repeat | A well, dish or coverslip within a biological repeat: the optional shared column `technical_repeat` of the MorphoBricks contract (§5), derived from a `<condition>/<biological_repeat>/<technical_repeat>/` folder level or set via `common.technical_repeat`/`image_metadata`; `"single"` when a biological repeat has no such level |
-| Single repeat    | A condition with no biological-repeat subfolder — `<condition>/<image files>` instead of `<condition>/<biological_repeat>/<image files>`. `run_patching_condition_repeat_tree` treats it as one implicit biological repeat, labeled `cellpatcher.SINGLE_BIOLOGICAL_REPEAT_LABEL` (`"single"`; also available as `SINGLE_REPEAT_LABEL`) (§5, §6). Likewise, images directly in the root folder are one condition labeled `cellpatcher.SINGLE_CONDITION_LABEL` (`"single"`) with a single biological repeat |
+| Single repeat    | A condition with no biological-repeat subfolder — `<condition>/<image files>` instead of `<condition>/<biological_repeat>/<image files>`. `run_patching_condition_repeat_tree` treats it as one implicit biological repeat, labeled `cellpatcher.SINGLE_BIOLOGICAL_REPEAT_LABEL` (`"single"`) (§5, §6). Likewise, images directly in the root folder are one condition labeled `cellpatcher.SINGLE_CONDITION_LABEL` (`"single"`) with a single biological repeat |
 | Patch           | A sub-region cropped from a microscopy image                                                      |
 | Mask            | Instance-label image marking objects (each non-zero integer value one object), used in `cell` mode; `binary` masks need the explicit `binary_mask_policy="connected_components"` (the shared labeller, `label_objects`) |
 | Feature         | A numeric descriptor extracted from a patch or image (produced downstream, e.g. by fiberfeatures)  |

@@ -64,8 +64,7 @@ class ZStackNotSupportedError(CellPatcherRefusal):
     Raised when an in-memory image or mask has more than one Z plane, whatever ``common.z_policy``
     (or the preprocessing helpers' ``z_policy``) says, and when a file run's image has more than
     one Z plane (preprocessing v0.4.0 already refuses such an experiment; this is the second
-    defence). A projection of no Z axis or of one plane is
-    accepted and changes nothing. A Z projection is a recorded step of morphobricks-preprocessing
+    defence). CellPatcher projects no Z axis: a Z projection is a recorded step of morphobricks-preprocessing
     (owner decision of 5 November 2026, issue #83). Attributes: ``axis`` and ``length``.
     """
 

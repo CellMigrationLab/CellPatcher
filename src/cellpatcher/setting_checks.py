@@ -54,7 +54,7 @@ def unknown_scope_message(scope: object) -> str:
     if scope in REMOVED_NORMALIZATION_SCOPES:
         message += (
             f" The '{scope}' scope was removed (October 2026): normalizing per {scope.replace('_', ' ')} "
-            "removed real differences between them. Raw patches exported with it still normalize on load."
+            "removed real differences between them. Patches exported with it are refused: run CellPatcher again."
         )
     return message
 
@@ -204,12 +204,7 @@ def check_export_settings(export: object) -> None:
 
 
 def _check_binary_mask_policy(policy: object) -> None:
-    """Refuse a ``binary_mask_policy`` that is neither None (no policy) nor a P27 policy, naming ``single_object``."""
-    if policy == "single_object":
-        raise ValueError(
-            "binary_mask_policy='single_object' was removed (CP-2): there is no default policy. Leave it None, so "
-            "a binary mask is refused as an object set, or set 'connected_components' to label it."
-        )
+    """Refuse a ``binary_mask_policy`` that is neither None (no policy) nor a P27 policy."""
     if policy is not None:
         check_choice(policy, BINARY_MASK_POLICIES, "binary_mask_policy")
 

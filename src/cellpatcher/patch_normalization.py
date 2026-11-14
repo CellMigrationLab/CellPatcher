@@ -3,8 +3,7 @@
 Normalization v0.5.0 (Spec ADR 0003 HV2) names every channel by its canonical channel ID: the brick's
 ``Parameters`` hold the IDs in sorted order and ``Parameters.apply`` takes the ID of each entry along the
 channel axis. A patch keeps its own C order (``normalization_channels``, a ``patches.csv`` column), so
-each channel is normalized with the parameters of its ID, never by its position. Moved out of
-:mod:`cellpatcher.normalization`, which re-exports these names.
+each channel is normalized with the parameters of its ID, never by its position.
 """
 
 from __future__ import annotations
@@ -38,8 +37,8 @@ def refuse_earlier_parameter_row(row: Mapping) -> bool:
     """Return whether a ``patches.csv`` row has parameter columns, refusing those of an earlier table (no conversion).
 
     Rows written before normalization v0.5.0 (CellPatcher 0.4.0 or earlier) are refused with what to do, never
-    converted (Spec ADR 0002 AR10): the ``;``-separated ``normalization_offset``/``normalization_scale``, and
-    ``Normalization_Offset_C<i>``/``Normalization_Scale_C<i>`` without ``normalization_parameters_version``.
+    converted (Spec ADR 0002 AR10): ``Normalization_Offset_C<i>``/``Normalization_Scale_C<i>`` without
+    ``normalization_parameters_version``.
 
     Raises
     ------
@@ -48,11 +47,6 @@ def refuse_earlier_parameter_row(row: Mapping) -> bool:
     """
     prefixes = ("Normalization_Offset_", "Normalization_Scale_")
     pairs = any(str(name).startswith(prefixes) and value not in (None, "") for name, value in row.items())
-    if not pairs and row.get("normalization_offset"):
-        raise ValueError(
-            "The row has the ;-separated normalization_offset/normalization_scale columns of a patches.csv written "
-            "before the per-channel columns; such rows are not read (no conversion). Run CellPatcher again."
-        )
     if pairs and row.get("normalization_parameters_version") in (None, ""):
         raise ValueError(
             "The row has Normalization_Offset_/Normalization_Scale_ columns without normalization_parameters_version: "

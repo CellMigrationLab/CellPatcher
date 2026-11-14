@@ -207,11 +207,9 @@ parameters, always per channel.
   normalized with the conditions it has, with the brick's `repeat_missing_conditions` warning.
 - The `condition` and `technical_repeat` scopes were removed on 2026-10-28, without a
   deprecation period (normalization brick N29): a configuration or `run_config.json` naming
-  them is refused. Raw patches exported with them still normalize on load, from their
-  `patches.csv` columns: CellPatcher reads them itself, with the brick's column reader, as it
-  does `;`-separated rows (the normalization brick refuses a removed scope since v0.3.3), and
-  never refits or substitutes them. Each row keeps its recorded scope, which must be the scope
-  of its `run_config.json`. Until then `biological_repeat` meant one group per condition and
+  them is refused. Since the compatibility sweep, raw patches exported with them are refused on
+  load too (the normalization brick refuses a removed scope since v0.3.3, and CellPatcher no
+  longer re-labels such rows as image scope): run CellPatcher again. Until then `biological_repeat` meant one group per condition and
   repeat, named `<condition>/<biological_repeat>`.
 - `normalization.per_time_point=True` adds `t` to the key; `::t=<t>` is appended to
   `normalization_group`.
@@ -286,11 +284,10 @@ a split-channel patch (`c` = `i`), including one of a channel selection
 patches all come from one channel has only that channel's pair.
 An RGB patch (§6) fills `C0`, `C1` and `C2` with the same shared offset and scale.
 
-Tables written before 2026-10-28 have `;`-separated `normalization_offset` and
-`normalization_scale` columns instead (one value per channel of the patch, in channel order);
-CellPatcher still reads them when normalizing raw files on load (normalization brick N47).
-In memory, `PatchRegion.normalization_parameters` holds the brick's `Parameters`; the former
-`normalization_offset`/`normalization_scale` attributes are deprecated read-only properties.
+Tables written before 2026-10-28 had `;`-separated `normalization_offset` and
+`normalization_scale` columns instead; since the compatibility sweep they are unknown columns,
+refused by `read_patch_table`, and their runs' version-1 `run_config.json` is refused by every
+reader. In memory, `PatchRegion.normalization_parameters` holds the brick's `Parameters`.
 
 ## 11. `run_config.json`
 
@@ -372,15 +369,16 @@ replacement (`config.normalization`). Removal needs owner approval in a later ve
 
 **No default rescaling or channel repetition (v0.2.0, CP-4, owner decision of 2026-11-02).**
 `PatchTensorConfig.scale_policy` has **no default**: an omitted one is a `TypeError` naming
-`"none"` (keep the values) and `"auto"` (deprecated); `channel_policy` defaults to `"keep"`.
+`"none"` (keep the values), the only choice since the compatibility sweep removed the deprecated
+`"auto"`; `channel_policy` defaults to `"keep"`.
 Requiring the choice, rather than defaulting to `"none"`, follows the science rules: code written
 for the old default (`"auto"`) stops with an error instead of receiving values up to 65535 times
 larger without a word, an implicit change of normalization either way; each caller's choice is
-then explicit and stated in its code. A rescale (`"auto"`) or a repetition (`"repeat_to_rgb"`) is
-done only when named and recorded per dataset item (`scale_divisor`, `channel_repeat`).
+then explicit and stated in its code. A repetition (`"repeat_to_rgb"`) is done only when named and
+recorded per dataset item (`channel_repeat`).
 
 | Deprecated | Where |
 |---|---|
 | `normalize=`, `percentile=` arguments (**removed in v0.1.1**, D86) | `prepare_image_for_patching`, `iter_image_planes_for_patching`, `iter_cell_planes_for_patching` |
 | `percentile_normalize`, `minmax_normalize` (**removed in v0.1.1**, D86) | `cellpatcher.preprocess` |
-| `scale_policy="auto"` rescaling an integer patch by its dtype maximum (the default until v0.2.0rc1; since v0.2.0 only when named, no default) | `PatchTensorConfig` in `cellpatcher.torch_dataset`; it never rescales normalized float patches. Its warning is a `ScalePolicyDeprecationWarning` (a `DeprecationWarning` shown under Python's default filters), and each dataset item records the divisor (`scale_divisor`) |
+| `scale_policy="auto"` rescaling an integer patch by its dtype maximum (the default until v0.2.0rc1; **removed in the compatibility sweep**, refused with a `ValueError`) | `PatchTensorConfig` in `cellpatcher.torch_dataset` |
