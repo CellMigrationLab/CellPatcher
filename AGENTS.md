@@ -435,7 +435,12 @@ Two ways to point CellPatcher at input data:
   `border_labels`/`object_boxes` give object bounding boxes of an instance
   mask, the ones `scan_cell_objects` uses; `cellpatcher.check_patch_bounds`/
   `check_region_mask` check the rectangles and region masks MorphoFeature
-  hands the feature bricks (integers only, non-empty, inside the plane).
+  hands the feature bricks (integers only, non-empty, inside the plane);
+  `cellpatcher.context_bounds(bounds, margin, shape)` gives a patch's execution
+  window (`WindowRecord`: `context_bounds`, `origin`, `margin_requested`,
+  `margin_clipped`, `local_interior`; Spec ADR 0004 EW4/EW5: pure geometry,
+  clipped at the plane edge, a negative or non-integer margin refused; see
+  `docs/api_examples.md`).
 - Consumed downstream by feature-extraction repos — currently
   [fiberfeatures](https://github.com/CellMigrationLab/fiberfeatures/tree/main)
   (an early starting point, expected to change), and in future by other

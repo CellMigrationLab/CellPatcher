@@ -62,7 +62,13 @@ from cellpatcher.object_geometry import (
     object_boxes,
     object_sides,
 )
-from cellpatcher.patch_checks import PatchBoundsError, check_patch_bounds, check_region_mask
+from cellpatcher.patch_checks import (
+    PatchBoundsError,
+    WindowRecord,
+    check_patch_bounds,
+    check_region_mask,
+    context_bounds,
+)
 from cellpatcher.pipeline import RUN_CONFIG_FILENAME, PatchingResult, run_patching
 from cellpatcher.preprocess import (
     PreparedPlane,
@@ -175,6 +181,8 @@ __all__ = [
     "PatchBoundsError",
     "check_patch_bounds",
     "check_region_mask",
+    "WindowRecord",
+    "context_bounds",
     "repeat_to_rgb",
     "select_axis_index",
     "project_axis",
