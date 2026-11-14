@@ -138,7 +138,7 @@ def test_the_binary_mask_policy_has_no_default():
     from cellpatcher.config import CellConfig
 
     assert CellConfig().binary_mask_policy is None
-    with pytest.raises(ValueError, match="'single_object' was removed"):
+    with pytest.raises(ValueError, match=r"binary_mask_policy must be one of .*; got 'single_object'"):
         CellConfig(binary_mask_policy="single_object")
 
 

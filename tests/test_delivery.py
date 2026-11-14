@@ -261,33 +261,22 @@ def test_torch_datasets_give_the_same_arrays(experiment, tmp_path, name):
 
 def test_a_row_is_read_at_the_scope_its_run_recorded():
     # Normalization v0.3.3 (#37) refuses a row whose scope differs from the settings', and every row of
-    # a removed scope (N29); CellPatcher reads those with their own values and scope, never refitted.
+    # a removed scope (N29); since the compatibility sweep (CP-10) CellPatcher no longer reads those as
+    # image-scope rows.
     from cellpatcher.normalization import parameters_from_row
 
     row = {"patch_id": "p", "normalization_method": "min-max", "normalization_scope": "condition",
            "normalization_group": "control", "normalization_exact": "true",
            "normalization_parameters_version": "2", "Normalization_Offset_DNA": "1.5", "Normalization_Scale_DNA": "3.0"}
-    removed = parameters_from_row(row, {"method": "minmax", "scope": "condition"})
-    assert (removed.scope, removed.group, removed.offset, removed.scale) == ("condition", "control", (1.5,), (3.0,))
-    for scope in ("image", "technical_repeat"):
-        with pytest.raises(ValueError, match="normalization_scope"):
+    for scope in ("condition", "technical_repeat"):
+        with pytest.raises(ValueError, match=f"Scope '{scope}' does not exist"):
             parameters_from_row(row, {"method": "minmax", "scope": scope})
+    with pytest.raises(ValueError, match="normalization_scope"):
+        parameters_from_row(row, {"method": "minmax", "scope": "image"})
     image_row = {**row, "normalization_scope": "image", "normalization_group": "a.tif"}
-    with pytest.raises(ValueError, match="its run normalized at 'condition'"):
-        parameters_from_row(image_row, {"method": "minmax", "scope": "condition"})
+    assert parameters_from_row(image_row, {"method": "minmax", "scope": "image"}).group == "a.tif"
     with pytest.raises(ValueError, match="normalization_scope"):
         parameters_from_row(image_row, {"method": "minmax", "scope": "biological_repeat"})
     assert parameters_from_row(image_row, {"method": "minmax"}).scope == "image"  # the configuration's default
 
 
-def test_a_row_of_an_earlier_table_is_refused_whatever_its_scope():
-    # W3: the ';'-separated columns of tables before the per-channel columns are no longer converted (N47
-    # superseded by normalization v0.5.0 and Spec ADR 0002 AR10): refused, at every scope.
-    from cellpatcher.normalization import parameters_from_row
-
-    old_row = {"patch_id": "p", "c": "", "normalization_method": "min-max", "normalization_scope": "image",
-               "normalization_group": "a.tif", "normalization_offset": "1.5;2.0", "normalization_scale": "3.0;4.0",
-               "normalization_exact": "true"}
-    for scope in ("image", "patch", "biological_repeat", "condition"):
-        with pytest.raises(ValueError, match="Run CellPatcher again"):
-            parameters_from_row(old_row, {"method": "minmax", "scope": scope})

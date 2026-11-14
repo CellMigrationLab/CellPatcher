@@ -64,15 +64,14 @@ def test_select_axis_index_out_of_range_raises():
 
 
 def test_project_axis_zyx_methods():
-    # Issue #83: a Z projection combines nothing; it only passes one plane (below) or refuses (next test).
+    # Issue #83, Q-CP-b: CellPatcher projects no Z axis; "first" takes the one plane, the projection
+    # names are refused (they returned that plane in the removed projection's dtype).
     one_first, ax_first = project_axis(np.arange(12).reshape(1, 3, 4), "ZYX", "Z", "first")
     assert ax_first == "YX" and np.array_equal(one_first, np.arange(12).reshape(3, 4))
     one = np.arange(12, dtype=np.uint16).reshape(1, 3, 4)
-    for method, reduce in (("max", np.max), ("mean", np.mean), ("sum", np.sum)):
-        out, axes = project_axis(one, "ZYX", "Z", method)
-        expected = reduce(one, axis=0)  # what the projection of one plane gave before: same values and dtype
-        assert axes == "YX" and out.dtype == expected.dtype
-        np.testing.assert_array_equal(out, expected)
+    for method in ("max", "mean", "sum"):
+        with pytest.raises(ValueError, match="never projected by CellPatcher"):
+            project_axis(one, "ZYX", "Z", method)
 
 
 def test_project_axis_refuses_a_z_projection_of_several_planes():
@@ -150,10 +149,10 @@ def test_prepare_image_for_patching_core_behaviors():
     with pytest.raises(ValueError):
         prepare_image_for_patching(np.zeros((2, 6, 7)), "ZYX")
 
-    for policy in ("max", "mean", "sum"):  # a projection of one plane is that plane (issue #83)
-        out, ax = prepare_image_for_patching(np.arange(6 * 7).reshape(1, 6, 7), "ZYX", z_policy=policy)
-        assert out.shape == (6, 7) and ax == "YX"
-        with pytest.raises(ZStackNotSupportedError, match="has 2 Z planes"):
+    for policy in ("max", "mean", "sum"):  # no Z projection (issue #83, Q-CP-b)
+        with pytest.raises(ValueError, match="Unsupported z_policy"):
+            prepare_image_for_patching(np.arange(6 * 7).reshape(1, 6, 7), "ZYX", z_policy=policy)
+        with pytest.raises(ValueError, match="Unsupported z_policy"):  # the policy is checked first
             prepare_image_for_patching(np.arange(2 * 6 * 7).reshape(2, 6, 7), "ZYX", z_policy=policy)
 
     # A depth stack is refused under every policy, "select" included (issue #83).
@@ -171,7 +170,7 @@ def test_prepare_image_for_patching_t_and_c_behaviors():
     out, ax = prepare_image_for_patching(np.zeros((1, 1, 6, 7)), "TZYX", z_policy="first")
     assert out.shape == (6, 7) and ax == "YX"
 
-    out, ax = prepare_image_for_patching(np.zeros((2, 4, 1, 6, 7)), "TCZYX", t_policy="select", t_index=0, z_policy="max")
+    out, ax = prepare_image_for_patching(np.zeros((2, 4, 1, 6, 7)), "TCZYX", t_policy="select", t_index=0, z_policy="first")
     assert out.shape == (4, 6, 7) and ax == "CYX"
 
     out, ax = prepare_image_for_patching(np.zeros((4, 6, 7)), "CYX", channel_policy="mean")
@@ -227,10 +226,14 @@ def test_prepare_labels_for_cell_patching_behaviors():
     with pytest.raises(ZStackNotSupportedError, match="has 2 Z planes"):  # whatever the policy (issue #83)
         prepare_labels_for_cell_patching(np.zeros((2, 4, 5), dtype=np.int32), "ZYX", z_policy="select", z_index=1)
 
-    out, ax = prepare_labels_for_cell_patching(np.zeros((1, 4, 5), dtype=np.int32), "ZYX", z_policy="max")
+    with pytest.raises(ValueError, match="Unsupported z_policy for labels"):
+        prepare_labels_for_cell_patching(np.zeros((1, 4, 5), dtype=np.int32), "ZYX", z_policy="max")
+    out, ax = prepare_labels_for_cell_patching(np.zeros((1, 4, 5), dtype=np.int32), "ZYX", z_policy="first")
     assert out.shape == (4, 5) and ax == "YX"
-    with pytest.raises(ZStackNotSupportedError, match="has 2 Z planes"):
+    with pytest.raises(ValueError, match="Unsupported z_policy for labels"):  # the policy is checked first
         prepare_labels_for_cell_patching(np.zeros((2, 4, 5), dtype=np.int32), "ZYX", z_policy="max")
+    with pytest.raises(ZStackNotSupportedError, match="has 2 Z planes"):
+        prepare_labels_for_cell_patching(np.zeros((2, 4, 5), dtype=np.int32), "ZYX", z_policy="first")
 
     out, ax = prepare_labels_for_cell_patching(np.zeros((1, 1, 4, 5), dtype=np.int32), "TZYX")
     assert out.shape == (4, 5) and ax == "YX"
@@ -274,7 +277,7 @@ def test_iter_image_planes_all_variants_and_order():
 
 
 def test_iter_image_planes_projection_and_channels_and_errors():
-    planes = list(iter_image_planes_for_patching(np.zeros((2, 1, 5, 6)), "TZYX", t_policy="all", z_policy="max"))
+    planes = list(iter_image_planes_for_patching(np.zeros((2, 1, 5, 6)), "TZYX", t_policy="all", z_policy="first"))
     assert len(planes) == 2 and all(p.axes == "YX" for p in planes)
 
     planes = list(iter_image_planes_for_patching(np.zeros((4, 1, 5, 6)), "CZYX", z_policy="all", channel_policy="keep"))
@@ -354,7 +357,7 @@ def test_iter_image_plane_id_stability_for_single_axis_all():
 
 
 def test_iter_image_mixed_policy_metadata_semantics():
-    planes = list(iter_image_planes_for_patching(np.zeros((2, 1, 5, 6)), "TZYX", t_policy="all", z_policy="max"))
+    planes = list(iter_image_planes_for_patching(np.zeros((2, 1, 5, 6)), "TZYX", t_policy="all", z_policy="first"))
     assert [p.metadata for p in planes] == [{"t": 0}, {"t": 1}]
 
 
@@ -409,3 +412,25 @@ def test_iter_cell_planes_t_all_only_yields_t_planes():
     assert [p.plane_id for p in pairs] == ["t000", "t001"]
     assert all(p.image_axes == "YX" and p.label_axes == "YX" for p in pairs)
     assert [p.metadata for p in pairs] == [{"t": 0}, {"t": 1}]
+
+
+@pytest.mark.parametrize("policies", [
+    {"z_policy": "max"}, {"z_policy": "sum"}, {"z_policy": "mean"}, {"t_policy": "median"}, {"t_policy": "max"},
+])
+def test_a_policy_is_checked_on_an_image_without_the_axis(policies):
+    # Review of #110 (LOW): _apply_axis_policy returned before checking the policy when the axis was
+    # absent, so a YX image passed z_policy="max" or a nonsense t_policy silently.
+    image = np.zeros((6, 7), dtype=np.uint16)
+    with pytest.raises(ValueError, match="Unsupported [zt]_policy"):
+        prepare_image_for_patching(image, "YX", **policies)
+    with pytest.raises(ValueError, match="Unsupported [zt]_policy"):
+        prepare_labels_for_cell_patching(image.astype(np.int32), "YX", **policies)
+    with pytest.raises(ValueError, match="Unsupported [zt]_policy"):
+        list(iter_image_planes_for_patching(image, "YX", **policies))
+
+
+def test_select_needs_its_index_on_an_image_without_the_axis():
+    with pytest.raises(ValueError, match="z_policy='select' requires z_index"):
+        prepare_image_for_patching(np.zeros((6, 7)), "YX", z_policy="select")
+    out, axes = prepare_image_for_patching(np.zeros((6, 7)), "YX", z_policy="first", t_policy="select", t_index=0)
+    assert out.shape == (6, 7) and axes == "YX"

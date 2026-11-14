@@ -95,35 +95,28 @@ def test_first_and_select_choose_one_plane_without_a_suffix():
 
 
 @pytest.mark.parametrize("policy", ["max", "mean", "sum"])
-def test_a_projection_of_one_plane_is_accepted_and_changes_nothing(policy):
-    """Owner decision on #86: a projection that combines nothing (no Z axis, or Z=1) is the plane itself."""
+def test_a_z_projection_is_no_policy(policy):
+    """Q-CP-b (compatibility sweep): CellPatcher combines no Z planes, so the projection names are refused
+    for Z even over one plane (they returned that plane, in the dtype of the removed projection)."""
+    from cellpatcher.preprocess import iter_image_planes_for_patching, prepare_image_for_patching, project_axis
+
+    with pytest.raises(ValueError, match="z_policy must be one of"):
+        CommonConfig(z_policy=policy)
     one = _stack((1, 16, 16))
-    kept = run_patching(images=one, config=_grid_config("ZYX"), image_metadata=named(one))
-    result = run_patching(images=one, config=_grid_config("ZYX", z_policy=policy), image_metadata=named(one))
-    assert {p.z0 for p in result.patches} == {None}
-    assert [p.patch_id for p in result.patches] == [p.patch_id for p in kept.patches]
-    assert result.patch_arrays[0].dtype == one.dtype
-    np.testing.assert_array_equal(result.patch_arrays[0], one[0, :8, :8])
-    flat = _stack((16, 16))
-    flat_result = run_patching(images=flat, config=_grid_config("YX", z_policy=policy), image_metadata=named(flat))
-    np.testing.assert_array_equal(flat_result.patch_arrays[0], flat[:8, :8])
-    assert {p.z0 for p in flat_result.patches} == {None}
+    with pytest.raises(ValueError, match="z_policy must be one of"):
+        run_patching(images=one, config=_grid_config("ZYX", z_policy=policy), image_metadata=named(one))
+    with pytest.raises(ValueError, match="never projected by CellPatcher"):
+        project_axis(one, "ZYX", "Z", policy)
+    with pytest.raises(ValueError, match="Unsupported z_policy"):
+        prepare_image_for_patching(one, "ZYX", z_policy=policy)
+    with pytest.raises(ValueError, match="Unsupported z_policy"):
+        list(iter_image_planes_for_patching(one, "ZYX", z_policy=policy))
+    plane, axes = project_axis(one, "ZYX", "Z", "first")
+    assert axes == "YX" and plane.dtype == one.dtype
+    np.testing.assert_array_equal(plane, one[0])
 
 
-@pytest.mark.parametrize("policy", ["max", "mean", "sum"])
-def test_a_projection_of_depth_planes_is_refused_by_name(policy):
-    """Issue #83: a projection that would combine Z planes belongs to preprocessing."""
-    stack = _stack()
-    message = "has 3 Z planes.*recorded projection step in morphobricks-preprocessing"
-    with pytest.raises(ZStackNotSupportedError, match=message) as caught:
-        run_patching(images=stack, config=_grid_config("ZYX", z_policy=policy), image_metadata=named(stack))
-    assert (caught.value.axis, caught.value.length) == ("Z", 3)
-    with pytest.raises(ZStackNotSupportedError, match="has 3 Z planes"):
-        run_patching(images=_stack(), masks=_labels_per_plane(), config=_cell_config("ZYX", "ZYX", z_policy=policy),
-            image_metadata=named(_stack()))  # formerly "projects the images' Z planes" for masks following the planes
-
-
-def test_a_z_projection_refusal_is_a_value_error_and_t_has_no_projection():
+def test_a_z_stack_refusal_is_a_value_error_and_t_has_no_projection():
     assert issubclass(ZStackNotSupportedError, ValueError)
     with pytest.raises(ValueError, match="t_policy must be one of"):
         CommonConfig(t_policy="max")  # unchanged: T never had projections

@@ -3,7 +3,6 @@ from dataclasses import dataclass
 import numpy as np
 
 from cellpatcher.axes import axis_index, normalize_axes, refuse_z_stack, require_spatial_axes
-from cellpatcher.errors import ZStackNotSupportedError
 
 
 @dataclass(frozen=True)
@@ -55,37 +54,14 @@ def select_axis_index(array, axes, axis, index):
     return selected, selected_axes
 
 
-def z_projection_refusal(method: str, length: int) -> ZStackNotSupportedError:
-    """Return the refusal of a Z projection that would combine *length* Z planes (issue #83)."""
-    return ZStackNotSupportedError(
-        f"z_policy={method!r} would combine {length} Z planes, but CellPatcher works on 2-D planes only. "
-        "A Z projection must be done as a recorded projection step in morphobricks-preprocessing before patching.",
-        axis="Z",
-        length=length,
-    )
-
-
-def _single_z_plane(arr: np.ndarray, idx: int, method: str) -> np.ndarray:
-    """Return the one Z plane of *arr* as the name *method* gave it before projections were removed.
-
-    Nothing is combined: the plane is returned unchanged, in the dtype the numpy reduction of one
-    plane gave (``mean`` of an integer plane is float64, ``sum`` of a small integer plane its
-    accumulator type), so a no-op projection stays bitwise identical to what CellPatcher returned.
-    """
-    plane = np.take(arr, 0, axis=idx)
-    reduced = {"max": np.max, "mean": np.mean, "sum": np.sum}[method](np.zeros(1, dtype=arr.dtype))
-    return plane.astype(reduced.dtype, copy=False)
-
-
 def project_axis(array, axes, axis, method):
     """Take *axis* out of *array*: ``"first"`` plane (T or Z), or ``"max"``/``"mean"``/``"sum"`` over a C or T axis.
 
     A channel is never taken by its position (owner decision of 13 November 2026): ``"first"`` over C is
-    refused; choose channels by canonical channel ID (``extraction.split_channels``).
-
-    An array with more than one Z plane is refused whichever axis is projected (issue #83): with
-    one Z plane the projection names return it unchanged, with more they raise
-    :class:`~cellpatcher.errors.ZStackNotSupportedError`.
+    refused; choose channels by canonical channel ID (``extraction.split_channels``). CellPatcher combines
+    no Z planes (issue #83): ``"max"``/``"mean"``/``"sum"`` over Z are refused, as is an array with more
+    than one Z plane whichever axis is projected (:class:`~cellpatcher.errors.ZStackNotSupportedError`);
+    a Z projection is a recorded step of morphobricks-preprocessing.
     """
     arr = np.asarray(array)
     normalized_axes = normalize_axes(axes, arr.ndim)
@@ -96,8 +72,11 @@ def project_axis(array, axes, axis, method):
         raise ValueError(f"Axis '{axis}' is not present in axes '{normalized_axes}'.")
 
     method = str(method).lower()
-    if axis == "Z" and method in {"max", "mean", "sum"}:
-        return _single_z_plane(arr, idx, method), normalized_axes[:idx] + normalized_axes[idx + 1 :]
+    if axis == "Z" and method != "first":
+        raise ValueError(
+            f"A Z axis is never projected by CellPatcher (got {method!r}): take its plane with 'first'. A Z "
+            "projection is a recorded step of morphobricks-preprocessing."
+        )
     if method == "first" and axis == "C":
         raise ValueError("A channel is never taken by its position: project C with 'max', 'mean' or 'sum'.")
     if method == "first":
@@ -153,18 +132,28 @@ def _apply_axis_policy(
     param_name=None,
     index_param_name=None,
 ):
-    """Collapse one axis of *arr* by *policy*; a Z axis with more than one plane is refused first."""
-    # If the array doesn't have this axis at all, there's nothing to
-    # collapse -- return it unchanged rather than erroring.
-    idx = axis_index(axes, axis)
-    if idx is None:
-        return arr, axes
+    """Collapse one axis of *arr* by *policy*; a Z axis with more than one plane is refused first.
 
+    The policy is checked first, also when *arr* has no such axis (then it is returned unchanged), so an
+    unknown policy is never accepted because an image happens to lack the axis.
+    """
     # Error messages should name the actual caller-facing parameter (e.g.
     # "channel_policy" instead of the generic axis name) when the caller
     # supplied one.
     _policy_param = param_name if param_name is not None else f"{axis.lower()}_policy"
     _index_param = index_param_name if index_param_name is not None else f"{axis.lower()}_index"
+    if policy not in {"error", "first", "select", *(allowed_project_methods or ())}:
+        if label_context:
+            raise ValueError(f"Unsupported {_policy_param} for labels: {policy}")
+        raise ValueError(f"Unsupported {_policy_param}: {policy}")
+    if policy == "select" and index is None:
+        raise ValueError(f"{_policy_param}='select' requires {_index_param}.")
+
+    # If the array doesn't have this axis at all, there's nothing to
+    # collapse -- return it unchanged.
+    idx = axis_index(axes, axis)
+    if idx is None:
+        return arr, axes
 
     if axis == "Z":
         refuse_z_stack(arr.shape, axes, "The labels" if label_context else "The image")
@@ -185,19 +174,12 @@ def _apply_axis_policy(
         return select_axis_index(arr, axes, axis, 0)
 
     if policy == "select":
-        if index is None:
-            raise ValueError(f"{_policy_param}='select' requires {_index_param}.")
         return select_axis_index(arr, axes, axis, index)
 
-    # Projection policies (max/mean/sum/...) collapse the whole axis via a
+    # Projection policies (max/mean over C) collapse the whole axis via a
     # reduction instead of picking one index; which methods are valid
-    # depends on the axis (e.g. labels only ever allow 'max').
-    if allowed_project_methods and policy in allowed_project_methods:
-        return project_axis(arr, axes, axis, policy)
-
-    if label_context:
-        raise ValueError(f"Unsupported {_policy_param} for labels: {policy}")
-    raise ValueError(f"Unsupported {_policy_param}: {policy}")
+    # depends on the axis (none for T or Z).
+    return project_axis(arr, axes, axis, policy)
 
 
 def prepare_image_for_patching(
@@ -245,8 +227,7 @@ def _prepare_image(
     # Y/X (+ optional channel).
     arr, ax = _apply_axis_policy(arr, ax, axis="T", policy=t_policy, index=t_index)
     arr, ax = _apply_axis_policy(
-        arr, ax, axis="Z", policy=z_policy, index=z_index, allowed_project_methods={"max", "mean", "sum"}
-    )
+        arr, ax, axis="Z", policy=z_policy, index=z_index)
 
     # Channel handling is its own policy set (not a generic axis policy)
     # because 'repeat_to_rgb' has behavior _apply_axis_policy doesn't cover.
@@ -283,10 +264,8 @@ def prepare_labels_for_cell_patching(
     never chosen by its position (owner decision of 13 November 2026): give each layer as its own mask.
 
     Notes:
-        z_policy='max' (and 'mean'/'sum') is accepted only when Z is absent or has one
-        plane, which is returned unchanged; a Z stack with more than one plane raises
-        ZStackNotSupportedError (issue #83). Z>1 is refused under every z_policy
-        ('select', 'first', 'all' and the projections alike); T is separate and
+        CellPatcher combines no Z planes: z_policy is 'error', 'first' or 'select', and Z>1 is
+        refused (ZStackNotSupportedError, issue #83) under every z_policy; T is separate and
         t_policy 'select', 'first' or 'all' still work. Project or select a stack first
         with ``convert --project`` in morphobricks-preprocessing
         (https://github.com/CellMigrationLab/morphobricks-preprocessing/issues/176).
@@ -297,13 +276,9 @@ def prepare_labels_for_cell_patching(
     if t_policy == "all" or z_policy == "all":
         raise ValueError("'all' policies are not supported in this function; use iter_cell_planes_for_patching for plane expansion.")
 
-    # Same T/Z collapsing as prepare_image_for_patching, but Z only allows
-    # 'max' projection for labels (mean/sum would produce meaningless,
-    # non-integer "label" values).
+    # Same T/Z collapsing as prepare_image_for_patching.
     arr, ax = _apply_axis_policy(arr, ax, axis="T", policy=t_policy, index=t_index, label_context=True)
-    arr, ax = _apply_axis_policy(
-        arr, ax, axis="Z", policy=z_policy, index=z_index, allowed_project_methods={"max"}, label_context=True
-    )
+    arr, ax = _apply_axis_policy(arr, ax, axis="Z", policy=z_policy, index=z_index, label_context=True)
 
     c_axis = axis_index(ax, "C")
     if c_axis is not None:
@@ -357,7 +332,7 @@ def iter_image_planes_for_patching(
     arr = np.asarray(image)
     ax = normalize_axes(axes, arr.ndim)
 
-    valid_z = {"error", "first", "select", "max", "mean", "sum", "all"}
+    valid_z = {"error", "first", "select", "all"}
     valid_t = {"error", "first", "select", "all"}
     if z_policy not in valid_z:
         raise ValueError(f"Unsupported z_policy: {z_policy}")
@@ -423,7 +398,7 @@ def iter_cell_planes_for_patching(
     i_ax = normalize_axes(image_axes, img.ndim)
     l_ax = normalize_axes(label_axes, lab.ndim)
 
-    valid_z = {"error", "first", "select", "max", "all"}
+    valid_z = {"error", "first", "select", "all"}
     valid_t = {"error", "first", "select", "all"}
     if z_policy not in valid_z:
         raise ValueError(f"Unsupported z_policy for cell iterator: {z_policy}")

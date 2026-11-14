@@ -37,7 +37,8 @@ from cellpatcher.axes import normalize_axes, refuse_transposed_image_axes, refus
 from cellpatcher.extract import extract_patch
 from cellpatcher.io import read_array
 from cellpatcher.masking import apply_label_mask_to_patch
-from cellpatcher.normalization import PatchNormalization, channel_order_from_row, parameters_from_row
+from cellpatcher.normalization import parameters_from_row
+from cellpatcher.patch_normalization import PatchNormalization, channel_order_from_row
 from cellpatcher.planes import apply_plane_choice, patch_plane_choice, select_mask_plane
 from cellpatcher.resize import resize_patch
 from cellpatcher.run_config_file import delivery_config, run_config_version

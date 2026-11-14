@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-import warnings
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 from morphobricks_normalization.records import SINGLE
-
-from cellpatcher._deprecation import accept_deprecated_repeat
 
 # ".zarr" is an OME-Zarr image: a folder, read with the preprocessing brick's
 # reader and the ``zarr`` extra (docs/normalization_contract.md §2); every other
@@ -45,14 +42,9 @@ ARRAY_EXTENSIONS = {*SUPPORTED_EXTENSIONS, *FORMER_IMAGE_EXTENSIONS}
 # are public aliases of it.
 
 # Biological-repeat label stamped when a condition folder holds images
-# directly, with no biological-repeat subfolder (see
-# discover_condition_repeat_folders below). Treated as "this condition has
+# directly, with no biological-repeat subfolder. Treated as "this condition has
 # exactly one biological repeat" rather than an error.
 SINGLE_BIOLOGICAL_REPEAT_LABEL = SINGLE
-
-# Name kept from before `repeat` was renamed `biological_repeat`; same value,
-# still public and not deprecated.
-SINGLE_REPEAT_LABEL = SINGLE_BIOLOGICAL_REPEAT_LABEL
 
 # Condition label stamped when the root folder itself holds the images, with
 # no condition subfolders: the whole dataset is one condition and one
@@ -62,7 +54,7 @@ SINGLE_CONDITION_LABEL = SINGLE
 # Technical-repeat label stamped when a repeat folder holds its images
 # directly, with no <technical_repeat> subfolders (a well, a dish): the
 # repeat is one technical repeat. Never a biological repeat, which stays in
-# `repeat` (see discover_condition_repeat_folders below).
+# `biological_repeat`.
 SINGLE_TECHNICAL_REPEAT_LABEL = SINGLE
 
 
@@ -143,19 +135,18 @@ def _is_image(path: Path, exts: set[str]) -> bool:
     return path.is_dir() if suffix == ZARR_SUFFIX else path.is_file()
 
 
-@accept_deprecated_repeat
 @dataclass
 class ConditionRepeatFolder:
     """One discovered ``<condition>/<biological_repeat>[/<technical_repeat>]`` leaf.
 
     ``biological_repeat`` is ``SINGLE_BIOLOGICAL_REPEAT_LABEL`` when
-    *condition_dir* holds image files directly with no biological-repeat
+    the condition folder holds image files directly with no biological-repeat
     subfolder; in that case ``image_folder`` is the condition folder itself.
     ``technical_repeat`` is the name of a technical-repeat subfolder (a well,
     a dish) inside the biological-repeat folder, or
     ``SINGLE_TECHNICAL_REPEAT_LABEL`` when that folder holds its images
-    directly. ``repeat`` is a deprecated alias of ``biological_repeat``. See
-    :func:`discover_condition_repeat_folders`.
+    directly. :func:`cellpatcher.run_patching_condition_repeat_tree` passes
+    one to its progress callback.
     """
     condition: str
     biological_repeat: str
@@ -175,175 +166,6 @@ class ConditionRepeatFolder:
         if self.technical_repeat != SINGLE_TECHNICAL_REPEAT_LABEL:
             path = path / self.technical_repeat
         return path
-
-
-# Every error of discover_experiment is a refusal, "tiff_outside_leaf" (images
-# in a folder that also holds subfolders) among them: an error since
-# preprocessing v0.3.2 (owner decision of 2026-10-30, refused in every brick).
-# Its warning "non_tiff_file" is refused for the former image formats only
-# (_refuse_unsupported_images); other files were never read and stay ignored.
-_EMPTY_FOLDER_CODE = "empty_folder"
-_NO_IMAGES_CODE = "no_images"
-
-
-def _refuse_masks_inside(image_root: Path, mask_folder) -> None:
-    """Refuse a mask folder that is the image folder or inside it, as the preprocessing brick does.
-
-    Checked before discovery: its folders would otherwise be read as image
-    folders. The message is the brick's ``masks_inside_experiment``.
-    """
-    if mask_folder is None:
-        return
-    root = image_root.resolve()
-    folder = Path(mask_folder).expanduser().resolve()
-    if folder == root or root in folder.parents:
-        raise ValueError(
-            "Images and masks cannot be paired: [masks_inside_experiment] The masks folder is inside "
-            "the experiment folder, where its folders would be read as conditions and repeats "
-            f"({folder.relative_to(root).as_posix() or '.'}). Move the masks folder next to the image "
-            "folder and select it there."
-        )
-
-
-def discover_images(root_path, *, mask_folder_path=None):
-    """Discover the images under *root_path* with the preprocessing brick's ``discover_experiment``.
-
-    CellPatcher does not walk folders itself (owner decision of 2026-10-30,
-    issue #45): the leaves, their labels and their images are the brick's,
-    so every brick reads the same images under the same labels. Images are
-    TIFF files and OME-Zarr folders in folders without subfolders, at most
-    three levels deep (condition, biological repeat, technical repeat).
-
-    Refused, never skipped:
-
-    - every error ``discover_experiment`` reports (for example
-      ``duplicate_position_id``, ``case_conflict``, ``folder_too_deep``,
-      ``reserved_folder_name``), except ``no_images``, which gives no leaves;
-    - images in a folder that also holds subfolders (the brick's error
-      ``tiff_outside_leaf``, a warning before preprocessing v0.3.2);
-    - PNG, JPEG, BMP, GIF, NumPy and microscope-format images such as CZI, ND2 or LIF
-      (:data:`UNSUPPORTED_IMAGE_EXTENSIONS`);
-    - a link to a missing image;
-    - a mask folder (*mask_folder_path*) that is *root_path* or inside it.
-
-    Folders with no images and no subfolders hold nothing to patch; they are
-    left out with a ``UserWarning`` naming them, as the brick warns. Other
-    files (``.txt``, ``.csv``, ...) are ignored.
-
-    Returns
-    -------
-    morphobricks_preprocessing.DiscoveryResult
-        The brick's result; its paths are relative to *root_path*.
-    """
-    from morphobricks_preprocessing.discovery import discover_experiment
-
-    root = Path(root_path).expanduser()
-    if not root.exists() or not root.is_dir():
-        raise ValueError(f"Folder does not exist or is not a directory: {root}")
-    _refuse_masks_inside(root, mask_folder_path)
-    result = discover_experiment(root)
-
-    by_code = {issue.code: issue for issue in result.issues}
-    if "non_tiff_file" in by_code:
-        _refuse_unsupported_images(root, by_code["non_tiff_file"].paths)
-    problems = [
-        _issue_text(issue)
-        for issue in result.issues
-        if issue.is_error and issue.code != _NO_IMAGES_CODE
-    ]
-    if problems:
-        raise ValueError(f"The image folder '{root}' cannot be used: {'; '.join(problems)}.")
-    broken = [path for path in result.images if not (root / path).exists()]
-    if broken:
-        raise ValueError(
-            f"Folder '{root}' holds {len(broken)} image link(s) whose target does not exist: "
-            f"{', '.join(broken[:10])}. Fix or remove the links."
-        )
-    if _EMPTY_FOLDER_CODE in by_code:
-        warnings.warn(_issue_text(by_code[_EMPTY_FOLDER_CODE]), UserWarning, stacklevel=2)
-    return result
-
-
-DISCOVER_DEPRECATION = (
-    "discover_condition_repeat_folders is deprecated and will be removed: its mask_folder mirrors each leaf "
-    "under mask_root_path, a pairing the preprocessing run does not use. Read the images, FOV keys and masks "
-    "of a preprocessing run instead (morphobricks_preprocessing RunInputs.open(run).fovs() and read_mask), or "
-    "patch them with run_patching_condition_repeat_tree and common.preprocessing_run."
-)
-
-
-def discover_condition_repeat_folders(
-    root_path,
-    *,
-    mask_root_path=None,
-    supported_extensions=None,
-) -> list[ConditionRepeatFolder]:
-    """Discover the ``<condition>/<biological_repeat>[/<technical_repeat>]`` image folders under *root_path*.
-
-    .. deprecated:: 0.2.0
-        Emits a ``DeprecationWarning`` and will be removed (audit round 2, A-m4): its
-        ``mask_folder`` mirrors each leaf under *mask_root_path*, a pairing the preprocessing
-        brick does not use, and no CellPatcher run uses it. A file run reads the images, FOV keys
-        and masks of a preprocessing run (``RunInputs.open(run).fovs()``, ``read_mask``;
-        :func:`cellpatcher.run_patching_condition_repeat_tree` with ``common.preprocessing_run``).
-
-    (The function keeps its historical ``condition_repeat`` name.) The
-    folders are found by the preprocessing brick's ``discover_experiment``
-    (:func:`discover_images`, owner decision of 2026-10-30, issue #45), so
-    the leaves and labels are the brick's:
-
-    - ``<condition>/<biological_repeat>/<images>`` — one leaf per
-      biological-repeat folder;
-    - ``<condition>/<images>`` — the condition folder is one leaf whose
-      biological repeat is ``SINGLE_BIOLOGICAL_REPEAT_LABEL`` (``"single"``);
-    - ``<condition>/<biological_repeat>/<technical_repeat>/<images>`` — each
-      technical-repeat folder (a well, a dish) is a leaf; a leaf above that
-      level has the technical repeat ``SINGLE_TECHNICAL_REPEAT_LABEL``;
-    - ``<images>`` directly in *root_path* — one leaf labeled
-      ``SINGLE_CONDITION_LABEL`` / ``"single"`` / ``"single"``.
-
-    A folder named ``single`` is a level with one member and must be alone
-    in its place. A folder mixing images with subfolders, images in
-    PNG/JPEG/BMP/GIF/NumPy or microscope format, a fourth level of folders, two images of
-    one folder with the same name apart from the extension or case, and
-    folder names differing only in case are refused (:func:`discover_images`
-    lists every refusal). Folders without images or subfolders are left out
-    with a ``UserWarning``. System files and folders are ignored: names
-    starting with ``"."`` (``.ipynb_checkpoints``, ``._img.tif``),
-    ``Thumbs.db``, ``desktop.ini`` and ``__MACOSX``.
-
-    When *mask_root_path* is given, the same leaf path is mirrored under it
-    for each leaf's ``mask_folder``; its existence is not checked here.
-
-    *supported_extensions* is no longer supported: the images are the
-    brick's (TIFF and OME-Zarr). Any value other than None is refused.
-    """
-    warnings.warn(DISCOVER_DEPRECATION, DeprecationWarning, stacklevel=2)
-    if supported_extensions is not None:
-        raise ValueError(
-            "discover_condition_repeat_folders(supported_extensions=...) is no longer supported: images are "
-            "found with the preprocessing brick's discovery, which reads TIFF files and OME-Zarr folders "
-            "(issue #45)."
-        )
-    root = Path(root_path).expanduser()
-    mask_root = Path(mask_root_path).expanduser() if mask_root_path is not None else None
-    if mask_root is not None and (not mask_root.exists() or not mask_root.is_dir()):
-        raise ValueError(f"Folder does not exist or is not a directory: {mask_root}")
-
-    result = discover_images(root, mask_folder_path=mask_root)
-    leaves = []
-    for leaf in result.leaves:
-        image_folder = root if leaf.relative_path == "." else root / leaf.relative_path
-        leaves.append(
-            ConditionRepeatFolder(
-                condition=leaf.condition,
-                biological_repeat=leaf.biological_repeat,
-                image_folder=image_folder,
-                mask_folder=None if mask_root is None else mask_root / image_folder.relative_to(root),
-                technical_repeat=leaf.technical_repeat,
-            )
-        )
-    return leaves
 
 
 def _refuse_several_series(path, series_count: int) -> None:
@@ -374,23 +196,11 @@ def read_array(file_path):
         return np.load(path)
 
     if suffix in {".tif", ".tiff"}:
-        # Prefer tifffile (handles multi-page/ImageJ metadata correctly);
-        # fall back to imageio if it isn't installed, since either is an
-        # accepted optional dependency for TIFF support.
-        try:
-            import tifffile
-        except ImportError:
-            tifffile = None
-        if tifffile is not None:
-            with tifffile.TiffFile(path) as tif:
-                _refuse_several_series(path, len(tif.series))
-                return tif.asarray()
-        else:
-            try:
-                import imageio.v3 as iio
-            except ImportError as exc:
-                raise ImportError("Reading TIFF requires tifffile or imageio.") from exc
-            return iio.imread(path)
+        import tifffile
+
+        with tifffile.TiffFile(path) as tif:
+            _refuse_several_series(path, len(tif.series))
+            return tif.asarray()
 
     if suffix in ARRAY_EXTENSIONS:
         try:
@@ -489,79 +299,3 @@ def read_ome_zarr(path) -> tuple[np.ndarray, str]:
 
 def read_array_shape(file_path) -> tuple[int, ...]:
     return tuple(read_array(file_path).shape)
-
-
-# The matching options CellPatcher had before it adopted the preprocessing
-# brick's pairing (issue #45). They were accepted at their old defaults with a
-# DeprecationWarning until v0.1.1, which removed them (D86, owner decision of
-# 2026-10-31): any use, an old run_config.json included, is refused by name.
-REMOVED_MATCHING_OPTIONS = ("strategy", "mask_suffixes", "case_sensitive", "ignore_unrequested_masks")
-
-MASK_LAYOUT_HELP = (
-    "Masks are paired with the MorphoBricks preprocessing brick's rule (its find_masks): a mask is a "
-    "TIFF file in the mask folder, either <mask type>/<image's folders>/<image name>.tif or "
-    "<image's folders>/<image name>_<mask type>.tif (for example img_01_cells.tif), where the "
-    "image's folders are its folders below the image root (none for a single image folder)."
-)
-
-
-def refuse_removed_matching(where: str, options) -> None:
-    """Refuse the removed matching options among *options* by name, and any other unknown option.
-
-    *options* maps the names given to their values (a function's ``**kwargs``,
-    a ``matching`` section of a config file). The former options
-    (:data:`REMOVED_MATCHING_OPTIONS`) raise ``ValueError`` saying to use
-    ``matching.mask_type``, whatever their value; any other name raises
-    ``TypeError``.
-
-    Raises
-    ------
-    ValueError
-        If a removed matching option is given.
-    TypeError
-        If another unknown option is given.
-    """
-    names = list(options)
-    if not names:
-        return
-    unknown = sorted(name for name in names if name not in REMOVED_MATCHING_OPTIONS)
-    if unknown:
-        raise TypeError(f"{where}: unknown option(s) {unknown}.")
-    hint = ""
-    suffixes = options.get("mask_suffixes")
-    if isinstance(suffixes, (tuple, list)) and len(suffixes) == 1 and str(suffixes[0]).startswith("_"):
-        hint = f" For masks named <image>{suffixes[0]}.tif, set matching.mask_type={suffixes[0][1:]!r}."
-    raise ValueError(
-        f"{where}: the matching option(s) {', '.join(sorted(names))} were removed in CellPatcher v0.1.1. "
-        "Images and masks are paired with the preprocessing brick's rule (issue #45); choose the mask "
-        f"type with matching.mask_type (mask_type= for the functions). {MASK_LAYOUT_HELP}{hint} Remove "
-        "these options, also from an old run_config.json."
-    )
-
-
-def _issue_text(issue) -> str:
-    paths = list(issue.paths)
-    listed = f" ({', '.join(paths[:10])}{', ...' if len(paths) > 10 else ''})" if paths else ""
-    action = f" {issue.action.rstrip('.')}" if issue.action else ""
-    return f"[{issue.code}] {issue.message.rstrip('.')}{listed}.{action}"
-
-
-def run_patching_from_folders(
-    image_folder_path,
-    *,
-    config=None,
-    mask_folder_path=None,
-    **removed_options,
-):
-    """Convenience alias for :func:`cellpatcher.orchestration.run_patching_pipeline`.
-
-    See that function for full parameter documentation.
-    """
-    from cellpatcher.orchestration import run_patching_pipeline
-
-    return run_patching_pipeline(
-        image_folder_path,
-        config=config,
-        mask_folder_path=mask_folder_path,
-        **removed_options,
-    )

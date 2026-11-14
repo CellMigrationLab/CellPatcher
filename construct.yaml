@@ -25,7 +25,6 @@ extra_files:
 - requirements_gpu.txt: CellPatcher/requirements_gpu.txt
 - setup.py: CellPatcher/setup.py
 - src/cellpatcher/__init__.py: CellPatcher/src/cellpatcher/__init__.py
-- src/cellpatcher/_deprecation.py: CellPatcher/src/cellpatcher/_deprecation.py
 - src/cellpatcher/axes.py: CellPatcher/src/cellpatcher/axes.py
 - src/cellpatcher/cell_scan.py: CellPatcher/src/cellpatcher/cell_scan.py
 - src/cellpatcher/config.py: CellPatcher/src/cellpatcher/config.py

@@ -95,22 +95,9 @@ def test_list_supported_files_with_custom_extensions(tmp_path):
 
 from cellpatcher import CellPatcherConfig
 from cellpatcher.config import CommonConfig, GridConfig
-from cellpatcher.io import run_patching_from_folders
 
 
-def test_run_patching_from_folders_grid_mode(tmp_path):
-    img_dir = tmp_path / "images"
-    img_dir.mkdir()
-    write_array(img_dir / "a.tif", np.arange(64).reshape(8, 8))
-
-    config = file_run_config(CellPatcherConfig(mode="grid"), img_dir)
-    config.grid.tile_size = 4
-
-    result = run_patching_from_folders(img_dir, config=config)
-    assert len(result.patches) == 4
-
-
-def test_run_patching_from_folders_cell_mode(tmp_path):
+def test_run_patching_pipeline_folder_cell_mode(tmp_path):
     img_dir = tmp_path / "images"
     mask_dir = tmp_path / "masks"
     img_dir.mkdir()
@@ -126,18 +113,18 @@ def test_run_patching_from_folders_cell_mode(tmp_path):
     config = file_run_config(CellPatcherConfig(mode="cell"), img_dir, masks=mask_dir)
     config.cell.patch_size = 8
 
-    result = run_patching_from_folders(img_dir, mask_folder_path=mask_dir, config=config)
+    result = run_patching_pipeline(img_dir, mask_folder_path=mask_dir, config=config)
     assert len(result.patches) == 1
 
 
-def test_run_patching_from_folders_cell_requires_mask_folder(tmp_path):
+def test_run_patching_pipeline_folder_cell_requires_masks(tmp_path):
     img_dir = tmp_path / "images"
     img_dir.mkdir()
     write_array(img_dir / "a.tif", np.zeros((8, 8), dtype=np.float32))
 
     config = file_run_config(CellPatcherConfig(mode="cell"), img_dir)  # a run without masks
     with pytest.raises(ValueError, match="mode='cell' reads masks, but the preprocessing run .* recorded none"):
-        run_patching_from_folders(img_dir, config=config)
+        run_patching_pipeline(img_dir, config=config)
 
 from cellpatcher.orchestration import (
     load_config,
@@ -147,7 +134,7 @@ from cellpatcher.orchestration import (
 )
 
 
-def test_run_patching_pipeline_alias_grid_mode(tmp_path):
+def test_run_patching_pipeline_folder_grid_mode(tmp_path):
     img_dir = tmp_path / "images"
     img_dir.mkdir()
     write_array(img_dir / "a.tif", np.arange(64).reshape(8, 8))
@@ -358,19 +345,15 @@ def test_a_folder_run_refuses_a_folder_of_image_subfolders(tmp_path):
         run_patching_pipeline(img_dir, config=config)
 
 
-def test_the_former_matching_options_are_refused_by_name(tmp_path):
-    # Removed in v0.1.1 (D86, owner decision): refused whatever their value, old defaults included.
+def test_the_former_matching_options_are_unknown_keywords(tmp_path):
+    # Removed in v0.1.1 (D86); since the compatibility sweep (CP-7) plain unexpected keywords.
     img_dir, mask_dir = _folders(tmp_path, ["a.tif"], ["a_mask.tif"])
-    with pytest.raises(ValueError, match="strategy were removed in CellPatcher v0.1.1.*mask_type"):
+    with pytest.raises(TypeError, match="strategy"):
         validate_image_and_mask_folders(img_dir, mask_dir, strategy="exact_or_suffix")
-    with pytest.raises(ValueError, match="set matching.mask_type='cells'"):
-        validate_image_and_mask_folders(img_dir, mask_dir, mask_suffixes=("_cells",), ignore_unrequested_masks=True)
-    with pytest.raises(ValueError, match="case_sensitive were removed"):
+    with pytest.raises(TypeError, match="case_sensitive"):
         run_patching_pipeline(img_dir, mask_folder_path=mask_dir, case_sensitive=False)
-    with pytest.raises(ValueError, match="mask_suffixes were removed"):
+    with pytest.raises(TypeError, match="mask_suffixes"):
         run_patching_condition_repeat_tree(img_dir, mask_root_path=mask_dir, mask_suffixes=("_mask",))
-    with pytest.raises(TypeError, match=r"unknown option\(s\) \['colour'\]"):
-        validate_image_and_mask_folders(img_dir, mask_dir, colour="red")
 
 
 def test_the_former_matchers_are_gone():

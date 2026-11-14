@@ -36,12 +36,7 @@ def save_metadata_csv(patches, csv_path):
     path = Path(csv_path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    # The CSV header follows PatchRegion's own field order, with the
-    # computed height/width convenience columns inserted right after the
-    # x1 coordinate they're derived from (rather than tacked on at the end).
-    header = [f.name for f in fields(PatchRegion) if f.name not in _NOT_COLUMNS]
-    x1_index = header.index("x1")
-    header = header[: x1_index + 1] + ["height", "width"] + header[x1_index + 1 :]
+    header = written_columns()
     exact_index = header.index("normalization_exact")
     header = header[: exact_index + 1] + normalization_columns(patches) + header[exact_index + 1 :]
     header += mask_fraction_columns(patches)
@@ -55,6 +50,18 @@ def save_metadata_csv(patches, csv_path):
             if isinstance(row.get("normalization_exact"), bool):
                 row["normalization_exact"] = "true" if row["normalization_exact"] else "false"
             writer.writerow({k: row.get(k) for k in header})
+
+
+def written_columns() -> list[str]:
+    """Return the columns every ``patches.csv`` has, in order: the ``PatchRegion`` fields and ``height``/``width``.
+
+    The header follows PatchRegion's own field order, with the computed height/width convenience
+    columns right after the x1 coordinate they are derived from. :func:`save_metadata_csv` adds the
+    normalization columns of normalized patches and the ``mask_fraction_<name>`` columns.
+    """
+    header = [f.name for f in fields(PatchRegion) if f.name not in _NOT_COLUMNS]
+    x1_index = header.index("x1")
+    return header[: x1_index + 1] + ["height", "width"] + header[x1_index + 1 :]
 
 
 def mask_fraction_columns(patches) -> list[str]:
@@ -218,13 +225,8 @@ class PatchTableError(ValueError):
     """A ``patches.csv`` cannot be read back as patches; the message lists every problem with its line."""
 
 
-# Columns of tables written by earlier CellPatcher versions, read but not fields themselves:
-# the ;-separated parameters of tables before 2026-10-28 (normalization brick N47).
-_LEGACY_PARAMETER_COLUMNS = ("normalization_offset", "normalization_scale")
-# Columns that are not PatchRegion fields: the computed size, the legacy parameters and the parameters' records.
-_OTHER_COLUMNS = {
-    "height", "width", *_LEGACY_PARAMETER_COLUMNS, PARAMETERS_VERSION_COLUMN, NORMALIZATION_CHANNELS_COLUMN,
-}
+# Columns that are not PatchRegion fields: the computed size and the parameters' records.
+_OTHER_COLUMNS = {"height", "width", PARAMETERS_VERSION_COLUMN, NORMALIZATION_CHANNELS_COLUMN}
 _INTEGER_TEXT = re.compile(r"[+-]?[0-9]+")
 # A per-channel parameter column: Normalization_Offset_<ID> or Normalization_Scale_<ID>, the ID a Spec Token.
 _PARAMETER_COLUMN = re.compile(r"Normalization_(Offset|Scale)_[A-Za-z][A-Za-z0-9]*(?:_[A-Za-z0-9]+)*")
@@ -387,12 +389,10 @@ def read_patch_table(csv_path) -> tuple[list[PatchRegion], dict | None]:
     ``normalization_parameters_version`` give ``normalization_parameters``, read with
     the normalization settings of the run config, and ``normalization_channels`` the
     patch's channel IDs in its C order (tables written before normalization v0.5.0,
-    with ``..._C<i>`` columns or the ``;``-separated ``normalization_offset``, are
-    refused row by row: run CellPatcher again). A ``repeat`` column of a
-    table written before the rename is read as ``biological_repeat`` with a
-    ``DeprecationWarning``. A column CellPatcher does not write, and two rows
-    with one ``patch_id``, are refused. A column the table lacks (a table
-    written before it was added) leaves the field at its default. The
+    with ``..._C<i>`` columns, are refused row by row: run CellPatcher again). A
+    column CellPatcher does not write (``repeat`` among them), a table without
+    one of the columns every ``patches.csv`` has (:func:`written_columns`), and
+    two rows with one ``patch_id`` are refused: nothing is defaulted. The
     table's structure is checked first: an unclosed quote, a row with fewer
     or more cells than the header, and a repeated or padded column name are
     refused, naming the line or column, never filled in or shifted.
@@ -415,7 +415,7 @@ def read_patch_table(csv_path) -> tuple[list[PatchRegion], dict | None]:
         If the table does not exist.
     PatchTableError
         (a ``ValueError``) listing every problem: a missing column
-        (``patch_id``, ``y0``, ``y1``, ``x0``, ``x1``), a cell that is not of
+        (any of :func:`written_columns`), a cell that is not of
         its field's type, a rectangle that is not one, an unknown or
         duplicate column, a column name with leading or trailing whitespace,
         an unclosed quote (or a cell holding a line break), a row with fewer
@@ -423,15 +423,12 @@ def read_patch_table(csv_path) -> tuple[list[PatchRegion], dict | None]:
         file that is missing, not a JSON object, or not the same for every
         row; each with its line or column.
     """
-    from cellpatcher._deprecation import upgrade_legacy_repeat_column
-
     path = Path(csv_path).expanduser()
     if not path.is_file():
         raise FileNotFoundError(f"The patch table {path} does not exist.")
     header, rows = _table_cells(path)
     lines = [line for line, _ in rows]
-    rows = upgrade_legacy_repeat_column(header, [row for _, row in rows], str(path))
-    header = ["biological_repeat" if name == "repeat" and "biological_repeat" not in header else name for name in header]
+    rows = [row for _, row in rows]
 
     kinds = _field_kinds()
     problems: list[str] = []
@@ -445,7 +442,7 @@ def read_patch_table(csv_path) -> tuple[list[PatchRegion], dict | None]:
     ]
     if unknown:
         problems.append(f"columns CellPatcher does not write: {unknown}")
-    missing = [name for name in ("patch_id", "y0", "y1", "x0", "x1") if name not in header]
+    missing = [name for name in written_columns() if name not in header]
     if missing:
         problems.append(f"missing columns {missing}")
     if problems:
@@ -474,7 +471,7 @@ def read_patch_table(csv_path) -> tuple[list[PatchRegion], dict | None]:
             values["mask_fractions"] = fractions
         has_parameters = any(
             row[name] for name in header
-            if name in _LEGACY_PARAMETER_COLUMNS or name.startswith("Normalization_")
+            if name.startswith("Normalization_")
         )
         if has_parameters:
             if run_config is None:

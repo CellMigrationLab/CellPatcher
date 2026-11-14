@@ -4,7 +4,7 @@ Reads a clean preprocessing run through the brick's ``RunInputs`` (design
 v0.4 §6) and runs the checks of ``docs/normalization_contract.md`` §5, which
 block a run before any patch is normalized:
 
-- :func:`load_plane_statistics` (from :mod:`cellpatcher.run_open`) opens the
+- :func:`cellpatcher.run_open.load_plane_statistics` opens the
   run that wrote ``plane_histograms.csv`` with ``RunInputs.open``, which
   refuses a run before v0.4.0, a table or design whose SHA-256 is not the
   manifest's, and an image or mask changed since the run;
@@ -31,15 +31,8 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from cellpatcher import run_open as _run_open
 from cellpatcher.axes import normalize_axes
 from cellpatcher.io import SINGLE_CONDITION_LABEL as SINGLE_LABEL
-
-# Opening the run moved to cellpatcher.run_open (CP-2a); re-exported here.
-load_plane_statistics = _run_open.load_plane_statistics
-open_run = _run_open.open_run
-recorded_image_type = _run_open.recorded_image_type
-statistics_of = _run_open.statistics_of
 
 if TYPE_CHECKING:
     from morphobricks_normalization import PlaneRecord
@@ -267,7 +260,7 @@ class ChannelRecord:
 
 @dataclass(frozen=True, eq=False)
 class PlaneStatistics:
-    """The preprocessing outputs of one experiment, as loaded by :func:`load_plane_statistics`.
+    """The preprocessing outputs of one experiment, as loaded by :func:`~cellpatcher.run_open.load_plane_statistics`.
 
     Attributes
     ----------
@@ -342,7 +335,7 @@ def check_images(
     Parameters
     ----------
     statistics
-        From :func:`load_plane_statistics`.
+        From :func:`~cellpatcher.run_open.load_plane_statistics`.
     image_axes
         CellPatcher's axes of each image as read (``common.image_axes``,
         e.g. ``"ZYX"``), keyed by ``source_relative_path``.
@@ -406,8 +399,8 @@ def check_planes(
     """Link each patched plane to its row and run the per-plane checks of contract §5.
 
     For every plane, a row with its ``plane_id`` holding its channel must exist, with the same
-    ``condition``, ``biological_repeat`` and ``technical_repeat`` (and ``position_id``, when both the
-    plane and the row have one), the same
+    ``condition``, ``biological_repeat`` and ``technical_repeat`` (and ``position_id``, when the
+    plane has one), the same
     ``dtype`` and ``total_pixel_count`` (Y × X), and the plane's exact finite
     minimum, maximum and finite pixel count equal to ``pixel_min``,
     ``pixel_max`` and ``valid_pixel_count``. Run :func:`check_images` first:
@@ -416,7 +409,7 @@ def check_planes(
     Parameters
     ----------
     statistics
-        From :func:`load_plane_statistics`.
+        From :func:`~cellpatcher.run_open.load_plane_statistics`.
     planes
         ``(plane, pixels)`` pairs, ``pixels`` being the plane's 2D (Y, X)
         array as CellPatcher patches it. May be a generator, so only one
@@ -455,11 +448,10 @@ def check_planes(
                 f"{plane.name} (CellPatcher {_labels_text(plane.labels)}, "
                 f"table {_labels_text(record_labels)})"
             )
-        # The FOV key (D85) must be the table's too. A row written before the
-        # preprocessing brick filled position_id has none, and a plane given
-        # without one is not compared: neither is guessed.
+        # The FOV key (D85) must be the table's too. A plane given without a
+        # position_id is not compared: none is guessed.
         record_position = record.record.position_id
-        if plane.position_id is not None and record_position is not None and plane.position_id != record_position:
+        if plane.position_id is not None and plane.position_id != record_position:
             failures["position_mismatch"].append(
                 f"{plane.name} (CellPatcher {plane.position_id!r}, table {record_position!r})"
             )

@@ -15,13 +15,13 @@ import pytest
 
 from cellpatcher.config import CellPatcherConfig, GridConfig
 from cellpatcher.orchestration import run_patching_condition_repeat_tree
+from cellpatcher.run_open import load_plane_statistics
 from cellpatcher.statistics import (
     INSTALL_COMMAND,
     PreprocessingCheckError,
     SourcePlane,
     check_images,
     check_planes,
-    load_plane_statistics,
 )
 from tests.helpers import run_described
 

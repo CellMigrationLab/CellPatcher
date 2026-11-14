@@ -33,9 +33,9 @@ from cellpatcher.normalization import (
     Normalizer,
     finish_patch_groups,
     resolved_patch_region,
-    split_channel_normalization,
     validate_normalization,
 )
+from cellpatcher.patch_normalization import split_channel_normalization
 from cellpatcher.run_config_file import run_config_data
 from cellpatcher.run_session import one_session
 from cellpatcher.statistics import _preprocessing
@@ -155,16 +155,15 @@ def _check_channel_identity(config: CellPatcherConfig, meta, index: int) -> None
     ``extraction.split_channels`` for each channel of a multichannel image; never both, since
     the split would silently overwrite the identity the caller gave (and seeded with). Likewise
     ``t``/``z`` either name the plane an image is, or come from ``t_policy``/``z_policy``
-    (one plane per index, a chosen plane, or a projection over the axis, which is no single
-    plane): a supplied index with any policy but ``"keep"`` is refused.
+    (one plane per index, or a chosen plane): a supplied index with any policy but ``"keep"``
+    is refused.
     """
     for axis in ("t", "z"):
         policy = getattr(config.common, f"{axis}_policy")
         if policy != "keep" and plane_index(meta, axis) is not None:
             raise ValueError(
                 f"image_metadata gives {axis}={meta[axis]!r} for image {index}, but "
-                f"{axis}_policy={policy!r} also decides its planes (a projection is no single "
-                "plane); use one or the other."
+                f"{axis}_policy={policy!r} also decides its planes; use one or the other."
             )
     if config.extraction.split_channels and plane_index(meta, "c") is not None:
         raise ValueError(
@@ -587,7 +586,7 @@ def _build_result(
         # Split after extraction/masking/resizing so each region is cropped once; filters saw the whole region.
         split = _split_channel_patches(config, image_list, patches, patch_arrays_internal, metadata)
         patches, patch_arrays_internal = split
-    stamp_channel_ids(image_metadata, patches)
+    stamp_channel_ids(image_metadata, patches, image_list, config.common.image_axes)
     _stamp_output_dimensions(config, patches, patch_arrays_internal)
     n_patches = _count_by_image(patches)
     for record in records:

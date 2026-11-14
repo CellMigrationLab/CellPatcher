@@ -14,7 +14,8 @@ import pytest
 
 from cellpatcher.config import CellPatcherConfig, GridConfig
 from cellpatcher.orchestration import run_patching_condition_repeat_tree
-from cellpatcher.statistics import PreprocessingCheckError, load_plane_statistics
+from cellpatcher.run_open import load_plane_statistics
+from cellpatcher.statistics import PreprocessingCheckError
 from tests.helpers import run_described
 from tests.test_statistics import STACK_IMAGES, _codes, _preprocess, _write_tiff
 

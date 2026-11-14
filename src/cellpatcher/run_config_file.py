@@ -19,9 +19,8 @@ when a preprocessing run was read, a ``preprocessing`` section:
 
 A folder or tree run does not record ``common.image_axes``, ``mask_axes`` or the labels: they
 are the run's, not settings (each patch's labels are in ``patches.csv``), so the file loads back
-as a config a file run accepts. Version 1 is a ``run_config.json`` written before v0.2.0, or a
-config file without a version (:func:`cellpatcher.save_default_config`). Any other version is
-refused by every reader.
+as a config a file run accepts. Config files (:func:`cellpatcher.save_default_config`) carry the
+same version. Every reader refuses any other version, and a file without one.
 """
 
 from __future__ import annotations
@@ -48,13 +47,8 @@ from cellpatcher.normalization import CSV_SCOPES, normalization_inputs, run_sett
 from cellpatcher.run_open import refuse_changed_manifest
 from cellpatcher.run_request import PARENT_LABELS_AS_AREA
 from cellpatcher.run_session import recalled, recalled_layouts
-from cellpatcher.setting_checks import REMOVED_NORMALIZATION_SCOPES
 
 RUN_CONFIG_VERSION = 2
-READ_VERSIONS = (1, RUN_CONFIG_VERSION)
-
-# Settings removed in v0.2.0 (CP-2b), with the value that had no effect.
-_REMOVED_COMMON = {"mask_source": "tiff_tree", "mask_label_name": None}
 
 # The common settings a folder or tree run takes from the preprocessing run, not recorded.
 _RUN_SETTINGS = ("image_axes", "mask_axes", "condition", "biological_repeat", "technical_repeat")
@@ -124,14 +118,20 @@ def run_config_version(data: Mapping, where: str) -> int:
     Raises
     ------
     ValueError
-        For a ``run_config_version`` other than 1 or 2.
+        For a ``run_config_version`` other than 2, or none.
     """
-    version = data.get("run_config_version", 1)
-    if type(version) is not int or version not in READ_VERSIONS:
+    if "run_config_version" not in data:
         raise ValueError(
-            f"{where} has run_config_version {version!r}; this CellPatcher reads versions "
-            f"{', '.join(map(str, READ_VERSIONS))}. It was written by another CellPatcher version: read it with "
-            "that version, or run the patching again."
+            f"{where} has no run_config_version; this CellPatcher reads version {RUN_CONFIG_VERSION} only. "
+            f"Add \"run_config_version\": {RUN_CONFIG_VERSION} to a config file you wrote, or save it again "
+            "with save_default_config/save_config_for_mode; run the patching again for an older run."
+        )
+    version = data["run_config_version"]
+    if type(version) is not int or version != RUN_CONFIG_VERSION:
+        raise ValueError(
+            f"{where} has run_config_version {version!r}; this CellPatcher reads version {RUN_CONFIG_VERSION} "
+            "only. It was written by another CellPatcher version: read it with that version, or run the "
+            "patching again."
         )
     return version
 
@@ -140,7 +140,7 @@ def config_from_dict(data: Mapping, where: str = "The config") -> CellPatcherCon
     """Build a config from the content of a config or ``run_config.json`` file (other keys are ignored).
 
     Each section is built only when present (a mode-specific save leaves others out), otherwise
-    from its defaults; a file written before normalization existed means it was off.
+    from its defaults. A key a section does not have is refused (``TypeError``).
 
     Raises
     ------
@@ -160,48 +160,8 @@ def config_from_dict(data: Mapping, where: str = "The config") -> CellPatcherCon
         "matching": MatchConfig,
         "normalization": NormalizationConfig,
     }
-    data = {**data, "common": _without_removed_settings(data.get("common", {}), where)}
-    if "normalization" in data:
-        data["normalization"] = _without_experiment_design(data["normalization"], where)
     built = {name: kind(**data[name]) if name in data else kind() for name, kind in sections.items()}
     return CellPatcherConfig(mode=data.get("mode", "cell"), **built)
-
-
-def _without_removed_settings(common: Mapping, where: str) -> dict:
-    """Return the ``common`` section without the settings removed in v0.2.0, refusing one that was used.
-
-    ``mask_source`` and ``mask_label_name`` chose where folder and tree runs read masks; a file
-    written before v0.2.0 holds their defaults, which had no effect and are left out.
-    """
-    common = dict(common)
-    for name, default in _REMOVED_COMMON.items():
-        value = common.pop(name, default)
-        if value != default:
-            raise ValueError(
-                f"{where}: common.{name}={value!r} was removed in CellPatcher v0.2.0: a folder or tree run reads "
-                "the masks its preprocessing run paired, masks-folder TIFFs and OME-Zarr label images alike. "
-                "Remove it and choose the mask type with matching.mask_type (a label image's type is its name)."
-            )
-    return common
-
-
-def _without_experiment_design(normalization: Mapping, where: str) -> dict:
-    """Return the ``normalization`` section without ``experiment_design``, refusing one that names a file.
-
-    The ``biological_repeat`` scope pools by the repeat groups of the run's published description
-    (Spec ADR 0002 AR11 (3)); the derived ``experiment_design.csv`` is never read back. A file
-    written before holds its default, None, which is left out.
-    """
-    normalization = dict(normalization)
-    value = normalization.pop("experiment_design", None)
-    if value is not None:
-        raise ValueError(
-            f"{where}: normalization.experiment_design={value!r} was removed: the biological_repeat scope "
-            "pools the repeat groups of the preprocessing run's published description, never the derived "
-            "experiment_design.csv. Remove the setting; describe the experiment in the preprocessing notebook "
-            "if the run has no description."
-        )
-    return normalization
 
 
 def delivery_config(data: Mapping, where: str, source: str | None = None) -> CellPatcherConfig:
@@ -209,9 +169,7 @@ def delivery_config(data: Mapping, where: str, source: str | None = None) -> Cel
 
     A folder or tree run's arrays are in its recorded ``preprocessing.layout``, put back into
     ``common.image_axes``/``mask_axes`` (the axes of its patches): the layout of the image at
-    *source* (a patch's ``source_relative_path``) when the run recorded one per image. A run normalized at a scope
-    removed since (``condition``, ``technical_repeat``; normalization brick N29) still loads: its
-    parameters are in ``patches.csv``, and only the patch axes are needed.
+    *source* (a patch's ``source_relative_path``) when the run recorded one per image.
 
     Raises
     ------
@@ -219,9 +177,6 @@ def delivery_config(data: Mapping, where: str, source: str | None = None) -> Cel
         If the run recorded a layout per image and *source* is not one of its images: the run's
         union of axes is not that patch's layout, so none is guessed.
     """
-    normalization = data.get("normalization")
-    if isinstance(normalization, Mapping) and normalization.get("scope") in REMOVED_NORMALIZATION_SCOPES:
-        data = {**data, "normalization": {**normalization, "scope": "image"}}
     config = config_from_dict(data, where)
     layout = (data.get("preprocessing") or {}).get("layout")
     if layout is not None:
