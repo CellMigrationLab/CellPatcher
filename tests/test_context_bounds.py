@@ -123,7 +123,12 @@ def test_random_rectangles_and_margins():
             0 <= kept <= asked
             for kept, asked in zip(record.margin_clipped, record.margin_requested, strict=True)
         )
-        # A side is clipped only where the plane edge cuts it.
+        # The margin kept is exactly what lies between the patch and the window, and a side is
+        # clipped only where the plane edge cuts it.
+        assert record.margin_clipped == (y0 - cy0, cy1 - y1, x0 - cx0, cx1 - x1)
+        assert (cy0, cy1, cx0, cx1) == (
+            max(0, y0 - my), min(height, y1 + my), max(0, x0 - mx), min(width, x1 + mx)
+        )
         top, bottom, left, right = record.margin_clipped
         assert top == my or cy0 == 0
         assert bottom == my or cy1 == height
@@ -133,3 +138,92 @@ def test_random_rectangles_and_margins():
         origin_y, origin_x = record.origin
         assert (ly0 + origin_y, ly1 + origin_y, lx0 + origin_x, lx1 + origin_x) == (y0, y1, x0, x1)
         assert 0 <= ly0 < ly1 <= cy1 - cy0 and 0 <= lx0 < lx1 <= cx1 - cx0
+
+
+# Partly clipped sides, corners, a whole-plane patch and a margin wider than the plane, each with
+# every field written out (review N, B2): bounds, margin, shape -> context_bounds, margin_clipped,
+# local_interior.
+EXACT = {
+    "top partly clipped": (
+        (2, 10, 20, 30), (5, 3), (100, 100), (0, 15, 17, 33), (2, 5, 3, 3), (2, 10, 3, 13)
+    ),
+    "bottom partly clipped": (
+        (90, 98, 20, 30), (5, 3), (100, 100), (85, 100, 17, 33), (5, 2, 3, 3), (5, 13, 3, 13)
+    ),
+    "left partly clipped": (
+        (20, 30, 1, 10), (3, 4), (100, 100), (17, 33, 0, 14), (3, 3, 1, 4), (3, 13, 1, 10)
+    ),
+    "right partly clipped": (
+        (20, 30, 90, 99), (3, 4), (100, 100), (17, 33, 86, 100), (3, 3, 4, 1), (3, 13, 4, 13)
+    ),
+    "top-left corner": ((1, 5, 2, 6), (3, 4), (50, 60), (0, 8, 0, 10), (1, 3, 2, 4), (1, 5, 2, 6)),
+    "top-right corner": (
+        (1, 5, 55, 59), (3, 4), (50, 60), (0, 8, 51, 60), (1, 3, 4, 1), (1, 5, 4, 8)
+    ),
+    "bottom-left corner": (
+        (46, 49, 2, 6), (3, 4), (50, 60), (43, 50, 0, 10), (3, 1, 2, 4), (3, 6, 2, 6)
+    ),
+    "bottom-right corner": (
+        (46, 49, 55, 59), (3, 4), (50, 60), (43, 50, 51, 60), (3, 1, 4, 1), (3, 6, 4, 8)
+    ),
+    "whole plane": ((0, 50, 0, 60), (7, 9), (50, 60), (0, 50, 0, 60), (0, 0, 0, 0), (0, 50, 0, 60)),
+    "margin wider than the plane": (
+        (10, 20, 30, 40), (500, 500), (50, 60), (0, 50, 0, 60), (10, 30, 30, 20), (10, 20, 30, 40)
+    ),
+}
+
+
+@pytest.mark.parametrize("case", EXACT.values(), ids=list(EXACT))
+def test_exact_windows_at_edges_and_corners(case):
+    bounds, (my, mx), shape, window, kept, interior = case
+    record = context_bounds(bounds, (my, mx), shape)
+    assert record == WindowRecord(
+        context_bounds=window,
+        origin=(window[0], window[2]),
+        margin_requested=(my, my, mx, mx),
+        margin_clipped=kept,
+        local_interior=interior,
+        plane_shape=shape,
+    )
+
+
+VALID = {
+    "context_bounds": (8, 22, 28, 42),
+    "origin": (8, 28),
+    "margin_requested": (2, 2, 2, 2),
+    "margin_clipped": (2, 2, 2, 2),
+    "local_interior": (2, 12, 2, 12),
+    "plane_shape": (100, 100),
+}
+
+
+def test_a_record_built_directly_is_checked_and_equals_the_computed_one():
+    assert WindowRecord(**VALID) == context_bounds((10, 20, 30, 40), (2, 2), (100, 100))
+
+
+@pytest.mark.parametrize("field, value", [
+    ("context_bounds", [8, 22, 28, 42]),  # a list could be changed after the check
+    ("origin", (np.int64(8), 28)),
+    ("margin_requested", (2, 2, 2, True)),
+    ("margin_clipped", (2.0, 2, 2, 2)),
+    ("local_interior", (2, 12, 2)),
+    ("plane_shape", None),
+])
+def test_a_record_of_other_types_is_refused(field, value):
+    with pytest.raises(TypeError, match=field):
+        WindowRecord(**{**VALID, field: value})
+
+
+@pytest.mark.parametrize("field, value", [
+    ("context_bounds", (0, 22, 28, 42)),
+    ("origin", (99, 99)),
+    ("margin_requested", (2, 3, 2, 2)),  # not (my, my, mx, mx)
+    ("margin_requested", (3, 3, 2, 2)),
+    ("margin_clipped", (0, 2, 2, 2)),
+    ("local_interior", (2, 12, 2, 13)),
+    ("plane_shape", (100, 41)),
+    ("plane_shape", (100, 30)),  # the patch would leave the plane
+])
+def test_a_record_whose_fields_disagree_is_refused(field, value):
+    with pytest.raises(PatchBoundsError):
+        WindowRecord(**{**VALID, field: value})

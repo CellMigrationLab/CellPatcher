@@ -57,9 +57,14 @@ Pin preprocessing v0.4.0rc4; prepare v0.2.0rc2
   `margin_requested` and `margin_clipped` (top, bottom, left, right) and `local_interior` (the patch in
   window-local coordinates). Non-integer values (floats, booleans) are a `TypeError`; a negative margin,
   a non-positive shape and bounds that are not a non-empty rectangle inside the plane are a
-  `PatchBoundsError` (a `ValueError`). MorphoFeature's windowed execution will take its windows from
+  `PatchBoundsError` (a `ValueError`). A `WindowRecord` built directly is checked the same way: each
+  field must be a tuple of plain `int` (a list, a NumPy scalar or a boolean is a `TypeError`), and every
+  field must equal what `context_bounds` gives for its patch (`origin + local_interior`), margin and
+  plane (else `PatchBoundsError`). MorphoFeature's windowed execution will take its windows from
   here (it computes no geometry). The tests reproduce the Spec's reference cases
-  (`tools/test_execution_frames.py` at Spec `b7b74f4`) and check random rectangles and margins.
+  (`tools/test_execution_frames.py` at Spec `b7b74f4`), give every field of partly clipped sides,
+  the four corners, a whole-plane patch and a margin wider than the plane, and check random rectangles
+  and margins against the exact formulas.
   Documented in `docs/api_examples.md` ("Patch geometry for other bricks"). No existing behaviour or
   output changes.
 

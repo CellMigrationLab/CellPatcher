@@ -119,6 +119,55 @@ class WindowRecord:
     local_interior: tuple[int, int, int, int]
     plane_shape: tuple[int, int]
 
+    def __post_init__(self) -> None:
+        """Refuse a record that :func:`context_bounds` would not return for its own patch.
+
+        Every field is a tuple of plain ``int`` (not a list, a NumPy scalar or a boolean), the
+        requested margin is ``(my, my, mx, mx)``, and every field equals what
+        :func:`context_bounds` gives for the patch ``origin + local_interior``, that margin and
+        ``plane_shape``. So a record built directly is immutable and consistent.
+        """
+        for name, count in _RECORD_FIELDS.items():
+            values = getattr(self, name)
+            if type(values) is not tuple or len(values) != count or any(type(v) is not int for v in values):
+                raise TypeError(f"WindowRecord.{name} must be a tuple of {count} plain ints, got {values!r}")
+        top, bottom, left, right = self.margin_requested
+        if top != bottom or left != right:
+            raise PatchBoundsError(f"margin_requested {self.margin_requested} is not (my, my, mx, mx)")
+        (oy, ox), (ly0, ly1, lx0, lx1) = self.origin, self.local_interior
+        expected = _window_fields((oy + ly0, oy + ly1, ox + lx0, ox + lx1), top, left, self.plane_shape)
+        wrong = [name for name, value in expected.items() if getattr(self, name) != value]
+        if wrong:
+            raise PatchBoundsError(f"WindowRecord fields {wrong} disagree with its patch, margin and plane")
+
+
+_RECORD_FIELDS = {
+    "context_bounds": 4,
+    "origin": 2,
+    "margin_requested": 4,
+    "margin_clipped": 4,
+    "local_interior": 4,
+    "plane_shape": 2,
+}
+
+
+def _window_fields(
+    bounds: tuple[int, ...] | list[int], my: int, mx: int, shape: tuple[int, int]
+) -> dict[str, tuple[int, ...]]:
+    """Return the fields of the window record of a checked patch (ADR 0004 formulas)."""
+    height, width = shape
+    y0, y1, x0, x1 = check_patch_bounds(bounds, shape)
+    window = (max(0, y0 - my), min(height, y1 + my), max(0, x0 - mx), min(width, x1 + mx))
+    origin_y, origin_x = window[0], window[2]
+    return {
+        "context_bounds": window,
+        "origin": (origin_y, origin_x),
+        "margin_requested": (my, my, mx, mx),
+        "margin_clipped": (y0 - window[0], window[1] - y1, x0 - window[2], window[3] - x1),
+        "local_interior": (y0 - origin_y, y1 - origin_y, x0 - origin_x, x1 - origin_x),
+        "plane_shape": (height, width),
+    }
+
 
 def _integer_tuple(name: str, values: object, count: int) -> tuple[int, ...]:
     if not isinstance(values, (tuple, list)) or len(values) != count:
@@ -162,14 +211,4 @@ def context_bounds(
     height, width = _plane_shape(_integer_tuple("shape", shape, 2))
     if my < 0 or mx < 0:
         raise PatchBoundsError(f"a context margin is never negative, got {tuple(margin)!r}")
-    y0, y1, x0, x1 = check_patch_bounds(bounds, (height, width))
-    window = (max(0, y0 - my), min(height, y1 + my), max(0, x0 - mx), min(width, x1 + mx))
-    origin_y, origin_x = window[0], window[2]
-    return WindowRecord(
-        context_bounds=window,
-        origin=(origin_y, origin_x),
-        margin_requested=(my, my, mx, mx),
-        margin_clipped=(y0 - window[0], window[1] - y1, x0 - window[2], window[3] - x1),
-        local_interior=(y0 - origin_y, y1 - origin_y, x0 - origin_x, x1 - origin_x),
-        plane_shape=(height, width),
-    )
+    return WindowRecord(**_window_fields(bounds, my, mx, (height, width)))
