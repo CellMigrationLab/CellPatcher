@@ -154,7 +154,13 @@ _RECORD_FIELDS = {
 def _window_fields(
     bounds: tuple[int, ...] | list[int], my: int, mx: int, shape: tuple[int, int]
 ) -> dict[str, tuple[int, ...]]:
-    """Return the fields of the window record of a checked patch (ADR 0004 formulas)."""
+    """Return the fields of the window record of a checked patch (ADR 0004 formulas).
+
+    A negative margin is refused here, so neither :func:`context_bounds` nor a record built
+    directly can hold a window smaller than its patch.
+    """
+    if my < 0 or mx < 0:
+        raise PatchBoundsError(f"a context margin is never negative, got {(my, mx)!r}")
     height, width = shape
     y0, y1, x0, x1 = check_patch_bounds(bounds, shape)
     window = (max(0, y0 - my), min(height, y1 + my), max(0, x0 - mx), min(width, x1 + mx))
@@ -209,6 +215,4 @@ def context_bounds(
     _integer_tuple("bounds", bounds, 4)
     my, mx = _integer_tuple("margin", margin, 2)
     height, width = _plane_shape(_integer_tuple("shape", shape, 2))
-    if my < 0 or mx < 0:
-        raise PatchBoundsError(f"a context margin is never negative, got {tuple(margin)!r}")
     return WindowRecord(**_window_fields(bounds, my, mx, (height, width)))

@@ -227,3 +227,16 @@ def test_a_record_of_other_types_is_refused(field, value):
 def test_a_record_whose_fields_disagree_is_refused(field, value):
     with pytest.raises(PatchBoundsError):
         WindowRecord(**{**VALID, field: value})
+
+
+def test_a_record_with_a_negative_margin_is_refused():
+    """Review O: consistent fields for margin -2 describe a window smaller than its patch."""
+    with pytest.raises(PatchBoundsError, match="never negative"):
+        WindowRecord(
+            context_bounds=(12, 18, 30, 40),
+            origin=(12, 30),
+            margin_requested=(-2, -2, 0, 0),
+            margin_clipped=(-2, -2, 0, 0),
+            local_interior=(-2, 8, 0, 10),
+            plane_shape=(100, 100),
+        )
