@@ -385,6 +385,7 @@ helpers check and grow such rectangles; they read no pixel and never convert a v
   | `margin_requested` | `(my, my, mx, mx)` (top, bottom, left, right) |
   | `margin_clipped` | the margin kept per side; equal to the requested one except where the plane edge cuts it |
   | `local_interior` | the patch in window-local coordinates: `bounds` minus `origin` per axis |
+  | `plane_shape` | `(height, width)` of the plane the window lies in |
 
   Every argument holds Python or NumPy integers: a float (even `1.0`) or boolean is a `TypeError`;
   a negative margin, a shape that is not positive, or bounds that are not a non-empty rectangle inside

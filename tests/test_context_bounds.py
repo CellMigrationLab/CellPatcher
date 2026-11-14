@@ -22,6 +22,7 @@ def test_an_interior_patch_keeps_its_whole_margin():
     assert record.margin_requested == (67, 67, 67, 67)
     assert record.margin_clipped == (67, 67, 67, 67)
     assert record.local_interior == (67, 323, 67, 323)
+    assert record.plane_shape == (1024, 1024)
 
 
 def test_the_plane_edge_clips_and_records():
@@ -87,10 +88,11 @@ def test_numpy_integers_are_accepted_and_the_record_holds_plain_ints():
         margin_requested=(3, 3, 1, 1),
         margin_clipped=(2, 2, 1, 1),
         local_interior=(2, 6, 1, 4),
+        plane_shape=(8, 5),
     )
     values = [v for field in (
         record.context_bounds, record.origin, record.margin_requested,
-        record.margin_clipped, record.local_interior,
+        record.margin_clipped, record.local_interior, record.plane_shape,
     ) for v in field]
     assert all(type(v) is int for v in values)
 

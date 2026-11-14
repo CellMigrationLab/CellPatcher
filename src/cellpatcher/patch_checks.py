@@ -108,6 +108,8 @@ class WindowRecord:
     local_interior
         ``(y0, y1, x0, x1)`` of the patch in window-local coordinates (the
         patch bounds minus ``origin``).
+    plane_shape
+        ``(height, width)`` of the plane the window lies in (ADR 0004 EW4).
     """
 
     context_bounds: tuple[int, int, int, int]
@@ -115,6 +117,7 @@ class WindowRecord:
     margin_requested: tuple[int, int, int, int]
     margin_clipped: tuple[int, int, int, int]
     local_interior: tuple[int, int, int, int]
+    plane_shape: tuple[int, int]
 
 
 def _integer_tuple(name: str, values: object, count: int) -> tuple[int, ...]:
@@ -168,4 +171,5 @@ def context_bounds(
         margin_requested=(my, my, mx, mx),
         margin_clipped=(y0 - window[0], window[1] - y1, x0 - window[2], window[3] - x1),
         local_interior=(y0 - origin_y, y1 - origin_y, x0 - origin_x, x1 - origin_x),
+        plane_shape=(height, width),
     )
