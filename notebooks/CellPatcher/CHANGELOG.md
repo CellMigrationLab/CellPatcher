@@ -46,7 +46,17 @@ Release v0.3.0
 Pin preprocessing v0.4.0rc4; prepare v0.2.0rc2
 
 ---
-## [Unreleased] - `context_bounds`: the execution window of a patch (Spec ADR 0004, one-route PR 2)
+## [0.6.1] - 2026-11-14 - `context_bounds` (Spec ADR 0004); preprocessing v0.5.5, normalization v0.6.1
+
+An additive release: one new public function and its record; nothing that existed changes.
+
+### Changed
+- Pins preprocessing `v0.5.5` (core and `zarr` extra; was `v0.5.3`) and normalization `v0.6.1` (was
+  `v0.6.0`), the tag preprocessing v0.5.5 pins (owner decision D-h). Preprocessing v0.5.4 added the
+  RGB header override (Spec RH1) and mask-only requests on RGB units, and v0.5.5 is a pin release.
+  Normalization v0.6.1 adds `stain.check_options`. CellPatcher's own code does not change for them;
+  through the preprocessing resolver it calls, a request that names only masks on an RGB unit is now
+  accepted (experiment-v1 section 8).
 
 ### Added
 - `cellpatcher.context_bounds(bounds, margin, shape)` and its result `cellpatcher.WindowRecord`
