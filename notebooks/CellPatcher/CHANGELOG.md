@@ -60,6 +60,17 @@ Release v0.3.0
 Pin preprocessing v0.4.0rc4; prepare v0.2.0rc2
 
 ---
+## [Unreleased] - One policy for binary masks (Spec ADR 0005, step 3)
+
+### Changed
+- Pins normalization `v0.7.0` (was `v0.6.1`), which adds `regions.check_region` and
+  `contracts.refuse_resolver_version`, and preprocessing at commit `afbb885` (core and `zarr` extra; was
+  `v0.5.6`): Spec ADR 0005 step 2 (resolver contract version 3, `RunInputs.read_objects`). The
+  preprocessing pin is a commit only until its next release tag exists; it moves to that tag before this
+  is released (`tests/test_dependency_pins.py` accepts exactly that one commit). Normalization `v0.7.0` is
+  the tag that commit pins (D-h).
+
+---
 ## [0.6.2] - 2026-11-15 - `WindowedMask` (lazy windowed route); preprocessing v0.5.6
 
 A patch release, additive only (owner decision of 15 November 2026: patch releases for lazy loading).

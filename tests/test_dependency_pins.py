@@ -125,14 +125,24 @@ def test_the_zarr_extra_installs_the_core_preprocessing_tag():
     assert _url(zarr) == _url(_by_name(core)["morphobricks-preprocessing"])
 
 
+INTERIM_PREPROCESSING_COMMIT = "afbb8854995e1e12180ff037810276e217739f53"
+"""The one commit preprocessing may be pinned at instead of a tag: Spec ADR 0005 step 2 merged (resolver
+contract v3, ``RunInputs.read_objects``), before its release tag exists. As in Stage 2 CP-1, a commit pin
+is not a release: the pin moves to the next preprocessing tag before this branch is merged (owner
+decision), and this constant is removed with it."""
+
+
 def test_preprocessing_is_pinned_to_a_release_tag_not_a_commit():
     # Stage 2 CP-1 pinned the v0.5.0 release-candidate commit until the tag existed; a commit pin
     # is not a release, and every brick must spell the same URL (pip refuses two for one package).
+    # The only commit accepted is INTERIM_PREPROCESSING_COMMIT (ADR 0005 step 3, before the tag).
     core, extras = _setup_requirements()
     for requirement in (_by_name(core)["morphobricks-preprocessing"], *extras["zarr"]):
         repository, ref = _url(requirement).rsplit("@", 1)
         assert repository == "git+https://github.com/CellMigrationLab/morphobricks-preprocessing", requirement
-        assert re.fullmatch(r"v\d+\.\d+\.\d+", ref), f"{requirement}: pin a release tag, not {ref!r}"
+        assert re.fullmatch(r"v\d+\.\d+\.\d+", ref) or ref == INTERIM_PREPROCESSING_COMMIT, (
+            f"{requirement}: pin a release tag, not {ref!r}"
+        )
 
 
 def test_normalization_is_pinned_to_a_release_tag():
