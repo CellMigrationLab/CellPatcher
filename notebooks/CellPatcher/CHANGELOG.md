@@ -46,7 +46,15 @@ Release v0.3.0
 Pin preprocessing v0.4.0rc4; prepare v0.2.0rc2
 
 ---
-## [Unreleased] - Mask fractions from a mask window reader (`WindowedMask`)
+## [0.6.2] - 2026-11-15 - `WindowedMask` (lazy windowed route); preprocessing v0.5.6
+
+A patch release, additive only (owner decision of 15 November 2026: patch releases for lazy loading).
+
+### Changed
+- Pins preprocessing `v0.5.6` (core and `zarr` extra; was `v0.5.5`), which adds exact window reads
+  (`read_window`, `read_mask_window`, `mask_window_plan`, `plane_shape`); normalization stays `v0.6.1`, the
+  tag preprocessing v0.5.6 pins (D-h). CellPatcher's own behaviour does not change because of it.
+
 
 An additive change: one new class and one new function; nothing that existed changes.
 
