@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.6.2] - 2026-11-15
+
+### Changed
+- Version updated from 0.6.1 to 0.6.2
+
+**Commit Details:**
+- Hash: [`6f8c8710`](https://github.com/CellMigrationLab/CellPatcher/commit/6f8c87102a95b29d753e8d173ac61a2858b9ef2e)
+- Author: guijacquemet
+- Date: 2026-11-15 09:59:33 +0200
+- Message: Merge pull request #116 from CellMigrationLab/claude/release-0.6.2
+
+Release v0.6.2: WindowedMask; pins preprocessing v0.5.6 (patch)
+
+---
 ## [0.6.0] - 2026-11-14
 
 ### Changed
