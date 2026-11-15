@@ -46,6 +46,31 @@ Release v0.3.0
 Pin preprocessing v0.4.0rc4; prepare v0.2.0rc2
 
 ---
+## [Unreleased] - Mask fractions from a mask window reader (`WindowedMask`)
+
+An additive change: one new class and one new function; nothing that existed changes.
+
+### Added
+- `cellpatcher.WindowedMask(read, shape, dtype, memory_limit)` and
+  `cellpatcher.windowed_foreground_counts(mask, rectangles)` (`mask_windows`, pure). A
+  `fraction_masks` entry of `run_patching` may be a `WindowedMask` instead of an array: a reader
+  `read((y0, y1, x0, x1)) -> ndarray` (half-open `pixel_edge` bounds, plane frame, as
+  preprocessing's `RunInputs.read_mask_window`), the plane's `(height, width)`, the windows' pixel
+  type and a memory limit in bytes. Each patch's foreground count is taken from disjoint blocks of
+  the patches' bounding box, each read once and holding at most `memory_limit` bytes with its
+  boolean foreground, so each pixel is read at most once per mask and the mask is never read whole.
+  The fractions, the patches, their order and `patch_id` are bitwise those of the array path. A
+  window of another shape or type, a floating window holding NaN or infinity, a `WindowedMask` of
+  another shape than the image, a non-callable reader, a dtype that is not boolean, integer or
+  floating, and a limit below one pixel are refused (`ValueError`). CellPatcher reads no file: the
+  caller supplies the reader. For MorphoFeature's lazy windowed route, whose grid cut read its
+  fraction masks whole. Tests (`tests/test_mask_windows.py`): binary, 0/1, instances,
+  parent-label, floating and all-zero masks, across grid sides, overlaps, partial modes, plane
+  edges and memory limits (and random, cell and whole-FOV patches), equal to the bit to the array
+  path; a spy reader shows each pixel read at most once and every read under the limit.
+  Documented in `docs/api_examples.md` ("Mask fractions from a mask read by windows").
+
+---
 ## [0.6.1] - 2026-11-14 - `context_bounds` (Spec ADR 0004); preprocessing v0.5.5, normalization v0.6.1
 
 An additive release: one new public function and its record; nothing that existed changes.
