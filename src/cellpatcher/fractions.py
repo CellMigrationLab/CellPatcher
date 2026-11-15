@@ -5,6 +5,11 @@ is the number of the mask's foreground (non-zero) pixels inside the patch's
 ``y0/y1/x0/x1`` divided by the patch's area, computed exactly in integers from
 one summed-area table per mask and image. Cell patches also carry
 ``"own_object"`` (set by the cell strategy), so mask names may not be that.
+
+A mask may instead be a :class:`~cellpatcher.mask_windows.WindowedMask` (a window
+reader, the plane's shape and dtype, and a memory limit): its counts are taken from
+windows of the patches only (:func:`~cellpatcher.mask_windows.windowed_foreground_counts`),
+never from the whole plane, and the fractions are bitwise those of the array.
 """
 
 from __future__ import annotations
@@ -15,6 +20,8 @@ from collections.abc import Sequence
 from numbers import Integral, Real
 
 import numpy as np
+
+from cellpatcher.mask_windows import WindowedMask, windowed_foreground_counts
 
 OWN_OBJECT = "own_object"
 _NAME = re.compile(r"[A-Za-z0-9._-]+")
@@ -95,13 +102,14 @@ def check_strict_bool(value: object, name: str) -> None:
 
 
 def check_fraction_masks(fraction_masks, image_list, image_axes: str) -> list[dict]:
-    """The fraction masks as one ``{name: 2-D bool array}`` per image, after checking them.
+    """The fraction masks as one ``{name: 2-D bool array or WindowedMask}`` per image, after checking them.
 
     Raises
     ------
     ValueError
         If there is not one mapping per image, a name is not a plain name or
-        is ``"own_object"``, or a mask is not 2-D with the image's Y/X shape.
+        is ``"own_object"``, or a mask (or a ``WindowedMask``'s ``shape``) is
+        not 2-D with the image's Y/X shape.
     """
     from cellpatcher.strategies.base import _spatial_shape_from_axes
 
@@ -117,17 +125,23 @@ def check_fraction_masks(fraction_masks, image_list, image_axes: str) -> list[di
                     f"fraction mask name {name!r} of image {index} must be letters, digits, '.', '_' or '-', "
                     f"and not {OWN_OBJECT!r}."
                 )
-            array = np.asarray(mask)
-            if array.shape != tuple(shape):
-                raise ValueError(
-                    f"fraction mask {name!r} of image {index} has shape {array.shape}; the image's Y/X shape "
-                    f"is {tuple(shape)}."
-                )
-            if np.issubdtype(array.dtype, np.floating) and not np.isfinite(array).all():
-                raise ValueError(f"fraction mask {name!r} of image {index} holds NaN or infinity.")
-            entry[name] = array != 0
+            entry[name] = _checked_mask(mask, f"fraction mask {name!r} of image {index}", tuple(shape))
         checked.append(entry)
     return checked
+
+
+def _checked_mask(mask: object, what: str, shape: tuple) -> np.ndarray | WindowedMask:
+    """Return *mask* as its boolean foreground, or the ``WindowedMask`` itself, once its shape is the image's."""
+    if isinstance(mask, WindowedMask):
+        if mask.shape != shape:
+            raise ValueError(f"{what} is a WindowedMask of shape {mask.shape}; the image's Y/X shape is {shape}.")
+        return mask
+    array = np.asarray(mask)
+    if array.shape != shape:
+        raise ValueError(f"{what} has shape {array.shape}; the image's Y/X shape is {shape}.")
+    if np.issubdtype(array.dtype, np.floating) and not np.isfinite(array).all():
+        raise ValueError(f"{what} holds NaN or infinity.")
+    return array != 0
 
 
 def _summed_area(mask: np.ndarray) -> np.ndarray:
@@ -137,19 +151,28 @@ def _summed_area(mask: np.ndarray) -> np.ndarray:
     return table
 
 
+def _foreground_counts(mask: np.ndarray | WindowedMask, rectangles: list[tuple[int, int, int, int]]) -> list[int]:
+    """Return each rectangle's number of foreground pixels: by windows, or from the summed-area table."""
+    if isinstance(mask, WindowedMask):
+        return windowed_foreground_counts(mask, rectangles)
+    table = _summed_area(mask)
+    return [int(table[y1, x1] - table[y0, x1] - table[y1, x0] + table[y0, x0]) for y0, y1, x0, x1 in rectangles]
+
+
 def stamp_mask_fractions(patches, fraction_masks: list[dict]) -> None:
     """Add each patch's share inside its image's fraction masks to ``mask_fractions``."""
-    tables = [{name: _summed_area(mask) for name, mask in masks.items()} for masks in fraction_masks]
+    by_image: dict[int, list] = {}
     for patch in patches:
-        masks = tables[int(patch.image_id.rsplit("_", 1)[1])]
+        by_image.setdefault(int(patch.image_id.rsplit("_", 1)[1]), []).append(patch)
+    for index, image_patches in by_image.items():
+        masks = fraction_masks[index]
         if not masks:
             continue
-        area = (patch.y1 - patch.y0) * (patch.x1 - patch.x0)
-        fractions = dict(patch.mask_fractions or {})
-        for name, table in masks.items():
-            inside = (
-                table[patch.y1, patch.x1] - table[patch.y0, patch.x1] - table[patch.y1, patch.x0]
-                + table[patch.y0, patch.x0]
-            )
-            fractions[name] = int(inside) / area
-        patch.mask_fractions = fractions
+        rectangles = [(patch.y0, patch.y1, patch.x0, patch.x1) for patch in image_patches]
+        counts = {name: _foreground_counts(mask, rectangles) for name, mask in masks.items()}
+        for position, patch in enumerate(image_patches):
+            area = (patch.y1 - patch.y0) * (patch.x1 - patch.x0)
+            fractions = dict(patch.mask_fractions or {})
+            for name in masks:
+                fractions[name] = counts[name][position] / area
+            patch.mask_fractions = fractions

@@ -56,7 +56,7 @@ other bricks, is in the [CHANGELOG](notebooks/CellPatcher/CHANGELOG.md) (v0.2.0r
 Every region also records:
 - `requested_y0/y1/x0/x1`, the rectangle before clipping to the image;
 - `patch_touches_image_border`, and `object_touches_image_border` for cell patches;
-- with `run_patching(..., fraction_masks=[{name: mask}, ...])`, its share inside each named mask (`mask_fractions`, written as `mask_fraction_<name>` columns). Cell patches always carry `own_object`.
+- with `run_patching(..., fraction_masks=[{name: mask}, ...])`, its share inside each named mask (`mask_fractions`, written as `mask_fraction_<name>` columns). Cell patches always carry `own_object`. A mask may be a `WindowedMask` (a window reader with the plane's shape): it is then read by windows of the patches, never whole, with bitwise the same fractions (`docs/api_examples.md`).
 
 ## Workflow at a glance
 

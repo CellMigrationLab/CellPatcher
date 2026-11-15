@@ -833,11 +833,11 @@ def run_patching(images=None, masks=None, config=None, image_metadata=None, frac
         ``"source_relative_path"`` are stamped onto the ``PatchRegion``
         fields of the same name.
     fraction_masks:
-        Optional list, one entry per image, of ``{name: 2-D mask}`` with the
-        image's Y/X shape: each patch's ``mask_fractions[name]`` is then the
-        share of its rectangle in that mask's non-zero pixels
-        (:mod:`cellpatcher.fractions`). Names are letters, digits, ``.``,
-        ``_`` or ``-``, never ``"own_object"`` (the share a cell patch
+        Optional list, one entry per image, of ``{name: 2-D mask}`` with the image's Y/X shape, a mask
+        being an array or a :class:`~cellpatcher.WindowedMask` (read by patch windows, never whole, with
+        bitwise the same result): each patch's ``mask_fractions[name]`` is then the share of its rectangle
+        in that mask's non-zero pixels (:mod:`cellpatcher.fractions`, :mod:`cellpatcher.mask_windows`).
+        Names are letters, digits, ``.``, ``_`` or ``-``, never ``"own_object"`` (the share a cell patch
         always carries). Refused when ``z_policy``/``t_policy`` split planes.
     config:
         A :class:`~cellpatcher.CellPatcherConfig` instance.  Defaults to

@@ -53,6 +53,7 @@ from cellpatcher.io import (
     write_array,
 )
 from cellpatcher.filters import compute_threshold, filter_regions, foreground_fraction
+from cellpatcher.mask_windows import WindowedMask, windowed_foreground_counts
 from cellpatcher.object_geometry import (
     BINARY_MASK_CONNECTIVITY,
     BINARY_MASK_POLICIES,
@@ -183,6 +184,8 @@ __all__ = [
     "check_region_mask",
     "WindowRecord",
     "context_bounds",
+    "WindowedMask",
+    "windowed_foreground_counts",
     "repeat_to_rgb",
     "select_axis_index",
     "project_axis",

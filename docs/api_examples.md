@@ -403,3 +403,47 @@ window.margin_clipped    # (0, 44, 30, 0): the top and right sides reach the pla
 window.local_interior    # (0, 256, 30, 130)
 # plane[0:300, 870:1000] is the window; window_array[0:256, 30:130] is the patch itself.
 ```
+
+## Mask fractions from a mask read by windows
+
+`run_patching(..., fraction_masks=[{name: mask}])` gives every patch the share of its rectangle in
+each named mask's non-zero pixels (`mask_fractions`). A mask can be an array, or a
+`WindowedMask`: a **mask window reader** with the plane's shape, so the mask is never held whole.
+CellPatcher opens no file; the caller's reader does.
+
+| Field | Value |
+| --- | --- |
+| `read` | `read((y0, y1, x0, x1)) -> ndarray`: the mask's pixels in that window, half-open `pixel_edge` bounds in the plane frame (Y before X, plain ints), as a `(y1 - y0, x1 - x0)` array |
+| `shape` | `(height, width)` of the plane: the image's Y/X shape |
+| `dtype` | the pixel type of every window (boolean, integer or floating); a window of another type or shape is refused, never cast |
+| `memory_limit` | the most bytes one read may hold with its boolean foreground: `h * w * (itemsize + 1)` |
+
+The patches' bounding box is cut into disjoint blocks under the limit (row bands, or pieces of a
+row); a block no patch meets is not read, and of the others only the box of the patches' parts in
+it is read. So each pixel is read **at most once per mask**, whatever the patches' overlap, and
+pixels outside the patches' bounding box never are. Each patch's foreground count is the sum of its
+parts' counts, so the fractions, the patches, their order and `patch_id` are bitwise those of the
+same mask given as an array. Only the windows read are checked: a floating window holding NaN or
+infinity is refused (the array path checks the whole mask). `windowed_foreground_counts(mask,
+rectangles)` gives the counts alone.
+
+```python
+import numpy as np
+from cellpatcher import CellPatcherConfig, GridConfig, WindowedMask, run_patching
+
+# A preprocessing run's mask, read by windows (RunInputs.read_mask_window, level 0).
+plan = run.mask_window_plan(fov, "tissue", bounds=(0, height, 0, width))
+tissue = WindowedMask(
+    read=lambda bounds: run.read_mask_window(fov, "tissue", t=t, z=z, bounds=bounds),
+    shape=(height, width),
+    dtype=plan.dtype,
+    memory_limit=256 * 2**20,
+)
+config = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=256))
+result = run_patching(
+    images=[np.broadcast_to(np.uint8(0), (height, width))],  # only the shape is used
+    config=config,
+    image_metadata=[{"position_id": fov.position_id}],
+    fraction_masks=[{"tissue": tissue}],
+)
+```
