@@ -277,7 +277,7 @@ empty and there are no channel pairs.
 | `normalization_group` | text | §7 group key |
 | `normalization_exact` | `true`/`false` | `true` when every channel's parameters are exact (§6) |
 | `normalization_parameters_version` | `2` | The parameter columns' version (normalization v0.5.0); a row without it is refused on load |
-| `normalization_channels` | text | The patch's channel IDs in its own C order, `;`-separated; each channel is normalized with its ID's pair |
+| `normalization_channels` | text | The patch's channel IDs in its own C order, `;`-separated; each channel is normalized with its ID's pair. The same IDs are in the `channel_ids` column of every patch, with or without normalization (issue #125, configuration reference) |
 | `Normalization_Offset_<ID>` | number | Offset of channel ID `<ID>` (a file run: the description's ID of each C index, `Fov.channel_ids`, which must equal the `plane_histograms.csv` row's, else `channel_id_mismatch`; in memory, `image_metadata["channel_ids"]`, compared with the rows the same way. At a CSV scope an image of more than one channel without them is refused before any fit, `channel_ids_required` (v0.7.1; never matched by position), as is one plane of a multichannel image that its `image_metadata["c"]` does not name, without them or given the IDs of all its image's channels; at the patch scope, without IDs: `C<i>` by position, `R`/`G`/`B` for RGB) |
 | `Normalization_Scale_<ID>` | number | Scale of channel ID `<ID>` |
 
