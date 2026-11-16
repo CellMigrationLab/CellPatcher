@@ -93,6 +93,9 @@ For v0.7.2. Found by the S3.4 adversarial suite (MorphoFeature draft PR #240, ga
   channel of a patch with `c`, and `normalization_channels` is documented as empty without normalization and is
   written only with the parameter columns. `tests/test_patch_channel_ids.py` (Spec v04 with the G4 suite's pixels:
   a plane depends on the image and the channel ID, never the C index, so the IDs are checked against the pixels).
+  In memory, an image with several channels along C given `image_metadata["channel_ids"]` and `image_metadata["c"]`
+  (without splitting) is refused: its patches hold every channel, so `c` would have labelled them with one ID
+  (review of #127).
 
 ### Changed
 - **Outputs:** `patches.csv` has one new last field column, `channel_ids` (before the dynamic `mask_fraction_*`

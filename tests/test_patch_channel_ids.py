@@ -192,6 +192,21 @@ def test_in_memory_single_plane_records_its_one_id_and_a_plane_of_several_ids_wi
     assert {patch.channel_ids for patch in several.patches} == {None}
 
 
+@pytest.mark.parametrize("axes", ["CYX", "YXC"])
+def test_in_memory_image_of_several_channels_given_c_is_refused_not_recorded_as_one_channel(axes):
+    # Review of #127: an image with a C axis of two channels, given image_metadata["c"] without splitting, gave
+    # patches holding both planes but recording channel_ids == (ids[c],). Its patches hold every channel, so a
+    # "c" naming one of them is refused (as with extraction.split_channels), never recorded on them.
+    image = np.stack([channel_plane(0, channel) for channel in ORDERS["CTRL"]], axis=0 if axes == "CYX" else -1)
+    config = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=8))
+    config.common.image_axes = axes
+    meta = {"position_id": "p0", "channel_ids": ORDERS["CTRL"]}
+    with pytest.raises(ValueError, match=r'image_metadata\["c"\]=1 names one channel plane, but the image holds 2'):
+        run_patching(images=[image], config=config, image_metadata=[{**meta, "c": 1}])
+    result = run_patching(images=[image], config=config, image_metadata=[meta])
+    assert result.patches and {patch.channel_ids for patch in result.patches} == {ORDERS["CTRL"]}
+
+
 def test_a_table_without_channel_ids_is_refused_on_load_and_a_bad_cell_too(tmp_path):
     # A patches.csv written before issue #125 has no channel_ids column: read_patch_table refuses it like any
     # table missing a column CellPatcher writes (nothing is defaulted; run CellPatcher again). A cell that is not

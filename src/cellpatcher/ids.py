@@ -350,7 +350,8 @@ def stamp_channel_ids(
     ------
     ValueError
         If ``channel_ids`` are not distinct canonical IDs, are not one per C index of an image with a
-        C axis, or hold no ID for a patch's ``c``.
+        C axis, or hold no ID for a patch's ``c``; or if an image given them has several channels along
+        C and ``image_metadata["c"]`` too (its patches hold every channel, not the one ``c`` names).
     """
     from morphobricks_normalization.channels import check_channel_ids
 
@@ -367,6 +368,13 @@ def stamp_channel_ids(
                 raise ValueError(
                     f"{where} names {len(ids)} channel(s) ({', '.join(ids)}) for an image with {count} channel(s) "
                     "along C: give exactly one ID per C index, in C order."
+                )
+            if count is not None and count > 1 and plane_index(meta, "c") is not None:
+                # Its patches hold every channel plane: c would name one of them as the patch's channel.
+                raise ValueError(
+                    f'image {index}: image_metadata["c"]={meta["c"]!r} names one channel plane, but the image holds '
+                    f"{count} channels along C ({', '.join(ids)}): give c only for an image that is one channel "
+                    "plane (no C axis), or split its channels with extraction.split_channels."
                 )
         per_image[f"image_{index:04d}"] = ids
         has_c_axis[f"image_{index:04d}"] = count is not None
