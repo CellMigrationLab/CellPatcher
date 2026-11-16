@@ -18,8 +18,13 @@ setup(
         # below adds its OME-Zarr reader at the same tag. v0.6.0 is Spec ADR 0005
         # steps 2 and 2b (resolver contract v3, RunInputs.read_objects, the
         # conversion helpers); v0.6.1 fixes the checked-fingerprint race.
+        # TODO(tag): draft PR #128 only. RunStoppedError (preprocessing #322, merged
+        # in #324) is on preprocessing's main, not yet in a release: pinned to that
+        # commit until the next preprocessing release is tagged, then back to its
+        # tag (here, in the zarr extra and in tests/test_dependency_pins.py) before
+        # #128 is merged.
         "morphobricks-preprocessing @ git+https://github.com/CellMigrationLab/"
-        "morphobricks-preprocessing@v0.6.1",
+        "morphobricks-preprocessing@b24371abe0a728995f44b2f8f1dd6d36b4a4addc",
         # CellPatcher imports the normalization brick directly (plane histograms,
         # the plane table, pooling, normalization parameters, SINGLE), so it
         # declares it, at the tag the preprocessing tag above pins (owner
@@ -62,8 +67,9 @@ setup(
         # name of this extra, ``preprocessing``, is gone: the preprocessing brick
         # is a core dependency.
         "zarr": [
+            # TODO(tag): the commit of the core pin above until the preprocessing release.
             "morphobricks-preprocessing[zarr] @ git+https://github.com/CellMigrationLab/"
-            "morphobricks-preprocessing@v0.6.1",
+            "morphobricks-preprocessing@b24371abe0a728995f44b2f8f1dd6d36b4a4addc",
         ],
     },
 )

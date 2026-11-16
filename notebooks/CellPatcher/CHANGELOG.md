@@ -74,11 +74,26 @@ Release v0.3.0
 Pin preprocessing v0.4.0rc4; prepare v0.2.0rc2
 
 ---
-## [Unreleased] - Channel IDs on every patch (#125)
+## [Unreleased] - Channel IDs on every patch (#125); a stopped preprocessing run's refusal passed on (#126)
 
-For v0.7.2. Found by the S3.4 adversarial suite (MorphoFeature draft PR #240, gate G3).
+For v0.7.2. Found by the S3.4 adversarial suite (MorphoFeature draft PR #240, gate G3 (#125) and row A07 (#126)).
+#126 needs the preprocessing release after v0.6.1 (preprocessing #322, merged in #324); until it is tagged,
+draft PR #128 pins preprocessing's main commit b24371a, and it is not merged before that release.
 
 ### Fixed
+- **#126: a run preprocessing stopped on purpose is refused with preprocessing's own errors, without re-run
+  advice.** On an output folder where preprocessing stopped without writing a run (Spec `v29`: RGB units beside
+  fluorescence units, `R_HETEROGENEOUS_LAYOUT_NOT_ENABLED`), v0.7.1 refused with `preprocessing_run_refused`
+  ("holds no run_manifest.json") and advised running preprocessing again, which stops the same way. Preprocessing's
+  `RunInputs.open` now raises `RunStoppedError` (`RUN_FOLDER_STOPPED`) there, carrying the stopped run's error
+  issues; CellPatcher passes them on first, in order, with their codes, messages, paths and suggested actions
+  unchanged (Spec ADR 0005, construction and propagation), then `preprocessing_run_refused` naming the folder,
+  still "holds no run_manifest.json", whose action is to follow preprocessing's, with no re-run advice. A run
+  report preprocessing cannot read (`RunReportUnreadableError`) is refused with its code,
+  `RUN_FOLDER_REPORT_UNREADABLE`, naming the report. CellPatcher reads no `discovery_report.json` itself. A folder
+  with neither a run nor a stopped run's report still says to give a written run or run preprocessing first, and a
+  run that was written but is stale (an image changed since, an older manifest) keeps the advice to run
+  preprocessing again, which fixes it. `tests/test_stopped_run.py`.
 - **#125: every patch of a described run records its channel IDs, in its C order.** Without normalization and
   without channel splitting, v0.7.1 recorded no channel ID at all (`c`, `channel_id` and `normalization_channels`
   empty, on the patch and in `patches.csv`), so the patches of two units storing DNA, ACTIN and ACTIN, DNA could
@@ -108,6 +123,10 @@ For v0.7.2. Found by the S3.4 adversarial suite (MorphoFeature draft PR #240, ga
   without the `channel_ids` column, like any table missing a column CellPatcher writes (nothing is defaulted): a
   table written by v0.7.1 or earlier must be written again by running CellPatcher again. A `channel_ids` cell is
   read as a tuple and checked with the normalization brick's `check_channel_ids`.
+- **Dependencies (draft only, `TODO(tag)`):** preprocessing (core and `zarr` extra) is pinned to its main commit
+  `b24371abe0a728995f44b2f8f1dd6d36b4a4addc` (`RunStoppedError`, #324), not a release tag, so
+  `test_preprocessing_is_pinned_to_a_release_tag_not_a_commit` accepts that one commit until the next preprocessing
+  release is tagged; the pin and the test go back to a tag before #126 is merged. Normalization stays `v0.7.0`.
 
 ## [0.7.1] - 2026-11-16 - Fixes from the external audit of v0.7.0 (CP1, CP2, CP3, F3, F4); preprocessing v0.6.1
 

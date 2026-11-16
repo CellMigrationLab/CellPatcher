@@ -169,7 +169,10 @@ def open_run(
         ``unrecorded_files`` (images or masks the run did not record),
         ``zarr_extra_missing`` or ``preprocessing_run_refused``, with the brick's
         reason, when ``RunInputs`` refuses the run, or
-        ``unreadable_plane_histograms`` when its table cannot be read.
+        ``unreadable_plane_histograms`` when its table cannot be read. For a folder
+        where preprocessing stopped without writing a run (``RunStoppedError``),
+        preprocessing's own errors come first, unchanged (:func:`_refusal_issues`,
+        issue #126); ``RUN_FOLDER_REPORT_UNREADABLE`` when its report cannot be read.
     """
     from morphobricks_normalization.csv_io import CsvFormatError
     from morphobricks_preprocessing.manifest import ManifestFormatError
@@ -190,7 +193,7 @@ def open_run(
     except (RunInputsError, ManifestFormatError) as exc:
         # ManifestFormatError: a manifest of another version (preprocessing v0.5.1 reads version 4 only,
         # older runs are refused, never converted) or not a manifest at all.
-        raise PreprocessingCheckError([_refusal_issue(exc, folder)]) from exc
+        raise PreprocessingCheckError(_refusal_issues(exc, folder)) from exc
     except CsvFormatError as exc:
         raise PreprocessingCheckError([
             error(
@@ -206,6 +209,51 @@ def open_run(
 
 DESCRIPTION_REQUIRED = "A_DESCRIPTION_REQUIRED"
 """The code of a run without a published experiment description (Spec ADR 0002 AR10, AR11 (1))."""
+
+
+def _refusal_issues(exc: Exception, folder: Path) -> list[ValidationIssue]:
+    """Return the issues for ``RunInputs.open`` refusing the run in *folder*.
+
+    Where preprocessing stopped on purpose without writing a run (Spec ``v29``:
+    ``R_HETEROGENEOUS_LAYOUT_NOT_ENABLED``), ``RunInputs.open`` raises ``RunStoppedError``
+    (``RUN_FOLDER_STOPPED``, preprocessing contract §9.1) with the stopped run's error issues. A run
+    of the same experiment stops the same way, so "run preprocessing again" would loop (issue #126):
+    those issues are passed on first, unchanged and in order (Spec ADR 0005, construction and
+    propagation), followed by CellPatcher's ``preprocessing_run_refused`` naming the folder, which
+    gives no re-run advice. A report preprocessing cannot read (``RunReportUnreadableError``) is
+    refused with its code, ``RUN_FOLDER_REPORT_UNREADABLE``. CellPatcher never reads the report.
+    """
+    from morphobricks_preprocessing import MANIFEST_FILENAME, RunReportUnreadableError, RunStoppedError
+    from morphobricks_preprocessing.validation import error
+
+    if isinstance(exc, RunStoppedError):
+        return [*exc.issues, error(
+            "preprocessing_run_refused",
+            f"The preprocessing run in {folder} cannot be used: it holds no run_manifest.json, because "
+            f"preprocessing stopped there without writing a run ({RunStoppedError.code}), for the errors "
+            "listed above.",
+            [str(folder)],
+            "Do what preprocessing's suggested actions above say; the run is written only once preprocessing "
+            "no longer stops there. Then give CellPatcher that run.",
+        )]
+    if isinstance(exc, RunReportUnreadableError):
+        return [error(
+            RunReportUnreadableError.code,
+            f"The preprocessing run in {folder} cannot be used: {exc}",
+            [str(exc.path)],
+            "Run preprocessing again into that folder with the preprocessing CellPatcher installs, which "
+            "writes a report it can read, then give CellPatcher that run.",
+        )]
+    if (folder / MANIFEST_FILENAME).exists():  # a written run: stale, older or changed since
+        return [_refusal_issue(exc, folder)]
+    return [error(
+        "preprocessing_run_refused",
+        f"The preprocessing run in {folder} cannot be used: {exc}",
+        [str(folder)],
+        "Give CellPatcher the output folder of a preprocessing run that was written (it holds "
+        "run_manifest.json), or run preprocessing on the experiment first. If preprocessing stopped in "
+        "that folder, its discovery_report.txt there says why and what to fix.",
+    )]
 
 
 def _refusal_issue(exc: Exception, folder: Path) -> ValidationIssue:
