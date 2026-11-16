@@ -26,13 +26,12 @@ from cellpatcher.ids import (
     stamp_channel_ids,
 )
 from cellpatcher.io import SINGLE_BIOLOGICAL_REPEAT_LABEL, SINGLE_CONDITION_LABEL, SINGLE_TECHNICAL_REPEAT_LABEL
-from cellpatcher.mask_policy import check_mask_policy
+from cellpatcher.mask_policy import check_in_memory_objects
 from cellpatcher.masking import apply_label_masks_to_patches
 from cellpatcher.delivery import raw_export_array
 from cellpatcher.normalization import (
     Normalizer,
     finish_patch_groups,
-    resolved_patch_region,
     validate_normalization,
 )
 from cellpatcher.patch_normalization import split_channel_normalization
@@ -744,12 +743,10 @@ def _patch_planes(config: CellPatcherConfig, sources) -> PatchingResult:
                 image_axes=planes[0].image_axes,
                 mask_axes=mask_axes,
                 extract_arrays=need_arrays,
-                z_policy="keep",
-                z_index=None,
-                t_policy="keep",
-                t_index=None,
+                z_policy="keep", z_index=None, t_policy="keep", t_index=None,
             ),
             export=replace(config.export, enabled=False),
+            cell=replace(config.cell, binary_mask_policy=None),  # a file run's request field: applied (BM6)
         )
         token = _EAGER_BYTES_HELD.set(held if config.common.extract_arrays else None)
         try:
@@ -808,10 +805,9 @@ def run_patching(images=None, masks=None, config=None, image_metadata=None, frac
 
         * ``mode='cell'`` — **required**.  Integer label map where each unique
           non-zero value is a separate cell, used as given (decision D47: a 0/1
-          integer mask is one object); ``cell.binary_mask_policy`` is refused with it (nothing
-          to convert, :mod:`cellpatcher.mask_policy`). Only a boolean mask is binary: refused
-          without an explicit ``cell.binary_mask_policy`` (no default), labelled by
-          :func:`cellpatcher.label_objects` with it; labels above int32 are refused.
+          integer mask is one object), a plain NumPy array; labels above int32 are refused.
+          Nothing is converted in memory (Spec ADR 0005 BM4): any other mask is refused with
+          ``A_MASK_NOT_INSTANCES``, and ``cell.binary_mask_policy`` too (:mod:`cellpatcher.mask_policy`).
         * ``mode='random'`` — **optional**.  When provided, patches are
           restricted to the spatial region covered by the mask.
         * ``mode='grid'`` / ``'whole_fov'`` — not consumed; pass ``None``.
@@ -890,9 +886,8 @@ def run_patching(images=None, masks=None, config=None, image_metadata=None, frac
     if images is not None:
         image_metadata = _identity_metadata(config, _normalize_images(images), image_metadata)  # one entry per image
         _check_split_channels(config, _normalize_images(images), image_metadata)
+    check_in_memory_objects(config, masks)
     refuse_unsupported_inputs(config.common.image_axes, config.common.mask_axes, images, masks)
-    if config.mode == "cell" and masks is not None:
-        check_mask_policy(config, _normalize_masks(masks), resolved_patch_region(config))
     if fraction_masks is not None:
         if splits_planes(config.common):
             raise ValueError("fraction_masks need 2-D planes; they are refused when z_policy/t_policy split planes.")

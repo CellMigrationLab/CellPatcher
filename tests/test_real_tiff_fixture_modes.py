@@ -123,12 +123,18 @@ def test_real_tiff_cell_mode_centroid_and_bbox_center_both_work(center_on):
     assert all(arr.shape == (32, 32) for arr in result.patch_arrays)
 
 
-def test_real_tiff_cell_mode_binary_policy_connected_components():
+def test_real_tiff_cell_mode_binary_mask_as_labelled_instances():
+    # Spec ADR 0005 BM4: in memory a boolean mask is refused as objects; its components labelled
+    # beforehand (here with preprocessing's one labeller, 8-connected) are integer instances.
+    from morphobricks_preprocessing import label_binary
+
     image, labels = load_real_tiff_fixture()
     binary = labels > 0
-    with pytest.warns(UserWarning, match="connected components"):
-        config = _cell_config(exclude_border=False, binary_mask_policy="connected_components")
-        result = run_patching(images=image, masks=binary, config=config, image_metadata=named(image))
+    with pytest.raises(ValueError, match="A_MASK_NOT_INSTANCES"):
+        run_patching(images=image, masks=binary, config=_cell_config(exclude_border=False),
+                     image_metadata=named(image))
+    config = _cell_config(exclude_border=False)
+    result = run_patching(images=image, masks=label_binary(binary), config=config, image_metadata=named(image))
 
     # Both binary CCs in this fixture touch the image border; exclude_border=False
     # means they are kept, giving EXPECTED_BINARY_CC_PATCH_COUNT patches.

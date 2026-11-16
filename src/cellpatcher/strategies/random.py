@@ -52,7 +52,8 @@ def _sampling_mask(labels: object, fraction: float | None, shape: tuple[int, int
     Parameters
     ----------
     labels
-        The sampling mask (any array whose nonzero pixels are foreground), or None.
+        The sampling mask (a 2-D integer or boolean NumPy array whose non-zero pixels are
+        foreground), or None.
     fraction
         ``RandomConfig.min_mask_fraction`` (None: any overlap).
     shape
@@ -67,17 +68,19 @@ def _sampling_mask(labels: object, fraction: float | None, shape: tuple[int, int
     Raises
     ------
     ValueError
-        If *fraction* is > 0 without a mask, or the mask is not 2-D of the plane's shape.
+        If *fraction* is > 0 without a mask.
+    morphobricks_normalization.regions.RegionMaskError
+        ``MASK_REGION_INVALID`` (a ``ValueError``) for a mask that is not a 2-D integer or boolean
+        NumPy array of the plane's shape.
     """
     if labels is None:
         if fraction:
             raise ValueError("min_mask_fraction needs a sampling mask (masks=...) in random mode.")
         return None
-    mask = np.asarray(labels).astype(bool)
-    if mask.ndim != 2:
-        raise ValueError("labels sampling mask must be 2D for random mode.")
-    if mask.shape != shape:
-        raise ValueError(f"labels shape {mask.shape} must match image YX shape {shape}.")
+    from morphobricks_normalization.regions import check_region
+
+    # Spec ADR 0005 BM3/BM7: the one region checker; its foreground is mask != 0, never labelled.
+    mask = check_region(labels, shape, name="the sampling mask")
     if fraction != 0:
         return mask
     warnings.warn(ZERO_FRACTION_WARNING, UserWarning, stacklevel=3)

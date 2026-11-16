@@ -39,18 +39,14 @@ def test_area_filtering():
     assert records[0].reason == "area"
 
 
-def test_binary_connected_components():
+def test_the_scan_labels_no_binary_mask():
+    # Spec ADR 0005 BM4 (was: two objects by connected components with the policy).
     labels = np.zeros((6, 6), dtype=bool)
     labels[1, 1] = True
     labels[4, 4] = True
-
-    with pytest.warns(UserWarning, match="connected components"):
-        records = scan_cell_objects(
-            image_shape=(6, 6),
-            labels=labels,
-            config=CellConfig(exclude_border=False, binary_mask_policy="connected_components"),
-        )
-    assert len(records) == 2
+    with pytest.raises(ValueError, match="binary_mask_policy='connected_components' is set, but scan_cell_objects"):
+        scan_cell_objects(image_shape=(6, 6), labels=labels,
+                          config=CellConfig(exclude_border=False, binary_mask_policy="connected_components"))
 
 
 def test_integer_one_valued_mask_is_one_object_as_in_patching():
@@ -73,29 +69,19 @@ def test_non_contiguous_labels_preserved():
 
 
 def test_float_binary_labels_are_refused():
-    # Owner decision D-b: float masks are refused even of 0.0/1.0, whatever binary_mask_policy.
+    # Float masks are not object sets even of 0.0/1.0 (Spec ADR 0005 F07).
     labels = np.zeros((5, 5), dtype=np.float32)
     labels[2:4, 2:4] = 1.0
-    for policy in (None, "connected_components"):
-        with pytest.raises(ValueError, match="save the mask as integers"):
-            scan_cell_objects(image_shape=(5, 5), labels=labels,
-                              config=CellConfig(exclude_border=False, binary_mask_policy=policy))
+    with pytest.raises(ValueError, match=r"A_MASK_NOT_INSTANCES: 'the mask of image_0000' is a float32 array"):
+        scan_cell_objects(image_shape=(5, 5), labels=labels, config=CellConfig(exclude_border=False))
 
 
-def test_boolean_labels_need_the_connected_components_opt_in():
+def test_boolean_labels_are_not_an_object_set():
     labels = np.zeros((5, 5), dtype=bool)
     labels[2:4, 2:4] = True
 
-    with pytest.raises(ValueError, match="binary"):
+    with pytest.raises(ValueError, match=r"A_MASK_NOT_INSTANCES: 'the mask of image_0000' is a bool array"):
         scan_cell_objects(image_shape=(5, 5), labels=labels, config=CellConfig(exclude_border=False))
-    with pytest.warns(UserWarning, match="connected components"):
-        records = scan_cell_objects(
-            image_shape=(5, 5),
-            labels=labels,
-            config=CellConfig(exclude_border=False, binary_mask_policy="connected_components"),
-        )
-    assert len(records) == 1
-    assert records[0].included is True
 
 
 def test_non_binary_float_labels_rejected():

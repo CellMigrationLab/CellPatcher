@@ -31,7 +31,7 @@ if TYPE_CHECKING:
     from cellpatcher.statistics import PlaneStatistics
 
 _Layouts = dict[str, dict[str, str]]
-_SESSION: ContextVar[dict[str, PlaneStatistics | str | _Layouts] | None] = ContextVar(
+_SESSION: ContextVar[dict[str, PlaneStatistics | str | _Layouts | tuple] | None] = ContextVar(
     "cellpatcher_run_session", default=None
 )
 _P = ParamSpec("_P")
@@ -129,3 +129,23 @@ def recalled_layouts(output_folder: str | Path) -> dict[str, dict[str, str]] | N
         return None
     value = session.get(f"layouts:{Path(output_folder).expanduser().resolve()}")
     return value if isinstance(value, dict) else None
+
+
+def remember_conversions(output_folder: str | Path, records: tuple[dict, ...]) -> None:
+    """Record the resolver's ``mask_conversions`` records of the file run in *output_folder*, for this call.
+
+    The records are kept as the resolver gave them (Spec ADR 0005 BM2): ``run_config.json``
+    copies them. Outside :func:`statistics_session` nothing is kept.
+    """
+    session = _SESSION.get()
+    if session is not None:
+        session[f"mask_conversions:{Path(output_folder).expanduser().resolve()}"] = tuple(dict(r) for r in records)
+
+
+def recalled_conversions(output_folder: str | Path) -> tuple[dict, ...] | None:
+    """Return the records :func:`remember_conversions` kept in this call for the run in *output_folder*, or None."""
+    session = _SESSION.get()
+    if session is None:
+        return None
+    value = session.get(f"mask_conversions:{Path(output_folder).expanduser().resolve()}")
+    return value if isinstance(value, tuple) else None

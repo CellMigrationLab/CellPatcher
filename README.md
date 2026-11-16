@@ -26,11 +26,13 @@ other bricks, is in the [CHANGELOG](notebooks/CellPatcher/CHANGELOG.md) (v0.2.0r
   `patch_id` built from its position, object set, planes and label or rectangle, and a `position_id`
   (see "Patch identity" in `docs/configuration_reference.md`). In-memory images given to `run_patching` need
   `image_metadata=[{"position_id": ...}]` (or an `image_file`); unnamed images are refused.
-- Cell-mode masks are object sets: an `instances` mask is used as given; a `binary` mask (as the run's
-  description declares it, or a boolean array in memory) is refused unless the request sets the explicit
-  `CellConfig.binary_mask_policy="connected_components"` (no default), which labels it with the one shared
-  labeller, `cellpatcher.label_objects(mask, policy, connectivity)`. A file run asks its preprocessing
-  run's resolver for the mask by its description ID (`matching.mask_id`).
+- Cell-mode masks are object sets: an `instances` mask is used as given. CellPatcher labels no mask (Spec
+  ADR 0005): a mask the run's description declares `binary` is an object set only in a file run whose
+  request sets `CellConfig.binary_mask_policy="connected_components"` (no default); the preprocessing
+  run's resolver records the conversion (8-connected, fixed), preprocessing's `RunInputs.read_objects`
+  applies it, and `run_config.json` copies the record under `mask_conversions`. A file run asks the
+  resolver for the mask by its description ID (`matching.mask_id`). In memory an object set is an
+  integer array: a boolean one is `A_MASK_NOT_INSTANCES`, and the policy is refused.
 - Reads TIFF and OME-Zarr images (those the preprocessing run accepted), patches time series plane by plane (Z-stacks must be projected in preprocessing first), and optionally normalizes
   patches with the MorphoBricks preprocessing statistics (`config.normalization`, see `docs/normalization.md`).
 

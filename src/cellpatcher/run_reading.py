@@ -1,7 +1,8 @@
 """Read the images and masks of a file run through preprocessing's ``RunInputs`` (layer: io).
 
-Design v0.4 §6 (CP-2a): a folder or tree run reads every image with ``RunInputs.read_plane``
-and every mask with ``RunInputs.read_mask``, as the preprocessing run recorded them. Nothing
+Design v0.4 §6 (CP-2a): a folder or tree run reads every image with ``RunInputs.read_plane``,
+a cell-mode object set with ``RunInputs.read_objects`` (Spec ADR 0005 BM6) and any other mask
+with ``RunInputs.read_mask``, as the preprocessing run recorded them. Nothing
 here names an axis of a file, pairs a mask or reads a calibration: an image's axes are the
 roles the run recorded for it (:attr:`Fov.roles`), and a mask's are those the run recorded
 for that mask (its ``roles``).
@@ -31,6 +32,7 @@ from cellpatcher.planes import (
 
 if TYPE_CHECKING:
     from morphobricks_preprocessing.run_inputs import Fov, RunInputs
+    from morphobricks_preprocessing.run_inputs_request import FovSelection
 
     from cellpatcher.config import CommonConfig
 
@@ -192,6 +194,34 @@ def read_fov_mask(inputs: RunInputs, fov: Fov, record: Mapping, layout: str) -> 
     zs = range(shape[roles.index("Z")]) if "Z" in own else [None]
     stack = np.stack([np.stack([inputs.read_mask(fov, record["type"], z=z, t=t) for z in zs]) for t in ts])
     return stack.reshape([size for axis, size in zip("TZYX", stack.shape) if axis in layout])
+
+
+def read_fov_objects(
+    inputs: RunInputs, selection: FovSelection, mask_id: str, record: Mapping, layout: str
+) -> np.ndarray:
+    """Read an image's object set through ``RunInputs.read_objects``, plane by plane, in the mask *layout*.
+
+    The one helper that applies the resolver's recorded conversion (Spec ADR 0005 BM6): an
+    ``instances`` mask's stored labels (checked, never relabelled), or a ``binary`` mask's
+    8-connected components under ``connected_components``. Each plane comes back as ``int32``;
+    an axis the mask does not have is read at 0 and, when *layout* has it, added with length 1
+    (one plane, shared by the image's planes along it), as :func:`read_fov_mask` does.
+
+    Raises
+    ------
+    morphobricks_preprocessing.run_inputs.RunInputsError
+        If the mask changed since the run.
+    ValueError
+        For a label outside 0 to the int32 limit (``check_labels``), and
+        ``R_MASK_CONTRADICTS_REPRESENTATION`` (``label_binary``'s read guard) for a ``binary``
+        plane that is not {0, v}; both unchanged.
+    """
+    own = mask_layout(record)
+    roles, shape = str(record["roles"]), list(record["shape"])
+    ts = range(shape[roles.index("T")]) if "T" in own else [0]
+    zs = range(shape[roles.index("Z")]) if "Z" in own else [0]
+    stack = np.stack([np.stack([inputs.read_objects(selection, mask_id, t=t, z=z) for z in zs]) for t in ts])
+    return stack.reshape([size for axis, size in zip("TZYX", stack.shape, strict=True) if axis in layout])
 
 
 def run_mask_layout(records: Sequence[Mapping]) -> str:

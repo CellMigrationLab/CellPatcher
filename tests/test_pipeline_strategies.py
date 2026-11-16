@@ -503,7 +503,8 @@ def test_pipeline_cell_binary_mask_without_a_policy():
     assert [patch.label_id for patch in result.patches] == [1]
 
 
-def test_pipeline_cell_binary_mask_connected_components_policy():
+def test_pipeline_cell_refuses_the_policy_in_memory():
+    # Spec ADR 0005 BM4: run_patching labels no binary mask (it gave 2 objects here before).
     cfg = CellPatcherConfig(mode="cell")
     cfg.cell.binary_mask_policy = "connected_components"
     cfg.cell.exclude_border = False
@@ -511,22 +512,11 @@ def test_pipeline_cell_binary_mask_connected_components_policy():
     labels = np.zeros((10, 10), dtype=bool)
     labels[1:3, 1:3] = True
     labels[6:8, 6:8] = True
-    with pytest.warns(UserWarning, match="connected components"):
-        result = run_patching(images=img, masks=labels, config=cfg, image_metadata=named(img))
-    assert len(result.patches) == 2
-
-
-def test_pipeline_refuses_masking_by_computed_component_labels():
-    # apply_mask keeps pixels equal to label_id, which a 0/1 mask does not hold
-    # for components after the first: refused instead of blanking them.
-    cfg = CellPatcherConfig(mode="cell")
-    cfg.cell.binary_mask_policy = "connected_components"
-    cfg.extraction.apply_mask = True
-    cfg.common.extract_arrays = True
-    labels = np.zeros((10, 10), dtype=bool)
-    labels[1:3, 1:3] = True
-    with pytest.raises(ValueError, match="apply_mask"):
-        run_patching(images=np.zeros((10, 10)), masks=labels, config=cfg, image_metadata=named(np.zeros((10, 10))))
+    with pytest.raises(ValueError, match="binary_mask_policy='connected_components' is set, but run_patching"):
+        run_patching(images=img, masks=labels, config=cfg, image_metadata=named(img))
+    cfg.cell.binary_mask_policy = None
+    with pytest.raises(ValueError, match="A_MASK_NOT_INSTANCES"):
+        run_patching(images=img, masks=labels, config=cfg, image_metadata=named(img))
 
 
 def test_pipeline_cell_min_area_filters_tiny_cells():

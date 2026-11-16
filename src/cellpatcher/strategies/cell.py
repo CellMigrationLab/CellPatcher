@@ -1,4 +1,3 @@
-import warnings
 from operator import index
 
 import numpy as np
@@ -6,8 +5,7 @@ import numpy as np
 from cellpatcher.axes import axis_index, normalize_axes, refuse_transposed_mask_axes
 from cellpatcher.config import CellConfig
 from cellpatcher.errors import LabelRangeError
-from cellpatcher.mask_policy import refuse_policy_on_instances
-from cellpatcher.object_geometry import label_objects
+from cellpatcher.mask_policy import refuse_in_memory_policy
 from cellpatcher.setting_checks import check_cell_settings
 from cellpatcher.strategies.base import BasePatchStrategy, _spatial_shape_from_axes
 from cellpatcher.types import PatchRegion
@@ -37,6 +35,11 @@ def _refuse_plane_axes(mask_axes: str, labels: np.ndarray) -> None:
         )
 
 
+def object_set_name(image_id: object = None) -> str:
+    """Return how an in-memory object set is named in ``A_MASK_NOT_INSTANCES``: ``the mask of <image_id>``."""
+    return "the mask" if image_id is None else f"the mask of {image_id}"
+
+
 class CellSegmentationStrategy(BasePatchStrategy):
     mode = "cell"
     # Coordinates are generated in Y/X patch space and clipped to image bounds.
@@ -48,81 +51,51 @@ class CellSegmentationStrategy(BasePatchStrategy):
         refuse_transposed_mask_axes(mask_axes)  # a label plane is taken as Y, X in its stored order
         self.mask_axes = normalize_axes(mask_axes)
 
-    def label_objects(self, selected: np.ndarray, *, image_id=None) -> tuple[np.ndarray, bool]:
-        """The object labels of a 2D mask plane as int32, and whether they were computed.
+    def object_labels(self, selected: np.ndarray, *, image_id: object = None) -> np.ndarray:
+        """Return the object labels of a 2D integer instance plane, as int32.
 
-        Decision D47: an integer mask is instance labels, used as given (a
-        0/1 or 0/255 integer mask is one object; a file run's ``binary`` mask
-        is labelled before it gets here, :mod:`cellpatcher.run_request`). A
-        boolean mask has no object ids: it is refused without an explicit
-        ``binary_mask_policy`` (there is no default), and with
-        ``"connected_components"`` labelled by the shared labeller
-        (:func:`cellpatcher.label_objects`, ``binary_mask_connectivity``), with
-        a warning (the second value is then True: the labels are not the
-        mask's values).
+        Decision D47: an integer mask is instance labels, used as given (a 0/1 or 0/255
+        integer mask is one object). Nothing is labelled here (Spec ADR 0005 BM2, BM4): a
+        boolean, float or other mask is refused with ``A_MASK_NOT_INSTANCES``
+        (:meth:`_select_label_plane` checks the object set as given), and a file run's ``binary``
+        mask arrives already as the objects ``RunInputs.read_objects`` gives under the recorded
+        conversion.
 
-        Integer labels are checked with the preprocessing brick's
-        ``check_labels``, the one label rule of every MorphoBricks brick
-        (decision D-b): from 0 to the int32 maximum. A float mask is refused,
-        even when every value is a whole number or 0.0/1.0: save the mask as
-        integers.
+        Integer labels are checked with the preprocessing brick's ``check_labels``, the one
+        label rule of every MorphoBricks brick (decision D-b): from 0 to the int32 maximum.
 
         Raises
         ------
+        morphobricks_preprocessing.mask_rules.MaskNotInstancesError
+            ``A_MASK_NOT_INSTANCES`` for a plane that is not an integer array.
         LabelRangeError
-            (a ``ValueError``) for negative labels or labels above the int32
-            maximum.
-        ValueError
-            For a float mask, a boolean mask without a policy, an integer
-            mask with a policy (nothing to convert,
-            :func:`cellpatcher.mask_policy.refuse_policy_on_instances`), or
-            another dtype.
+            (a ``ValueError``) for negative labels or labels above the int32 maximum.
         """
-        from morphobricks_preprocessing.masks import check_labels
+        from morphobricks_preprocessing.masks import check_labels, check_object_set
 
         where = f" (image {image_id})" if image_id is not None else ""
         name = f"The mask{where}"
-        # As in run_patching and the object scan: a policy with an integer (instances) mask is
-        # refused, never ignored (not inside mask_policy.resolved_masks, a file run's labelled masks).
-        refuse_policy_on_instances(
-            self.config.binary_mask_policy,
-            selected,
-            image_id if image_id is not None else "the labels given to generate_regions",
-        )
-        if selected.dtype == bool:
-            policy = self.config.binary_mask_policy
-            if policy is None:
-                raise ValueError(
-                    f"The mask{where} is binary ({selected.dtype}), so it has no object ids, and no "
-                    "binary_mask_policy is set (there is no default; A_MASK_NOT_INSTANCES). Give integer instance "
-                    "labels (each object its own value; mask.astype(np.uint8) makes the whole foreground one "
-                    "object, label 1), or ask for connected-component labelling with "
-                    "cell.binary_mask_policy='connected_components'."
-                )
-            connectivity = self.config.binary_mask_connectivity
-            warnings.warn(
-                f"The binary mask{where} is labelled by {'4' if connectivity == 1 else '8'}-connected components "
-                f"(cell.binary_mask_policy={policy!r}): its label_id values are computed, not taken from the mask.",
-                UserWarning,
-                stacklevel=3,
-            )
-            return label_objects(selected, policy, connectivity), True
-        if not np.issubdtype(selected.dtype, np.integer):
-            check_labels(selected, name)  # refuses floats and other pixel types, naming the type
-            raise ValueError(f"{name} does not hold integer labels (pixel type {selected.dtype}).")
+        check_object_set(selected, name=object_set_name(image_id))
         try:
             check_labels(selected, name)
         except ValueError as exc:
             smallest = int(selected.min())
             raise LabelRangeError(str(exc), label=smallest if smallest < 0 else int(selected.max())) from None
-        return selected.astype(np.int32, copy=False), False
+        return selected.astype(np.int32, copy=False)
 
-    def _select_label_plane(self, labels):
+    def _select_label_plane(self, labels, *, image_id: object = None):
         """Return the one 2-D label plane of *labels* (a single-layer label mask), or refuse them.
 
-        A C axis of length 1 is dropped; a mask of several layers is refused, never one chosen by its position
-        (owner decision of 13 November 2026): give each layer as its own mask.
+        *labels* must be an object set as given in memory: a plain integer NumPy array
+        (``A_MASK_NOT_INSTANCES`` otherwise, Spec ADR 0005 BM4), and ``binary_mask_policy`` is
+        refused (in memory nothing is converted). A C axis of length 1 is dropped; a
+        mask of several layers is refused, never one chosen by its position (owner decision of 13
+        November 2026): give each layer as its own mask.
         """
+        from morphobricks_preprocessing.masks import check_object_set
+
+        refuse_in_memory_policy(self.config.binary_mask_policy, "CellSegmentationStrategy.generate_regions")
+        check_object_set(labels, name=object_set_name(image_id))
         # A plain 2D label array needs no channel handling at all.
         arr = np.asarray(labels)
         if arr.ndim == 2:
@@ -155,7 +128,7 @@ class CellSegmentationStrategy(BasePatchStrategy):
         if labels is None:
             raise ValueError("labels is required for cell mode.")
 
-        selected = self._select_label_plane(labels)
+        selected = self._select_label_plane(labels, image_id=image_id)
         if selected.ndim != 2:
             raise ValueError("Selected labels must be 2D after channel selection.")
         if selected.shape != (image_h, image_w):
@@ -163,7 +136,7 @@ class CellSegmentationStrategy(BasePatchStrategy):
         if selected.size == 0:
             raise ValueError("labels must not be empty.")
 
-        labeled, _ = self.label_objects(selected, image_id=image_id)
+        labeled = self.object_labels(selected, image_id=image_id)
 
         object_ids = [int(v) for v in np.unique(labeled) if int(v) != 0]
         patches: list[PatchRegion] = []

@@ -14,6 +14,7 @@ of its masks, and :func:`export_patches_of_run` is
 
 from __future__ import annotations
 
+import json
 import os
 import warnings
 from collections import Counter
@@ -31,10 +32,10 @@ from cellpatcher.file_runs import (
     read_run_mask,
     run_config_for,
 )
-from cellpatcher.mask_policy import resolved_masks
 from cellpatcher.normalization import CSV_SCOPES, NormalizationWarning, group_parameters
 from cellpatcher.normalization_review import BeforeAfter, before_after
 from cellpatcher.orchestration import run_patching_condition_repeat_tree
+from cellpatcher.pipeline import RUN_CONFIG_FILENAME
 from cellpatcher.run_open import open_run, run_image_type
 from cellpatcher.run_reading import run_layout
 from cellpatcher.run_session import statistics_session
@@ -185,12 +186,16 @@ class Preview:
     before_after
         With normalization, the first patches without and with it
         (:func:`cellpatcher.normalization_review.before_after`); empty without normalization.
+    mask_conversions
+        The resolver's recorded conversions of the run's masks (Spec ADR 0005 BM2), as is: what the
+        notebook shows read-only (BM13) and ``run_config.json`` records. Empty without one.
     """
 
     image: str
     plane: np.ndarray
     result: PatchingResult
     before_after: tuple[BeforeAfter, ...] = ()
+    mask_conversions: tuple[dict, ...] = ()
 
 
 def preview_image(config: CellPatcherConfig, summary: RunSummary, image: str) -> Preview:
@@ -230,7 +235,7 @@ def preview_image(config: CellPatcherConfig, summary: RunSummary, image: str) ->
             raw = patch_fovs(run, [fov], run_config_for(raw_config, run, fov.key[:3]))
             pairs = before_after(raw.patches, raw.patch_arrays, result.patches, result.patch_arrays)
         plane = run.inputs.read_plane(fov, 0, 0)
-    return Preview(image=image, plane=plane, result=result, before_after=pairs)
+    return Preview(image=image, plane=plane, result=result, before_after=pairs, mask_conversions=run.mask_conversions)
 
 
 @dataclass(frozen=True)
@@ -299,8 +304,9 @@ def group_parameters_of_run(config: CellPatcherConfig, summary: RunSummary) -> G
 def scan_object_sizes(config: CellPatcherConfig, summary: RunSummary) -> CellPatchSizeSummary:
     """Measure the objects of every mask of the run's mask type, with the cell settings of *config*.
 
-    Each mask is read through the run (``RunInputs.read_mask``); the sizes are those
-    :func:`cellpatcher.scan_cell_patch_size` gives, from which a dataset patch size is chosen.
+    Each object set is read through the run (``RunInputs.read_objects``, which applies a recorded
+    conversion, Spec ADR 0005 BM6); the sizes are those :func:`cellpatcher.scan_cell_patch_size`
+    gives on those integer objects, from which a dataset patch size is chosen.
     """
     config = file_run_config(replace(config, mode="cell"), summary)
     with statistics_session():
@@ -309,10 +315,20 @@ def scan_object_sizes(config: CellPatcherConfig, summary: RunSummary) -> CellPat
         )
         masks = [read_run_mask(run, fov, run.mask_axes) for fov in run.fovs]  # one layout for the scan
     shapes = [mask.shape for mask in masks]
-    with resolved_masks():  # read through the resolver: a binary mask was labelled when read
-        return scan_cell_patch_size(
-            shapes, masks, config=config.cell, image_axes=run.mask_axes, mask_axes=run.mask_axes
-        )
+    # The objects are read already (the request field binary_mask_policy was the resolver's, BM4).
+    cell = replace(config.cell, binary_mask_policy=None)
+    return scan_cell_patch_size(shapes, masks, config=cell, image_axes=run.mask_axes, mask_axes=run.mask_axes)
+
+
+def recorded_conversions(output: str | os.PathLike) -> tuple[dict, ...]:
+    """Return the ``mask_conversions`` an export wrote to ``run_config.json`` in *output*, as is (empty without any).
+
+    The records the resolver gave the run (Spec ADR 0005 BM2), shown read-only by the notebook (BM13).
+    """
+    path = Path(output) / RUN_CONFIG_FILENAME
+    if not path.is_file():
+        return ()
+    return tuple(json.loads(path.read_text("utf-8")).get("mask_conversions", ()))
 
 
 def refuse_output_inside_inputs(output_dir: Path, summary: RunSummary) -> None:

@@ -70,22 +70,24 @@ class CommonConfig:
 class CellConfig:
     """Parameters of ``mode='cell'``.
 
-    Masks are object sets (decision D47, 2026-10-26; Spec ADR 0002 AR5): an
+    Masks are object sets (decision D47, 2026-10-26; Spec ADR 0005): an
     integer ``instances`` mask is used as stored, each non-zero value one
     object (an ``instances`` mask holding 0 and 1 is one object, label 1).
-    A ``binary`` mask (in a file run: declared ``binary`` by the run's
-    description; in memory: a boolean array) has no object ids, so it is an
-    object set only through the explicit per-request ``binary_mask_policy``:
-    ``None`` (no policy; there is no default) refuses it, in a file run with
-    the resolver's ``A_MASK_NOT_INSTANCES`` before any pixel is read;
-    ``"connected_components"`` labels it with the shared labeller
-    (:func:`cellpatcher.label_objects`) at ``binary_mask_connectivity``
-    (1: 4-connected; 2: 8-connected, the default), both recorded in
-    ``run_config.json`` with ``matching.mask_id``. The former
-    ``"single_object"`` value (the implicit default before CP-2) is refused.
-    Labels are checked with the preprocessing brick's ``check_labels``
-    (decision D-b): negative labels and labels above the int32 maximum are
-    refused, and so is a float mask, even of whole numbers or 0.0/1.0.
+    CellPatcher labels no mask. A mask the run's description declares
+    ``binary`` has no object ids: it is an object set only in a described
+    file run, through the explicit per-request ``binary_mask_policy``, which
+    is passed to the preprocessing run's resolver (``MaskRequest(mask_id,
+    "objects", binary_mask_policy)``). ``None`` (no policy; there is no
+    default) leaves it refused with ``A_MASK_NOT_INSTANCES`` before any pixel
+    is read; ``"connected_components"`` makes the resolver record the
+    conversion (8-connected, fixed: Spec ADR 0005 BM1), which preprocessing's
+    ``RunInputs.read_objects`` applies and ``run_config.json`` copies under
+    ``mask_conversions``. In memory nothing is converted: a boolean or float
+    object set is ``A_MASK_NOT_INSTANCES``, and ``binary_mask_policy`` is
+    refused (BM4). ``binary_mask_connectivity`` is gone (BM1): a config that
+    names it is refused as an unknown key. Labels are checked with the
+    preprocessing brick's ``check_labels`` (decision D-b): negative labels and
+    labels above the int32 maximum are refused.
     """
 
     patch_size: int | str = "auto"
@@ -94,7 +96,6 @@ class CellConfig:
     min_area: int = 1
     max_area: int | None = None
     binary_mask_policy: str | None = None
-    binary_mask_connectivity: int = 2
 
     def __post_init__(self) -> None:
         check_cell_settings(self)

@@ -69,6 +69,60 @@ Pin preprocessing v0.4.0rc4; prepare v0.2.0rc2
   preprocessing pin is a commit only until its next release tag exists; it moves to that tag before this
   is released (`tests/test_dependency_pins.py` accepts exactly that one commit). Normalization `v0.7.0` is
   the tag that commit pins (D-h).
+- A file run reads the cell-mode object set with preprocessing's `RunInputs.read_objects` (the one helper
+  that applies a recorded conversion; Spec ADR 0005 BM2, BM6), plane by plane, and checks the resolver's
+  contract version right after `resolve_request`: exactly `SUPPORTED_RESOLVER_VERSIONS = {3}`, otherwise
+  `RESOLVER_VERSION_UNSUPPORTED` from normalization's `contracts.refuse_resolver_version`, before any read
+  or output (BM10).
+- `run_config.json` of a file run writes the resolver's `Provenance.mask_conversions` records as is, at the
+  top level under `mask_conversions` (`[]` without a conversion), for example
+  `[{"mask_id": "TumorRegion", "conversion": "connected_components", "connectivity": 8, "labeller":
+  "morphobricks_preprocessing.RunInputs.read_objects"}]`, or `parent_labels_as_area` with null
+  `connectivity` and `labeller` (BM2).
+- The resolver's refusals reach the caller with their code and message unchanged (the issue's `message`);
+  the setting behind them and what to do are the issue's suggested action. A policy on a mask that is not
+  `binary` is the resolver's own `ValueError`, no longer reworded.
+- Regions are checked by normalization's `regions.check_region` (BM3, BM7): random-mode sampling masks,
+  `fraction_masks` and `WindowedMask` (whose declared `dtype` is checked when it is made, before any read).
+- The notebook shows a file run's recorded conversions read-only (an HTML line under **Mask type**, after
+  the preview or the export) and offers no binary-mask setting (BM13).
+- Outputs on instance masks are unchanged: every patch file, `patches.csv`, `images.csv` and
+  `positions.csv` of file runs in every mode on Spec fixtures `v07`, `v08` and `v13` equal CellPatcher
+  v0.6.2's (`tests/test_v062_output_parity.py`, 907 files); so do the patches of `v08`'s `binary`
+  `TumorRegion` with the policy (8-connected was v0.6.2's default).
+
+### Breaking (no backward compatibility, ADR 0002 AR10)
+- **Removed:** `cellpatcher.label_objects`, `BINARY_MASK_POLICIES`, `CONNECTIVITIES`,
+  `BINARY_MASK_CONNECTIVITY` (BM6; the one labeller is preprocessing's `masks.binary.label_binary`);
+  `cellpatcher.check_region_mask` (moves to normalization's `regions.check_region`);
+  `cell.binary_mask_connectivity` (BM1: 8-connected, fixed) — a config or `run_config.json` naming it is
+  refused as an unknown key (`TypeError` naming it), never mapped; `mask_policy.resolved_masks` and its
+  context flag; `CellSegmentationStrategy.label_objects` (now `object_labels`, which labels nothing);
+  `run_config.json`'s `cell.binary_mask_connectivity` and `preprocessing.mask_conversions` (replaced by the
+  top-level `mask_conversions`; the old entry had a `role` key and no `connectivity`/`labeller`).
+- **In memory nothing is converted** (BM4): a boolean (or float, or any non-integer) object set given to
+  `run_patching`, `scan_cell_objects`/`scan_cell_patch_size` or `CellSegmentationStrategy` is
+  `A_MASK_NOT_INSTANCES` with preprocessing's one message (`check_object_set`), and so is anything that is
+  not a plain NumPy array (a list, None, a `numpy.ma.MaskedArray`, a memory map); `cell.binary_mask_policy`
+  is refused there whatever the mask (it labelled a boolean mask before).
+- **Float regions are `MASK_REGION_INVALID`** (reason `dtype`): float fraction masks (NaN-free ones were
+  accepted, `!= 0`), float random-mode sampling masks (were `> 0` after `astype(bool)`) and a float
+  `WindowedMask`. Lists, masked arrays, stacks and other shapes are `MASK_REGION_INVALID` with their reasons.
+- The notebook checkbox "The mask is binary: label its connected components (8-connected)" is removed.
+- The labels of a `binary` mask with the policy are 8-connected always: a former
+  `binary_mask_connectivity=1` (4-connected) run cannot be repeated.
+
+### Migration
+- In memory: pass integer instance labels (for example `morphobricks_preprocessing.label_binary(mask)` of a
+  boolean mask, the 8-connected components), with `cell.binary_mask_policy` None; or run the files as a
+  described file run with the policy.
+- A config file with `binary_mask_connectivity`: delete the key. `cell.binary_mask_policy` stays only as the
+  file-run request field passed to the resolver.
+- Threshold a probability map before using it as a fraction, sampling or windowed mask.
+- Readers of `run_config.json` read the top-level `mask_conversions` (the resolver's records) instead of
+  `cell.binary_mask_connectivity` and `preprocessing.mask_conversions`.
+- Code matching the old reworded resolver messages (the "cell.binary_mask_policy=... converts a binary
+  mask" prefix, the setting prefix of an issue) matches the code or the resolver's message instead.
 
 ---
 ## [0.6.2] - 2026-11-15 - `WindowedMask` (lazy windowed route); preprocessing v0.5.6

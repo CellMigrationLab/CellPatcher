@@ -108,8 +108,12 @@ def check_fraction_masks(fraction_masks, image_list, image_axes: str) -> list[di
     ------
     ValueError
         If there is not one mapping per image, a name is not a plain name or
-        is ``"own_object"``, or a mask (or a ``WindowedMask``'s ``shape``) is
-        not 2-D with the image's Y/X shape.
+        is ``"own_object"``, or a ``WindowedMask``'s ``shape`` is not the
+        image's Y/X shape.
+    morphobricks_normalization.regions.RegionMaskError
+        ``MASK_REGION_INVALID`` (a ``ValueError``) for an array mask that is not
+        a 2-D integer or boolean NumPy array of the image's Y/X shape (Spec ADR
+        0005 BM7; a float mask included).
     """
     from cellpatcher.strategies.base import _spatial_shape_from_axes
 
@@ -136,12 +140,11 @@ def _checked_mask(mask: object, what: str, shape: tuple) -> np.ndarray | Windowe
         if mask.shape != shape:
             raise ValueError(f"{what} is a WindowedMask of shape {mask.shape}; the image's Y/X shape is {shape}.")
         return mask
-    array = np.asarray(mask)
-    if array.shape != shape:
-        raise ValueError(f"{what} has shape {array.shape}; the image's Y/X shape is {shape}.")
-    if np.issubdtype(array.dtype, np.floating) and not np.isfinite(array).all():
-        raise ValueError(f"{what} holds NaN or infinity.")
-    return array != 0
+    from morphobricks_normalization.regions import check_region
+
+    # Spec ADR 0005 BM3/BM7: the one region checker (2-D NumPy array of the plane's shape, integer
+    # or boolean; MASK_REGION_INVALID otherwise, a float probability map included).
+    return check_region(mask, shape, name=what)
 
 
 def _summed_area(mask: np.ndarray) -> np.ndarray:

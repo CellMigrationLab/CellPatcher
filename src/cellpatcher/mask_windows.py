@@ -47,15 +47,19 @@ class WindowedMask:
         ``(height, width)`` of the plane: the image's Y/X shape.
     dtype
         The pixel type every window has (for a preprocessing run, ``mask_window_plan``'s ``dtype``):
-        boolean, integer or floating. A window of another type is refused, never cast.
+        boolean or integer, as every region (Spec ADR 0005 BM7). A window of another type is
+        refused, never cast.
     memory_limit
         Most bytes one read may hold with its boolean foreground: ``h * w * (itemsize + 1)``.
 
     Raises
     ------
     ValueError
-        If ``read`` is not callable, ``shape`` is not two positive integers, ``dtype`` is not
-        boolean, integer or floating, or ``memory_limit`` is not an integer that holds one pixel.
+        If ``read`` is not callable, ``shape`` is not two positive integers, or ``memory_limit``
+        is not an integer that holds one pixel.
+    morphobricks_normalization.regions.RegionMaskError
+        ``MASK_REGION_INVALID`` (reason ``dtype``, a ``ValueError``) when ``dtype`` is not boolean
+        or integer (a float probability map is thresholded by the user first), before any read.
     """
 
     read: Callable[[tuple[int, int, int, int]], Any]
@@ -73,8 +77,7 @@ class WindowedMask:
             raise ValueError(f"WindowedMask.shape must be two positive integers (height, width); got {shape!r}.")
         object.__setattr__(self, "shape", (int(shape[0]), int(shape[1])))
         dtype = np.dtype(self.dtype)
-        if dtype.kind not in "biuf":
-            raise ValueError(f"WindowedMask.dtype must be boolean, integer or floating; got {dtype}.")
+        _check_window(np.zeros((1, 1), dtype=dtype), (1, 1))  # the region rule on the declared type, no read
         object.__setattr__(self, "dtype", dtype)
         if not _is_integer(self.memory_limit) or self.memory_limit < self.pixel_bytes:
             raise ValueError(
@@ -109,8 +112,15 @@ def mask_blocks(
     ]
 
 
+def _check_window(window: np.ndarray, shape: tuple[int, int]) -> np.ndarray:
+    """Return a window's foreground ``window != 0`` by normalization's region checker (``MASK_REGION_INVALID``)."""
+    from morphobricks_normalization.regions import check_region
+
+    return check_region(window, shape, name="the windowed mask")
+
+
 def _read_window(mask: WindowedMask, bounds: tuple[int, int, int, int]) -> np.ndarray:
-    """Read one window and refuse one that is not the declared shape and type, or not finite."""
+    """Read one window, refuse one that is not the declared shape and type, and return its foreground."""
     window = mask.read(bounds)
     expected = (bounds[1] - bounds[0], bounds[3] - bounds[2])
     if not isinstance(window, np.ndarray) or window.shape != expected or window.dtype != mask.dtype:
@@ -119,9 +129,7 @@ def _read_window(mask: WindowedMask, bounds: tuple[int, int, int, int]) -> np.nd
             f"the mask window reader returned {found} for bounds {bounds}; expected an ndarray of "
             f"shape {expected} and dtype {mask.dtype}."
         )
-    if window.dtype.kind == "f" and not np.isfinite(window).all():
-        raise ValueError(f"the mask window {bounds} holds NaN or infinity.")
-    return window
+    return _check_window(window, expected)
 
 
 def windowed_foreground_counts(mask: WindowedMask, rectangles: Sequence[Sequence[int]]) -> list[int]:
@@ -142,8 +150,8 @@ def windowed_foreground_counts(mask: WindowedMask, rectangles: Sequence[Sequence
     Raises
     ------
     ValueError
-        If a rectangle is not inside the plane, or a window is not the declared shape and dtype,
-        or holds NaN or infinity (only the windows read are checked).
+        If a rectangle is not inside the plane, or a window is not the declared shape and dtype
+        (only the windows read are checked).
     """
     if not isinstance(mask, WindowedMask):
         raise ValueError(f"mask must be a WindowedMask; got {type(mask).__name__}.")
@@ -170,7 +178,7 @@ def windowed_foreground_counts(mask: WindowedMask, rectangles: Sequence[Sequence
             continue
         inside = parts[meets]
         window = (int(inside[:, 0].min()), int(inside[:, 1].max()), int(inside[:, 2].min()), int(inside[:, 3].max()))
-        foreground = _read_window(mask, window) != 0
+        foreground = _read_window(mask, window)
         for index, (y0, y1, x0, x1) in zip(meets.tolist(), inside.tolist(), strict=True):
             counts[index] += int(
                 np.count_nonzero(foreground[y0 - window[0]:y1 - window[0], x0 - window[2]:x1 - window[2]])

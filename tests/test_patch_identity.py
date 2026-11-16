@@ -324,14 +324,15 @@ def test_object_set_is_the_ngff_label_name(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_the_connected_components_opt_in_is_recorded_in_run_config(tmp_path):
+def test_the_policy_in_memory_writes_no_run_config(tmp_path):
+    # Spec ADR 0005 BM4: in memory the policy is refused, before anything is written; a file run
+    # records the resolver's conversion under mask_conversions (tests/test_cell_mask_request.py).
     config = _cell_config(tmp_path)
     config.cell.binary_mask_policy = "connected_components"
     mask = _labels(0) > 0
-    with pytest.warns(UserWarning, match="connected components"):
+    with pytest.raises(ValueError, match="where nothing is converted"):
         run_patching(images=_image(0), masks=mask, config=config, image_metadata=[{"position_id": "P"}])
-    saved = json.loads((tmp_path / RUN_CONFIG_FILENAME).read_text(encoding="utf-8"))
-    assert saved["cell"]["binary_mask_policy"] == "connected_components"
+    assert not (tmp_path / RUN_CONFIG_FILENAME).exists()
 
 
 def test_a_multi_series_tiff_never_reaches_a_file_run(tmp_path):

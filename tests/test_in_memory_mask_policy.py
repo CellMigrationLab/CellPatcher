@@ -1,28 +1,32 @@
-"""In memory only a boolean mask is binary: ``cell.binary_mask_policy`` with an integer mask is refused.
+"""In memory an object set is an integer instance array; nothing is converted (Spec ADR 0005 BM4, F07).
 
-The file route refuses a policy on a mask declared ``instances`` (nothing to convert; Spec ADR 0002
-AR5/AR11 (4), ADR 0001 AQ9, D47: an instances mask holding 0 and 1 is one object). Before this fix
-in-memory ``run_patching`` silently ignored the policy for an integer 0/1 mask and gave one object.
+``run_patching``, ``scan_cell_objects``/``scan_cell_patch_size`` and the cell strategy called
+directly take a plain NumPy array of integer labels, used as stored (D47). A boolean or float
+array, a list, None or a ``numpy.ma.MaskedArray`` is refused with ``A_MASK_NOT_INSTANCES`` and
+the exact message of preprocessing's one constructor (``refuse_not_instances``), before any patch.
+``cell.binary_mask_policy`` is refused in memory: it is only the request field of a described file
+run (before ADR 0005 a boolean mask with the policy was labelled here by CellPatcher's labeller).
+The same boolean array is accepted as a region (a random-mode sampling mask, a fraction mask).
 """
 
 import numpy as np
 import pytest
 
-from cellpatcher import CellPatcherConfig, run_patching
+from cellpatcher import CellConfig, CellPatcherConfig, CellSegmentationStrategy, run_patching, scan_cell_objects
+from cellpatcher.cell_scan import scan_cell_patch_size
+from cellpatcher.mask_policy import IN_MEMORY_POLICY_MESSAGE
 from tests.helpers import named
-
-REFUSAL = "nothing to convert. Pass a boolean mask"
 
 
 def _two_blobs(dtype):
-    """The 16x16 0/1 mask of two separate 3x3 squares (the shared labeller's ``two_blob_0_1``)."""
+    """The 16x16 0/1 mask of two separate 3x3 squares (the goldens' ``two_blob_0_1``)."""
     mask = np.zeros((16, 16), dtype)
     mask[2:5, 2:5] = mask[10:13, 10:13] = 1
     return mask
 
 
-def _config(policy, **common):
-    config = CellPatcherConfig(mode="cell")
+def _config(policy=None, mode="cell", **common):
+    config = CellPatcherConfig(mode=mode)
     config.cell.exclude_border = False
     config.cell.binary_mask_policy = policy
     for name, value in common.items():
@@ -31,116 +35,104 @@ def _config(policy, **common):
 
 
 def _objects(mask, config):
-    image = np.ones(mask.shape[-2:] if mask.ndim == 2 else mask.shape, np.uint16)
+    image = np.ones((16, 16), np.uint16)
     result = run_patching(images=image, masks=mask, config=config, image_metadata=named(image))
     return [(p.label_id, p.area_px) for p in result.patches]
 
 
-@pytest.mark.parametrize("dtype", [np.uint8, np.uint16, np.int32, np.int64])
-def test_a_policy_with_an_integer_mask_is_refused_naming_the_fix(dtype, tmp_path):
-    config = _config("connected_components", output_dir=str(tmp_path / "out"))
+def _expected(name, value):
+    from morphobricks_preprocessing.mask_rules import refuse_not_instances
+
+    return str(refuse_not_instances(name, value=value))
+
+
+# F07: a bool and a float32 array (the array branch); a list, None and an integer MaskedArray (the
+# non-array branch).
+NOT_OBJECT_SETS = [
+    pytest.param(_two_blobs(bool), "is a bool array", id="bool"),
+    pytest.param(_two_blobs(np.float32), "is a float32 array", id="float32"),
+    pytest.param(_two_blobs(np.uint8).tolist(), "is a list (not a plain NumPy array)", id="list"),
+    pytest.param(np.ma.masked_array(_two_blobs(np.uint8)), "is a MaskedArray (not a plain NumPy array)",
+                 id="masked_array"),
+]
+
+
+@pytest.mark.parametrize(("mask", "branch"), NOT_OBJECT_SETS)
+def test_run_patching_refuses_what_is_not_an_object_set_with_the_shared_message(mask, branch, tmp_path):
+    config = _config(output_dir=str(tmp_path / "out"))
     config.export.enabled = True
-    with pytest.raises(ValueError, match=REFUSAL) as raised:
-        _objects(_two_blobs(dtype), config)
-    message = str(raised.value)
-    assert "cell.binary_mask_policy='connected_components'" in message
-    assert f"image 0 is integer ({np.dtype(dtype)})" in message
-    assert "leave cell.binary_mask_policy None" in message
+    with pytest.raises(ValueError) as raised:
+        _objects(mask, config)
+    assert raised.value.code == "A_MASK_NOT_INSTANCES"
+    assert str(raised.value) == _expected("the mask of image_0000", mask)
+    assert branch in str(raised.value)
     assert not (tmp_path / "out").exists()  # refused before anything is written
 
 
-def test_a_boolean_mask_with_the_policy_is_two_8_connected_objects():
-    with pytest.warns(UserWarning, match="8-connected components"):
-        assert _objects(_two_blobs(bool), _config("connected_components")) == [(1, 9), (2, 9)]
+def test_a_none_mask_among_others_is_refused_with_the_non_array_branch():
+    image = np.ones((16, 16), np.uint16)
+    with pytest.raises(ValueError) as raised:
+        run_patching(images=[image, image], masks=[_two_blobs(np.uint8), None], config=_config(),
+                     image_metadata=named([image, image]))
+    assert raised.value.code == "A_MASK_NOT_INSTANCES"
+    assert str(raised.value) == _expected("the mask of image_0001", None)
+    assert "is a NoneType (not a plain NumPy array)" in str(raised.value)
 
 
-def test_an_integer_mask_without_a_policy_is_one_object_as_stored():
-    assert _objects(_two_blobs(np.uint8), _config(None)) == [(1, 18)]
+@pytest.mark.parametrize(("mask", "branch"), NOT_OBJECT_SETS)
+def test_the_cell_strategy_and_the_object_scan_refuse_it_too(mask, branch):
+    strategy = CellSegmentationStrategy(CellConfig(exclude_border=False))
+    with pytest.raises(ValueError) as raised:
+        strategy.generate_regions(image_shape=(16, 16), labels=mask, image_id="image_0000")
+    assert str(raised.value) == _expected("the mask of image_0000", mask)
+    with pytest.raises(ValueError) as scanned:
+        scan_cell_objects(image_shape=(16, 16), labels=mask, config=CellConfig())
+    assert str(scanned.value) == _expected("the mask of image_0000", mask)
+    with pytest.raises(ValueError) as pooled:
+        scan_cell_patch_size([(16, 16)], [mask], config=CellConfig())
+    assert pooled.value.code == "A_MASK_NOT_INSTANCES"
 
 
-def test_one_integer_mask_among_boolean_ones_is_refused():
-    images = [np.ones((16, 16), np.uint16)] * 2
-    masks = [_two_blobs(bool), _two_blobs(np.uint8)]
-    with pytest.raises(ValueError, match="the mask of image 1 is integer"):
-        run_patching(images=images, masks=masks, config=_config("connected_components"),
-                     image_metadata=named(images))
+@pytest.mark.parametrize("dtype", [np.uint8, np.uint16, np.int32, np.int64])
+def test_an_integer_mask_is_used_as_stored(dtype):
+    # D47: an instances mask holding 0 and 1 is one object, whatever its integer type.
+    assert _objects(_two_blobs(dtype), _config()) == [(1, 18)]
+    records = scan_cell_objects(image_shape=(16, 16), labels=_two_blobs(dtype), config=CellConfig(exclude_border=False))
+    assert [(r.label_id, r.area_px) for r in records] == [(1, 18)]
 
 
-def test_the_policy_with_an_integer_mask_is_refused_when_planes_are_split():
-    # The per-plane calls of a plane split are internal; the public call refuses first.
-    mask = np.stack([_two_blobs(np.uint8)] * 2)
-    config = _config("connected_components", image_axes="TYX", mask_axes="TYX", t_policy="all")
-    with pytest.raises(ValueError, match=REFUSAL):
+@pytest.mark.parametrize("mask", [_two_blobs(bool), _two_blobs(np.uint8)], ids=["bool", "uint8"])
+def test_the_policy_is_refused_in_memory_whatever_the_mask(mask, tmp_path):
+    # BM4: no in-memory API converts or carries binary_mask_policy; the policy is never ignored.
+    config = _config("connected_components", output_dir=str(tmp_path / "out"))
+    config.export.enabled = True
+    with pytest.raises(ValueError) as raised:
         _objects(mask, config)
-    with pytest.warns(UserWarning, match="8-connected components"):
-        assert _objects(mask.astype(bool), config) == [(1, 9), (2, 9)] * 2
+    assert str(raised.value) == IN_MEMORY_POLICY_MESSAGE.format(policy="connected_components", where="run_patching")
+    assert not (tmp_path / "out").exists()
+    policy = CellConfig(binary_mask_policy="connected_components")
+    with pytest.raises(ValueError, match="binary_mask_policy='connected_components' is set, but scan_cell_objects"):
+        scan_cell_objects(image_shape=(16, 16), labels=mask, config=policy)
 
 
-# --- the object scan (scan_cell_objects / scan_cell_patch_size) takes the same rule ---------------
+def test_the_policy_is_refused_when_planes_are_split_and_in_other_modes():
+    masks = np.stack([_two_blobs(np.uint8)] * 2)
+    image = np.ones((2, 16, 16), np.uint16)
+    config = _config("connected_components", image_axes="TYX", mask_axes="TYX", t_policy="all")
+    with pytest.raises(ValueError, match="binary_mask_policy='connected_components' is set, but run_patching"):
+        run_patching(images=image, masks=masks, config=config, image_metadata=named(image))
+    random = _config("connected_components", mode="random")
+    with pytest.raises(ValueError, match="binary_mask_policy='connected_components' is set, but run_patching"):
+        run_patching(images=np.ones((16, 16), np.uint16), config=random, image_metadata=named(np.ones((16, 16))))
 
 
-def _scan_objects(mask, policy):
-    from cellpatcher import CellConfig, scan_cell_objects
-
-    config = CellConfig(exclude_border=False, binary_mask_policy=policy)
-    return [(r.label_id, r.area_px) for r in scan_cell_objects(image_shape=mask.shape, labels=mask, config=config)]
-
-
-@pytest.mark.parametrize("dtype", [np.uint8, np.uint16, np.int32, np.int64])
-def test_the_object_scan_refuses_a_policy_with_an_integer_mask(dtype):
-    from cellpatcher import CellConfig, scan_cell_patch_size
-
-    with pytest.raises(ValueError, match=REFUSAL) as raised:
-        _scan_objects(_two_blobs(dtype), "connected_components")
-    assert f"the mask of image_0000 is integer ({np.dtype(dtype)})" in str(raised.value)
-    masks = [_two_blobs(bool), _two_blobs(dtype)]
-    config = CellConfig(exclude_border=False, binary_mask_policy="connected_components")
-    with pytest.raises(ValueError, match="the mask of image_0001 is integer"):
-        scan_cell_patch_size([(16, 16)] * 2, masks, config=config)
-
-
-def test_the_object_scan_labels_a_boolean_mask_and_keeps_an_integer_one_as_stored():
-    with pytest.warns(UserWarning, match="8-connected components"):
-        assert _scan_objects(_two_blobs(bool), "connected_components") == [(1, 9), (2, 9)]
-    assert _scan_objects(_two_blobs(np.uint8), None) == [(1, 18)]
-
-
-def test_the_notebook_scan_of_a_file_run_labels_its_binary_mask_with_the_policy(tmp_path):
-    # The notebook's file-mode scan gets the masks the resolver labelled (int32): not refused.
-    from cellpatcher.notebook_session import scan_object_sizes, summarize_run
-    from tests.test_cell_mask_request import _two_blob_run
-
-    _, _, output = _two_blob_run(tmp_path, "binary")
-    config = CellPatcherConfig(mode="cell")
-    config.cell.exclude_border = False
-    config.cell.binary_mask_policy = "connected_components"
-    config.matching.mask_id = "mask"
-    with pytest.warns(UserWarning, match="8-connected"):
-        scan = scan_object_sizes(config, summarize_run(output))
-    assert (scan.n_images, scan.n_objects_total) == (1, 2)
-
-
-# --- the public cell strategy, called directly, takes the same rule ------------------------------
-
-
-def _strategy_objects(mask, policy, **kwargs):
-    from cellpatcher import CellConfig, CellSegmentationStrategy
-
-    strategy = CellSegmentationStrategy(CellConfig(exclude_border=False, binary_mask_policy=policy))
-    regions = strategy.generate_regions(image_shape=mask.shape, labels=mask, **kwargs)
-    return [(r.label_id, r.area_px) for r in regions]
-
-
-@pytest.mark.parametrize("dtype", [np.uint8, np.uint16, np.int32, np.int64])
-def test_the_cell_strategy_called_directly_refuses_a_policy_with_an_integer_mask(dtype):
-    with pytest.raises(ValueError, match=REFUSAL) as raised:
-        _strategy_objects(_two_blobs(dtype), "connected_components", image_id="image_0003")
-    assert f"the mask of image_0003 is integer ({np.dtype(dtype)})" in str(raised.value)
-    with pytest.raises(ValueError, match="the mask of the labels given to generate_regions is integer"):
-        _strategy_objects(_two_blobs(dtype), "connected_components")
-
-
-def test_the_cell_strategy_labels_a_boolean_mask_and_keeps_an_integer_one_as_stored():
-    with pytest.warns(UserWarning, match="8-connected components"):
-        assert _strategy_objects(_two_blobs(bool), "connected_components") == [(1, 9), (2, 9)]
-    assert _strategy_objects(_two_blobs(np.uint8), None) == [(1, 18)]
+def test_the_same_boolean_array_is_accepted_as_a_region():
+    # F07's last case: a bool array is refused as an object set, accepted as a region.
+    sampling = _two_blobs(bool)
+    image = np.ones((16, 16), np.uint16)
+    config = _config(mode="random")
+    config.random.patch_size, config.random.n_patches, config.random.seed = 3, 2, 0
+    result = run_patching(images=image, masks=sampling, config=config, image_metadata=named(image),
+                          fraction_masks=[{"blobs": sampling}])
+    assert len(result.patches) == 2
+    assert all(p.mask_fractions["blobs"] > 0 for p in result.patches)

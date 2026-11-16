@@ -28,7 +28,6 @@ from cellpatcher.planes import validate_plane_policies
 
 MODES = ("cell", "random", "whole_fov", "grid")
 CENTER_ON = ("centroid", "bbox_center")
-BINARY_MASK_POLICIES = ("connected_components",)  # cellpatcher.object_geometry; no default (None: no policy)
 SEED_SCOPES = ("plane_channel", "plane", "position")
 GRID_PARTIAL_MODES = ("flush", "clipped")
 PAD_MODES = ("clip", "constant")
@@ -136,12 +135,6 @@ def check_cell_settings(cell: object) -> None:
     """Refuse a ``CellConfig`` with a bad choice, size or area bound, or ``exclude_border``."""
     check_choice(cell.center_on, CENTER_ON, "center_on")
     _check_binary_mask_policy(cell.binary_mask_policy)
-    check_integer(cell.binary_mask_connectivity, "binary_mask_connectivity", minimum=1)
-    if cell.binary_mask_connectivity > 2:
-        raise ValueError(
-            "binary_mask_connectivity must be 1 (4-connected) or 2 (8-connected); "
-            f"got {cell.binary_mask_connectivity!r}."
-        )
     if not isinstance(cell.patch_size, str) or cell.patch_size != "auto":
         check_integer(cell.patch_size, "patch_size", minimum=1)
     check_integer(cell.min_area, "min_area", minimum=1)
@@ -204,7 +197,9 @@ def check_export_settings(export: object) -> None:
 
 
 def _check_binary_mask_policy(policy: object) -> None:
-    """Refuse a ``binary_mask_policy`` that is neither None (no policy) nor a P27 policy."""
+    """Refuse a ``binary_mask_policy`` that is neither None (no policy) nor a policy of the resolver (P27)."""
+    from morphobricks_preprocessing.run_inputs_request import BINARY_MASK_POLICIES
+
     if policy is not None:
         check_choice(policy, BINARY_MASK_POLICIES, "binary_mask_policy")
 

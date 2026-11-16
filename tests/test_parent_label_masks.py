@@ -88,16 +88,18 @@ def test_the_instances_mask_of_the_same_run_is_the_object_set(v38, tmp_path):
     assert [patch for leaf in results for patch in leaf.result.patches]
     assert not [message for message in messages if "parent_labels" in message]
     saved = json.loads((tmp_path / "out" / "run_config.json").read_text(encoding="utf-8"))
-    assert "mask_conversions" not in saved["preprocessing"]
+    assert saved["mask_conversions"] == [] and "mask_conversions" not in saved["preprocessing"]
 
 
 def test_random_mode_reads_a_parent_labels_mask_as_a_recorded_and_shown_area(v38, tmp_path):
     results, messages = _run(v38, _random(v38, tmp_path / "out", "mito"))
     assert AREA_MESSAGE in messages  # shown
     saved = json.loads((tmp_path / "out" / "run_config.json").read_text(encoding="utf-8"))
-    assert saved["preprocessing"]["mask_conversions"] == [  # recorded with the mask ID
-        {"mask_id": "Mito", "role": "region", "conversion": "parent_labels_as_area"}
+    # Spec ADR 0005 BM2: the resolver's record, copied as is (null connectivity and labeller).
+    assert saved["mask_conversions"] == [
+        {"mask_id": "Mito", "conversion": "parent_labels_as_area", "connectivity": None, "labeller": None}
     ]
+    assert "mask_conversions" not in saved["preprocessing"]
     patches = [patch for leaf in results for patch in leaf.result.patches]
     assert patches
     for patch in patches:  # every non-zero pixel is inside: the groups are not kept
@@ -111,7 +113,7 @@ def test_random_mode_with_an_instances_mask_records_no_conversion(v38, tmp_path)
     assert [patch for leaf in results for patch in leaf.result.patches]
     assert not [message for message in messages if "parent_labels" in message]
     saved = json.loads((tmp_path / "out" / "run_config.json").read_text(encoding="utf-8"))
-    assert "mask_conversions" not in saved["preprocessing"]
+    assert saved["mask_conversions"] == [] and "mask_conversions" not in saved["preprocessing"]
 
 
 def test_an_unchecked_parent_labels_area_is_refused_by_the_resolver(tmp_path):

@@ -36,6 +36,7 @@ from cellpatcher.notebook_session import (
     export_patches_of_run,
     group_parameters_of_run,
     preview_image,
+    recorded_conversions,
     scan_object_sizes,
     summarize_run,
 )
@@ -199,6 +200,8 @@ class CellPatcherNotebook:
         self.moved.observe(lambda _: self._show_moved(), names="value")
         self.form.mode.observe(lambda _: self._show_mode(), names="value")
         self.form.cell.size.observe(lambda _: self._show_mode(), names="value")
+        for control in (self.form.mode, self.form.mask_type, self.form.random_masks):
+            control.observe(lambda _: self.form.show_conversions(()), names="value")  # shown again by a preview
         for control in (self.form.cell.exclude_border, self.form.cell.min_area, self.form.cell.max_area,
                         self.form.mask_type):
             control.observe(lambda _: self._forget_scan(), names="value")
@@ -259,6 +262,7 @@ class CellPatcherNotebook:
             style.clean_path(self.masks_folder.value) if moved else None,
         ))
         self.summary, self.scan = summary, None
+        self.form.show_conversions(())
         if summary is not None:
             self.form.set_run(summary)
             self.image_choice.options = list(summary.images)
@@ -273,7 +277,8 @@ class CellPatcherNotebook:
         """Show step 2: the patching strategy and processing settings."""
         form = self.form
         display(style.page("Step 2: the settings", "How the images are cut into patches, and what is done to them.", [
-            style.card("Patching strategy", [form.mode, form.mask_type, *form.cell.controls(), self.scan_button,
+            style.card("Patching strategy", [form.mode, form.mask_type, form.conversions, *form.cell.controls(),
+                                             self.scan_button,
                                              form.grid_size, form.grid_overlap, form.grid_partial, form.random_size,
                                              form.random_count, form.random_seed, form.random_masks]),
             style.card("Planes", [form.planes.t_policy, form.planes.t_index,
@@ -345,6 +350,7 @@ class CellPatcherNotebook:
                                                                       self.image_choice.value))
         self.preview_output.clear_output()
         if preview is not None:
+            self.form.show_conversions(preview.mask_conversions)  # the run's record, read-only (Spec ADR 0005 BM13)
             patches = preview.result.patches
             lines = ["Rectangles: where the patches are, on the first plane and channel. Below: the first patches."]
             if preview.before_after:
@@ -382,6 +388,7 @@ class CellPatcherNotebook:
         results = guarded(self.export_message, lambda: export_patches_of_run(
             self.config(), self._summary(), style.clean_path(self.output_folder.value), progress))
         if results is not None:
+            self.form.show_conversions(recorded_conversions(Path(style.clean_path(self.output_folder.value))))
             rows = [["Condition", "Biological repeat", "Technical repeat", "Patches"]]
             rows += [[r.condition, r.biological_repeat, r.technical_repeat, str(len(r.result.patches))]
                      for r in results]

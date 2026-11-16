@@ -27,6 +27,7 @@ from cellpatcher.config import (
     RandomConfig,
 )
 from cellpatcher.notebook_session import RunSummary
+from cellpatcher.run_request import PARENT_LABELS_AS_AREA, PARENT_LABELS_AS_AREA_MESSAGE
 
 MODES = (
     ("Cell: one patch per segmented object", "cell"),
@@ -82,6 +83,27 @@ def _check(description: str, value: bool = False) -> widgets.Checkbox:
     return widgets.Checkbox(value=value, description=description, indent=False)
 
 
+def conversion_text(record: dict) -> str:
+    """Return one recorded mask conversion as a sentence: its mask ID, conversion, connectivity and labeller."""
+    if record["conversion"] == PARENT_LABELS_AS_AREA:
+        return PARENT_LABELS_AS_AREA_MESSAGE.format(mask_id=record["mask_id"])
+    return (
+        f"{record['mask_id']!r}: converted to objects by {record['conversion']} "
+        f"(connectivity {record['connectivity']}, labeller {record['labeller']})"
+    )
+
+
+def conversions_html(records: tuple[dict, ...]) -> str:
+    """Return the recorded mask conversions of a file run as read-only text, or ``""`` without one."""
+    if not records:
+        return ""
+    lines = [conversion_text(record) for record in records]
+    return style.status("info", "Recorded by the preprocessing run (read-only)", [
+        *lines, "Decided by the run's description and request, not by a setting here; run_config.json "
+        "records it under mask_conversions.",
+    ])
+
+
 @dataclass
 class CellControls:
     """The ``cell`` mode settings."""
@@ -92,7 +114,6 @@ class CellControls:
     min_area: widgets.BoundedIntText
     max_area: widgets.BoundedIntText
     apply_mask: widgets.Checkbox
-    components: widgets.Checkbox
 
     @classmethod
     def build(cls) -> CellControls:
@@ -104,13 +125,11 @@ class CellControls:
             min_area=_int("Minimum object area (px)", 1, 1),
             max_area=_int("Maximum object area (px, 0: none)", 0),
             apply_mask=_check("Blank the pixels outside the object (apply mask)"),
-            components=_check("The mask is binary: label its connected components (8-connected)"),
         )
 
     def controls(self) -> list[widgets.Widget]:
         """Return the controls in display order."""
-        return [self.size, self.fixed, self.exclude_border, self.min_area, self.max_area, self.apply_mask,
-                self.components]
+        return [self.size, self.fixed, self.exclude_border, self.min_area, self.max_area, self.apply_mask]
 
     def config(self, dataset_size: Callable[[str], int | str]) -> CellConfig:
         """Return the cell settings; *dataset_size* gives a dataset statistic's size (``"auto"``: none yet)."""
@@ -123,7 +142,6 @@ class CellControls:
             exclude_border=self.exclude_border.value,
             min_area=self.min_area.value,
             max_area=self.max_area.value or None,
-            binary_mask_policy="connected_components" if self.components.value else None,
         )
 
 
@@ -206,6 +224,7 @@ class SettingsForm:
 
     mode: widgets.Dropdown
     mask_type: widgets.Dropdown
+    conversions: widgets.HTML
     cell: CellControls
     grid_size: widgets.BoundedIntText
     grid_overlap: widgets.BoundedFloatText
@@ -228,6 +247,7 @@ class SettingsForm:
         return cls(
             mode=_choice("Patching strategy", MODES, "cell"),
             mask_type=widgets.Dropdown(options=[], description="Mask type", style=WIDE),
+            conversions=widgets.HTML(),
             cell=CellControls.build(),
             grid_size=_int("Tile size (pixels)", 128, 1),
             grid_overlap=_float("Overlap (fraction, 0 to <1)", 0.0, 0.99),
@@ -252,6 +272,16 @@ class SettingsForm:
         self.channels.options = list(summary.channels)  # canonical channel IDs: chosen by ID, never by position
         self.channels.value = ()
         self.planes.show_for(summary.layout)
+
+    def show_conversions(self, records: tuple[dict, ...]) -> None:
+        """Show a file run's recorded mask conversions read-only, or nothing without one (Spec ADR 0005 BM13).
+
+        *records* are the resolver's ``mask_conversions`` as the run recorded them. The text is
+        an ``HTML`` widget, not a control: the conversion is decided once, by the preprocessing
+        run's resolver (BM2), and the form offers no binary-mask setting.
+        """
+        self.conversions.value = conversions_html(records)
+        style.set_visible(self.conversions, bool(records))
 
     def mode_widgets(self) -> dict[str, list[widgets.Widget]]:
         """Return the controls shown only in each mode."""

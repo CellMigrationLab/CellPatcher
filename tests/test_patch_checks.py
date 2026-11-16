@@ -1,4 +1,4 @@
-"""check_patch_bounds and check_region_mask (D86 API C3).
+"""check_patch_bounds (D86 API C3); check_region_mask moved to normalization (Spec ADR 0005 BM7).
 
 Four feature bricks copied these checks; MorphoEmbed's copy took float bounds
 such as (0.0, 5.0, 0, 4). The shared rule is strict: integers only, a
@@ -8,7 +8,8 @@ non-empty rectangle, inside the plane.
 import numpy as np
 import pytest
 
-from cellpatcher import PatchBoundsError, check_patch_bounds, check_region_mask
+import cellpatcher
+from cellpatcher import PatchBoundsError, check_patch_bounds
 
 
 def test_integer_bounds_inside_the_plane_are_returned_as_ints():
@@ -46,15 +47,10 @@ def test_a_shape_that_is_not_a_plane_is_refused(shape):
         check_patch_bounds((0, 1, 0, 1), shape)
 
 
-def test_region_masks():
-    mask = np.zeros((5, 4), dtype=np.uint8)
-    assert check_region_mask(mask, (5, 4)) is mask
-    assert check_region_mask(mask.astype(bool), (5, 4)).dtype == bool
-    with pytest.raises(PatchBoundsError, match="must hold integers or booleans, not float64"):
-        check_region_mask(mask.astype(float), (5, 4))
-    with pytest.raises(PatchBoundsError, match=r"has shape \(4, 5\), not the plane's \(5, 4\)"):
-        check_region_mask(mask.T, (5, 4))
-    with pytest.raises(PatchBoundsError, match="missing"):
-        check_region_mask(None, (5, 4), name="mask 'cells'")
-    with pytest.raises(PatchBoundsError, match="not an array"):
-        check_region_mask(mask.tolist(), (5, 4))
+def test_check_region_mask_is_removed_for_normalizations_check_region():
+    # Spec ADR 0005 BM7: the one region checker is morphobricks_normalization.regions.check_region.
+    assert not hasattr(cellpatcher, "check_region_mask")
+    assert "check_region_mask" not in cellpatcher.__all__
+    import cellpatcher.patch_checks as patch_checks
+
+    assert not hasattr(patch_checks, "check_region_mask")
