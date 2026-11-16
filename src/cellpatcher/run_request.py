@@ -22,8 +22,9 @@ run builds one ``Request`` and reads through the ``FovSelection``s:
   is shown (:data:`PARENT_LABELS_AS_AREA_MESSAGE`). An ``instances`` or ``binary`` region is read
   as stored and taken as ``mask != 0`` by normalization's ``check_region`` (BM3, BM7).
 
-The resolver's version is checked right after it answers, before anything else
-(:func:`check_resolver_version`, BM10): this CellPatcher supports exactly
+The resolver is asked for every described file run, with an empty request when the run names no
+channel, mask or region (grid, whole-FOV, mask-free random), and its version is checked right after
+it answers, before anything else (:func:`check_resolver_version`, BM10): this CellPatcher supports exactly
 :data:`SUPPORTED_RESOLVER_VERSIONS`. Its ``Provenance.mask_conversions`` records are copied as is
 into ``run_config.json`` under ``mask_conversions`` (BM2). Every refusal of the resolver
 (``A_SCOPE_INCOMPLETE``, ``A_MASK_UNCHECKED``, ``A_MASK_NOT_INSTANCES``, ``A_VOLUME_NOT_SUPPORTED``, ...)
@@ -142,10 +143,15 @@ def resolve_run(
     *ids* are the channel IDs ``extraction.split_channels`` names (may be empty); *policy* is
     ``cell.binary_mask_policy``, the request field passed to the resolver as is; *region_id* is
     the random-mode sampling mask's ID, asked in the role ``region``. CellPatcher declares RGB
-    support (P24) and not ``parent_labels_support``. Nothing is asked when there are no IDs and
-    no mask.
+    support (P24) and not ``parent_labels_support``. The resolver is asked for every described
+    file run, also when there are no IDs, no mask and no region (grid, whole-FOV and mask-free
+    random runs): the request is then empty, which the resolver's contract allows (``Request()``'s
+    fields all default to nothing), and selects nothing. Preprocessing v0.6.0 gives a resolver's
+    contract version only in ``ResolvedRequest.provenance.resolver_version``, so asking is the one
+    way to read it (CellPatcher v0.7.1, CP1; v0.7.0 skipped the check then).
 
-    The resolver's version is checked first (:func:`check_resolver_version`). Every refusal of
+    The resolver's version is checked first (:func:`check_resolver_version`), before any pixel read,
+    output or record. Every refusal of
     the resolver comes back in :attr:`ResolvedRun.issues`, each with its code and message:
     ``A_SCOPE_INCOMPLETE`` for a channel or mask some image lacks (an undeclared ID is present in
     0 of n), ``A_MASK_UNCHECKED`` for a mask file the mask step has not checked,
@@ -162,8 +168,7 @@ def resolve_run(
         The resolver's own, unchanged, for a malformed request (``cell.binary_mask_policy`` on a
         mask that is not declared ``binary``).
     """
-    if not ids and mask_id is None and region_id is None:
-        return ResolvedRun()
+    # Spec ADR 0005 BM10: every described file run is checked, also one that asks for nothing (CP1).
     resolved = inputs.resolve_request(_request(ids, mask_id, policy, region_id))
     check_resolver_version(resolved.provenance.resolver_version)
     conversions = tuple(conversion.as_record() for conversion in resolved.provenance.mask_conversions)

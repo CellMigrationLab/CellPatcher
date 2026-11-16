@@ -346,6 +346,62 @@ def test_f13_a_resolver_of_another_contract_version_is_refused_before_any_read(v
         assert not (tmp_path / "out").exists()  # no output, no run_config.json
 
 
+def _mask_free_config(output, mode, out_dir=None):
+    """A grid, whole-FOV or random run of *output* that names no channel, mask or region."""
+    config = CellPatcherConfig(mode=mode)
+    config.common.preprocessing_run = str(output)
+    config.grid.tile_size = 8
+    config.random.patch_size, config.random.n_patches = 8, 2
+    if out_dir is not None:
+        config.common.output_dir = str(out_dir)
+        config.export.enabled = True
+    return config
+
+
+@pytest.mark.parametrize("mode", ["grid", "whole_fov", "random"])
+@pytest.mark.parametrize("version", [2, 4])
+def test_cp1_a_mask_free_run_without_channels_checks_the_resolver_version_before_any_read(
+    v08, tmp_path, monkeypatch, mode, version
+):
+    """CP1 (v0.7.1): the version is checked for every described file run, not only when something is asked.
+
+    v0.7.0 returned before ``resolve_request`` when the run named no channel ID, mask or region, so a
+    grid, whole-FOV or mask-free random run of a resolver of another contract version read its pixels.
+    """
+    from morphobricks_normalization.contracts import refuse_resolver_version
+
+    _resolver_of_version(monkeypatch, version)
+    _no_pixel_reads(monkeypatch)
+    config = _mask_free_config(v08.output, mode, tmp_path / "tree")
+    assert config.extraction.split_channels is False and config.matching.mask_type is None
+    with pytest.raises(ValueError) as raised:
+        _tree(v08, config)
+    assert raised.value.code == "RESOLVER_VERSION_UNSUPPORTED"
+    assert str(raised.value) == str(refuse_resolver_version(version, [3]))
+    assert not (tmp_path / "tree").exists()  # no output, no run_config.json
+    with pytest.raises(ValueError) as raised:
+        run_patching_pipeline(v08.experiment, config=_mask_free_config(v08.output, mode, tmp_path / "folder"))
+    assert raised.value.code == "RESOLVER_VERSION_UNSUPPORTED"
+    assert not (tmp_path / "folder").exists()
+
+
+@pytest.mark.parametrize("mode", ["grid", "whole_fov", "random"])
+def test_cp1_a_mask_free_run_asks_the_resolver_with_an_empty_request(v08, monkeypatch, mode):
+    """The version comes from ``resolve_request`` with an empty request (preprocessing v0.6.0 has no other way)."""
+    from morphobricks_preprocessing.run_inputs import RunInputs
+
+    asked = []
+    resolve = RunInputs.resolve_request
+
+    def resolve_request(self, request):
+        asked.append(request)
+        return resolve(self, request)
+
+    monkeypatch.setattr(RunInputs, "resolve_request", resolve_request)
+    assert _tree(v08, _mask_free_config(v08.output, mode))
+    assert asked and all((request.channel_ids, request.masks) == ((), ()) for request in asked)
+
+
 def test_f13_contract_version_3_is_accepted(v08, monkeypatch):
     from cellpatcher.run_request import SUPPORTED_RESOLVER_VERSIONS
 

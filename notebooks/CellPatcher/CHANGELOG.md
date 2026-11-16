@@ -74,6 +74,20 @@ Release v0.3.0
 Pin preprocessing v0.4.0rc4; prepare v0.2.0rc2
 
 ---
+## [Unreleased] - Fixes from the external audit of v0.7.0 (CP1, CP2, CP3, F3, F4)
+
+Fixes for the defects an external audit of the tagged v0.7.0 (`9d54597`) found. Outputs on valid inputs are
+unchanged (`tests/test_v062_output_parity.py`, `tests/test_patch_identity.py`).
+
+### Fixed
+- **CP1: the resolver's contract version is checked for every described file run** (Spec ADR 0005 BM10).
+  v0.7.0 returned before `RunInputs.resolve_request` when a run named no channel ID (`extraction.split_channels`),
+  object set or sampling mask, so grid, whole-FOV and mask-free random runs read pixels from a resolver of any
+  contract version. Such a run now asks the resolver with an empty `Request` (preprocessing v0.6.0 gives the
+  version only in `ResolvedRequest.provenance.resolver_version`; an empty request is allowed and selects
+  nothing) and is refused with `RESOLVER_VERSION_UNSUPPORTED` before any pixel read or output.
+  `tests/test_cell_mask_request.py` (`test_cp1_*`).
+
 ## [0.7.0] - 2026-11-16 - One policy for binary masks (Spec ADR 0005, step 3), images of different channel sets in one normalized run (G1), an empty region gives no patch (BM8); preprocessing v0.6.0, normalization v0.7.0
 
 The v0.7.0 release (16 November 2026), from #117. A minor release because it removes public behaviour

@@ -251,7 +251,9 @@ CellPatcher-specific conventions:
   `MaskRequest(matching.mask_id, "objects", policy)`, the mask ID defaulting to the declared
   mask of `matching.mask_type`'s source type. The resolver's contract version must be in
   `SUPPORTED_RESOLVER_VERSIONS` (`{3}`; `RESOLVER_VERSION_UNSUPPORTED` otherwise, from
-  normalization's one constructor). Its refusals (`A_MASK_NOT_INSTANCES`, `A_MASK_UNCHECKED`,
+  normalization's one constructor), checked for every described file run before any pixel read,
+  also a grid, whole-FOV or mask-free run that names no channel or mask (it asks with an empty
+  `Request`, v0.7.1 CP1). Its refusals (`A_MASK_NOT_INSTANCES`, `A_MASK_UNCHECKED`,
   `A_SCOPE_INCOMPLETE`, `A_VOLUME_NOT_SUPPORTED`) are raised with their codes and messages
   unchanged before any pixel is read. The object set's planes are read with preprocessing's
   `RunInputs.read_objects` (`run_reading.read_fov_objects`), which applies the recorded
