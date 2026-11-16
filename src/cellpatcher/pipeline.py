@@ -554,9 +554,9 @@ def _normalize(config: CellPatcherConfig, image_list, masks, image_metadata, pat
 
 def _build_result(
     config: CellPatcherConfig, image_list, patches: list[PatchRegion], masks=None, image_metadata=None,
-    fraction_masks=None,
+    fraction_masks=None, empty_regions: set[str] | frozenset[str] = frozenset(),
 ) -> PatchingResult:
-    """Filter, stamp, normalize, extract and export the regions generated in *image_list*."""
+    """Filter, stamp, normalize, extract and export the regions of *image_list* (*empty_regions*: ``empty_region``)."""
     if image_metadata is not None and len(image_metadata) != len(image_list):
         raise ValueError("image_metadata must have exactly one entry per image (or be None).")
     metadata = image_metadata if image_metadata is not None else [None] * len(image_list)
@@ -593,6 +593,7 @@ def _build_result(
         record.n_kept = n_kept[record.image_id]
         record.n_normalized = n_normalized[record.image_id]
         record.n_patches = n_patches[record.image_id]
+        record.n_empty_region_planes = int(record.image_id in empty_regions)  # Spec ADR 0005 BM8
     export_arrays = _raw_export_arrays(config, image_list, config.common.image_axes, patches, patch_arrays_internal)
     return _finish_result(config, patches, patch_arrays_internal, records, export_arrays)
 
@@ -775,7 +776,7 @@ def _patch_planes(config: CellPatcherConfig, sources) -> PatchingResult:
 
         # The image's record sums those of its planes.
         record = replace(result.image_records[0], image_id=image_id)
-        for counter in ("n_regions", "n_kept", "n_normalized", "n_patches"):
+        for counter in ("n_regions", "n_kept", "n_normalized", "n_patches", "n_empty_region_planes"):
             setattr(record, counter, sum(getattr(plane_record, counter) for plane_record in result.image_records))
         records.append(record)
         for patch in result.patches:
@@ -966,19 +967,18 @@ def run_patching(images=None, masks=None, config=None, image_metadata=None, frac
             mask_list = [masks]
 
         patches: list[PatchRegion] = []
-        # Each image (plane) is sampled with a seed derived from the run seed and its identity
-        # (position_id, t, z, c), so a run is deterministic, different images get different samples,
-        # and an image gets the same rectangles wherever it is in the run (cellpatcher.ids.random_seed).
-        # image_metadata is filled with every image's position_id above.
+        # Each image (plane) is sampled with a seed derived from the run seed and its identity (position_id,
+        # t, z, c; image_metadata is filled above), so a run is deterministic, different images get different
+        # samples, and an image gets the same rectangles wherever it is in the run (cellpatcher.ids.random_seed).
         for idx, (image, mask) in enumerate(zip(image_list, mask_list)):
             image_id = f"image_{idx:04d}"
             labels = _image_labels(config, image_metadata[idx])
             seed = random_seed(config.random.seed, image_metadata[idx], config.random.seed_scope, labels)
-            image_random_config = replace(config.random, seed=seed)
-            strategy = RandomPatchStrategy(image_random_config)
+            strategy = RandomPatchStrategy(replace(config.random, seed=seed))
             patches.extend(
                 strategy.generate_regions(
                     image_shape=image.shape, labels=mask, image_id=image_id, axes=config.common.image_axes
                 )
             )
-        return _build_result(config, image_list, patches, masks=mask_list, image_metadata=image_metadata, fraction_masks=fraction_masks)
+        empty_regions = {f"image_{i:04d}" for i in range(len(image_list))} - {p.image_id for p in patches}  # BM8
+        return _build_result(config, image_list, patches, masks=mask_list, image_metadata=image_metadata, fraction_masks=fraction_masks, empty_regions=empty_regions)

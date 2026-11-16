@@ -20,6 +20,10 @@ The draw sequence (since v0.2.0, matrix finding F8):
    are the draws of the mask-free stream that pass the filter, in order. After
    ``max(1000, 50 * n_patches)`` draws the plane is refused
    (:class:`cellpatcher.SamplingExhaustedError`).
+6. An empty sampling mask (no non-zero pixel) with ``min_mask_fraction`` ``None`` or ``> 0``:
+   the plane has no patch and no draw is taken (Spec ADR 0005 BM8: a patch set sampled in an
+   empty region is undefined, ``empty_region``, and never a refusal). Only a non-empty mask
+   can exhaust the attempts; at an explicit ``0`` an empty mask excludes nothing, as in 3.
 
 Sampling is with replacement: a rectangle can be drawn twice (``cellpatcher.ids`` numbers
 the repeats). ``seed=None`` uses NumPy's nondeterministic initialization.
@@ -139,7 +143,9 @@ class RandomPatchStrategy(BasePatchStrategy):
         Returns
         -------
         list of PatchRegion
-            ``n_patches`` regions, the kept draws in stream order.
+            ``n_patches`` regions, the kept draws in stream order; none (an empty list) when the
+            sampling mask has no foreground pixel and ``min_mask_fraction`` is not ``0`` (Spec
+            ADR 0005 BM8, ``empty_region``). Only that case gives no region.
 
         Raises
         ------
@@ -148,7 +154,8 @@ class RandomPatchStrategy(BasePatchStrategy):
             patch size or count is not positive, the patch is larger than the plane,
             or the mask is missing (fraction > 0), not 2-D or of another shape.
         SamplingExhaustedError
-            If fewer than ``n_patches`` draws reach ``min_mask_fraction`` within the attempt cap.
+            If fewer than ``n_patches`` draws reach ``min_mask_fraction`` within the attempt cap,
+            the mask being non-empty (a region too small or too sparse for the patch).
         """
         check_random_settings(self.config)  # the config is mutable: re-checked where it is used
         shape = _spatial_shape_from_axes(image_shape, axes=axes)
@@ -165,6 +172,8 @@ class RandomPatchStrategy(BasePatchStrategy):
             )
         fraction = self.config.min_mask_fraction
         mask = _sampling_mask(labels, fraction, shape)
+        if mask is not None and not mask.any():
+            return []  # Spec ADR 0005 BM8: an empty region has no patch (empty_region), never a refusal
         corners = self._kept_corners(np.random.default_rng(self.config.seed), shape, mask, fraction)
         return [_region(y0, x0, size, shape, image_id, self.mode) for y0, x0 in corners]
 

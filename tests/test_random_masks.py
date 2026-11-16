@@ -77,12 +77,13 @@ def test_run_patching_at_fraction_zero_is_the_same_with_and_without_masks(scope)
 
 
 def test_an_empty_mask_at_fraction_zero_is_not_exhausted():
-    """Only a filtering mask can run out of attempts."""
+    """Only a filtering mask can run out of attempts; an empty one gives no draw (Spec ADR 0005 BM8)."""
     config = RandomConfig(patch_size=8, n_patches=3, seed=0, min_mask_fraction=0)
     with pytest.warns(UserWarning):
         assert len(_draw(config, _masks()["empty"])) == 3
+    assert _draw(RandomConfig(patch_size=8, n_patches=3, seed=0, min_mask_fraction=0.1), _masks()["empty"]) == []
     with pytest.raises(SamplingExhaustedError):
-        _draw(RandomConfig(patch_size=8, n_patches=3, seed=0, min_mask_fraction=0.1), _masks()["empty"])
+        _draw(RandomConfig(patch_size=8, n_patches=3, seed=0, min_mask_fraction=0.1), _masks()["sparse"])
 
 
 def test_a_mask_at_fraction_zero_is_still_checked():
@@ -151,8 +152,7 @@ def test_no_fraction_keeps_the_former_any_overlap_rule(kind):
     config = RandomConfig(patch_size=8, n_patches=6, seed=3)
     assert config.min_mask_fraction is None
     if kind == "empty":
-        with pytest.raises(SamplingExhaustedError):
-            _draw(config, mask)
+        assert _draw(config, mask) == []  # an empty region has no patch (Spec ADR 0005 BM8)
         return
     expected = [r for r in _stream(config, 1000) if mask[r.y0:r.y1, r.x0:r.x1].any()][:6]
     assert _rectangles(_draw(config, mask)) == _rectangles(expected)

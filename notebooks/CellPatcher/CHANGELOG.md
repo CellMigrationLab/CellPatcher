@@ -107,6 +107,20 @@ Pin preprocessing v0.4.0rc4; prepare v0.2.0rc2
   over only the planes that have it, applied to that channel's own plane; the homogeneous runs `v07`,
   `v08`, `v13` keep v0.6.2's outputs (`tests/test_v062_output_parity.py`).
 
+### Fixed: an empty region gives no patch, never a refusal (Spec ADR 0005 BM8, #118)
+- Random mode with a sampling mask that has no non-zero pixel and `min_mask_fraction` unset or `> 0` gave
+  `SamplingExhaustedError` and stopped the run. The image (plane) now has no patch and takes no draw; it is
+  listed in `images.csv` with status `no_patches` and reason `empty_region` (`cellpatcher.types.EMPTY_REGION`),
+  in `positions.csv` with `analysed_no_regions` and the same reason, and the other images of the run are
+  patched as without it. In memory and in file runs; under a T split each plane is sampled alone.
+- Unchanged: a non-empty mask too small or too sparse to give `n_patches` draws reaching the fraction is still
+  `SamplingExhaustedError`; at an explicit `min_mask_fraction=0` an empty mask excludes nothing (F8); the fraction
+  of a patch inside an empty `fraction_masks` region is `0.0` in every mode; an all-zero cell-mode object set has
+  zero objects (reason "the patch mode generated no region in this image"); grid and whole_fov read no sampling
+  mask. Outputs on non-empty regions are unchanged (`tests/test_v062_output_parity.py`).
+- `tests/test_empty_region.py`: the strategy, every mode in memory, random file runs at `None`, `1/64`, `0.5`
+  and `1.0`, a T split, normalization, and the refusal kept for a region too small for the patch.
+
 ### Breaking (no backward compatibility, ADR 0002 AR10)
 - **Removed:** `cellpatcher.label_objects`, `BINARY_MASK_POLICIES`, `CONNECTIVITIES`,
   `BINARY_MASK_CONNECTIVITY` (BM6; the one labeller is preprocessing's `masks.binary.label_binary`);

@@ -22,10 +22,13 @@ def test_refusals_are_exported_and_stay_value_errors():
 
 def test_random_sampling_exhaustion_is_a_typed_refusal():
     config = CellPatcherConfig(mode="random", random=RandomConfig(patch_size=5, n_patches=3, seed=0))
+    config.random.min_mask_fraction = 0.5
     image = np.zeros((20, 20), dtype=np.uint8)
-    empty_mask = np.zeros((20, 20), dtype=bool)
+    # A region too small for the patch; an empty one gives no patch instead (Spec ADR 0005 BM8).
+    small_mask = np.zeros((20, 20), dtype=bool)
+    small_mask[0, 0] = True
     with pytest.raises(SamplingExhaustedError) as info:
-        run_patching(images=[image], masks=[empty_mask], config=config, image_metadata=named([image]))
+        run_patching(images=[image], masks=[small_mask], config=config, image_metadata=named([image]))
     assert (info.value.requested, info.value.collected) == (3, 0)
     assert info.value.attempts == 1000
 

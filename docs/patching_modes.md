@@ -95,7 +95,11 @@ Common pitfalls:
   `regions.check_region` (Spec ADR 0005 BM7): a 2-D integer or boolean NumPy array of the plane's shape, its
   non-zero pixels inside, never labelled. A float mask (a probability map) is refused with `MASK_REGION_INVALID`:
   threshold it first.
-- If the sampling mask is too sparse (or all `False`) for `min_mask_fraction > 0`, random mode can fail after too many attempts to find valid patches (`SamplingExhaustedError`).
+- An empty sampling mask (no non-zero pixel) gives that image no patch, never an error (Spec ADR 0005 BM8): with
+  `min_mask_fraction` unset or `> 0` the image is listed in `images.csv` and `positions.csv` with the reason
+  `empty_region`, and the other images of the run are patched as without it. An explicit `0` excludes nothing, so an
+  empty mask then gives the rectangles drawn without a mask.
+- If a non-empty sampling mask is too small or too sparse for `min_mask_fraction > 0`, random mode can fail after too many attempts to find valid patches (`SamplingExhaustedError`).
 - No `seed` means non-deterministic outputs.
 - Duplicate patches are valid behavior.
 

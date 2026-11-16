@@ -92,6 +92,7 @@ class PositionRecord:
     n_kept: int = 0
     n_normalized: int = 0
     n_patches: int = 0
+    n_empty_region_planes: int = 0  # planes sampled in an empty region (Spec ADR 0005 BM8); not a column
 
     @property
     def status(self) -> str:
@@ -118,7 +119,9 @@ class PositionRecord:
             )
         if self.n_skipped == self.n_source_images:
             return skipped
-        counted = no_patch_reason(self.n_regions, self.n_kept, self.n_normalized, self.n_patches)
+        counted = no_patch_reason(
+            self.n_regions, self.n_kept, self.n_normalized, self.n_patches, self.n_empty_region_planes
+        )
         return "; ".join(part for part in (skipped, counted) if part) or None
 
     def to_dict(self) -> dict:
@@ -170,7 +173,7 @@ def position_records(image_records: Iterable[ImageRecord]) -> list[PositionRecor
         if image.skip_reason is not None:
             record.n_skipped += 1
             record.skip_reasons.append(image.skip_reason)
-        for counter in ("n_regions", "n_kept", "n_normalized", "n_patches"):
+        for counter in ("n_regions", "n_kept", "n_normalized", "n_patches", "n_empty_region_planes"):
             setattr(record, counter, getattr(record, counter) + getattr(image, counter))
     return list(positions.values())
 
