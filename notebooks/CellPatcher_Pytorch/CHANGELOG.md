@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.7.0] - 2026-11-16
+
+### Changed
+- Version updated from 0.6.2 to 0.7.0
+
+**Commit Details:**
+- Hash: [`9d54597d`](https://github.com/CellMigrationLab/CellPatcher/commit/9d54597da5ff89bfa8d9b2724181e051d69e1138)
+- Author: guijacquemet
+- Date: 2026-11-16 14:28:03 +0200
+- Message: Merge pull request #119 from CellMigrationLab/claude/release-0.7.0
+
+Release v0.7.0: one policy for binary masks (ADR 0005 step 3), G1, BM8; preprocessing v0.6.0
+
+---
 ## [0.6.2] - 2026-11-15
 
 ### Changed
