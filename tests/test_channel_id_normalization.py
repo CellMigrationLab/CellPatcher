@@ -34,7 +34,13 @@ def test_an_image_whose_channel_ids_are_not_its_rows_is_refused():
     with pytest.raises(PreprocessingCheckError, match="no image_metadata") as raised:
         _check_row_channel_ids(meta, rows)
     assert [issue.code for issue in raised.value.issues] == ["channel_ids_required"]
-    _check_row_channel_ids(meta, rows[1:])
+    _check_row_channel_ids({**meta, "c": 1}, rows[1:])  # one plane named by its explicit C index
+    with pytest.raises(PreprocessingCheckError, match="no image_metadata") as raised:
+        _check_row_channel_ids(meta, rows[1:])  # one plane of a 2-channel image, its C index not given
+    assert [issue.code for issue in raised.value.issues] == ["channel_ids_required"]
+    with pytest.raises(PreprocessingCheckError, match="no image_metadata") as raised:
+        _check_row_channel_ids({**meta, "c": 0}, rows[1:])  # a given C index that is not the row's
+    assert [issue.code for issue in raised.value.issues] == ["channel_ids_required"]
     with pytest.raises(PreprocessingCheckError, match="Channel C0 of .* is 'C1' for the image but 'C0'") as raised:
         _check_row_channel_ids({**meta, "channel_ids": record.channels[::-1]}, rows)
     assert [issue.code for issue in raised.value.issues] == ["channel_id_mismatch"]
@@ -212,3 +218,35 @@ def test_cp2_a_single_channel_needs_no_id_and_a_given_one_is_checked(two_channel
         with pytest.raises(PreprocessingCheckError) as raised:
             run_patching(images=image[1], config=config, image_metadata=[{**metadata, "channel_ids": ("C1", "C0")}])
     assert [issue.code for issue in raised.value.issues] == ["channel_id_mismatch"]
+
+
+@pytest.mark.parametrize(
+    ("label", "plane", "axes", "meta"),
+    [
+        ("a YX plane without c", 1, "YX", {}),
+        ("a one-channel CYX image without c", 1, "CYX", {}),
+        ("a one-channel CYX image whose c is not its C index", 1, "CYX", {"c": 1}),
+    ],
+)
+def test_cp2_one_plane_of_a_multichannel_image_without_ids_or_its_c_is_refused_before_any_fit(
+    two_channel_run, monkeypatch, label, plane, axes, meta
+):
+    """Review of v0.7.1 CP2: one channel plane of a 2-channel image was matched to the row C0 by position.
+
+    Without ``channel_ids`` and without its ``c`` (or with a C axis of one channel, whose ``c`` the CSV
+    lookup ignores), the plane of channel C1 took channel C0's parameters: its extrema and pixel count equal
+    C0's, all ``check_planes`` compares. It is refused (``channel_ids_required``) before any fit.
+    """
+    from cellpatcher.pipeline import run_patching
+
+    _, image, run = two_channel_run
+    config = _csv_scope_config(run)
+    config.common.image_axes = axes
+    pixels = image[plane] if axes == "YX" else image[plane : plane + 1]
+    metadata = {"source_relative_path": "ctrl/rep1/a.tif", "position_id": "a", **meta}
+    _no_fit(monkeypatch)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", NormalizationWarning)
+        with pytest.raises(PreprocessingCheckError) as raised:
+            run_patching(images=pixels, config=config, image_metadata=[metadata])
+    assert [issue.code for issue in raised.value.issues] == ["channel_ids_required"], label

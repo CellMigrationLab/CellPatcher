@@ -95,7 +95,9 @@ unchanged (`tests/test_v062_output_parity.py`, `tests/test_patch_identity.py`).
   than one channel is now refused before any fit, `channel_ids_required` (a `PreprocessingCheckError` naming the
   image and the fix: pass its channel IDs in its C order, or use `scope="patch"`). A single channel needs no ID;
   a given one is still compared (`channel_id_mismatch`). File runs pass `Fov.channel_ids` and are unchanged.
-  `tests/test_channel_id_normalization.py` (`test_cp2_*`).
+  `tests/test_channel_id_normalization.py` (`test_cp2_*`). One channel plane of a multichannel image is refused the
+  same way unless `image_metadata["c"]` names its C index: without it the plane was read as C0 (a 2-D plane with no
+  `c`, or a C axis of one channel, whose index is its place in the array) and took C0's parameters (review of CP2).
 - **CP3: an empty region gives no patch at `min_mask_fraction=0` too** (owner decision of 16 November 2026:
   Spec ADR 0005 BM8 wins over the zero-fraction rule of F8). v0.7.0 applied the zero-fraction "no overlap filter"
   rule before looking at the region, so an all-zero random-mode sampling mask at an explicit `0` sampled the whole
