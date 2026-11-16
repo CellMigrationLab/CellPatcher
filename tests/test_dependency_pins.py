@@ -125,9 +125,10 @@ def test_the_zarr_extra_installs_the_core_preprocessing_tag():
     assert _url(zarr) == _url(_by_name(core)["morphobricks-preprocessing"])
 
 
-INTERIM_PREPROCESSING_COMMIT = "afbb8854995e1e12180ff037810276e217739f53"
-"""The one commit preprocessing may be pinned at instead of a tag: Spec ADR 0005 step 2 merged (resolver
-contract v3, ``RunInputs.read_objects``), before its release tag exists. As in Stage 2 CP-1, a commit pin
+INTERIM_PREPROCESSING_COMMIT = "ea0d7c7f2ce569983e747a50cfb247f1847976e9"
+"""The one commit preprocessing may be pinned at instead of a tag: Spec ADR 0005 steps 2 and 2b merged
+(resolver contract v3, ``RunInputs.read_objects``; the conversion helpers, PR #308), before its release tag
+exists. As in Stage 2 CP-1, a commit pin
 is not a release: the pin moves to the next preprocessing tag before this branch is merged (owner
 decision), and this constant is removed with it."""
 

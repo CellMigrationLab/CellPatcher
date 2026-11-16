@@ -19,7 +19,7 @@ setup(
         # merged Spec ADR 0005 step 2 (resolver contract v3, RunInputs.read_objects),
         # until its release tag exists; it moves to that tag before this is merged.
         "morphobricks-preprocessing @ git+https://github.com/CellMigrationLab/"
-        "morphobricks-preprocessing@afbb8854995e1e12180ff037810276e217739f53",
+        "morphobricks-preprocessing@ea0d7c7f2ce569983e747a50cfb247f1847976e9",
         # CellPatcher imports the normalization brick directly (plane histograms,
         # the plane table, pooling, normalization parameters, SINGLE), so it
         # declares it, at the tag the preprocessing tag above pins (owner
@@ -63,7 +63,7 @@ setup(
         # is a core dependency.
         "zarr": [
             "morphobricks-preprocessing[zarr] @ git+https://github.com/CellMigrationLab/"
-            "morphobricks-preprocessing@afbb8854995e1e12180ff037810276e217739f53",
+            "morphobricks-preprocessing@ea0d7c7f2ce569983e747a50cfb247f1847976e9",
         ],
     },
 )
