@@ -601,9 +601,8 @@ def _check_row_channel_ids(meta: Mapping, channel_records: list) -> None:
     from morphobricks_preprocessing.validation import error
 
     ids = meta.get("channel_ids")
-    if ids is None:  # one channel: its one row names it; more: refused, never matched by position (v0.7.1, CP2)
-        return refuse_unnamed_channels(meta, channel_records)
-    for record in channel_records:
+    refuse_unnamed_channels(meta, channel_records)  # a plane not named is refused, never matched by position (CP2)
+    for record in channel_records if ids is not None else ():
         if not 0 <= record.c < len(ids) or ids[record.c] != record.channel:
             given = ids[record.c] if 0 <= record.c < len(ids) else None
             raise PreprocessingCheckError([

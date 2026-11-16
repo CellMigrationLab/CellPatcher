@@ -76,14 +76,14 @@ Pin preprocessing v0.4.0rc4; prepare v0.2.0rc2
 ---
 ## [0.7.1] - 2026-11-16 - Fixes from the external audit of v0.7.0 (CP1, CP2, CP3, F3, F4); preprocessing v0.6.0
 
-The v0.7.1 patch release (16 November 2026), from #121: fixes for the defects an external audit of the tagged
-v0.7.0 (`9d54597`) found. It pins preprocessing `v0.6.0` (core and `zarr` extra, unchanged) and normalization
-`v0.7.0`, the tag preprocessing `v0.6.0` pins (owner decision D-h). `__version__`, `setup.py` and every notebook
-(`RELEASE_TAG`, `current_version`, `notebook_latest_versions.yaml`) are `0.7.1`. Outputs on valid inputs are
-byte-identical to v0.7.0's (`tests/test_v062_output_parity.py`, `tests/test_patch_identity.py`). Behaviour changes
-only where v0.7.0 was wrong: a mask-free file run of a resolver of another contract version, an in-memory
-multichannel image without channel IDs at a CSV scope, and an empty sampling mask at `min_mask_fraction=0` (see
-below), each now refused or given no patch as the Spec says.
+The v0.7.1 patch release (16 November 2026), from #121 and its review #123: fixes for the defects an external audit
+of the tagged v0.7.0 (`9d54597`) found. It pins preprocessing `v0.6.0` (core and `zarr` extra, unchanged) and
+normalization `v0.7.0`, the tag preprocessing `v0.6.0` pins (owner decision D-h). `__version__`, `setup.py` and
+every notebook (`RELEASE_TAG`, `current_version`, `notebook_latest_versions.yaml`) are `0.7.1`. Outputs on valid
+inputs are byte-identical to v0.7.0's (`tests/test_v062_output_parity.py`, `tests/test_patch_identity.py`).
+Behaviour changes only where v0.7.0 was wrong: a mask-free file run of a resolver of another contract version, an
+in-memory multichannel image, or one plane of one, not named by channel ID or C index at a CSV scope, and an empty
+sampling mask at `min_mask_fraction=0` (see below), each now refused or given no patch as the Spec says.
 
 ### Fixed
 - **CP1: the resolver's contract version is checked for every described file run** (Spec ADR 0005 BM10).
@@ -101,7 +101,11 @@ below), each now refused or given no patch as the Spec says.
   than one channel is now refused before any fit, `channel_ids_required` (a `PreprocessingCheckError` naming the
   image and the fix: pass its channel IDs in its C order, or use `scope="patch"`). A single channel needs no ID;
   a given one is still compared (`channel_id_mismatch`). File runs pass `Fov.channel_ids` and are unchanged.
-  `tests/test_channel_id_normalization.py` (`test_cp2_*`).
+  `tests/test_channel_id_normalization.py` (`test_cp2_*`). One channel plane of a multichannel image is refused the
+  same way unless `image_metadata["c"]` names its C index: without it the plane was read as C0 (a 2-D plane with no
+  `c`, or a C axis of one channel, whose index is its place in the array) and took C0's parameters (review of CP2).
+  So is a 2-D plane given the `channel_ids` of every channel of its image but no `c`: it was named by the first ID,
+  C0's, so its ID matched row C0's.
 - **CP3: an empty region gives no patch at `min_mask_fraction=0` too** (owner decision of 16 November 2026:
   Spec ADR 0005 BM8 wins over the zero-fraction rule of F8). v0.7.0 applied the zero-fraction "no overlap filter"
   rule before looking at the region, so an all-zero random-mode sampling mask at an explicit `0` sampled the whole

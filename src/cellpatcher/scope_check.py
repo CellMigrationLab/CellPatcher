@@ -85,36 +85,60 @@ def refuse_unnamed_channels(meta: Mapping, channel_records: list) -> None:
     ``Fov.channel_ids``). Without them nothing can be compared, and two channels whose minimum, maximum and pixel
     count agree (all the plane checks compare) given in another order would take each other's parameters: a
     multichannel image is never associated with its rows by position (v0.7.1; v0.7.0 did). A single channel
-    needs no ID (its one row is its plane's); a given one is compared all the same.
+    needs no ID when its source image has one channel, or when it is one plane given with its own C index
+    (``image_metadata["c"]``, the index its row was found by); one plane of a multichannel image without
+    either (no ``c``, which would be read as C0, or a C axis of one channel, whose index is its position in
+    the array) is refused the same way. A given ID is compared all the same; one plane without a C axis given
+    the IDs of all its source's channels but no ``c`` is refused here too, since its ID would be the C0 one's.
 
     Parameters
     ----------
     meta
-        The image's ``image_metadata``, without ``channel_ids``.
+        The image's ``image_metadata``.
     channel_records
         The row of each of its channel planes, in its C order.
 
     Raises
     ------
     cellpatcher.statistics.PreprocessingCheckError
-        ``channel_ids_required`` for more than one channel, before any parameter is fitted.
+        ``channel_ids_required`` for more than one channel, or for one plane of a multichannel image
+        not named by its C index, before any parameter is fitted.
     """
     from morphobricks_preprocessing.validation import error
 
     from cellpatcher.statistics import PreprocessingCheckError
 
-    if len(channel_records) <= 1:
+    ids = meta.get("channel_ids")
+    if ids is not None and (len(ids) <= len(channel_records) or meta.get("c") is not None):
+        return  # each plane named by its ID, which the caller compares with its row's
+    if len(channel_records) == 1:
+        (record,) = channel_records
+        if len(record.record.channels) == 1 or meta.get("c") == record.c:
+            return  # the source's one channel, or the plane its given C index names
+    if not channel_records:
         return
     where = str(meta.get("source_relative_path"))
+    count = len(channel_records[0].record.channels)
+    given = (
+        f'has {len(channel_records)} channels and no image_metadata["channel_ids"]'
+        if len(channel_records) > 1
+        else f'is one plane of an image of {count} channels, not named by its C index (image_metadata["c"]), '
+        + (
+            'and image_metadata["channel_ids"] names more than one channel'
+            if ids is not None
+            else 'and has no image_metadata["channel_ids"]'
+        )
+    )
     raise PreprocessingCheckError([
         error(
             "channel_ids_required",
-            f'{where} has {len(channel_records)} channels and no image_metadata["channel_ids"]: at a CSV '
+            f"{where} {given}: at a CSV "
             "normalization scope each channel is matched to its plane_histograms.csv row by its canonical channel "
             "ID, never by its position (C index) alone.",
             [where],
             "Give the image's channel IDs in its C order, as the run's description names them: "
-            'run_patching(image_metadata=[{..., "channel_ids": (...)}]); a folder or tree run passes them itself. '
+            'run_patching(image_metadata=[{..., "channel_ids": (...)}]), and for one plane its C index, '
+            'image_metadata["c"]; a folder or tree run passes them itself. '
             "Or normalize with normalization.scope='patch'.",
         )
     ])
