@@ -109,6 +109,11 @@ unchanged (`tests/test_v062_output_parity.py`, `tests/test_patch_identity.py`).
   `test_file_runs_of_the_other_modes_are_unchanged_by_an_empty_mask` keeps grid and whole_fov only; and
   `tests/test_random_masks.py` no longer expects an empty mask at `0` to give the unmasked rectangles
   (`test_an_empty_mask_at_fraction_zero_is_not_exhausted` now expects no region).
+- **F3: missing conversion provenance is refused, never written as `[]`.** `run_config.json` of a file run wrote
+  `recalled_conversions(...) or ()`, so a run whose resolver record of `mask_conversions` was not kept in the call
+  recorded `"mask_conversions": []`, as if the resolver had recorded no conversion. It is now a `RuntimeError`
+  before `run_config.json` (or any patch file of that output) is written; only the resolver's own empty record
+  writes `[]`. `tests/test_cell_mask_request.py` (`test_f3_*`).
 
 ## [0.7.0] - 2026-11-16 - One policy for binary masks (Spec ADR 0005, step 3), images of different channel sets in one normalized run (G1), an empty region gives no patch (BM8); preprocessing v0.6.0, normalization v0.7.0
 

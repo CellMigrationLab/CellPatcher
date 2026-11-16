@@ -458,3 +458,40 @@ def test_the_read_guard_of_read_objects_is_raised_unchanged(tmp_path, monkeypatc
     expected = refuse_binary_values(raised.value.args[0].split(" is declared")[0].split(": ", 1)[1], values=[3, 7])
     assert str(raised.value) == str(expected)
     assert not (tmp_path / "out").exists()
+
+
+# --- F3 (v0.7.1): run_config.json never writes missing conversion provenance as [] ----------------------------
+
+
+@pytest.mark.parametrize("combine", [False, True])
+def test_f3_a_file_run_whose_conversion_record_is_missing_is_refused_not_written_as_empty(
+    v08, tmp_path, monkeypatch, combine
+):
+    """v0.7.0 wrote ``recalled_conversions(...) or ()``: a file run with no record of the resolver's
+    ``mask_conversions`` in its session got ``"mask_conversions": []``, as if the resolver had recorded none."""
+    import cellpatcher.file_runs as file_runs
+
+    monkeypatch.setattr(file_runs, "remember_conversions", lambda output_folder, records: None)
+    config = _mask_free_config(v08.output, "grid", tmp_path / "out")
+    with pytest.raises(RuntimeError, match="mask_conversions"):
+        run_patching_condition_repeat_tree(v08.experiment, config=config, combine_metadata=combine)
+    assert not list((tmp_path / "out").rglob("run_config.json"))
+    assert not list((tmp_path / "out").rglob("patches.csv"))
+
+
+def test_f3_only_a_real_empty_resolver_record_writes_an_empty_list(v08, tmp_path, monkeypatch):
+    from morphobricks_preprocessing.run_inputs import RunInputs
+
+    answers = []
+    resolve = RunInputs.resolve_request
+
+    def resolve_request(self, request):
+        answers.append(resolve(self, request))
+        return answers[-1]
+
+    monkeypatch.setattr(RunInputs, "resolve_request", resolve_request)
+    config = _mask_free_config(v08.output, "grid", tmp_path / "out")
+    run_patching_condition_repeat_tree(v08.experiment, config=config, combine_metadata=True)
+    data = json.loads((tmp_path / "out" / "run_config.json").read_text("utf-8"))
+    assert answers and all(answer.provenance.mask_conversions == () for answer in answers)
+    assert data["mask_conversions"] == []
