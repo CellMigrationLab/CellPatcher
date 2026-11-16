@@ -1,10 +1,12 @@
-"""Checks of a patch rectangle and a region mask handed to a measuring brick (D86 API C3).
+"""Checks of a patch rectangle handed to a measuring brick (D86 API C3).
 
 MorphoFeature passes CellPatcher's patches to the feature bricks as
-``bounds = (y0, y1, x0, x1)`` with the 2D plane they lie in, and region masks
-of that plane. MorphoObjects, MorphoRelate, fiberfeatures and MorphoEmbed each
-kept a copy of these checks, and MorphoEmbed's took float bounds; the rule now
-lives here, strict for every brick.
+``bounds = (y0, y1, x0, x1)`` with the 2D plane they lie in. MorphoObjects,
+MorphoRelate, fiberfeatures and MorphoEmbed each kept a copy of this check,
+and MorphoEmbed's took float bounds; the rule now lives here, strict for every
+brick. The region masks of that plane are checked by normalization's
+``regions.check_region`` (Spec ADR 0005 BM7), which replaced
+``check_region_mask``.
 
 :func:`context_bounds` gives the execution window of a patch (MorphoBricks-Spec
 ADR 0004, decisions EW4 and EW5): the patch grown by a context margin, clipped
@@ -21,7 +23,7 @@ import numpy as np
 
 
 class PatchBoundsError(ValueError):
-    """A patch rectangle or region mask a brick cannot measure on."""
+    """A patch rectangle a brick cannot measure on."""
 
 
 def _plane_shape(shape) -> tuple[int, int]:
@@ -64,28 +66,6 @@ def check_patch_bounds(bounds, shape, *, name: str = "the patch") -> tuple[int, 
     if not (0 <= y0 and y1 <= height and 0 <= x0 and x1 <= width):
         raise PatchBoundsError(f"{name}: bounds {[y0, y1, x0, x1]} leave the {(height, width)} plane")
     return y0, y1, x0, x1
-
-
-def check_region_mask(mask, shape, *, name: str = "the region mask") -> np.ndarray:
-    """Return *mask* when it is a 2D integer or boolean array of the plane's *shape*.
-
-    A region mask selects the pixels to measure (non-zero inside). A missing
-    mask, one of another shape, and one holding floats are refused, never
-    converted or resized.
-
-    Raises
-    ------
-    PatchBoundsError
-        (a ``ValueError``) naming the mask and the problem.
-    """
-    plane = _plane_shape(shape)
-    if not isinstance(mask, np.ndarray):
-        raise PatchBoundsError(f"{name} is missing or not an array (got {type(mask).__name__})")
-    if mask.shape != plane:
-        raise PatchBoundsError(f"{name} has shape {mask.shape}, not the plane's {plane}")
-    if not (np.issubdtype(mask.dtype, np.integer) or mask.dtype == np.bool_):
-        raise PatchBoundsError(f"{name} must hold integers or booleans, not {mask.dtype}")
-    return mask
 
 
 @dataclass(frozen=True)

@@ -15,15 +15,18 @@ setup(
         # (position_id, D85), mask pairing and header checks, plane statistics,
         # manifests and the shared D86 rules (labels, identity text, source
         # checks). Pinned to its tag and raised deliberately; the ``zarr`` extra
-        # below adds its OME-Zarr reader at the same tag.
+        # below adds its OME-Zarr reader at the same tag. v0.6.0 is Spec ADR 0005
+        # steps 2 and 2b (resolver contract v3, RunInputs.read_objects, the
+        # conversion helpers).
         "morphobricks-preprocessing @ git+https://github.com/CellMigrationLab/"
-        "morphobricks-preprocessing@v0.5.6",
+        "morphobricks-preprocessing@v0.6.0",
         # CellPatcher imports the normalization brick directly (plane histograms,
         # the plane table, pooling, normalization parameters, SINGLE), so it
         # declares it, at the tag the preprocessing tag above pins (owner
-        # decision D-h; tests/test_dependency_pins.py checks that they agree).
+        # decision D-h; tests/test_dependency_pins.py checks that they agree). v0.7.0 adds
+        # regions.check_region and contracts.refuse_resolver_version (Spec ADR 0005).
         "morphobricks-normalization @ git+https://github.com/CellMigrationLab/"
-        "morphobricks-normalization.git@v0.6.1",
+        "morphobricks-normalization.git@v0.7.0",
     ],
     extras_require={
         "test": [
@@ -60,7 +63,7 @@ setup(
         # is a core dependency.
         "zarr": [
             "morphobricks-preprocessing[zarr] @ git+https://github.com/CellMigrationLab/"
-            "morphobricks-preprocessing@v0.5.6",
+            "morphobricks-preprocessing@v0.6.0",
         ],
     },
 )

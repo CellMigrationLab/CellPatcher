@@ -55,11 +55,8 @@ from cellpatcher.io import (
 from cellpatcher.filters import compute_threshold, filter_regions, foreground_fraction
 from cellpatcher.mask_windows import WindowedMask, windowed_foreground_counts
 from cellpatcher.object_geometry import (
-    BINARY_MASK_CONNECTIVITY,
-    BINARY_MASK_POLICIES,
     ObjectBoxes,
     border_labels,
-    label_objects,
     object_boxes,
     object_sides,
 )
@@ -67,7 +64,6 @@ from cellpatcher.patch_checks import (
     PatchBoundsError,
     WindowRecord,
     check_patch_bounds,
-    check_region_mask,
     context_bounds,
 )
 from cellpatcher.pipeline import RUN_CONFIG_FILENAME, PatchingResult, run_patching
@@ -176,12 +172,8 @@ __all__ = [
     "object_boxes",
     "object_sides",
     "border_labels",
-    "label_objects",
-    "BINARY_MASK_POLICIES",
-    "BINARY_MASK_CONNECTIVITY",
     "PatchBoundsError",
     "check_patch_bounds",
-    "check_region_mask",
     "WindowRecord",
     "context_bounds",
     "WindowedMask",

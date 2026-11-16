@@ -477,7 +477,7 @@ from GitHub at a pinned version) **[D1]**.
   per channel with `to_columns` (N41, N42), and raw files normalize on load with
   `from_columns`, or from the `;`-separated columns of earlier tables (N47). In memory,
   `PatchRegion.normalization_parameters` holds the brick's `Parameters`. Images with different
-  channel counts are refused (N43). `run_config.json` records the brick's
+  channel counts were refused (N43) until roadmap G1, which normalizes them by channel ID. `run_config.json` records the brick's
   `NormalizationSettings.to_dict()` as `normalization_settings` for the image and patch scopes.
   Parameters and arrays are identical to the earlier code. The pins already moved with PR #28
   (preprocessing `v0.2.0`, which brings normalization `v0.2.0`; schema version 3).

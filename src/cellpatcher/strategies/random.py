@@ -20,6 +20,10 @@ The draw sequence (since v0.2.0, matrix finding F8):
    are the draws of the mask-free stream that pass the filter, in order. After
    ``max(1000, 50 * n_patches)`` draws the plane is refused
    (:class:`cellpatcher.SamplingExhaustedError`).
+6. An empty sampling mask (no non-zero pixel) with ``min_mask_fraction`` ``None`` or ``> 0``:
+   the plane has no patch and no draw is taken (Spec ADR 0005 BM8: a patch set sampled in an
+   empty region is undefined, ``empty_region``, and never a refusal). Only a non-empty mask
+   can exhaust the attempts; at an explicit ``0`` an empty mask excludes nothing, as in 3.
 
 Sampling is with replacement: a rectangle can be drawn twice (``cellpatcher.ids`` numbers
 the repeats). ``seed=None`` uses NumPy's nondeterministic initialization.
@@ -52,7 +56,8 @@ def _sampling_mask(labels: object, fraction: float | None, shape: tuple[int, int
     Parameters
     ----------
     labels
-        The sampling mask (any array whose nonzero pixels are foreground), or None.
+        The sampling mask (a 2-D integer or boolean NumPy array whose non-zero pixels are
+        foreground), or None.
     fraction
         ``RandomConfig.min_mask_fraction`` (None: any overlap).
     shape
@@ -67,17 +72,19 @@ def _sampling_mask(labels: object, fraction: float | None, shape: tuple[int, int
     Raises
     ------
     ValueError
-        If *fraction* is > 0 without a mask, or the mask is not 2-D of the plane's shape.
+        If *fraction* is > 0 without a mask.
+    morphobricks_normalization.regions.RegionMaskError
+        ``MASK_REGION_INVALID`` (a ``ValueError``) for a mask that is not a 2-D integer or boolean
+        NumPy array of the plane's shape.
     """
     if labels is None:
         if fraction:
             raise ValueError("min_mask_fraction needs a sampling mask (masks=...) in random mode.")
         return None
-    mask = np.asarray(labels).astype(bool)
-    if mask.ndim != 2:
-        raise ValueError("labels sampling mask must be 2D for random mode.")
-    if mask.shape != shape:
-        raise ValueError(f"labels shape {mask.shape} must match image YX shape {shape}.")
+    from morphobricks_normalization.regions import check_region
+
+    # Spec ADR 0005 BM3/BM7: the one region checker; its foreground is mask != 0, never labelled.
+    mask = check_region(labels, shape, name="the sampling mask")
     if fraction != 0:
         return mask
     warnings.warn(ZERO_FRACTION_WARNING, UserWarning, stacklevel=3)
@@ -136,7 +143,9 @@ class RandomPatchStrategy(BasePatchStrategy):
         Returns
         -------
         list of PatchRegion
-            ``n_patches`` regions, the kept draws in stream order.
+            ``n_patches`` regions, the kept draws in stream order; none (an empty list) when the
+            sampling mask has no foreground pixel and ``min_mask_fraction`` is not ``0`` (Spec
+            ADR 0005 BM8, ``empty_region``). Only that case gives no region.
 
         Raises
         ------
@@ -145,7 +154,8 @@ class RandomPatchStrategy(BasePatchStrategy):
             patch size or count is not positive, the patch is larger than the plane,
             or the mask is missing (fraction > 0), not 2-D or of another shape.
         SamplingExhaustedError
-            If fewer than ``n_patches`` draws reach ``min_mask_fraction`` within the attempt cap.
+            If fewer than ``n_patches`` draws reach ``min_mask_fraction`` within the attempt cap,
+            the mask being non-empty (a region too small or too sparse for the patch).
         """
         check_random_settings(self.config)  # the config is mutable: re-checked where it is used
         shape = _spatial_shape_from_axes(image_shape, axes=axes)
@@ -162,6 +172,8 @@ class RandomPatchStrategy(BasePatchStrategy):
             )
         fraction = self.config.min_mask_fraction
         mask = _sampling_mask(labels, fraction, shape)
+        if mask is not None and not mask.any():
+            return []  # Spec ADR 0005 BM8: an empty region has no patch (empty_region), never a refusal
         corners = self._kept_corners(np.random.default_rng(self.config.seed), shape, mask, fraction)
         return [_region(y0, x0, size, shape, image_id, self.mode) for y0, x0 in corners]
 

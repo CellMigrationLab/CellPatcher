@@ -24,14 +24,15 @@ def test_pre_labeled_mask_returns_two_patches_sorted_and_ids():
     assert abs(patches[0].center_y - 2.0) < 1e-6
 
 
-def test_binary_connected_components_returns_two():
+def test_the_strategy_labels_no_binary_mask():
+    # Spec ADR 0005 BM4 (was: the policy labelled a boolean mask into two objects here).
     labels = np.zeros((6, 6), dtype=bool)
     labels[1:3, 1:3] = True
     labels[4:5, 4:6] = True
     s = CellSegmentationStrategy(CellConfig(binary_mask_policy="connected_components", exclude_border=False))
-    with pytest.warns(UserWarning, match="connected components"):
-        patches = s.generate_regions(image_shape=(6, 6), labels=labels)
-    assert len(patches) == 2
+    with pytest.raises(ValueError, match=r"binary_mask_policy='connected_components' is set, but "
+                                         r"CellSegmentationStrategy.generate_regions takes its object sets in memory"):
+        s.generate_regions(image_shape=(6, 6), labels=labels)
 
 
 def test_bool_mask_is_refused_by_default():
@@ -53,7 +54,7 @@ def test_integer_mask_holding_one_value_is_kept_as_given():
     patches = s.generate_regions(image_shape=(6, 6), labels=labels)
     assert [p.label_id for p in patches] == [255]
     s = CellSegmentationStrategy(CellConfig(binary_mask_policy="connected_components", exclude_border=False))
-    with pytest.raises(ValueError, match="nothing to convert"):
+    with pytest.raises(ValueError, match="where nothing is converted"):
         s.generate_regions(image_shape=(6, 6), labels=labels)
 
 
@@ -218,31 +219,20 @@ def test_cell_config_has_no_mask_channel():
 # Float and negative label validation tests
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("policy", [None, "connected_components"])
-def test_a_float_binary_mask_is_refused(policy):
-    """Owner decision D-b (preprocessing check_labels): a float mask is refused even when it holds
-    only 0.0 and 1.0, whatever binary_mask_policy; before D86 it was treated as a binary mask."""
+def test_a_float_binary_mask_is_refused():
+    """A float mask is not an object set even when it holds only 0.0 and 1.0 (Spec ADR 0005 F07)."""
     labels = np.zeros((6, 6), dtype=float)
     labels[2:4, 2:4] = 1.0
-    s = CellSegmentationStrategy(CellConfig(exclude_border=False, binary_mask_policy=policy))
-    with pytest.raises(ValueError, match="save the mask as integers"):
+    s = CellSegmentationStrategy(CellConfig(exclude_border=False))
+    with pytest.raises(ValueError, match=r"^A_MASK_NOT_INSTANCES: 'the mask' is a float64 array, not an object set"):
         s.generate_regions(image_shape=(6, 6), labels=labels)
-
-
-def test_a_boolean_mask_still_takes_the_connected_components_opt_in():
-    labels = np.zeros((6, 6), dtype=bool)
-    labels[2:4, 2:4] = True
-    s = CellSegmentationStrategy(CellConfig(exclude_border=False, binary_mask_policy="connected_components"))
-    with pytest.warns(UserWarning, match="connected components"):
-        patches = s.generate_regions(image_shape=(6, 6), labels=labels)
-    assert len(patches) == 1
 
 
 def test_non_binary_float_labels_raise():
     """Float mask with values like 1.7, 2.3 must raise ValueError."""
     labels = np.array([[0.0, 1.7], [2.3, 0.0]], dtype=float)
     s = CellSegmentationStrategy(CellConfig(exclude_border=False))
-    with pytest.raises(ValueError, match="does not hold whole-number labels"):
+    with pytest.raises(ValueError, match="A_MASK_NOT_INSTANCES"):
         s.generate_regions(image_shape=(2, 2), labels=labels)
 
 

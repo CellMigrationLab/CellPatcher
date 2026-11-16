@@ -22,8 +22,9 @@ class CellPatcherRefusal(ValueError):
 class SamplingExhaustedError(CellPatcherRefusal):
     """Random sampling ran out of attempts before collecting ``n_patches`` regions.
 
-    Raised by :class:`cellpatcher.RandomPatchStrategy` when a sampling mask
-    (with ``min_mask_fraction``) is too sparse. Attributes: ``requested``,
+    Raised by :class:`cellpatcher.RandomPatchStrategy` when a non-empty sampling
+    mask (with ``min_mask_fraction``) is too small or too sparse. An empty one gives
+    no patch, never this error (Spec ADR 0005 BM8, ``empty_region``). Attributes: ``requested``,
     ``collected`` and ``attempts``.
     """
 

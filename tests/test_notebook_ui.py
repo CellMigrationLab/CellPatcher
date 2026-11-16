@@ -231,3 +231,97 @@ def test_the_plane_controls_have_no_depth_policy():
     controls = PlaneControls.build()
     assert not hasattr(controls, "z_policy") and not hasattr(controls, "z_index")
     assert {value for _, value in controls.t_policy.options} == {"keep", "all", "first", "select"}
+
+
+# --- Spec ADR 0005 BM13: a file run's recorded conversion, shown read-only ---------------------
+
+
+def _visible(widget):
+    return widget.layout.display != "none"
+
+
+def test_the_form_offers_no_binary_mask_control():
+    import ipywidgets as widgets
+
+    notebook = CellPatcherNotebook()
+    form = notebook.form
+    controls = [*form.cell.controls(), form.mode, form.mask_type, form.random_masks]
+    assert not hasattr(form.cell, "components")
+    for control in controls:
+        assert "binary" not in str(getattr(control, "description", "")).lower()
+    assert isinstance(form.conversions, widgets.HTML)  # text, not a control
+    assert form.config(_summary_stub(), lambda _: "auto").cell.binary_mask_policy is None
+
+
+def _summary_stub():
+    from pathlib import Path
+
+    from cellpatcher.notebook_session import RunSummary
+
+    return RunSummary(Path("run"), Path("experiment"), None, False, False, ("a.tif",), (), (), "YX", ("cells",),
+                      "fluorescence")
+
+
+def _v38(tmp_path):
+    from tests.test_described_ids import _described_run
+
+    return _described_run(tmp_path, "v38", masks=("Cells", "Mito"))
+
+
+def test_a_runs_recorded_conversion_is_shown_read_only_after_the_preview_and_the_export(tmp_path):
+    # v38's parent_labels Mito as random mode's sampling mask: the resolver records parent_labels_as_area.
+    run = _v38(tmp_path)
+    notebook = _checked(run)
+    notebook.form.mode.value = "random"
+    notebook.form.random_masks.value = True
+    notebook.form.mask_type.value = "mito"
+    notebook.form.random_size.value, notebook.form.random_count.value = 4, 2
+    assert not _visible(notebook.form.conversions) and notebook.form.conversions.value == ""
+    preview = notebook.show_preview()
+    assert preview is not None, notebook.preview_message.value
+    record = {"mask_id": "Mito", "conversion": "parent_labels_as_area", "connectivity": None, "labeller": None}
+    assert preview.mask_conversions == (record,)
+    shown = notebook.form.conversions.value
+    assert _visible(notebook.form.conversions)
+    assert "Recorded by the preprocessing run (read-only)" in shown
+    assert "&#x27;Mito&#x27;: parent_labels used as an area; grouping not kept" in shown
+    notebook.form.mask_type.value = "cells"  # another mask: the record shown is dropped
+    assert not _visible(notebook.form.conversions)
+    notebook.form.mask_type.value = "mito"
+    notebook.output_folder.value = str(tmp_path / "patches")
+    assert notebook.export() is not None, notebook.export_message.value
+    assert "parent_labels used as an area" in notebook.form.conversions.value
+
+
+def test_a_run_without_a_conversion_shows_none(tmp_path):
+    run = _v38(tmp_path)
+    notebook = _checked(run)
+    notebook.form.mode.value = "cell"
+    notebook.form.mask_type.value = "cells"
+    notebook.form.cell.exclude_border.value = False
+    preview = notebook.show_preview()
+    assert preview is not None, notebook.preview_message.value
+    assert preview.mask_conversions == ()
+    assert notebook.form.conversions.value == "" and not _visible(notebook.form.conversions)
+
+
+def test_a_connected_components_record_is_shown_with_its_connectivity_and_labeller(tmp_path):
+    # The notebook sets no policy; a run whose request carried one (a config file) shows its record.
+    from dataclasses import replace
+
+    from cellpatcher.notebook_session import preview_image
+    from tests.test_described_ids import _described_run
+
+    run = _described_run(tmp_path, "v08", masks=("Nuclei", "TumorRegion"))
+    notebook = _checked(run)
+    notebook.form.mode.value = "cell"
+    config = notebook.config()
+    config = replace(config, cell=replace(config.cell, binary_mask_policy="connected_components", exclude_border=False),
+                     matching=replace(config.matching, mask_type=None, mask_id="TumorRegion"))
+    with pytest.warns(UserWarning, match="8-connected"):
+        preview = preview_image(config, notebook.summary, notebook.summary.images[0])
+    notebook.form.show_conversions(preview.mask_conversions)
+    shown = notebook.form.conversions.value
+    assert ("&#x27;TumorRegion&#x27;: converted to objects by connected_components (connectivity 8, labeller "
+            "morphobricks_preprocessing.RunInputs.read_objects)") in shown
+    assert _visible(notebook.form.conversions)

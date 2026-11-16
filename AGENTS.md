@@ -19,7 +19,7 @@
 | Tests       | `python tools/check.py` (pytest, Ruff and the MorphoBricks code rules against `tools/code_rules_baseline.json`, design v0.4 §9); `PYTHONPATH=src python -m pytest -q` for the tests alone |
 | Environment | `python -m pip install -e .` (add extras as needed: `.[test]`, `.[notebook]`, `.[torch]`) or `conda env create -f environment.yaml`                       |
 
-Key dependencies: `numpy`, `scipy`, `tifffile`, `imageio`, and the MorphoBricks bricks `morphobricks-preprocessing` and `morphobricks-normalization` from GitHub at pinned tags (preprocessing `v0.5.6`, normalization `v0.6.1`) (core, required; normalization is declared at the tag the preprocessing tag pins, owner decision D-h, checked by `tests/test_dependency_pins.py`; histograms, the plane table, plane IDs, pooling and normalization parameters are imported from `morphobricks_normalization`, not from their deprecated preprocessing paths). Optional extras: `ipywidgets`, `matplotlib`, `pillow`, `tqdm`, `joblib`, `jl-hidecode` (notebook extra); `torch` (optional `cellpatcher.torch_dataset` adapter only — never a core dependency); `morphobricks-preprocessing[zarr]` at the same tag (`zarr` extra, formerly `preprocessing`: OME-Zarr images and OME-NGFF label masks).
+Key dependencies: `numpy`, `scipy`, `tifffile`, `imageio`, and the MorphoBricks bricks `morphobricks-preprocessing` and `morphobricks-normalization` from GitHub at pinned tags (normalization `v0.7.0`; preprocessing `v0.6.0` — Spec ADR 0005 steps 2 and 2b: resolver contract v3, `read_objects`, the conversion helpers) (core, required; normalization is declared at the tag the preprocessing tag pins, owner decision D-h, checked by `tests/test_dependency_pins.py`; histograms, the plane table, plane IDs, pooling and normalization parameters are imported from `morphobricks_normalization`, not from their deprecated preprocessing paths). Optional extras: `ipywidgets`, `matplotlib`, `pillow`, `tqdm`, `joblib`, `jl-hidecode` (notebook extra); `torch` (optional `cellpatcher.torch_dataset` adapter only — never a core dependency); `morphobricks-preprocessing[zarr]` at the same tag (`zarr` extra, formerly `preprocessing`: OME-Zarr images and OME-NGFF label masks).
 
 Current health snapshot (2026-11-15, v0.6.2 release prep: preprocessing `v0.5.6` and normalization `v0.6.1` installed from their tags in a fresh venv, Python 3.11, Linux): `.[test,zarr,notebook]` with CPU `torch` 2.15.0: 2946 passed, 0 skipped (`python tools/check.py`, code rules and Ruff clean; the smaller extras were not run). Preprocessing refuses Z>1 inputs (2-D planes only), so the tests that built Z-stacks use T.
 
@@ -243,20 +243,25 @@ CellPatcher-specific conventions:
   label or rectangle; `position_id` is always filled. Never derive an
   identity from `image_id` (the image's place in the run) or from list
   order; every run refuses duplicate `patch_id` values.
-* Cell-mode masks (Stage 2 CP-2, Spec ADR 0002 AR5): an `instances` mask is used as
-  given (decision D47: an `instances` mask holding 0 and 1 is one object); a `binary`
-  mask is an object set only through the explicit per-request
-  `CellConfig.binary_mask_policy="connected_components"` (no default; the former
-  `"single_object"` is refused), labelled by **the one shared labeller**
-  `cellpatcher.label_objects(mask, policy, connectivity)` (`object_geometry`, pure;
-  `cell.binary_mask_connectivity`, 2 = 8-connected by default). A file run asks the run's
-  resolver (`cellpatcher.run_request`): `MaskRequest(matching.mask_id, "objects", policy)`,
-  the mask ID defaulting to the declared mask of `matching.mask_type`'s source type; its
-  refusals (`A_MASK_NOT_INSTANCES`, `A_MASK_UNCHECKED`, `A_SCOPE_INCOMPLETE`) are raised with
-  their codes before any pixel is read, and the mask ID, policy and connectivity are recorded
-  in `run_config.json`. In memory a boolean mask is the binary one. Labels above the int32
-  maximum are refused (`cellpatcher.LabelRangeError`). `cell_scan` shares the rule
-  (`CellSegmentationStrategy.label_objects`). No other code labels a mask.
+* Cell-mode masks (Stage 2 CP-2, Spec ADR 0002, ADR 0005): an `instances` mask is used as
+  given (decision D47: an `instances` mask holding 0 and 1 is one object). **CellPatcher
+  labels no mask.** A `binary` mask is an object set only in a described file run, through
+  the explicit per-request `CellConfig.binary_mask_policy="connected_components"` (no
+  default), passed to the run's resolver (`cellpatcher.run_request`):
+  `MaskRequest(matching.mask_id, "objects", policy)`, the mask ID defaulting to the declared
+  mask of `matching.mask_type`'s source type. The resolver's contract version must be in
+  `SUPPORTED_RESOLVER_VERSIONS` (`{3}`; `RESOLVER_VERSION_UNSUPPORTED` otherwise, from
+  normalization's one constructor). Its refusals (`A_MASK_NOT_INSTANCES`, `A_MASK_UNCHECKED`,
+  `A_SCOPE_INCOMPLETE`, `A_VOLUME_NOT_SUPPORTED`) are raised with their codes and messages
+  unchanged before any pixel is read. The object set's planes are read with preprocessing's
+  `RunInputs.read_objects` (`run_reading.read_fov_objects`), which applies the recorded
+  conversion (8-connected, fixed); `run_config.json` copies the resolver's records under
+  `mask_conversions`. In memory (`run_patching`, `cell_scan`, the cell strategy) an object
+  set is a plain integer NumPy array (`A_MASK_NOT_INSTANCES` from preprocessing's
+  `check_object_set` otherwise) and `binary_mask_policy` is refused (`mask_policy`). Regions
+  (fraction, random sampling and windowed masks) are checked by normalization's
+  `regions.check_region` (`MASK_REGION_INVALID`; floats refused). Labels above the int32
+  maximum are refused (`cellpatcher.LabelRangeError`).
 * Strategies generate strictly 2D Y/X regions. Z/T stacks become planes
   either with `common.z_policy`/`t_policy` in the pipeline
   (`cellpatcher.planes`; default `"keep"` keeps all planes in each patch;
@@ -433,9 +438,9 @@ Two ways to point CellPatcher at input data:
   `patches.csv` as typed `PatchRegion` objects plus its `run_config.json`
   (the inverse of `save_metadata_csv`); `cellpatcher.object_sides`/
   `border_labels`/`object_boxes` give object bounding boxes of an instance
-  mask, the ones `scan_cell_objects` uses; `cellpatcher.check_patch_bounds`/
-  `check_region_mask` check the rectangles and region masks MorphoFeature
-  hands the feature bricks (integers only, non-empty, inside the plane);
+  mask, the ones `scan_cell_objects` uses; `cellpatcher.check_patch_bounds`
+  checks the rectangles MorphoFeature hands the feature bricks (region masks:
+  normalization's `regions.check_region`, Spec ADR 0005) (integers only, non-empty, inside the plane);
   `cellpatcher.context_bounds(bounds, margin, shape)` gives a patch's execution
   window (`WindowRecord`: `context_bounds`, `origin`, `margin_requested`,
   `margin_clipped`, `local_interior`; Spec ADR 0004 EW4/EW5: pure geometry,
@@ -503,6 +508,11 @@ run's description by `statistics.recorded_image_type` (follow-up C4; `Fov.image_
   experiment design's name and SHA-256 at the `biological_repeat` scope) and
   `normalization_settings` (the brick's `NormalizationSettings.to_dict()`) in
   `run_config.json`.
+- **Channel sets (roadmap G1):** images with different channel sets are patched and
+  normalized in one run, matched by channel ID (never by position, never padded or
+  dropped); parameters are pooled and applied per ID; each patch keeps its image's
+  own C order. A channel only some planes of a fitted group have is `A_SCOPE_INCOMPLETE`
+  unless `normalization.partial_channels="planes_with_channel"` (recorded).
 - **Reuse:** histograms, pooling, fitting (`fit`, `Parameters.apply`,
   `to_columns`/`from_columns`) and settings are imported
   from `morphobricks_normalization` (`normalization.clip` stays in
@@ -711,7 +721,7 @@ here as new feature-extraction/analysis repos are created.
 | Technical repeat | A well, dish or coverslip within a biological repeat: the optional shared column `technical_repeat` of the MorphoBricks contract (§5), derived from a `<condition>/<biological_repeat>/<technical_repeat>/` folder level or set via `common.technical_repeat`/`image_metadata`; `"single"` when a biological repeat has no such level |
 | Single repeat    | A condition with no biological-repeat subfolder — `<condition>/<image files>` instead of `<condition>/<biological_repeat>/<image files>`. `run_patching_condition_repeat_tree` treats it as one implicit biological repeat, labeled `cellpatcher.SINGLE_BIOLOGICAL_REPEAT_LABEL` (`"single"`) (§5, §6). Likewise, images directly in the root folder are one condition labeled `cellpatcher.SINGLE_CONDITION_LABEL` (`"single"`) with a single biological repeat |
 | Patch           | A sub-region cropped from a microscopy image                                                      |
-| Mask            | Instance-label image marking objects (each non-zero integer value one object), used in `cell` mode; `binary` masks need the explicit `binary_mask_policy="connected_components"` (the shared labeller, `label_objects`) |
+| Mask            | Instance-label image marking objects (each non-zero integer value one object), used in `cell` mode; `binary` masks need the explicit `binary_mask_policy="connected_components"` in a file run (applied by preprocessing's `RunInputs.read_objects`) |
 | Feature         | A numeric descriptor extracted from a patch or image (produced downstream, e.g. by fiberfeatures)  |
 | Patch mode      | One of `cell`, `random`, `grid`, `whole_fov` — determines how `PatchRegion` coordinates are generated |
 | `PatchRegion`   | Coordinate-first descriptor of a single patch and its metadata (`src/cellpatcher/types.py`)        |

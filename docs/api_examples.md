@@ -372,8 +372,9 @@ half-open (`pixel_edge` in MorphoBricks-Spec ADR 0004's coordinate types; pixel 
 helpers check and grow such rectangles; they read no pixel and never convert a value.
 
 - `check_patch_bounds(bounds, shape)` returns the rectangle as plain ints when it is four integers,
-  non-empty and inside the plane; `check_region_mask(mask, shape)` checks a region mask of the plane.
-  Both raise `PatchBoundsError` (a `ValueError`).
+  non-empty and inside the plane, or raises `PatchBoundsError` (a `ValueError`). A region mask of
+  the plane is checked by normalization's `morphobricks_normalization.regions.check_region(mask, shape,
+  name=...)` (Spec ADR 0005; `check_region_mask` was removed).
 - `context_bounds(bounds, margin, shape)` gives the **execution window** of a patch (ADR 0004,
   decisions EW4/EW5): the patch grown by `margin = (my, mx)` pixels per axis, clipped at the plane
   edge (nothing is padded), as a frozen `WindowRecord`:

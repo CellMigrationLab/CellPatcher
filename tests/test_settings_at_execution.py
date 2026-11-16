@@ -167,7 +167,6 @@ BAD_VALUES = {
     "cell.min_area": INTEGER + [0, None],
     "cell.max_area": INTEGER,
     "cell.binary_mask_policy": CHOICE + ["single_object"],  # None is no policy; single_object was removed
-    "cell.binary_mask_connectivity": INTEGER + [0, 3, None],
     "random.patch_size": INTEGER + [0, None],
     "random.n_patches": INTEGER + [0, None],
     "random.seed": INTEGER,
@@ -208,6 +207,7 @@ BAD_VALUES = {
     "normalization.export_values": CHOICE + [None],
     "normalization.memory_limit": INTEGER + [0, None],
     "normalization.pooling": CHOICE + [None],
+    "normalization.partial_channels": CHOICE + [None, "pad"],
     "normalization.image_type": CHOICE + [None],
 }
 CASES = [(name, value) for name, values in BAD_VALUES.items() for value in values]

@@ -8,14 +8,18 @@ when a preprocessing run was read, a ``preprocessing`` section:
 - ``manifest_sha256``: the SHA-256 of its ``run_manifest.json`` when this call opened it, which
   names the run's images, masks, roles and table exactly (a manifest changed since is refused
   when the file is written: :func:`cellpatcher.run_open.refuse_changed_manifest`);
-- ``mask_conversions`` when random mode read a ``parent_labels`` mask as an area (W3,
-  experiment-v1 §4.5b): ``[{"mask_id": ..., "role": "region", "conversion": "parent_labels_as_area"}]``;
-  absent otherwise;
 - for a folder or tree run, ``layout``: the order of the arrays CellPatcher built from the roles
   the run recorded (T, Z, C, then Y, X; ``image`` and ``mask``), which delivers exported patches.
   Each image is read in its own roles (audit A-M1); when the images' layouts differ, ``image``
   and ``mask`` are the axes any of them has and ``images`` maps each image's path to its own
   ``image`` and ``mask`` layout (:func:`delivery_config` reads a patch's from there).
+
+A folder or tree run also writes ``mask_conversions`` at the top level (Spec ADR 0005 BM2): the
+resolver's ``Provenance.mask_conversions`` records, in its order, with no key added, renamed,
+dropped or converted (``[{"mask_id": ..., "conversion": "connected_components", "connectivity": 8,
+"labeller": "morphobricks_preprocessing.RunInputs.read_objects"}]``, or ``parent_labels_as_area``
+with null ``connectivity`` and ``labeller``); ``[]`` when nothing was converted. It replaces
+``cell.binary_mask_connectivity`` and ``preprocessing.mask_conversions``.
 
 A folder or tree run does not record ``common.image_axes``, ``mask_axes`` or the labels: they
 are the run's, not settings (each patch's labels are in ``patches.csv``), so the file loads back
@@ -45,8 +49,7 @@ from cellpatcher.config import (
 )
 from cellpatcher.normalization import CSV_SCOPES, normalization_inputs, run_settings
 from cellpatcher.run_open import refuse_changed_manifest
-from cellpatcher.run_request import PARENT_LABELS_AS_AREA
-from cellpatcher.run_session import recalled, recalled_layouts
+from cellpatcher.run_session import recalled, recalled_conversions, recalled_layouts
 
 RUN_CONFIG_VERSION = 2
 
@@ -57,9 +60,9 @@ _RUN_SETTINGS = ("image_axes", "mask_axes", "condition", "biological_repeat", "t
 def run_config_data(config: CellPatcherConfig) -> dict:
     """Return the ``run_config.json`` content of a run with *config* (version 2).
 
-    The config, ``run_config_version``, the ``preprocessing`` section when a run was read
-    (see the module), and the normalization brick's records: ``normalization_inputs`` when a
-    CSV is used, ``normalization_settings`` when normalization is on.
+    The config, ``run_config_version``, the ``preprocessing`` section when a run was read and a
+    file run's ``mask_conversions`` (see the module), and the normalization brick's records:
+    ``normalization_inputs`` when a CSV is used, ``normalization_settings`` when normalization is on.
 
     Raises
     ------
@@ -76,6 +79,9 @@ def run_config_data(config: CellPatcherConfig) -> dict:
     if preprocessing is not None and "layout" in preprocessing:
         for name in _RUN_SETTINGS:
             data["common"].pop(name)
+        # Spec ADR 0005 BM2: the resolver's records, copied as is (a file run always resolves).
+        records = recalled_conversions(config.common.preprocessing_run) or ()
+        data["mask_conversions"] = [dict(record) for record in records]
     inputs = normalization_inputs(config)
     if inputs is not None:
         data["normalization_inputs"] = inputs
@@ -100,10 +106,6 @@ def _preprocessing_section(config: CellPatcherConfig) -> dict | None:
         raise RuntimeError(f"The preprocessing run {run} was not opened in this call, so it cannot be recorded.")
     refuse_changed_manifest(run, sha256)
     section: dict[str, Any] = {"run": str(run), "manifest_sha256": sha256}
-    area = recalled(PARENT_LABELS_AS_AREA, run) if file_run else None
-    if area is not None:
-        # experiment-v1 §4.5b: a parent_labels mask read as an area is recorded with its mask ID.
-        section["mask_conversions"] = [{"mask_id": area, "role": "region", "conversion": PARENT_LABELS_AS_AREA}]
     if file_run:
         section["layout"] = {"image": common.image_axes, "mask": common.mask_axes}
         images = recalled_layouts(run) or {}

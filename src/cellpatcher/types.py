@@ -261,10 +261,27 @@ PARAMETERS_VERSION_COLUMN = "normalization_parameters_version"
 NORMALIZATION_CHANNELS_COLUMN = "normalization_channels"
 
 
-def no_patch_reason(n_regions: int, n_kept: int, n_normalized: int, n_patches: int) -> str | None:
-    """Why counts that gave no patch gave none, at the step that removed the last one; None with patches."""
+EMPTY_REGION = "empty_region"
+"""The reason of an image (plane) whose random-mode sampling mask has no foreground pixel.
+
+Spec ADR 0005 BM8: a patch set sampled in an empty region (``mask != 0`` holds no pixel) has no
+patch, is recorded with this reason in ``images.csv`` and ``positions.csv``, and never refuses
+the plane, the image or the run.
+"""
+
+
+def no_patch_reason(
+    n_regions: int, n_kept: int, n_normalized: int, n_patches: int, n_empty_region_planes: int = 0
+) -> str | None:
+    """Why counts that gave no patch gave none, at the step that removed the last one; None with patches.
+
+    *n_empty_region_planes* counts the planes sampled in an empty region (:data:`EMPTY_REGION`):
+    with no region generated at all, that is the reason.
+    """
     if n_patches > 0:
         return None
+    if n_regions == 0 and n_empty_region_planes > 0:
+        return EMPTY_REGION
     if n_regions == 0:
         return "the patch mode generated no region in this image"
     if n_kept == 0:
@@ -330,6 +347,9 @@ class ImageRecord:
     ``status`` (see :attr:`status`) is ``"processed"`` (at least one patch),
     ``"no_patches"`` (patched, none kept; :attr:`reason` says at which step)
     or ``"skipped"`` (``skip_reason`` set: the image had nothing to patch).
+    ``n_empty_region_planes`` (not a column) counts the image's planes whose random-mode sampling
+    mask was empty: they have no patch, and an image whose every plane is so has the reason
+    :data:`EMPTY_REGION` (Spec ADR 0005 BM8).
     """
 
     image_id: str
@@ -353,6 +373,7 @@ class ImageRecord:
     repeat_group: str | None = None
     condition_id: str | None = None
     technical_repeat_id: str | None = None
+    n_empty_region_planes: int = 0
 
     @property
     def status(self) -> str:
@@ -365,7 +386,9 @@ class ImageRecord:
         """Why the image has no patch; ``None`` when it has patches."""
         if self.skip_reason is not None:
             return self.skip_reason
-        return no_patch_reason(self.n_regions, self.n_kept, self.n_normalized, self.n_patches)
+        return no_patch_reason(
+            self.n_regions, self.n_kept, self.n_normalized, self.n_patches, self.n_empty_region_planes
+        )
 
     def to_dict(self) -> dict:
         """The ``images.csv`` row: :data:`IMAGE_TABLE_COLUMNS` only."""

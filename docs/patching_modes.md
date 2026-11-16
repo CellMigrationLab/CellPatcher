@@ -28,14 +28,16 @@ Treat this as explicit plane-by-plane preprocessing, **not** true volumetric 3D 
 ## Cell mode
 
 Cell mode creates one patch per segmented object/cell. An **`instances`** mask is used as given: each
-non-zero integer value is one object (an `instances` mask holding 0 and 1 is one object). A **`binary`** mask
-(declared so by the run's description in a file run; a boolean array in memory) has no object ids and is refused
-(`A_MASK_NOT_INSTANCES` in a file run, from the run's resolver, before any pixel is read), unless the request sets
-`binary_mask_policy="connected_components"` explicitly (there is no default): the mask is then labelled by the
-shared labeller `cellpatcher.label_objects` at `binary_mask_connectivity` (1: 4-connected; 2:
-8-connected, the default), with a warning, and both are recorded in `run_config.json` with `matching.mask_id`. Labels above the
-int32 maximum are refused. The policy on an `instances` mask is refused (nothing to convert): in a file run, a mask declared
-`instances`; in memory (`run_patching`, the object scan and `CellSegmentationStrategy` called directly), any **integer** array (pass a boolean array to label it, or leave the policy `None`).
+non-zero integer value is one object (an `instances` mask holding 0 and 1 is one object). CellPatcher labels no
+mask (Spec ADR 0005). A mask the run's description declares **`binary`** has no object ids and is refused
+(`A_MASK_NOT_INSTANCES`, from the run's resolver, before any pixel is read), unless the file run's request sets
+`binary_mask_policy="connected_components"` explicitly (there is no default): the resolver records the conversion
+(8-connected, fixed: two blobs touching at a corner are one object), preprocessing's `RunInputs.read_objects`
+applies it, a warning shows it, and `run_config.json` copies the record under `mask_conversions`. A policy on a mask
+that is not `binary` is the resolver's own `ValueError`; a conversion of a Z-stack is `A_VOLUME_NOT_SUPPORTED`.
+In memory (`run_patching`, the object scan and `CellSegmentationStrategy` called directly) an object set is a plain
+integer NumPy array, used as stored: a boolean, float or other array, a list or None is `A_MASK_NOT_INSTANCES`, and
+`binary_mask_policy` is refused. Labels above the int32 maximum are refused.
 
 Key parameters to know:
 
@@ -43,7 +45,7 @@ Key parameters to know:
 - `exclude_border`
 - `center_on`
 - `min_area` / `max_area`
-- `binary_mask_policy`, `binary_mask_connectivity`
+- `binary_mask_policy` (file runs only: the request field passed to the resolver)
 - `matching.mask_id` (file runs: the description's mask ID of the object set)
 - `apply_mask` (in `ExtractionConfig`)
 - `mask_fill_value` (fill value used when `apply_mask=True`)
@@ -62,7 +64,7 @@ Notes:
 Common pitfalls:
 
 - Wrong `image_axes` / `mask_axes`.
-- Passing a binary mask: give instance labels, or set `binary_mask_policy="connected_components"` (whose computed labels are not the mask's values).
+- Passing a binary mask: give instance labels in memory; in a file run declare it `binary` and set `binary_mask_policy="connected_components"` (whose computed labels are not the mask's values).
 - Picking a global patch size without scanning first.
 - Expecting border-touching objects when `exclude_border=True` (default): it skips objects whose *bounding boxes* touch the image border, not patches.
 
@@ -89,7 +91,15 @@ Key parameters:
 Common pitfalls:
 
 - Very sparse masks can make valid sampling difficult.
-- If the sampling mask is too sparse (or all `False`) for `min_mask_fraction > 0`, random mode can fail after too many attempts to find valid patches (`SamplingExhaustedError`).
+- A sampling mask, like every region (fraction masks and `WindowedMask` too), is checked by normalization's
+  `regions.check_region` (Spec ADR 0005 BM7): a 2-D integer or boolean NumPy array of the plane's shape, its
+  non-zero pixels inside, never labelled. A float mask (a probability map) is refused with `MASK_REGION_INVALID`:
+  threshold it first.
+- An empty sampling mask (no non-zero pixel) gives that image no patch, never an error (Spec ADR 0005 BM8): with
+  `min_mask_fraction` unset or `> 0` the image is listed in `images.csv` and `positions.csv` with the reason
+  `empty_region`, and the other images of the run are patched as without it. An explicit `0` excludes nothing, so an
+  empty mask then gives the rectangles drawn without a mask.
+- If a non-empty sampling mask is too small or too sparse for `min_mask_fraction > 0`, random mode can fail after too many attempts to find valid patches (`SamplingExhaustedError`).
 - No `seed` means non-deterministic outputs.
 - Duplicate patches are valid behavior.
 

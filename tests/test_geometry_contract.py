@@ -289,11 +289,35 @@ def test_new_options_survive_a_saved_run_config(tmp_path):
     assert loaded.random == config.random and loaded.whole_fov == config.whole_fov
 
 
-def test_fraction_masks_with_nan_are_refused():
-    mask = np.zeros((20, 20))
+@pytest.mark.parametrize("dtype", [np.float32, np.float64])
+def test_float_fraction_masks_are_mask_region_invalid(dtype):
+    # Spec ADR 0005 BM3/BM7 (F05): a fraction mask is a region; a float one (with NaN or as 0.0/1.0)
+    # is refused by normalization's check_region with its exact message, never thresholded.
+    from morphobricks_normalization.regions import RegionMaskError, check_region
+
+    mask = np.zeros((20, 20), dtype)
     mask[0, 0] = np.nan
-    with pytest.raises(ValueError, match="NaN"):
+    name = "fraction mask 'tissue' of image 0"
+    with pytest.raises(RegionMaskError) as raised:
         _run("grid", np.zeros((20, 20)), fraction_masks=[{"tissue": mask}], grid=GridConfig(tile_size=10))
+    assert (raised.value.code, raised.value.reason) == ("MASK_REGION_INVALID", "dtype")
+    with pytest.raises(RegionMaskError) as direct:
+        check_region(mask, (20, 20), name=name)
+    assert str(raised.value) == str(direct.value)
+
+
+@pytest.mark.parametrize(("mask", "reason"), [
+    ([[0, 1]], "not_an_array"),
+    (np.ma.masked_array(np.zeros((20, 20), np.uint8)), "masked_array"),
+    (np.zeros((1, 20, 20), np.uint8), "not_2d"),
+    (np.zeros((20, 21), np.uint8), "shape"),
+])
+def test_fraction_masks_take_the_region_checkers_refusals(mask, reason):
+    from morphobricks_normalization.regions import RegionMaskError
+
+    with pytest.raises(RegionMaskError) as raised:
+        _run("grid", np.zeros((20, 20)), fraction_masks=[{"tissue": mask}], grid=GridConfig(tile_size=10))
+    assert raised.value.reason == reason
 
 
 def test_a_seed_scope_set_after_validation_is_refused_clearly():

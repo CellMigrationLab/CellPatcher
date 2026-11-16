@@ -26,13 +26,12 @@ from cellpatcher.ids import (
     stamp_channel_ids,
 )
 from cellpatcher.io import SINGLE_BIOLOGICAL_REPEAT_LABEL, SINGLE_CONDITION_LABEL, SINGLE_TECHNICAL_REPEAT_LABEL
-from cellpatcher.mask_policy import check_mask_policy
+from cellpatcher.mask_policy import check_in_memory_objects
 from cellpatcher.masking import apply_label_masks_to_patches
 from cellpatcher.delivery import raw_export_array
 from cellpatcher.normalization import (
     Normalizer,
     finish_patch_groups,
-    resolved_patch_region,
     validate_normalization,
 )
 from cellpatcher.patch_normalization import split_channel_normalization
@@ -555,9 +554,9 @@ def _normalize(config: CellPatcherConfig, image_list, masks, image_metadata, pat
 
 def _build_result(
     config: CellPatcherConfig, image_list, patches: list[PatchRegion], masks=None, image_metadata=None,
-    fraction_masks=None,
+    fraction_masks=None, empty_regions: set[str] | frozenset[str] = frozenset(),
 ) -> PatchingResult:
-    """Filter, stamp, normalize, extract and export the regions generated in *image_list*."""
+    """Filter, stamp, normalize, extract and export the regions of *image_list* (*empty_regions*: ``empty_region``)."""
     if image_metadata is not None and len(image_metadata) != len(image_list):
         raise ValueError("image_metadata must have exactly one entry per image (or be None).")
     metadata = image_metadata if image_metadata is not None else [None] * len(image_list)
@@ -594,6 +593,7 @@ def _build_result(
         record.n_kept = n_kept[record.image_id]
         record.n_normalized = n_normalized[record.image_id]
         record.n_patches = n_patches[record.image_id]
+        record.n_empty_region_planes = int(record.image_id in empty_regions)  # Spec ADR 0005 BM8
     export_arrays = _raw_export_arrays(config, image_list, config.common.image_axes, patches, patch_arrays_internal)
     return _finish_result(config, patches, patch_arrays_internal, records, export_arrays)
 
@@ -744,12 +744,10 @@ def _patch_planes(config: CellPatcherConfig, sources) -> PatchingResult:
                 image_axes=planes[0].image_axes,
                 mask_axes=mask_axes,
                 extract_arrays=need_arrays,
-                z_policy="keep",
-                z_index=None,
-                t_policy="keep",
-                t_index=None,
+                z_policy="keep", z_index=None, t_policy="keep", t_index=None,
             ),
             export=replace(config.export, enabled=False),
+            cell=replace(config.cell, binary_mask_policy=None),  # a file run's request field: applied (BM6)
         )
         token = _EAGER_BYTES_HELD.set(held if config.common.extract_arrays else None)
         try:
@@ -778,7 +776,7 @@ def _patch_planes(config: CellPatcherConfig, sources) -> PatchingResult:
 
         # The image's record sums those of its planes.
         record = replace(result.image_records[0], image_id=image_id)
-        for counter in ("n_regions", "n_kept", "n_normalized", "n_patches"):
+        for counter in ("n_regions", "n_kept", "n_normalized", "n_patches", "n_empty_region_planes"):
             setattr(record, counter, sum(getattr(plane_record, counter) for plane_record in result.image_records))
         records.append(record)
         for patch in result.patches:
@@ -808,10 +806,9 @@ def run_patching(images=None, masks=None, config=None, image_metadata=None, frac
 
         * ``mode='cell'`` — **required**.  Integer label map where each unique
           non-zero value is a separate cell, used as given (decision D47: a 0/1
-          integer mask is one object); ``cell.binary_mask_policy`` is refused with it (nothing
-          to convert, :mod:`cellpatcher.mask_policy`). Only a boolean mask is binary: refused
-          without an explicit ``cell.binary_mask_policy`` (no default), labelled by
-          :func:`cellpatcher.label_objects` with it; labels above int32 are refused.
+          integer mask is one object), a plain NumPy array; labels above int32 are refused.
+          Nothing is converted in memory (Spec ADR 0005 BM4): any other mask is refused with
+          ``A_MASK_NOT_INSTANCES``, and ``cell.binary_mask_policy`` too (:mod:`cellpatcher.mask_policy`).
         * ``mode='random'`` — **optional**.  When provided, patches are
           restricted to the spatial region covered by the mask.
         * ``mode='grid'`` / ``'whole_fov'`` — not consumed; pass ``None``.
@@ -890,9 +887,8 @@ def run_patching(images=None, masks=None, config=None, image_metadata=None, frac
     if images is not None:
         image_metadata = _identity_metadata(config, _normalize_images(images), image_metadata)  # one entry per image
         _check_split_channels(config, _normalize_images(images), image_metadata)
+    check_in_memory_objects(config, masks)
     refuse_unsupported_inputs(config.common.image_axes, config.common.mask_axes, images, masks)
-    if config.mode == "cell" and masks is not None:
-        check_mask_policy(config, _normalize_masks(masks), resolved_patch_region(config))
     if fraction_masks is not None:
         if splits_planes(config.common):
             raise ValueError("fraction_masks need 2-D planes; they are refused when z_policy/t_policy split planes.")
@@ -971,19 +967,18 @@ def run_patching(images=None, masks=None, config=None, image_metadata=None, frac
             mask_list = [masks]
 
         patches: list[PatchRegion] = []
-        # Each image (plane) is sampled with a seed derived from the run seed and its identity
-        # (position_id, t, z, c), so a run is deterministic, different images get different samples,
-        # and an image gets the same rectangles wherever it is in the run (cellpatcher.ids.random_seed).
-        # image_metadata is filled with every image's position_id above.
+        # Each image (plane) is sampled with a seed derived from the run seed and its identity (position_id,
+        # t, z, c; image_metadata is filled above), so a run is deterministic, different images get different
+        # samples, and an image gets the same rectangles wherever it is in the run (cellpatcher.ids.random_seed).
         for idx, (image, mask) in enumerate(zip(image_list, mask_list)):
             image_id = f"image_{idx:04d}"
             labels = _image_labels(config, image_metadata[idx])
             seed = random_seed(config.random.seed, image_metadata[idx], config.random.seed_scope, labels)
-            image_random_config = replace(config.random, seed=seed)
-            strategy = RandomPatchStrategy(image_random_config)
+            strategy = RandomPatchStrategy(replace(config.random, seed=seed))
             patches.extend(
                 strategy.generate_regions(
                     image_shape=image.shape, labels=mask, image_id=image_id, axes=config.common.image_axes
                 )
             )
-        return _build_result(config, image_list, patches, masks=mask_list, image_metadata=image_metadata, fraction_masks=fraction_masks)
+        empty_regions = {f"image_{i:04d}" for i in range(len(image_list))} - {p.image_id for p in patches}  # BM8
+        return _build_result(config, image_list, patches, masks=mask_list, image_metadata=image_metadata, fraction_masks=fraction_masks, empty_regions=empty_regions)

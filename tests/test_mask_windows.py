@@ -38,15 +38,14 @@ def _masks(shape):
     parents = np.zeros(shape, dtype=np.int32)
     parents[: shape[0] // 2, : shape[1] // 3] = 70000
     parents[shape[0] // 2:, shape[1] // 2:] = 3
-    floats = np.where(binary, 0.5, 0.0).astype(np.float32)
-    floats[0, 0] = -0.0
+    negatives = np.where(binary, -2, 0).astype(np.int16)  # negative values are inside a region (BM3: != 0)
     return {
         "binary": binary,
         "binary_u8": binary.astype(np.uint8),
         "instances": instances,
         "parent_labels": parents,
         "empty": np.zeros(shape, dtype=np.uint8),
-        "floats": floats,
+        "negatives": negatives,
     }
 
 
@@ -207,14 +206,29 @@ def _reader(array):
     [
         (np.zeros((20, 20), dtype=np.uint16), "dtype uint8"),
         (np.zeros((20, 21), dtype=np.uint8), "shape"),
-        (np.full((20, 20), np.nan, dtype=np.float32), "NaN"),
     ],
 )
 def test_a_window_that_is_not_the_declared_one_is_refused(window, message):
-    dtype = np.float32 if window.dtype == np.float32 else np.uint8
-    mask = WindowedMask(read=lambda bounds: window, shape=(20, 20), dtype=dtype, memory_limit=LARGE)
+    mask = WindowedMask(read=lambda bounds: window, shape=(20, 20), dtype=np.uint8, memory_limit=LARGE)
     with pytest.raises(ValueError, match=message):
         _cut("grid", (20, 20), {"tissue": mask}, grid=GridConfig(tile_size=20))
+
+
+@pytest.mark.parametrize("dtype", [np.float32, np.float64])
+def test_a_float_windowed_mask_is_mask_region_invalid_before_any_read(dtype):
+    # Spec ADR 0005 BM3/BM7 (F05): a windowed mask is a region; a float one (a probability map) is
+    # refused by normalization's check_region, with its exact message, when it is made.
+    from morphobricks_normalization.regions import RegionMaskError, check_region
+
+    def read(bounds):
+        raise AssertionError("a window was read")
+
+    with pytest.raises(RegionMaskError) as raised:
+        WindowedMask(read=read, shape=(20, 20), dtype=dtype, memory_limit=LARGE)
+    assert raised.value.code == "MASK_REGION_INVALID" and raised.value.reason == "dtype"
+    with pytest.raises(RegionMaskError) as direct:
+        check_region(np.zeros((1, 1), dtype), (1, 1), name="the windowed mask")
+    assert str(raised.value) == str(direct.value)
 
 
 def test_a_list_is_not_a_window():

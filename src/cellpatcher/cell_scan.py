@@ -12,7 +12,7 @@ from cellpatcher.axes import (
     require_spatial_axes,
 )
 from cellpatcher.config import CellConfig
-from cellpatcher.mask_policy import refuse_policy_on_instances
+from cellpatcher.mask_policy import refuse_in_memory_policy
 from cellpatcher.object_geometry import object_boxes
 from cellpatcher.setting_checks import check_cell_settings
 from cellpatcher.strategies.cell import CellSegmentationStrategy
@@ -91,22 +91,20 @@ def _normalize_shape_inputs(image_shapes, labels_list):
     return shape_items, label_items
 
 
-def _prepare_labeled_plane(labels, config: CellConfig, mask_axes: str) -> np.ndarray:
+def _prepare_labeled_plane(labels, config: CellConfig, mask_axes: str, image_id: str) -> np.ndarray:
     # Reuse the cell strategy's own channel-selection logic so scanning sees
     # exactly the same 2D label plane a real patching run would use.
     strategy = CellSegmentationStrategy(config=config, mask_axes=mask_axes)
-    selected = strategy._select_label_plane(labels)
+    selected = strategy._select_label_plane(labels, image_id=image_id)
 
     if selected.ndim != 2:
         raise ValueError("Selected labels must be 2D after channel selection.")
     if selected.size == 0:
         raise ValueError("labels must not be empty.")
 
-    # The same rules as a patching run (decision D47): integer masks are
-    # instance labels as given; binary masks need the connected-component
-    # opt-in; labels above the int32 maximum are refused.
-    labeled, _ = strategy.label_objects(selected)
-    return labeled
+    # The same rules as a patching run (decision D47): integer masks are instance labels as
+    # given; labels above the int32 maximum are refused. Nothing is labelled (Spec ADR 0005 BM4).
+    return strategy.object_labels(selected, image_id=image_id)
 
 
 def scan_cell_objects(*, image_shape, labels, image_id=None, config=None, image_axes="YX", mask_axes="YX") -> list[CellObjectRecord]:
@@ -123,9 +121,9 @@ def scan_cell_objects(*, image_shape, labels, image_id=None, config=None, image_
         Shape tuple of the image (used to determine spatial dimensions).
     labels:
         Integer label array, one layer (2D ``YX``, or with ``mask_axes`` naming a C axis of
-        length 1), used as stored (D47);
-        ``config.binary_mask_policy`` is refused with it, as in ``run_patching``.
-        A boolean mask is labelled only with that policy.
+        length 1), a plain NumPy array, used as stored (D47). Anything else (a boolean or float
+        array, a list) is refused with ``A_MASK_NOT_INSTANCES``, and so is
+        ``config.binary_mask_policy`` (in memory nothing is converted; Spec ADR 0005 BM4).
     image_id:
         Optional identifier string embedded in each returned record.
         Defaults to ``"image_0000"``.
@@ -159,9 +157,9 @@ def scan_cell_objects(*, image_shape, labels, image_id=None, config=None, image_
         raise ValueError(f"Spatial dimensions must be positive, got Y={image_h}, X={image_w}.")
 
     image_id_value = image_id if image_id is not None else "image_0000"
-    # As in run_patching: a policy with an integer (instances) mask is refused, never ignored.
-    refuse_policy_on_instances(local_config.binary_mask_policy, labels, image_id_value)
-    labeled = _prepare_labeled_plane(labels, local_config, mask_axes)
+    # As in run_patching (Spec ADR 0005 BM4): no policy in memory, and an integer object set only.
+    refuse_in_memory_policy(local_config.binary_mask_policy, "scan_cell_objects")
+    labeled = _prepare_labeled_plane(labels, local_config, mask_axes, image_id_value)
 
     if labeled.shape != (image_h, image_w):
         raise ValueError(f"labels shape {labeled.shape} must match image YX shape {(image_h, image_w)}.")

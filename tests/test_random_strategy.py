@@ -60,10 +60,14 @@ def test_random_strategy_mask_shape_mismatch_raises():
 
 
 def test_random_strategy_impossible_mask_raises():
+    # A non-empty mask no draw can reach; an empty one gives no region (Spec ADR 0005 BM8, test_empty_region).
     mask = np.zeros((20, 20), dtype=bool)
-    s = RandomPatchStrategy(RandomConfig(patch_size=5, n_patches=3, seed=0))
+    mask[0, 0] = True
+    s = RandomPatchStrategy(RandomConfig(patch_size=5, n_patches=3, seed=0, min_mask_fraction=0.5))
     with pytest.raises(ValueError):
         s.generate_regions(image_shape=(20, 20), labels=mask)
+    empty = RandomPatchStrategy(RandomConfig(patch_size=5, n_patches=3, seed=0))
+    assert empty.generate_regions(image_shape=(20, 20), labels=np.zeros((20, 20), dtype=bool)) == []
 
 
 def test_random_strategy_patch_ids_deterministic():

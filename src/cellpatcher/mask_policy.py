@@ -1,125 +1,63 @@
-"""The masks an in-memory ``run_patching`` call can take with ``cell.binary_mask_policy`` (layer: pure).
+"""The object sets an in-memory call takes (layer: pure).
 
-In memory only a **boolean** mask is binary. An integer mask is instance labels, used as stored
-(D47: an instances mask holding 0 and 1 is one object), exactly as a file run's mask declared
-``instances``. A policy is therefore refused with an integer in-memory mask, as the file route
-refuses it on an ``instances`` mask (Spec ADR 0002 AR5 and AR11 (4), ADR 0001 AQ9): there is
-nothing to convert, and the policy is never ignored.
-
-A file run reads its mask through the resolver, which labels a ``binary`` mask with the recorded
-policy before patching (:mod:`cellpatcher.run_request`). Its per-image ``run_patching`` calls, and
-the notebook's object scan of a file run, run inside :func:`resolved_masks`, so its
-already-labelled integer masks are not refused. The in-memory object scan
-(:func:`cellpatcher.scan_cell_objects`, :func:`cellpatcher.scan_cell_patch_size`) refuses as
-``run_patching`` does.
+Spec ADR 0005 BM4: in memory (``run_patching``, ``scan_cell_objects``, ``scan_cell_patch_size``)
+an object set is a plain NumPy array of integer instance labels, used as stored (D47: an
+instances mask holding 0 and 1 is one object). A boolean, float or other array, and anything
+that is not a plain NumPy array (a list, None, a ``numpy.ma.MaskedArray``, a memory map), is
+refused with ``A_MASK_NOT_INSTANCES`` by preprocessing's ``masks.check_object_set``, the one
+constructor of that message. Nothing in memory converts or labels a mask, and
+``cell.binary_mask_policy`` is refused there: it is only the request field of a described file
+run, passed to the preprocessing run's resolver, whose ``RunInputs.read_objects`` applies the
+recorded conversion (BM2, BM6).
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Sequence
-from contextlib import contextmanager
-from contextvars import ContextVar
 from typing import TYPE_CHECKING
 
-import numpy as np
-
 if TYPE_CHECKING:
-    from cellpatcher import CellPatcherConfig
+    from cellpatcher.config import CellPatcherConfig
 
-_RESOLVED: ContextVar[bool] = ContextVar("cellpatcher_resolved_masks", default=False)
-
-
-@contextmanager
-def resolved_masks() -> Iterator[None]:
-    """Mark the ``run_patching`` calls inside the block as a file run's, on masks the resolver selected."""
-    token = _RESOLVED.set(True)
-    try:
-        yield
-    finally:
-        _RESOLVED.reset(token)
+IN_MEMORY_POLICY_MESSAGE = (
+    "cell.binary_mask_policy={policy!r} is set, but {where} takes its object sets in memory, where "
+    "nothing is converted (Spec ADR 0005 BM4): binary_mask_policy is only the request field of a "
+    "described file run (common.preprocessing_run), where the preprocessing run's resolver records the "
+    "conversion and RunInputs.read_objects applies it. Pass integer instance labels with "
+    "cell.binary_mask_policy None, or run the files through a described preprocessing run with the policy."
+)
+"""The refusal of ``cell.binary_mask_policy`` in an in-memory call, with the policy and the call."""
 
 
-def check_mask_policy(config: CellPatcherConfig, masks: Sequence, patch_region: str) -> None:
-    """Refuse a ``cell.binary_mask_policy`` the cell-mode *masks* of a ``run_patching`` call cannot take.
-
-    *patch_region* is ``normalization.patch_region`` resolved for the mode
-    (:func:`cellpatcher.normalization.resolved_patch_region`).
+def refuse_in_memory_policy(policy: str | None, where: str) -> None:
+    """Refuse ``cell.binary_mask_policy`` in the in-memory call *where* (``"run_patching"``).
 
     Raises
     ------
     ValueError
-        For the policy with an in-memory integer mask (an instances mask: nothing to convert), and
-        for masking by the labels the policy computes (:func:`_refuse_masking_computed_labels`).
+        When *policy* is not None (:data:`IN_MEMORY_POLICY_MESSAGE`).
     """
-    if config.cell.binary_mask_policy is None:
-        return
-    for index, mask in enumerate(masks):
-        refuse_policy_on_instances(config.cell.binary_mask_policy, mask, f"image {index}")
-    _refuse_masking_computed_labels(config, masks, patch_region)
+    if policy is not None:
+        raise ValueError(IN_MEMORY_POLICY_MESSAGE.format(policy=policy, where=where))
 
 
-def _mask_dtype(mask: object) -> np.dtype:
-    """Return the pixel type of *mask* without reading a lazy array's pixels."""
-    dtype = getattr(mask, "dtype", None)
-    return np.asarray(mask).dtype if dtype is None else np.dtype(dtype)
+def check_in_memory_objects(config: CellPatcherConfig, masks: object) -> None:
+    """Refuse ``run_patching``'s ``cell.binary_mask_policy`` and every cell-mode mask that is not an integer array.
 
-
-def refuse_policy_on_instances(policy: str | None, mask: object, where: str) -> None:
-    """Refuse *policy* with an integer in-memory *mask*: an instances mask is used as stored (D47).
-
-    *where* names the mask's image in the message (``"image 0"``). Nothing is refused without a
-    policy, nor inside :func:`resolved_masks` (a file run's masks, labelled by the resolver).
-    ``run_patching`` (:func:`check_mask_policy`), the object scan
-    (:func:`cellpatcher.scan_cell_objects`) and the cell strategy called directly
-    (:meth:`cellpatcher.CellSegmentationStrategy.label_objects`) share this rule.
+    *masks* are the call's ``masks`` argument (one mask, or a list or tuple of one per image); only
+    ``mode="cell"`` reads them as object sets, and None is left to the call's own refusal. Each is
+    named ``the mask of image_<index>`` in the message, as the cell strategy names it.
 
     Raises
     ------
     ValueError
-        For a policy with an integer mask, naming the fix.
+        For ``cell.binary_mask_policy`` (:func:`refuse_in_memory_policy`).
+    morphobricks_preprocessing.mask_rules.MaskNotInstancesError
+        ``A_MASK_NOT_INSTANCES`` from ``check_object_set``, its message unchanged, before any patch.
     """
-    if policy is None or _RESOLVED.get():
-        return
-    dtype = _mask_dtype(mask)
-    if np.issubdtype(dtype, np.integer):
-        raise ValueError(
-            f"cell.binary_mask_policy={policy!r} converts a binary mask to objects, but the mask of "
-            f"{where} is integer ({dtype}): an in-memory integer mask is instance labels, used as "
-            "stored (D47: a mask holding 0 and 1 is one object), so there is nothing to convert. Pass a "
-            "boolean mask (mask != 0) to label it by connected components, or leave "
-            "cell.binary_mask_policy None to use the integer labels as stored."
-        )
+    from morphobricks_preprocessing.masks import check_object_set
 
-
-def _refuse_masking_computed_labels(config: CellPatcherConfig, masks: Sequence, region: str) -> None:
-    """Refuse using a binary mask's values as the labels connected components computed.
-
-    Masking (``extraction.apply_mask``) and patch-scope normalization over
-    ``patch_region="mask"``/``"bbox"`` select the pixels whose mask value
-    equals the patch's ``label_id``. With
-    ``cell.binary_mask_policy="connected_components"`` those labels are
-    computed, not the binary mask's 0/1 values: every object but the first
-    would be blanked or reported as having no pixels, and the first would
-    take in every touching neighbour (issue #44).
-    """
-    if config.cell.binary_mask_policy is None:
+    refuse_in_memory_policy(config.cell.binary_mask_policy, "run_patching")
+    if config.mode != "cell" or masks is None:
         return
-    if config.extraction.apply_mask:
-        refusal = (
-            "extraction.apply_mask=True cannot mask by the labels that "
-            "cell.binary_mask_policy='connected_components' computes for a binary mask: the mask holds "
-            "0/1, not those labels. Label the mask first (integer instance labels), or turn apply_mask off."
-        )
-    elif config.normalization.enabled and config.normalization.scope == "patch" and region in ("mask", "bbox"):
-        refusal = (
-            f"normalization.scope='patch' with patch_region={region!r} cannot select each object's pixels by "
-            "the labels that cell.binary_mask_policy='connected_components' computes for a binary mask: the "
-            "mask holds 0/1, not those labels. Label the mask first (integer instance labels), or use "
-            "normalization.patch_region='patch' or another scope."
-        )
-    else:
-        return
-    for mask in masks:
-        dtype = _mask_dtype(mask)
-        if dtype.kind == "b" or np.issubdtype(dtype, np.floating):
-            raise ValueError(refusal)
+    for index, mask in enumerate(masks if isinstance(masks, (list, tuple)) else [masks]):
+        check_object_set(mask, name=f"the mask of image_{index:04d}")

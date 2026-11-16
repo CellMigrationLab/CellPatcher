@@ -77,22 +77,37 @@ def test_run_patching_at_fraction_zero_is_the_same_with_and_without_masks(scope)
 
 
 def test_an_empty_mask_at_fraction_zero_is_not_exhausted():
-    """Only a filtering mask can run out of attempts."""
+    """Only a filtering mask can run out of attempts; an empty one gives no draw (Spec ADR 0005 BM8)."""
     config = RandomConfig(patch_size=8, n_patches=3, seed=0, min_mask_fraction=0)
     with pytest.warns(UserWarning):
         assert len(_draw(config, _masks()["empty"])) == 3
+    assert _draw(RandomConfig(patch_size=8, n_patches=3, seed=0, min_mask_fraction=0.1), _masks()["empty"]) == []
     with pytest.raises(SamplingExhaustedError):
-        _draw(RandomConfig(patch_size=8, n_patches=3, seed=0, min_mask_fraction=0.1), _masks()["empty"])
+        _draw(RandomConfig(patch_size=8, n_patches=3, seed=0, min_mask_fraction=0.1), _masks()["sparse"])
 
 
 def test_a_mask_at_fraction_zero_is_still_checked():
     config = RandomConfig(patch_size=8, n_patches=3, seed=0, min_mask_fraction=0)
-    with pytest.raises(ValueError, match="must match image YX shape"):
+    # Spec ADR 0005 BM7: the sampling mask is a region, checked by normalization's check_region.
+    with pytest.raises(ValueError, match=r"MASK_REGION_INVALID \(shape\)"):
         _draw(config, np.ones((10, 10), dtype=bool))
-    with pytest.raises(ValueError, match="must match image YX shape"):
+    with pytest.raises(ValueError, match=r"MASK_REGION_INVALID \(shape\)"):
         _draw(RandomConfig(patch_size=8, n_patches=3, seed=0), np.ones((10, 10), dtype=bool))
-    with pytest.raises(ValueError, match="must be 2D"):
+    with pytest.raises(ValueError, match=r"MASK_REGION_INVALID \(not_2d\)"):
         _draw(config, np.ones((2, *SHAPE), dtype=bool))
+
+
+@pytest.mark.parametrize("fraction", [0, None, 0.5])
+def test_a_float_sampling_mask_is_mask_region_invalid(fraction):
+    # F05: a float sampling mask (a probability map) is refused, never thresholded (it was > 0 before).
+    from morphobricks_normalization.regions import RegionMaskError, check_region
+
+    mask = np.ones(SHAPE, dtype=np.float32)
+    with pytest.raises(RegionMaskError) as raised:
+        _draw(RandomConfig(patch_size=8, n_patches=3, seed=0, min_mask_fraction=fraction), mask)
+    with pytest.raises(RegionMaskError) as direct:
+        check_region(mask, SHAPE, name="the sampling mask")
+    assert raised.value.reason == "dtype" and str(raised.value) == str(direct.value)
 
 
 def test_no_mask_gives_no_warning(recwarn):
@@ -137,8 +152,7 @@ def test_no_fraction_keeps_the_former_any_overlap_rule(kind):
     config = RandomConfig(patch_size=8, n_patches=6, seed=3)
     assert config.min_mask_fraction is None
     if kind == "empty":
-        with pytest.raises(SamplingExhaustedError):
-            _draw(config, mask)
+        assert _draw(config, mask) == []  # an empty region has no patch (Spec ADR 0005 BM8)
         return
     expected = [r for r in _stream(config, 1000) if mask[r.y0:r.y1, r.x0:r.x1].any()][:6]
     assert _rectangles(_draw(config, mask)) == _rectangles(expected)

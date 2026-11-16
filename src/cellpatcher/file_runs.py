@@ -8,8 +8,10 @@ and read where it is now). Then:
 
 - the images patched are the run's, with their FOV key (condition, biological and technical
   repeat, ``position_id``) as the run recorded it, never parsed from a name;
-- each image is read with ``RunInputs.read_plane`` in the roles the run recorded, and each mask
-  with ``RunInputs.read_mask`` by the run's pairing (:mod:`cellpatcher.run_reading`);
+- each image is read with ``RunInputs.read_plane`` in the roles the run recorded; a cell-mode
+  object set with ``RunInputs.read_objects`` (the one helper that applies a recorded conversion,
+  Spec ADR 0005 BM6), and a random-mode mask with ``RunInputs.read_mask``, by the run's pairing
+  (:mod:`cellpatcher.run_reading`);
 - the CSV normalization scopes read the run's own table and image type, and the repeat groups
   of its description (``Fov.repeat_group``).
 
@@ -28,7 +30,6 @@ from typing import TYPE_CHECKING
 
 from cellpatcher.ids import object_set_from_mask_type, validate_object_set
 from cellpatcher.io import SINGLE_CONDITION_LABEL, ConditionRepeatFolder
-from cellpatcher.mask_policy import resolved_masks
 from cellpatcher.normalization import (
     CSV_SCOPES,
     check_image_type,
@@ -50,10 +51,11 @@ from cellpatcher.run_reading import (
     mask_layout,
     mask_record,
     read_fov_mask,
+    read_fov_objects,
     union_layout,
 )
 from cellpatcher.run_request import ObjectMask, resolve_run
-from cellpatcher.run_session import keep_in_session, remember, remember_layouts
+from cellpatcher.run_session import keep_in_session, remember, remember_conversions, remember_layouts
 from cellpatcher.scope_check import refuse_incomplete_scopes
 from cellpatcher.setting_checks import check_run_settings
 from cellpatcher.statistics import (
@@ -103,6 +105,9 @@ class FileRun:
     object_mask
         In ``cell`` mode, the object set the resolver selected by mask ID, with its conversion (CP-2);
         None otherwise.
+    mask_conversions
+        The resolver's ``Provenance.mask_conversions`` records, as is (Spec ADR 0005 BM2): what
+        ``run_config.json`` copies and the notebook shows (BM13). Empty without a conversion.
     """
 
     inputs: RunInputs
@@ -111,6 +116,7 @@ class FileRun:
     mask_layouts: Mapping[str, str]
     statistics: PlaneStatistics | None
     object_mask: ObjectMask | None = None
+    mask_conversions: tuple[dict, ...] = ()
 
     @property
     def fovs(self) -> tuple[Fov, ...]:
@@ -245,14 +251,11 @@ def open_file_run(
     ids = () if isinstance(split, bool) else tuple(split)  # channel IDs; each image's are its own (Fov.channel_ids)
     mask_id = _cell_mask_id(config, inputs, mask_type) if use_masks else None
     region_id = _region_mask_id(config, inputs, mask_type) if use_masks else None
-    resolved = resolve_run(
-        inputs, ids, mask_id, cell.binary_mask_policy, cell.binary_mask_connectivity, region_id=region_id
-    )
+    resolved = resolve_run(inputs, ids, mask_id, cell.binary_mask_policy, region_id=region_id)
     if resolved.issues:  # the resolver's refusals, with their codes, before any pixel is read
         raise PreprocessingCheckError(list(resolved.issues))
-    if resolved.region_mask is not None and resolved.region_mask.conversion is not None:
-        # The recorded marker (experiment-v1 §4.5b), written to run_config.json with the mask ID.
-        remember(resolved.region_mask.conversion, config.common.preprocessing_run, resolved.region_mask.mask_id)
+    # Spec ADR 0005 BM2: the resolver's conversion records, copied as is into run_config.json.
+    remember_conversions(config.common.preprocessing_run, resolved.mask_conversions)
     if resolved.object_mask is not None:
         mask_type = resolved.object_mask.source_type
     mask_layouts = {}
@@ -261,7 +264,9 @@ def open_file_run(
         _check_object_set(config, mask_type)
     remember_layouts(config.common.preprocessing_run, layouts, mask_layouts)
     statistics = _csv_statistics(config, inputs, layouts)
-    return FileRun(inputs, layouts, mask_type, mask_layouts, statistics, resolved.object_mask)
+    return FileRun(
+        inputs, layouts, mask_type, mask_layouts, statistics, resolved.object_mask, resolved.mask_conversions
+    )
 
 
 def _cell_mask_id(config: CellPatcherConfig, inputs: RunInputs, mask_type: str | None) -> str | None:
@@ -440,8 +445,7 @@ def patch_fovs(run: FileRun, fovs: Sequence[Fov], config: CellPatcherConfig) -> 
     depend on the other images of the run (audit A-M1).
     """
     metadata = [fov_metadata(run, fov, config) for fov in fovs]
-    with resolved_masks():  # a binary mask was labelled when read, so its policy is not refused here
-        return _patch_planes(config, _plane_sources(run, fovs, metadata, config))
+    return _patch_planes(config, _plane_sources(run, fovs, metadata, config))
 
 
 def _plane_sources(run: FileRun, fovs: Sequence[Fov], metadata: Sequence[dict], config: CellPatcherConfig) -> Iterator:
@@ -462,14 +466,19 @@ def _plane_sources(run: FileRun, fovs: Sequence[Fov], metadata: Sequence[dict], 
 
 
 def read_run_mask(run: FileRun, fov: Fov, layout: str | None = None) -> np.ndarray:
-    """Read an image's mask of the run's type, through ``RunInputs.read_mask``.
+    """Read an image's mask of the run's type: a cell-mode object set's objects, else the stored mask.
 
-    In *layout*, or the mask's own (:meth:`FileRun.mask_layout`) when None. A cell-mode ``binary`` mask
-    comes back as the shared labeller's objects under the recorded policy (:class:`ObjectMask`).
+    In *layout*, or the mask's own (:meth:`FileRun.mask_layout`) when None. A cell-mode object set
+    is read with ``RunInputs.read_objects`` (:func:`cellpatcher.run_reading.read_fov_objects`): an
+    ``instances`` mask's labels as stored, a ``binary`` one's objects under the recorded conversion
+    (Spec ADR 0005 BM6). Any other mask (random mode's sampling mask) with ``RunInputs.read_mask``.
     """
     record = _record(run.inputs, fov, run.mask_type)
-    mask = read_fov_mask(run.inputs, fov, record, run.mask_layout(fov) if layout is None else layout)
-    return mask if run.object_mask is None else run.object_mask.objects(mask)
+    layout = run.mask_layout(fov) if layout is None else layout
+    if run.object_mask is None:
+        return read_fov_mask(run.inputs, fov, record, layout)
+    selection = run.object_mask.selections[fov.relative_path]
+    return read_fov_objects(run.inputs, selection, run.object_mask.mask_id, record, layout)
 
 
 def fov_metadata(run: FileRun, fov: Fov, config: CellPatcherConfig) -> dict:

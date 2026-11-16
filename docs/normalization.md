@@ -14,7 +14,7 @@ before.
 
 ## The workflow
 
-1. **Install** CellPatcher: the preprocessing (v0.5.6) and normalization (v0.6.1) bricks are core
+1. **Install** CellPatcher: the preprocessing and normalization (v0.7.0) bricks are core
    dependencies. OME-Zarr images need the optional extra `pip install "cellpatcher[zarr]"` (the
    notebook's first cell installs it on Google Colab).
 2. **Describe the experiment and run the preprocessing notebook** on your experiment folder: publish
@@ -123,9 +123,9 @@ channels never share parameters (except the three channels of an RGB image).
 - **Patch regions** (`scope="patch"`): `"mask"` uses the pixels of the patch's own object
   (Cell mode), `"bbox"` all pixels of the object's bounding box whatever the patch size, and
   `"patch"` all pixels of the patch. Padding added by `pad_mode="constant"` is never used.
-  `"mask"` and `"bbox"` need the mask to hold the patch labels: with a boolean in-memory mask labelled by
-  `cell.binary_mask_policy="connected_components"` they are refused (use integer instance labels); a file
-  run's `binary` mask is replaced by its computed labels before patching, so they apply.
+  `"mask"` and `"bbox"` use the patch labels of the object set: a file run's `binary` mask is read as
+  its computed labels (`RunInputs.read_objects`, Spec ADR 0005), so they apply; in memory an object set
+  is integer labels (a boolean array is refused, `A_MASK_NOT_INSTANCES`).
   A patch without any intensity spread (for example an empty background tile, or for robust
   z-score a patch where more than half the pixels share one value) cannot be normalized from
   its own pixels: it is **discarded** and listed in a warning. An RGB patch without spread is
@@ -203,7 +203,7 @@ planes and what to do:
 | *... another position_id than their rows* | A `position_id` given in `image_metadata` is not the one the preprocessing recorded (the image name). Leave it to the image name, or give the recorded one. |
 | *... another role than the axis mapping confirmed in the preprocessing brick* | In-memory runs: `common.image_axes` differs from the axes confirmed in the preprocessing notebook. (Folder and tree runs take the run's roles and declare no axes.) |
 | *Normalization needs one plane per patch* | Set `t_policy` to `"all"`, `"first"` or `"select"`. A Z axis longer than 1 is refused (Z>1 is never patched, issue #83): project or select it first with `convert --project` in morphobricks-preprocessing. |
-| *... cannot be computed for N group(s)* | A group has no finite pixels or no intensity spread: choose a larger scope or another method. Or `A_SCOPE_INCOMPLETE`: a channel only some planes of the group have (Spec fixture `v17`), never fitted over part of the group nor filled in: choose groups whose planes all have it (the image scope) or leave the channel out. Folder and tree runs check every group of the planes they patch for it from `plane_histograms.csv` when the run is opened, so this one stops them before any image is read or any file written (issue #107); no finite pixels and zero spread are found by the patching. |
+| *... cannot be computed for N group(s)* | A group has no finite pixels or no intensity spread: choose a larger scope or another method. Or `A_SCOPE_INCOMPLETE`: a channel only some planes of the group have (Spec fixture `v17`), never fitted over part of the group nor filled in: choose groups whose planes all have it (the image scope), leave the channel out, or opt in with `normalization.partial_channels="planes_with_channel"` (the channel pooled over the planes that have it, recorded in `run_config.json`). Folder and tree runs check every group of the planes they patch for it from `plane_histograms.csv` when the run is opened, so this one stops them before any image is read or any file written (issue #107); no finite pixels and zero spread are found by the patching. |
 | *Keeping the normalized patches in memory needs about ...* | Use `iter_patch_arrays`, export to files, or raise `normalization.memory_limit`. |
 | *Reading the OME-Zarr image ... needs the zarr package* | `pip install "cellpatcher[zarr]"`. |
 

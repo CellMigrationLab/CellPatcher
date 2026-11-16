@@ -219,7 +219,7 @@ def test_examples_notebook_names_buttons_and_fields_that_exist():
         assert f"**{control.description.strip()}**" in text
     form = nb.form
     for box in (nb.run_folder, nb.image_choice, form.mask_type, form.cell.size, form.cell.exclude_border,
-                form.cell.apply_mask, form.cell.components, form.grid_size, form.grid_overlap, form.grid_partial,
+                form.cell.apply_mask, form.grid_size, form.grid_overlap, form.grid_partial,
                 form.random_count, form.random_size, form.random_seed, form.random_masks):
         assert f"**{box.description}**" in text
 
