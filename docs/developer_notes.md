@@ -87,8 +87,8 @@ and pushed them to `main`, overwriting every change made here. That is why CellP
 stale `bump_constructor.py`, and why its changes are listed here and guarded by tests.)
 
 **CellPatcher's own files** (not in the template, so a sync leaves them alone):
-`.github/workflows/cellpatcher_tests.yml` (the CI: the code-rules job, the extras matrix and the
-CPU-torch job; named so that it does not meet the template's own `tests.yml`, which runs only in
+`.github/workflows/cellpatcher_tests.yml` (the CI: the code-rules job, the extras matrix, the
+Windows job and the CPU-torch job; named so that it does not meet the template's own `tests.yml`, which runs only in
 the template repository), `.github/workflows/update_docs_figures.yml`,
 `.tools/python/generate_docs_figures.py`.
 
@@ -117,7 +117,8 @@ package. CP-3b made `setup.py` read either layout; the synced script maps it to
 layout needs that workaround any more and `setup.py` reads `src/` only again.
 
 **CI.** `cellpatcher_tests.yml` runs `tools/check.py --rules`, pytest with `.[test]`,
-`.[test,zarr]` and `.[test,zarr,notebook]`, and `pytest-torch`: `.[test,zarr,notebook]` with CPU
+`.[test,zarr]` and `.[test,zarr,notebook]`, `pytest-windows`: `.[test]` on `windows-latest` (since
+v0.7.1; a failing test fails it, none is skipped to get it green), and `pytest-torch`: `.[test,zarr,notebook]` with CPU
 `torch` pinned (`TORCH_VERSION`, from `https://download.pytorch.org/whl/cpu`), which fails if any
 test is skipped, so the torch tests and the PyTorch notebook's kernel run do run. To raise torch,
 change `TORCH_VERSION` and run the gate with that version locally

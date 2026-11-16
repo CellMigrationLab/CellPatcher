@@ -115,6 +115,12 @@ unchanged (`tests/test_v062_output_parity.py`, `tests/test_patch_identity.py`).
   before `run_config.json` (or any patch file of that output) is written; only the resolver's own empty record
   writes `[]`. `tests/test_cell_mask_request.py` (`test_f3_*`).
 
+### Added
+- **F4: a Windows test job.** `.github/workflows/cellpatcher_tests.yml` runs the `test`-extra suite on
+  `windows-latest` (`pytest-windows`, Python 3.11) on every pull request: file-run mask paths, case-insensitive name
+  collisions, reopening exported patches and interrupted publication are exercised on Windows. A failing test fails
+  the job; none is skipped to get it green. `tests/test_ci_workflow.py` checks the job.
+
 ## [0.7.0] - 2026-11-16 - One policy for binary masks (Spec ADR 0005, step 3), images of different channel sets in one normalized run (G1), an empty region gives no patch (BM8); preprocessing v0.6.0, normalization v0.7.0
 
 The v0.7.0 release (16 November 2026), from #117. A minor release because it removes public behaviour

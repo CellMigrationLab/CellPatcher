@@ -172,7 +172,7 @@ app/                # Colab / conda-constructor packaging (menuinst, installer s
 .tools/               # CI/maintenance tooling (requirements merge, version bump, notebook sync, docs figures) — not pipeline code
   python/generate_docs_figures.py   # regenerates docs/assets/*.png; run automatically by .github/workflows/update_docs_figures.yml
 .template_sync/        # LabConstrictor template version (0.1.19) and its migrations; app/, .tools/ and the template workflows are synced by them — see docs/developer_notes.md, "LabConstrictor template", before changing a template file
-.github/workflows/cellpatcher_tests.yml   # CellPatcher's CI (code rules, extras matrix, CPU-torch job); not a template file
+.github/workflows/cellpatcher_tests.yml   # CellPatcher's CI (code rules, extras matrix, Windows job, CPU-torch job); not a template file
 
 README.md
 setup.py
