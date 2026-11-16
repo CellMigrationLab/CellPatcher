@@ -87,6 +87,15 @@ unchanged (`tests/test_v062_output_parity.py`, `tests/test_patch_identity.py`).
   version only in `ResolvedRequest.provenance.resolver_version`; an empty request is allowed and selects
   nothing) and is refused with `RESOLVER_VERSION_UNSUPPORTED` before any pixel read or output.
   `tests/test_cell_mask_request.py` (`test_cp1_*`).
+- **CP2: at a CSV normalization scope a multichannel image is never matched to its rows by position.** Each
+  channel plane finds its `plane_histograms.csv` row by the image's path and C index, and its channel ID was
+  compared with the row's only when `image_metadata["channel_ids"]` was given: an in-memory image without IDs had
+  its channels associated with the rows by position, so two channels with the same minimum, maximum and pixel
+  count (all the plane checks compare) given in another order took each other's parameters. Such an image of more
+  than one channel is now refused before any fit, `channel_ids_required` (a `PreprocessingCheckError` naming the
+  image and the fix: pass its channel IDs in its C order, or use `scope="patch"`). A single channel needs no ID;
+  a given one is still compared (`channel_id_mismatch`). File runs pass `Fov.channel_ids` and are unchanged.
+  `tests/test_channel_id_normalization.py` (`test_cp2_*`).
 
 ## [0.7.0] - 2026-11-16 - One policy for binary masks (Spec ADR 0005, step 3), images of different channel sets in one normalized run (G1), an empty region gives no patch (BM8); preprocessing v0.6.0, normalization v0.7.0
 

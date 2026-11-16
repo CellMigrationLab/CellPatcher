@@ -205,7 +205,9 @@ def image_channel_ids(meta: Mapping, count: int, has_channels: bool, rgb: bool) 
 
     ``meta["channel_ids"]`` (a file run: ``Fov.channel_ids``) names every C index of the image. Without it (an
     in-memory image, which has no description) the channels are named by position, ``C<i>``, or ``R``, ``G``,
-    ``B`` for ``"rgb"`` (the samples of an RGB unit, experiment-v1 §4.4b); these names hold within the image only.
+    ``B`` for ``"rgb"`` (the samples of an RGB unit, experiment-v1 §4.4b); these names hold within the image only,
+    at the patch scope only: at a CSV scope an image of more than one channel without IDs is refused before any
+    fit (``channel_ids_required``, v0.7.1), never matched to its rows by position.
     An image without a C axis is the one channel ``meta["c"]`` (0 when not given).
 
     Raises

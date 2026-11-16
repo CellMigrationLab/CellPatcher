@@ -444,7 +444,7 @@ def test_in_memory_runs_need_source_relative_path_for_csv_scopes(experiment):
 
     # The labels must be the CSV's: run_patching does not read them from paths.
     config.common.condition, config.common.biological_repeat = "control", "bio1"
-    metadata = [{"source_relative_path": "control/bio1/a.tif", "position_id": "a"}]
+    metadata = [{"source_relative_path": "control/bio1/a.tif", "position_id": "a", "channel_ids": ("C0", "C1")}]
     result = run_patching(images=stack, config=config, image_metadata=metadata)
     assert {p.normalization_group for p in result.patches} == {"control/bio1/a.tif"}
 
