@@ -74,6 +74,53 @@ Release v0.3.0
 Pin preprocessing v0.4.0rc4; prepare v0.2.0rc2
 
 ---
+## [Unreleased] - Fixes from the external audit of v0.7.0 (CP1, CP2, CP3, F3, F4)
+
+Fixes for the defects an external audit of the tagged v0.7.0 (`9d54597`) found. Outputs on valid inputs are
+unchanged (`tests/test_v062_output_parity.py`, `tests/test_patch_identity.py`).
+
+### Fixed
+- **CP1: the resolver's contract version is checked for every described file run** (Spec ADR 0005 BM10).
+  v0.7.0 returned before `RunInputs.resolve_request` when a run named no channel ID (`extraction.split_channels`),
+  object set or sampling mask, so grid, whole-FOV and mask-free random runs read pixels from a resolver of any
+  contract version. Such a run now asks the resolver with an empty `Request` (preprocessing v0.6.0 gives the
+  version only in `ResolvedRequest.provenance.resolver_version`; an empty request is allowed and selects
+  nothing) and is refused with `RESOLVER_VERSION_UNSUPPORTED` before any pixel read or output.
+  `tests/test_cell_mask_request.py` (`test_cp1_*`).
+- **CP2: at a CSV normalization scope a multichannel image is never matched to its rows by position.** Each
+  channel plane finds its `plane_histograms.csv` row by the image's path and C index, and its channel ID was
+  compared with the row's only when `image_metadata["channel_ids"]` was given: an in-memory image without IDs had
+  its channels associated with the rows by position, so two channels with the same minimum, maximum and pixel
+  count (all the plane checks compare) given in another order took each other's parameters. Such an image of more
+  than one channel is now refused before any fit, `channel_ids_required` (a `PreprocessingCheckError` naming the
+  image and the fix: pass its channel IDs in its C order, or use `scope="patch"`). A single channel needs no ID;
+  a given one is still compared (`channel_id_mismatch`). File runs pass `Fov.channel_ids` and are unchanged.
+  `tests/test_channel_id_normalization.py` (`test_cp2_*`).
+- **CP3: an empty region gives no patch at `min_mask_fraction=0` too** (owner decision of 16 November 2026:
+  Spec ADR 0005 BM8 wins over the zero-fraction rule of F8). v0.7.0 applied the zero-fraction "no overlap filter"
+  rule before looking at the region, so an all-zero random-mode sampling mask at an explicit `0` sampled the whole
+  image. The validated region's emptiness is now checked first: an empty region gives no patch, status
+  `no_patches` and reason `empty_region` in `images.csv` and `positions.csv`, at `None`, `0` and `> 0`, in memory
+  and in file runs, with no "excludes no rectangle" warning. `0` keeps its meaning, no overlap filter, for a
+  non-empty region only (unchanged). **Behaviour change, tests changed:** `tests/test_empty_region.py`'s
+  `test_random_mode_at_fraction_zero_samples_an_empty_mask_as_no_mask` (which asserted the old behaviour) is
+  replaced by `test_random_mode_at_fraction_zero_gives_an_empty_mask_no_patch_and_samples_a_non_empty_one_as_no_mask`;
+  the strategy, in-memory and file-run tests there now run at `None`, `0` and `> 0`;
+  `test_file_runs_of_the_other_modes_are_unchanged_by_an_empty_mask` keeps grid and whole_fov only; and
+  `tests/test_random_masks.py` no longer expects an empty mask at `0` to give the unmasked rectangles
+  (`test_an_empty_mask_at_fraction_zero_is_not_exhausted` now expects no region).
+- **F3: missing conversion provenance is refused, never written as `[]`.** `run_config.json` of a file run wrote
+  `recalled_conversions(...) or ()`, so a run whose resolver record of `mask_conversions` was not kept in the call
+  recorded `"mask_conversions": []`, as if the resolver had recorded no conversion. It is now a `RuntimeError`
+  before `run_config.json` (or any patch file of that output) is written; only the resolver's own empty record
+  writes `[]`. `tests/test_cell_mask_request.py` (`test_f3_*`).
+
+### Added
+- **F4: a Windows test job.** `.github/workflows/cellpatcher_tests.yml` runs the `test`-extra suite on
+  `windows-latest` (`pytest-windows`, Python 3.11) on every pull request: file-run mask paths, case-insensitive name
+  collisions, reopening exported patches and interrupted publication are exercised on Windows. A failing test fails
+  the job; none is skipped to get it green. `tests/test_ci_workflow.py` checks the job.
+
 ## [0.7.0] - 2026-11-16 - One policy for binary masks (Spec ADR 0005, step 3), images of different channel sets in one normalized run (G1), an empty region gives no patch (BM8); preprocessing v0.6.0, normalization v0.7.0
 
 The v0.7.0 release (16 November 2026), from #117. A minor release because it removes public behaviour

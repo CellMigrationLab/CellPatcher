@@ -68,7 +68,8 @@ def run_config_data(config: CellPatcherConfig) -> dict:
     ------
     RuntimeError
         If the preprocessing run read was not opened in this call (an internal error: its
-        manifest's SHA-256 is recorded when it is opened).
+        manifest's SHA-256 is recorded when it is opened), or a file run's resolver record of
+        ``mask_conversions`` was not kept in it (an internal error: never written as ``[]``).
     PreprocessingCheckError
         If the run's ``run_manifest.json`` changed since this call opened it.
     """
@@ -79,8 +80,14 @@ def run_config_data(config: CellPatcherConfig) -> dict:
     if preprocessing is not None and "layout" in preprocessing:
         for name in _RUN_SETTINGS:
             data["common"].pop(name)
-        # Spec ADR 0005 BM2: the resolver's records, copied as is (a file run always resolves).
-        records = recalled_conversions(config.common.preprocessing_run) or ()
+        # Spec ADR 0005 BM2: the resolver's records, copied as is (a file run always resolves, CP1). Missing
+        # provenance is refused, never written as [] (v0.7.1, F3): only the resolver's empty record is [].
+        records = recalled_conversions(config.common.preprocessing_run)
+        if records is None:
+            raise RuntimeError(
+                f"The resolver's mask_conversions record of the preprocessing run {config.common.preprocessing_run} "
+                "was not kept in this call, so run_config.json cannot record the run's mask conversions."
+            )
         data["mask_conversions"] = [dict(record) for record in records]
     inputs = normalization_inputs(config)
     if inputs is not None:

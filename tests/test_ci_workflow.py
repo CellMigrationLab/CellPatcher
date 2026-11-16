@@ -79,3 +79,14 @@ def test_every_action_of_the_ci_is_pinned_by_commit_sha():
     assert uses
     for action in uses:
         assert re.fullmatch(r"[\w.-]+/[\w.-]+@[0-9a-f]{40}", action), action
+
+
+def test_the_windows_job_runs_the_test_extra_suite_on_windows():
+    # v0.7.1 (audit F4): file-run mask paths, case-insensitive name collisions, reopening exported patches and
+    # interrupted publication behave differently on Windows; the test-extra suite runs there on every PR.
+    job = _job("pytest-windows")
+    assert "runs-on: windows-latest" in job
+    assert "python-version: '3.11'" in job
+    assert 'pip install -e ".[test]"' in job
+    assert "python -m pytest -q -rs" in job
+    assert "continue-on-error" not in job  # a failure fails the PR, never hidden

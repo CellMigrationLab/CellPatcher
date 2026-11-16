@@ -346,6 +346,62 @@ def test_f13_a_resolver_of_another_contract_version_is_refused_before_any_read(v
         assert not (tmp_path / "out").exists()  # no output, no run_config.json
 
 
+def _mask_free_config(output, mode, out_dir=None):
+    """A grid, whole-FOV or random run of *output* that names no channel, mask or region."""
+    config = CellPatcherConfig(mode=mode)
+    config.common.preprocessing_run = str(output)
+    config.grid.tile_size = 8
+    config.random.patch_size, config.random.n_patches = 8, 2
+    if out_dir is not None:
+        config.common.output_dir = str(out_dir)
+        config.export.enabled = True
+    return config
+
+
+@pytest.mark.parametrize("mode", ["grid", "whole_fov", "random"])
+@pytest.mark.parametrize("version", [2, 4])
+def test_cp1_a_mask_free_run_without_channels_checks_the_resolver_version_before_any_read(
+    v08, tmp_path, monkeypatch, mode, version
+):
+    """CP1 (v0.7.1): the version is checked for every described file run, not only when something is asked.
+
+    v0.7.0 returned before ``resolve_request`` when the run named no channel ID, mask or region, so a
+    grid, whole-FOV or mask-free random run of a resolver of another contract version read its pixels.
+    """
+    from morphobricks_normalization.contracts import refuse_resolver_version
+
+    _resolver_of_version(monkeypatch, version)
+    _no_pixel_reads(monkeypatch)
+    config = _mask_free_config(v08.output, mode, tmp_path / "tree")
+    assert config.extraction.split_channels is False and config.matching.mask_type is None
+    with pytest.raises(ValueError) as raised:
+        _tree(v08, config)
+    assert raised.value.code == "RESOLVER_VERSION_UNSUPPORTED"
+    assert str(raised.value) == str(refuse_resolver_version(version, [3]))
+    assert not (tmp_path / "tree").exists()  # no output, no run_config.json
+    with pytest.raises(ValueError) as raised:
+        run_patching_pipeline(v08.experiment, config=_mask_free_config(v08.output, mode, tmp_path / "folder"))
+    assert raised.value.code == "RESOLVER_VERSION_UNSUPPORTED"
+    assert not (tmp_path / "folder").exists()
+
+
+@pytest.mark.parametrize("mode", ["grid", "whole_fov", "random"])
+def test_cp1_a_mask_free_run_asks_the_resolver_with_an_empty_request(v08, monkeypatch, mode):
+    """The version comes from ``resolve_request`` with an empty request (preprocessing v0.6.0 has no other way)."""
+    from morphobricks_preprocessing.run_inputs import RunInputs
+
+    asked = []
+    resolve = RunInputs.resolve_request
+
+    def resolve_request(self, request):
+        asked.append(request)
+        return resolve(self, request)
+
+    monkeypatch.setattr(RunInputs, "resolve_request", resolve_request)
+    assert _tree(v08, _mask_free_config(v08.output, mode))
+    assert asked and all((request.channel_ids, request.masks) == ((), ()) for request in asked)
+
+
 def test_f13_contract_version_3_is_accepted(v08, monkeypatch):
     from cellpatcher.run_request import SUPPORTED_RESOLVER_VERSIONS
 
@@ -402,3 +458,40 @@ def test_the_read_guard_of_read_objects_is_raised_unchanged(tmp_path, monkeypatc
     expected = refuse_binary_values(raised.value.args[0].split(" is declared")[0].split(": ", 1)[1], values=[3, 7])
     assert str(raised.value) == str(expected)
     assert not (tmp_path / "out").exists()
+
+
+# --- F3 (v0.7.1): run_config.json never writes missing conversion provenance as [] ----------------------------
+
+
+@pytest.mark.parametrize("combine", [False, True])
+def test_f3_a_file_run_whose_conversion_record_is_missing_is_refused_not_written_as_empty(
+    v08, tmp_path, monkeypatch, combine
+):
+    """v0.7.0 wrote ``recalled_conversions(...) or ()``: a file run with no record of the resolver's
+    ``mask_conversions`` in its session got ``"mask_conversions": []``, as if the resolver had recorded none."""
+    import cellpatcher.file_runs as file_runs
+
+    monkeypatch.setattr(file_runs, "remember_conversions", lambda output_folder, records: None)
+    config = _mask_free_config(v08.output, "grid", tmp_path / "out")
+    with pytest.raises(RuntimeError, match="mask_conversions"):
+        run_patching_condition_repeat_tree(v08.experiment, config=config, combine_metadata=combine)
+    assert not list((tmp_path / "out").rglob("run_config.json"))
+    assert not list((tmp_path / "out").rglob("patches.csv"))
+
+
+def test_f3_only_a_real_empty_resolver_record_writes_an_empty_list(v08, tmp_path, monkeypatch):
+    from morphobricks_preprocessing.run_inputs import RunInputs
+
+    answers = []
+    resolve = RunInputs.resolve_request
+
+    def resolve_request(self, request):
+        answers.append(resolve(self, request))
+        return answers[-1]
+
+    monkeypatch.setattr(RunInputs, "resolve_request", resolve_request)
+    config = _mask_free_config(v08.output, "grid", tmp_path / "out")
+    run_patching_condition_repeat_tree(v08.experiment, config=config, combine_metadata=True)
+    data = json.loads((tmp_path / "out" / "run_config.json").read_text("utf-8"))
+    assert answers and all(answer.provenance.mask_conversions == () for answer in answers)
+    assert data["mask_conversions"] == []

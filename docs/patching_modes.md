@@ -96,9 +96,9 @@ Common pitfalls:
   non-zero pixels inside, never labelled. A float mask (a probability map) is refused with `MASK_REGION_INVALID`:
   threshold it first.
 - An empty sampling mask (no non-zero pixel) gives that image no patch, never an error (Spec ADR 0005 BM8): with
-  `min_mask_fraction` unset or `> 0` the image is listed in `images.csv` and `positions.csv` with the reason
-  `empty_region`, and the other images of the run are patched as without it. An explicit `0` excludes nothing, so an
-  empty mask then gives the rectangles drawn without a mask.
+  `min_mask_fraction` unset, `0` or `> 0` the image is listed in `images.csv` and `positions.csv` with the reason
+  `empty_region`, and the other images of the run are patched as without it. An explicit `0` excludes nothing from a
+  non-empty mask only (since v0.7.1; v0.7.0 drew an empty mask at `0` as no mask).
 - If a non-empty sampling mask is too small or too sparse for `min_mask_fraction > 0`, random mode can fail after too many attempts to find valid patches (`SamplingExhaustedError`).
 - No `seed` means non-deterministic outputs.
 - Duplicate patches are valid behavior.

@@ -172,7 +172,7 @@ app/                # Colab / conda-constructor packaging (menuinst, installer s
 .tools/               # CI/maintenance tooling (requirements merge, version bump, notebook sync, docs figures) — not pipeline code
   python/generate_docs_figures.py   # regenerates docs/assets/*.png; run automatically by .github/workflows/update_docs_figures.yml
 .template_sync/        # LabConstrictor template version (0.1.19) and its migrations; app/, .tools/ and the template workflows are synced by them — see docs/developer_notes.md, "LabConstrictor template", before changing a template file
-.github/workflows/cellpatcher_tests.yml   # CellPatcher's CI (code rules, extras matrix, CPU-torch job); not a template file
+.github/workflows/cellpatcher_tests.yml   # CellPatcher's CI (code rules, extras matrix, Windows job, CPU-torch job); not a template file
 
 README.md
 setup.py
@@ -251,7 +251,9 @@ CellPatcher-specific conventions:
   `MaskRequest(matching.mask_id, "objects", policy)`, the mask ID defaulting to the declared
   mask of `matching.mask_type`'s source type. The resolver's contract version must be in
   `SUPPORTED_RESOLVER_VERSIONS` (`{3}`; `RESOLVER_VERSION_UNSUPPORTED` otherwise, from
-  normalization's one constructor). Its refusals (`A_MASK_NOT_INSTANCES`, `A_MASK_UNCHECKED`,
+  normalization's one constructor), checked for every described file run before any pixel read,
+  also a grid, whole-FOV or mask-free run that names no channel or mask (it asks with an empty
+  `Request`, v0.7.1 CP1). Its refusals (`A_MASK_NOT_INSTANCES`, `A_MASK_UNCHECKED`,
   `A_SCOPE_INCOMPLETE`, `A_VOLUME_NOT_SUPPORTED`) are raised with their codes and messages
   unchanged before any pixel is read. The object set's planes are read with preprocessing's
   `RunInputs.read_objects` (`run_reading.read_fov_objects`), which applies the recorded
