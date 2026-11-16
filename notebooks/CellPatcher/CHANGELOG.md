@@ -74,11 +74,12 @@ Release v0.3.0
 Pin preprocessing v0.4.0rc4; prepare v0.2.0rc2
 
 ---
-## [0.7.1] - 2026-11-16 - Fixes from the external audit of v0.7.0 (CP1, CP2, CP3, F3, F4); preprocessing v0.6.0
+## [0.7.1] - 2026-11-16 - Fixes from the external audit of v0.7.0 (CP1, CP2, CP3, F3, F4); preprocessing v0.6.1
 
 The v0.7.1 patch release (16 November 2026), from #121 and its review #123: fixes for the defects an external audit
-of the tagged v0.7.0 (`9d54597`) found. It pins preprocessing `v0.6.0` (core and `zarr` extra, unchanged) and
-normalization `v0.7.0`, the tag preprocessing `v0.6.0` pins (owner decision D-h). `__version__`, `setup.py` and
+of the tagged v0.7.0 (`9d54597`) found. It pins preprocessing `v0.6.1` (core and `zarr` extra; was `v0.6.0`: the
+patch that records the verified mask fingerprint, also from the external audit) and normalization `v0.7.0`, the tag
+preprocessing `v0.6.1` pins (owner decision D-h). `__version__`, `setup.py` and
 every notebook (`RELEASE_TAG`, `current_version`, `notebook_latest_versions.yaml`) are `0.7.1`. Outputs on valid
 inputs are byte-identical to v0.7.0's (`tests/test_v062_output_parity.py`, `tests/test_patch_identity.py`).
 Behaviour changes only where v0.7.0 was wrong: a mask-free file run of a resolver of another contract version, an

@@ -17,9 +17,9 @@ setup(
         # checks). Pinned to its tag and raised deliberately; the ``zarr`` extra
         # below adds its OME-Zarr reader at the same tag. v0.6.0 is Spec ADR 0005
         # steps 2 and 2b (resolver contract v3, RunInputs.read_objects, the
-        # conversion helpers).
+        # conversion helpers); v0.6.1 fixes the checked-fingerprint race.
         "morphobricks-preprocessing @ git+https://github.com/CellMigrationLab/"
-        "morphobricks-preprocessing@v0.6.0",
+        "morphobricks-preprocessing@v0.6.1",
         # CellPatcher imports the normalization brick directly (plane histograms,
         # the plane table, pooling, normalization parameters, SINGLE), so it
         # declares it, at the tag the preprocessing tag above pins (owner
@@ -63,7 +63,7 @@ setup(
         # is a core dependency.
         "zarr": [
             "morphobricks-preprocessing[zarr] @ git+https://github.com/CellMigrationLab/"
-            "morphobricks-preprocessing@v0.6.0",
+            "morphobricks-preprocessing@v0.6.1",
         ],
     },
 )
