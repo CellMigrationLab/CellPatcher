@@ -41,6 +41,10 @@ def test_an_image_whose_channel_ids_are_not_its_rows_is_refused():
     with pytest.raises(PreprocessingCheckError, match="no image_metadata") as raised:
         _check_row_channel_ids({**meta, "c": 0}, rows[1:])  # a given C index that is not the row's
     assert [issue.code for issue in raised.value.issues] == ["channel_ids_required"]
+    with pytest.raises(PreprocessingCheckError, match="names more than one channel") as raised:
+        _check_row_channel_ids({**meta, "channel_ids": record.channels}, rows[:1])  # every ID, no c: not named
+    assert [issue.code for issue in raised.value.issues] == ["channel_ids_required"]
+    _check_row_channel_ids({**meta, "channel_ids": record.channels, "c": 0}, rows[:1])  # named by its c
     with pytest.raises(PreprocessingCheckError, match="Channel C0 of .* is 'C1' for the image but 'C0'") as raised:
         _check_row_channel_ids({**meta, "channel_ids": record.channels[::-1]}, rows)
     assert [issue.code for issue in raised.value.issues] == ["channel_id_mismatch"]
@@ -226,6 +230,9 @@ def test_cp2_a_single_channel_needs_no_id_and_a_given_one_is_checked(two_channel
         ("a YX plane without c", 1, "YX", {}),
         ("a one-channel CYX image without c", 1, "CYX", {}),
         ("a one-channel CYX image whose c is not its C index", 1, "CYX", {"c": 1}),
+        # The IDs of every channel of the source do not name one YX plane: without c it was read as C0 and
+        # named ids[0], so its ID matched row C0's and channel C1 took C0's parameters (review of #123).
+        ("a YX plane with the IDs of every channel but no c", 1, "YX", {"channel_ids": ("C0", "C1")}),
     ],
 )
 def test_cp2_one_plane_of_a_multichannel_image_without_ids_or_its_c_is_refused_before_any_fit(
