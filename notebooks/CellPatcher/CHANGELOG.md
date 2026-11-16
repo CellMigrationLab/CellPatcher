@@ -60,7 +60,14 @@ Release v0.3.0
 Pin preprocessing v0.4.0rc4; prepare v0.2.0rc2
 
 ---
-## [Unreleased] - One policy for binary masks (Spec ADR 0005, step 3)
+## [0.7.0] - 2026-11-16 - One policy for binary masks (Spec ADR 0005, step 3), images of different channel sets in one normalized run (G1), an empty region gives no patch (BM8); preprocessing v0.6.0, normalization v0.7.0
+
+The v0.7.0 release (16 November 2026), from #117. A minor release because it removes public behaviour
+(see **Breaking** below; as for v0.6.0, Spec ADR 0002 AR10: removed settings are refused, not converted).
+It pins preprocessing `v0.6.0` (core and `zarr` extra; was `v0.5.6`) and normalization `v0.7.0` (was
+`v0.6.1`), the tag preprocessing `v0.6.0` pins (owner decision D-h). `__version__`, `setup.py` and every
+notebook (`RELEASE_TAG`, `current_version`, `notebook_latest_versions.yaml`) are `0.7.0`. Outputs on
+instance masks are byte-identical to v0.6.2's (`tests/test_v062_output_parity.py`, 907 files).
 
 ### Changed
 - Pins normalization `v0.7.0` (was `v0.6.1`), which adds `regions.check_region` and
