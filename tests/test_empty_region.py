@@ -32,6 +32,8 @@ OBJECTS[10:20, 10:20], OBJECTS[25:35, 30:42] = 1, 2
 METADATA = [{"position_id": "empty"}, {"position_id": "full"}]
 # min_mask_fraction values that filter draws: None (any overlap, the default) and > 0.
 FILTERING = [None, 1 / 64, 0.5, 1.0]
+# Every min_mask_fraction: an empty region gives no patch at each (BM8; at 0 too since v0.7.1, CP3).
+EVERY_FRACTION = [None, 0, *FILTERING[1:]]
 
 
 def _config(mode, fraction=None, output=None):
@@ -59,10 +61,12 @@ def _rows(path):
 
 
 @pytest.mark.parametrize("dtype", [bool, np.uint8, np.int32])
-@pytest.mark.parametrize("fraction", FILTERING)
+@pytest.mark.parametrize("fraction", EVERY_FRACTION)
 def test_an_empty_sampling_mask_gives_no_region(dtype, fraction):
     config = RandomConfig(patch_size=8, n_patches=5, seed=0, min_mask_fraction=fraction)
-    regions = RandomPatchStrategy(config).generate_regions(image_shape=SHAPE, labels=np.zeros(SHAPE, dtype=dtype))
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")  # at 0, no "excludes no rectangle" warning: the empty region is not sampled
+        regions = RandomPatchStrategy(config).generate_regions(image_shape=SHAPE, labels=np.zeros(SHAPE, dtype=dtype))
     assert regions == []
 
 
@@ -90,11 +94,15 @@ def test_an_invalid_empty_mask_is_still_refused():
 # --- random mode in memory ----------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("fraction", FILTERING)
+@pytest.mark.parametrize("fraction", EVERY_FRACTION)
 def test_random_mode_in_memory_lists_the_empty_region_and_patches_the_other_images(tmp_path, fraction):
     config = _config("random", fraction, output=tmp_path)
-    result = run_patching(images=[IMAGE, IMAGE], masks=[EMPTY, BLOCK], config=config, image_metadata=METADATA)
-    alone = run_patching(images=[IMAGE], masks=[BLOCK], config=_config("random", fraction), image_metadata=METADATA[1:])
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)  # at 0, BLOCK's "excludes no rectangle"
+        result = run_patching(images=[IMAGE, IMAGE], masks=[EMPTY, BLOCK], config=config, image_metadata=METADATA)
+        alone = run_patching(
+            images=[IMAGE], masks=[BLOCK], config=_config("random", fraction), image_metadata=METADATA[1:]
+        )
     assert _rectangles(result.patches) == _rectangles(alone.patches) and len(alone.patches) == 5
     empty, full = result.image_records
     assert (empty.status, empty.reason, empty.n_regions, empty.n_patches) == ("no_patches", EMPTY_REGION, 0, 0)
@@ -108,11 +116,23 @@ def test_random_mode_in_memory_lists_the_empty_region_and_patches_the_other_imag
     ]
 
 
-def test_random_mode_at_fraction_zero_samples_an_empty_mask_as_no_mask():
-    """An explicit 0 excludes nothing (F8): an empty mask gives the rectangles drawn without one."""
+def test_random_mode_at_fraction_zero_gives_an_empty_mask_no_patch_and_samples_a_non_empty_one_as_no_mask():
+    """CP3 (v0.7.1, owner decision of 16 November 2026: BM8 wins over F8's zero-fraction rule).
+
+    v0.7.0 sampled an all-zero mask at an explicit 0 as no mask (the whole image). The region's emptiness is
+    checked first: an empty one gives no patch (``empty_region``) at 0 as at None and > 0. 0 keeps its F8
+    meaning, no overlap filter, for a non-empty region only.
+    """
     config = _config("random", 0)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        empty = run_patching(images=[IMAGE], masks=[EMPTY], config=config, image_metadata=METADATA[:1])
+    assert empty.patches == []
+    assert (empty.image_records[0].status, empty.image_records[0].reason) == ("no_patches", EMPTY_REGION)
+    sparse = np.zeros(SHAPE, dtype=bool)
+    sparse[40, 3] = True  # not empty: excludes nothing at 0
     with pytest.warns(UserWarning, match="excludes no rectangle"):
-        masked = run_patching(images=[IMAGE], masks=[EMPTY], config=config, image_metadata=METADATA[:1])
+        masked = run_patching(images=[IMAGE], masks=[sparse], config=config, image_metadata=METADATA[:1])
     unmasked = run_patching(images=[IMAGE], config=config, image_metadata=METADATA[:1])
     assert _rectangles(masked.patches) == _rectangles(unmasked.patches) and len(unmasked.patches) == 5
     assert masked.image_records[0].reason is None
@@ -193,7 +213,7 @@ def _file_run(root, masks, run, config):
         return run_patching_pipeline(root, config=config, mask_folder_path=masks if config.mode == "random" else None)
 
 
-@pytest.mark.parametrize("fraction", FILTERING)
+@pytest.mark.parametrize("fraction", EVERY_FRACTION)
 def test_random_file_run_lists_the_empty_region_and_patches_the_other_image(run_with_an_empty_mask, tmp_path, fraction):
     root, masks, run = run_with_an_empty_mask
     result = _file_run(root, masks, run, _config("random", fraction, output=tmp_path / "out"))
@@ -207,7 +227,9 @@ def test_random_file_run_lists_the_empty_region_and_patches_the_other_image(run_
     config.common = CommonConfig(
         image_axes="YX", mask_axes="YX", condition="ctrl", biological_repeat="rep1", technical_repeat="single"
     )
-    alone = run_patching(images=[IMAGE], masks=[BLOCK], config=config, image_metadata=[{"position_id": "b"}])
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)  # at 0, BLOCK's "excludes no rectangle"
+        alone = run_patching(images=[IMAGE], masks=[BLOCK], config=config, image_metadata=[{"position_id": "b"}])
     assert _rectangles(result.patches) == _rectangles(alone.patches)
     rows = _rows(tmp_path / "out" / "images.csv")
     assert [(row["image_file"], row["status"], row["reason"]) for row in rows] == [
@@ -217,12 +239,12 @@ def test_random_file_run_lists_the_empty_region_and_patches_the_other_image(run_
     assert [row["reason"] for row in _rows(tmp_path / "out" / "positions.csv")] == [EMPTY_REGION, ""]
 
 
-@pytest.mark.parametrize("mode", ["whole_fov", "grid", "random"])
+@pytest.mark.parametrize("mode", ["whole_fov", "grid"])
 def test_file_runs_of_the_other_modes_are_unchanged_by_an_empty_mask(run_with_an_empty_mask, mode):
-    """grid and whole_fov read no mask; random at an explicit 0 excludes nothing: every image is patched."""
+    """grid and whole_fov read no mask: every image is patched (random at 0: see the test above, since v0.7.1)."""
     root, masks, run = run_with_an_empty_mask
     result = _file_run(root, masks, run, _config(mode, 0))
     assert [r.status for r in result.image_records] == ["processed", "processed"]
     first = sorted((p.y0, p.x0) for p in result.patches if p.image_file == "a.tif")
     second = sorted((p.y0, p.x0) for p in result.patches if p.image_file == "b.tif")
-    assert first and (mode == "random" or first == second)
+    assert first and first == second

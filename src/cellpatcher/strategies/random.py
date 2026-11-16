@@ -8,9 +8,9 @@ The draw sequence (since v0.2.0, matrix finding F8):
    ``x0 = rng.integers(0, W - P + 1)`` (``H``, ``W`` the plane's Y/X size, ``P`` the
    patch size). The stream depends only on the seed, the plane's shape and the patch size,
    never on a mask.
-3. ``min_mask_fraction`` explicitly ``0``: the first ``n_patches`` draws are the patches. A sampling
-   mask is checked (2-D, the plane's shape) but excludes nothing, so the rectangles are
-   the same with and without one.
+3. ``min_mask_fraction`` explicitly ``0``: the first ``n_patches`` draws are the patches. A
+   non-empty sampling mask is checked (2-D, the plane's shape) but excludes nothing, so the
+   rectangles are the same with and without one (an empty one: see 6).
 4. ``min_mask_fraction`` ``None`` (the default) with a mask: a draw is kept when it overlaps the
    mask by at least one pixel (the rule before the option existed, as a fraction of
    ``1 / patch_size**2`` would give). Without a mask every draw is kept.
@@ -20,10 +20,12 @@ The draw sequence (since v0.2.0, matrix finding F8):
    are the draws of the mask-free stream that pass the filter, in order. After
    ``max(1000, 50 * n_patches)`` draws the plane is refused
    (:class:`cellpatcher.SamplingExhaustedError`).
-6. An empty sampling mask (no non-zero pixel) with ``min_mask_fraction`` ``None`` or ``> 0``:
-   the plane has no patch and no draw is taken (Spec ADR 0005 BM8: a patch set sampled in an
-   empty region is undefined, ``empty_region``, and never a refusal). Only a non-empty mask
-   can exhaust the attempts; at an explicit ``0`` an empty mask excludes nothing, as in 3.
+6. An empty sampling mask (no non-zero pixel), whatever ``min_mask_fraction`` (``None``, ``0`` or
+   ``> 0``): the plane has no patch and no draw is taken (Spec ADR 0005 BM8: a patch set sampled
+   in an empty region is undefined, ``empty_region``, and never a refusal). The region's
+   emptiness is checked before the zero-fraction rule of 3 (v0.7.1, CP3, owner decision of
+   16 November 2026: BM8 wins; v0.7.0 drew an empty mask at ``0`` as no mask). Only a non-empty
+   mask can exhaust the attempts.
 
 Sampling is with replacement: a rectangle can be drawn twice (``cellpatcher.ids`` numbers
 the repeats). ``seed=None`` uses NumPy's nondeterministic initialization.
@@ -66,8 +68,9 @@ def _sampling_mask(labels: object, fraction: float | None, shape: tuple[int, int
     Returns
     -------
     numpy.ndarray or None
-        The mask as booleans unless *fraction* is 0, else None (the mask is checked only, and
-        a ``UserWarning`` says that it excludes nothing).
+        The mask as booleans, also at *fraction* 0 when it is empty (Spec ADR 0005 BM8: the
+        caller gives no region); None for a non-empty mask at *fraction* 0 (the mask is checked
+        only, and a ``UserWarning`` says that it excludes nothing).
 
     Raises
     ------
@@ -85,7 +88,7 @@ def _sampling_mask(labels: object, fraction: float | None, shape: tuple[int, int
 
     # Spec ADR 0005 BM3/BM7: the one region checker; its foreground is mask != 0, never labelled.
     mask = check_region(labels, shape, name="the sampling mask")
-    if fraction != 0:
+    if fraction != 0 or not mask.any():  # BM8 first: 0 means "no overlap filter" for a non-empty region only
         return mask
     warnings.warn(ZERO_FRACTION_WARNING, UserWarning, stacklevel=3)
     return None
@@ -144,8 +147,8 @@ class RandomPatchStrategy(BasePatchStrategy):
         -------
         list of PatchRegion
             ``n_patches`` regions, the kept draws in stream order; none (an empty list) when the
-            sampling mask has no foreground pixel and ``min_mask_fraction`` is not ``0`` (Spec
-            ADR 0005 BM8, ``empty_region``). Only that case gives no region.
+            sampling mask has no foreground pixel, whatever ``min_mask_fraction`` (Spec ADR 0005
+            BM8, ``empty_region``). Only that case gives no region.
 
         Raises
         ------

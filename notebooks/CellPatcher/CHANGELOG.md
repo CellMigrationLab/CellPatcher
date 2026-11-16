@@ -96,6 +96,19 @@ unchanged (`tests/test_v062_output_parity.py`, `tests/test_patch_identity.py`).
   image and the fix: pass its channel IDs in its C order, or use `scope="patch"`). A single channel needs no ID;
   a given one is still compared (`channel_id_mismatch`). File runs pass `Fov.channel_ids` and are unchanged.
   `tests/test_channel_id_normalization.py` (`test_cp2_*`).
+- **CP3: an empty region gives no patch at `min_mask_fraction=0` too** (owner decision of 16 November 2026:
+  Spec ADR 0005 BM8 wins over the zero-fraction rule of F8). v0.7.0 applied the zero-fraction "no overlap filter"
+  rule before looking at the region, so an all-zero random-mode sampling mask at an explicit `0` sampled the whole
+  image. The validated region's emptiness is now checked first: an empty region gives no patch, status
+  `no_patches` and reason `empty_region` in `images.csv` and `positions.csv`, at `None`, `0` and `> 0`, in memory
+  and in file runs, with no "excludes no rectangle" warning. `0` keeps its meaning, no overlap filter, for a
+  non-empty region only (unchanged). **Behaviour change, tests changed:** `tests/test_empty_region.py`'s
+  `test_random_mode_at_fraction_zero_samples_an_empty_mask_as_no_mask` (which asserted the old behaviour) is
+  replaced by `test_random_mode_at_fraction_zero_gives_an_empty_mask_no_patch_and_samples_a_non_empty_one_as_no_mask`;
+  the strategy, in-memory and file-run tests there now run at `None`, `0` and `> 0`;
+  `test_file_runs_of_the_other_modes_are_unchanged_by_an_empty_mask` keeps grid and whole_fov only; and
+  `tests/test_random_masks.py` no longer expects an empty mask at `0` to give the unmasked rectangles
+  (`test_an_empty_mask_at_fraction_zero_is_not_exhausted` now expects no region).
 
 ## [0.7.0] - 2026-11-16 - One policy for binary masks (Spec ADR 0005, step 3), images of different channel sets in one normalized run (G1), an empty region gives no patch (BM8); preprocessing v0.6.0, normalization v0.7.0
 

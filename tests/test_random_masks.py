@@ -2,12 +2,13 @@
 
 Random mode draws ``(y0, x0)`` from one seeded stream that depends on the seed, the FOV key
 and plane, the plane's shape and the patch size only (``cellpatcher.strategies.random``). With
-an explicit ``min_mask_fraction=0`` a mask excludes nothing, so the rectangles are those of a
-run without it; with no fraction (the default) a draw needs one mask pixel, as before F8; with
-a positive fraction the patches are the stream's draws that reach the
-fraction, in order. MorphoFeature cuts random sets plane by plane with ``run_patching``
-(``patch_sets.cut_patch_set``, MorphoFeature f167a39): the last tests replay that call and
-compare it with a CellPatcher file run, with and without a masks folder.
+an explicit ``min_mask_fraction=0`` a non-empty mask excludes nothing, so the rectangles are those
+of a run without it (an empty one gives no patch, Spec ADR 0005 BM8, since v0.7.1); with no
+fraction (the default) a draw needs one mask pixel, as before F8; with a positive fraction the
+patches are the stream's draws that reach the fraction, in order. MorphoFeature cuts random sets
+plane by plane with ``run_patching`` (``patch_sets.cut_patch_set``, MorphoFeature f167a39): the
+last tests replay that call and compare it with a CellPatcher file run, with and without a masks
+folder.
 """
 
 import numpy as np
@@ -55,7 +56,7 @@ def _stream(config, count):
 # --- min_mask_fraction == 0: the mask excludes nothing --------------------------------------------
 
 
-@pytest.mark.parametrize("kind", sorted(_masks()))
+@pytest.mark.parametrize("kind", sorted(set(_masks()) - {"empty"}))
 @pytest.mark.parametrize("seed", [0, 7, 2**40 + 3])
 def test_a_mask_at_fraction_zero_gives_the_rectangles_without_it(kind, seed):
     config = RandomConfig(patch_size=8, n_patches=25, seed=seed, min_mask_fraction=0)
@@ -77,10 +78,13 @@ def test_run_patching_at_fraction_zero_is_the_same_with_and_without_masks(scope)
 
 
 def test_an_empty_mask_at_fraction_zero_is_not_exhausted():
-    """Only a filtering mask can run out of attempts; an empty one gives no draw (Spec ADR 0005 BM8)."""
+    """Only a filtering mask can run out of attempts; an empty one gives no draw (Spec ADR 0005 BM8), at 0 too.
+
+    Since v0.7.1 (CP3, owner decision of 16 November 2026) the region's emptiness is checked before the
+    zero-fraction rule: v0.7.0 drew an empty mask at 0 as no mask.
+    """
     config = RandomConfig(patch_size=8, n_patches=3, seed=0, min_mask_fraction=0)
-    with pytest.warns(UserWarning):
-        assert len(_draw(config, _masks()["empty"])) == 3
+    assert _draw(config, _masks()["empty"]) == []
     assert _draw(RandomConfig(patch_size=8, n_patches=3, seed=0, min_mask_fraction=0.1), _masks()["empty"]) == []
     with pytest.raises(SamplingExhaustedError):
         _draw(RandomConfig(patch_size=8, n_patches=3, seed=0, min_mask_fraction=0.1), _masks()["sparse"])

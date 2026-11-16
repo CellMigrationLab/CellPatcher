@@ -115,7 +115,8 @@ class RandomConfig:
 
     ``min_mask_fraction`` (with a sampling mask) is the least share of a
     draw's pixels in the mask's foreground. ``None`` (the default, F8): any
-    overlap; an explicit ``0``: the mask excludes no draw. Draw sequence:
+    overlap; an explicit ``0``: a non-empty mask excludes no draw (an empty one gives no patch at every
+    fraction, Spec ADR 0005 BM8). Draw sequence:
     :mod:`cellpatcher.strategies.random`.
     """
 
