@@ -214,6 +214,7 @@ def fit_settings(settings):
         scope=settings.scope,
         pooling=settings.pooling,
         per_time_point=settings.per_time_point,
+        partial_channels=settings.partial_channels,
     )
 
 
@@ -243,6 +244,7 @@ def parameters_from_row(row: Mapping, settings: Mapping) -> object | None:
     brick = mbn.NormalizationSettings(
         image_type=settings.get("image_type", "fluorescence"), method=settings.get("method", "percentile"),
         percentile=tuple(settings.get("percentile", (1.0, 99.8))), scope=settings.get("scope", "image"),
+        partial_channels=settings.get("partial_channels", "refuse"),
     )
     return mbn.Parameters.from_columns(row, brick)
 
@@ -385,14 +387,14 @@ class Normalizer:
             If a group or patch has no finite pixels or zero spread, a channel
             only some planes of a group have (``A_SCOPE_INCOMPLETE``), a CSV
             scope lacks the images' ``source_relative_path``, an image's channel
-            IDs are not its rows' IDs, the images have different numbers of
-            channels, or ``"rgb"`` images are not three channels of an integer type.
+            IDs are not its rows' IDs, or ``"rgb"`` images are not three channels of
+            an integer type. Images with different channel sets are normalized
+            channel by channel ID, each in its own C order (roadmap G1).
         """
         by_image = defaultdict(list)
         for patch in patches:
             by_image[int(patch.image_id.rsplit("_", 1)[1])].append(patch)
         channel_planes = {index: _channel_planes(images[index], image_axes) for index in by_image}
-        self._check_channel_counts(channel_planes, metadata)
         if self.settings.image_type == "rgb":
             self._check_rgb(channel_planes)
         has_channels = "C" in normalize_axes(image_axes)
@@ -529,35 +531,11 @@ class Normalizer:
         except self._mbn.NoValidPixelsError as exc:
             return f"{name}: no finite pixels ({exc})"
         except self._mbn.ChannelScopeIncompleteError as exc:
-            # A channel only some planes of the group have: refused, never pooled over the planes with it
-            # (CellPatcher offers no partial_channels choice; Spec A_SCOPE_INCOMPLETE).
+            # A channel only some planes of the group have: refused (Spec A_SCOPE_INCOMPLETE), unless the
+            # user opts in with normalization.partial_channels="planes_with_channel" (pooled over those planes).
             return f"{name}: {exc}"
         except ValueError as exc:
             return f"{name}: zero intensity spread for {self.settings.method} ({exc})"
-
-    def _check_channel_counts(self, channel_planes, metadata) -> None:
-        """Refuse images with different numbers of channels in one normalized run (as before normalization v0.5.0).
-
-        Normalization v0.5.0 pools each channel by its ID, but CellPatcher does not yet patch images of different
-        channel counts in one normalized run (Spec Stage 3, gate G3): refused, never padded or dropped.
-        """
-        counts = [
-            (metadata[index].get("source_relative_path") or metadata[index].get("image_file") or f"image_{index}",
-             len(channels))
-            for index, channels in sorted(channel_planes.items())
-        ]
-        by_count = defaultdict(list)
-        for name, count in counts:
-            by_count[count].append(name)
-        if len(by_count) > 1:
-            listed = "; ".join(
-                f"{count} channel(s): {', '.join(names[:3])}{' ...' if len(names) > 3 else ''}"
-                for count, names in sorted(by_count.items())
-            )
-            raise ValueError(
-                f"The images of this run have different numbers of channels ({listed}). CellPatcher normalizes images "
-                "of one channel count per run; patch each group of images in its own run."
-            )
 
     def _check_rgb(self, channel_planes) -> None:
         """Refuse ``"rgb"`` images that are not three integer channels, before any fit.

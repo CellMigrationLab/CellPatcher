@@ -508,6 +508,11 @@ run's description by `statistics.recorded_image_type` (follow-up C4; `Fov.image_
   experiment design's name and SHA-256 at the `biological_repeat` scope) and
   `normalization_settings` (the brick's `NormalizationSettings.to_dict()`) in
   `run_config.json`.
+- **Channel sets (roadmap G1):** images with different channel sets are patched and
+  normalized in one run, matched by channel ID (never by position, never padded or
+  dropped); parameters are pooled and applied per ID; each patch keeps its image's
+  own C order. A channel only some planes of a fitted group have is `A_SCOPE_INCOMPLETE`
+  unless `normalization.partial_channels="planes_with_channel"` (recorded).
 - **Reuse:** histograms, pooling, fitting (`fit`, `Parameters.apply`,
   `to_columns`/`from_columns`) and settings are imported
   from `morphobricks_normalization` (`normalization.clip` stays in

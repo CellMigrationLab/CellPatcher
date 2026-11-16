@@ -92,6 +92,21 @@ Pin preprocessing v0.4.0rc4; prepare v0.2.0rc2
   v0.6.2's (`tests/test_v062_output_parity.py`, 907 files); so do the patches of `v08`'s `binary`
   `TumorRegion` with the policy (8-connected was v0.6.2's default).
 
+### Added: images of different channel sets in one normalized run (roadmap G1)
+- A normalized run patches images with different numbers or orders of channels (Spec fixtures `v05`,
+  `v06`, `v17`); the refusal "The images of this run have different numbers of channels" (Spec Stage 3,
+  gate G3) is gone. Channels are matched by ID, never by position, and never padded or dropped;
+  parameters are pooled and applied per channel ID; patch columns and `normalization_channels` keep each
+  image's own C order.
+- `NormalizationConfig.partial_channels`: `"refuse"` (default) keeps a channel only some planes of a fitted
+  group have refused (`A_SCOPE_INCOMPLETE`, before any read in a file run); `"planes_with_channel"` is the
+  normalization brick's explicit opt-in (the channel pooled over the planes that have it), recorded in
+  `run_config.json` (`normalization.partial_channels` and `normalization_settings`).
+- `tests/test_mixed_channel_counts.py`: on `v05`, `v06` and `v17` built as described runs with one
+  intensity range per channel ID (a swap detector), every normalized patch value of a channel equals a fit
+  over only the planes that have it, applied to that channel's own plane; the homogeneous runs `v07`,
+  `v08`, `v13` keep v0.6.2's outputs (`tests/test_v062_output_parity.py`).
+
 ### Breaking (no backward compatibility, ADR 0002 AR10)
 - **Removed:** `cellpatcher.label_objects`, `BINARY_MASK_POLICIES`, `CONNECTIVITIES`,
   `BINARY_MASK_CONNECTIVITY` (BM6; the one labeller is preprocessing's `masks.binary.label_binary`);

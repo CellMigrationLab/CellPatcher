@@ -37,6 +37,7 @@ NORMALIZATION_SCOPES = ("biological_repeat", "image", "patch")
 # Removed without a deprecation period (normalization brick decision N29).
 REMOVED_NORMALIZATION_SCOPES = ("condition", "technical_repeat")
 POOLING_WEIGHTS = ("pixels", "conditions")
+PARTIAL_CHANNELS = ("refuse", "planes_with_channel")  # morphobricks_normalization.settings.PARTIAL_CHANNELS
 IMAGE_TYPES = ("fluorescence", "rgb")
 # StarDist's percentile normalization is the one RGB method (normalization brick decision N33).
 RGB_METHODS = ("percentile",)
@@ -238,6 +239,7 @@ def _check_normalization_choices(normalization: object) -> None:
     if not isinstance(normalization.scope, str) or normalization.scope not in NORMALIZATION_SCOPES:
         raise ValueError(f"normalization.scope: {unknown_scope_message(normalization.scope)}")
     check_choice(normalization.pooling, POOLING_WEIGHTS, "normalization.pooling")
+    check_choice(normalization.partial_channels, PARTIAL_CHANNELS, "normalization.partial_channels")
     if not isinstance(normalization.image_type, str) or normalization.image_type not in IMAGE_TYPES:
         raise ValueError(
             "normalization.image_type must be 'fluorescence' (each channel normalized separately) or 'rgb' "

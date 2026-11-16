@@ -315,6 +315,15 @@ class NormalizationConfig:
         With a preprocessing manifest that records the image type, this must
         be the same type. ``"rgb"`` keeps the three channels in one patch, so
         ``extraction.split_channels`` must be False.
+    partial_channels
+        At a CSV scope, a channel only some planes of a fitted group have
+        (images of different channel sets in one group, roadmap G1):
+        ``"refuse"`` (default) refuses the group (``A_SCOPE_INCOMPLETE``);
+        ``"planes_with_channel"`` is the normalization brick's explicit
+        opt-in: the channel is pooled over the planes that have it, and the
+        choice is recorded in ``run_config.json`` (``normalization_settings``).
+        Channels are matched by ID, never by position, and never padded or
+        dropped.
     """
 
     enabled: bool = False
@@ -333,6 +342,7 @@ class NormalizationConfig:
     # Appended after the earlier fields so run_config.json keeps their order.
     pooling: str = "pixels"
     image_type: str = "fluorescence"
+    partial_channels: str = "refuse"
 
     def __post_init__(self) -> None:
         check_normalization_settings(self)

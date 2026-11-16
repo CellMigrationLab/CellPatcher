@@ -628,14 +628,6 @@ def test_clipping_after_the_brick_equals_clipping_before_rounding():
         np.testing.assert_array_equal(new, old)
 
 
-def test_images_with_different_channel_counts_are_refused():
-    two, three = np.ones((2, 16, 16), np.uint8), np.ones((3, 16, 16), np.uint8)
-    two[:, 0, 0] = three[:, 0, 0] = 9
-    config = _config(None, image_axes="CYX", scope="patch")
-    with pytest.raises(ValueError, match="different numbers of channels"):
-        run_patching(images=[two, three], config=config, image_metadata=named([two, three]))
-
-
 def test_run_config_records_the_brick_settings_and_the_description(experiment, tmp_path):
     # The biological_repeat scope's repeat groups are the description's: run_config.json records its
     # SHA-256, never an experiment_design.csv (owner answer 3; before, experiment_design_file/_sha256).

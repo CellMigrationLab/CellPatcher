@@ -207,6 +207,7 @@ BAD_VALUES = {
     "normalization.export_values": CHOICE + [None],
     "normalization.memory_limit": INTEGER + [0, None],
     "normalization.pooling": CHOICE + [None],
+    "normalization.partial_channels": CHOICE + [None, "pad"],
     "normalization.image_type": CHOICE + [None],
 }
 CASES = [(name, value) for name, values in BAD_VALUES.items() for value in values]

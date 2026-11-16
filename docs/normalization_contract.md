@@ -217,7 +217,13 @@ parameters, always per channel.
   patched (for example Z slices without cells).
 - A group with no finite pixels, or whose parameters have zero or non-finite scale, is an
   error (normalization contract §1.2.4), and so is a channel only some planes of the group
-  have (`A_SCOPE_INCOMPLETE`; never fitted over part of the group). A folder or tree run checks
+  have (`A_SCOPE_INCOMPLETE`; never fitted over part of the group), unless the user opts in with
+  `normalization.partial_channels="planes_with_channel"` (the normalization brick's choice: the channel
+  is pooled over the group's planes that have it; recorded in `run_config.json`, `normalization` and
+  `normalization_settings`). Images of different channel sets in one run (roadmap G1; Spec `v05`,
+  `v06`, `v17`) are normalized channel by channel ID: parameters are pooled and applied per ID, each
+  patch keeps its image's own C order (`normalization_channels`), and no channel is padded or dropped.
+  A folder or tree run checks
   every group of the planes it patches for a partial channel when the run is opened, from the
   table alone, and refuses it before any image is read or file written (issue #107). Nothing is
   fitted then: no finite pixels and zero spread are refused by the patching, only for a group a
