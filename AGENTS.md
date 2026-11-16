@@ -44,7 +44,7 @@ These rules override other implementation preferences.
   `mask_file`, `y0/y1/x0/x1`, `z0/z1`, `t`, `c`, `label_id`,
   `center_y`/`center_x`/`center_z`, `touches_border`, `area_px`,
   `patch_file`, `output_height`/`output_width`, `config_file`, `valid`,
-  `reason`, `source_relative_path`, `object_set`, `channel_id`). These are exactly the columns written to the exported metadata
+  `reason`, `source_relative_path`, `object_set`, `channel_id`, `channel_ids`). These are exactly the columns written to the exported metadata
   CSV (`save_metadata_csv` in `src/cellpatcher/export.py`, plus the
   computed `height`/`width` convenience columns from `PatchRegion.to_dict()`),
   and downstream repos may already depend on them. New fields may be
@@ -489,7 +489,11 @@ bricks (core dependencies, pinned tags in `setup.py`), CellPatcher:
   November 2026): in a file run those of the run's description, checked by
   `RunInputs.resolve_request` (CP-3), in memory `image_metadata["channel_ids"]`;
   each ID is the C index it has in each image (each split patch's `channel_id`
-  names its channel, `patch_id` keeps `c`) (follow-up C5).
+  names its channel, `patch_id` keeps `c`) (follow-up C5);
+- records on every patch of a described run the ID of each channel plane it holds,
+  in its own C order (`channel_ids`, `;`-separated in `patches.csv`; issue #125), whatever
+  the normalization and splitting settings: a reader matches planes to channels by it,
+  never by position.
 
 The notebook offers all of these, with the image type taken from the
 run's description by `statistics.recorded_image_type` (follow-up C4; `Fov.image_type` since CP-4). In summary:

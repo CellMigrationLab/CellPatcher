@@ -82,6 +82,13 @@ class PatchRegion:
     - ``normalization_channels``: the patch's channel IDs in its own C order
       (``None`` without normalization), written as the ``;``-separated column
       ``normalization_channels`` beside the parameter columns.
+    - ``channel_ids``: the canonical ID of every channel plane the patch holds,
+      in its own C order (issue #125): a described run's ``Fov.channel_ids``
+      for a patch of every channel, ``(channel_id,)`` for a patch of one
+      channel; in memory, from ``image_metadata["channel_ids"]``. Filled
+      whatever the normalization and splitting settings; ``None`` without IDs,
+      or for a plane without ``c`` given the IDs of several channels. Written
+      as the ``;``-separated column ``channel_ids``.
     - ``image_height``, ``image_width``: the Y/X size of the source image
       (plane) the rectangle ``y0/y1/x0/x1`` lies in; set by ``run_patching``
       for every patch, whether or not arrays are extracted.
@@ -178,6 +185,12 @@ class PatchRegion:
     # one channel has one ID whatever its C index in each image; None without c. Appended after every
     # earlier field so existing CSV columns keep their order; patch_id keeps c.
     channel_id: str | None = None
+    # The canonical ID of every channel plane the patch holds, in its C order (issue #125): a described
+    # run's Fov.channel_ids (the order the resolver's selections index), or (channel_id,) for a patch of
+    # one channel; in memory image_metadata["channel_ids"]. Filled whatever the normalization and
+    # splitting settings; None only without IDs. Written as the ";"-separated channel_ids column, after
+    # channel_id, so existing CSV columns keep their order.
+    channel_ids: tuple[str, ...] | None = None
     # Mask name -> share of y0/y1/x0/x1 in that mask's foreground, for the
     # fraction masks given to run_patching; cell patches also carry
     # "own_object" (the share inside the object's own label). Not a column
@@ -228,12 +241,17 @@ class PatchRegion:
         data = {f.name: getattr(self, f.name) for f in fields(self) if f.name not in _NOT_COLUMNS}
         data["height"] = self.height
         data["width"] = self.width
+        if self.channel_ids is not None:
+            data["channel_ids"] = CHANNEL_SEPARATOR.join(self.channel_ids)
         if self.normalization_parameters is not None:
             data.update(normalization_channel_columns(self.normalization_parameters, self.normalization_channels))
         for name, fraction in (self.mask_fractions or {}).items():
             data[f"{MASK_FRACTION_PREFIX}{name}"] = fraction
         return data
 
+
+CHANNEL_SEPARATOR = ";"
+"""The separator of the channel IDs of one ``patches.csv`` cell (``channel_ids``, ``normalization_channels``)."""
 
 # PatchRegion fields written as several columns of their own, not as one.
 _NOT_COLUMNS = ("normalization_parameters", "normalization_channels", "mask_fractions")

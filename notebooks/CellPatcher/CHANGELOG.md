@@ -74,6 +74,41 @@ Release v0.3.0
 Pin preprocessing v0.4.0rc4; prepare v0.2.0rc2
 
 ---
+## [Unreleased] - Channel IDs on every patch (#125)
+
+For v0.7.2. Found by the S3.4 adversarial suite (MorphoFeature draft PR #240, gate G3).
+
+### Fixed
+- **#125: every patch of a described run records its channel IDs, in its C order.** Without normalization and
+  without channel splitting, v0.7.1 recorded no channel ID at all (`c`, `channel_id` and `normalization_channels`
+  empty, on the patch and in `patches.csv`), so the patches of two units storing DNA, ACTIN and ACTIN, DNA could
+  only be told apart by assuming the channel order. The new field `PatchRegion.channel_ids` (column `channel_ids`,
+  `;`-separated, after `channel_id`) holds the ID of every channel plane the patch holds, in its C order, from the
+  run's description (`Fov.channel_ids`, the order the resolver's selections index): every ID of the image for a
+  patch of every channel, `(channel_id,)` for a split-channel patch, the one ID of an image without a C axis. It is
+  filled whatever the normalization and splitting settings, and equals `normalization_channels` when normalizing.
+  In memory it comes from `image_metadata["channel_ids"]` by the same rules, and stays `None` for an image without
+  them (as documented, nothing is taken by position), and for a plane without C axis and without
+  `image_metadata["c"]` given the IDs of several channels. No existing field was used: `channel_id` names the one
+  channel of a patch with `c`, and `normalization_channels` is documented as empty without normalization and is
+  written only with the parameter columns. `tests/test_patch_channel_ids.py` (Spec v04 with the G4 suite's pixels:
+  a plane depends on the image and the channel ID, never the C index, so the IDs are checked against the pixels).
+  In memory, an image with several channels along C given `image_metadata["channel_ids"]` and `image_metadata["c"]`
+  (without splitting) is refused: its patches hold every channel, so `c` would have labelled them with one ID
+  (review of #127).
+
+### Changed
+- **Outputs:** `patches.csv` has one new last field column, `channel_ids` (before the dynamic `mask_fraction_*`
+  columns); every other column, value, patch file, `images.csv` and `positions.csv` is unchanged. The parity golden
+  `tests/fixtures/v062_parity/digests.json` changes in its 57 `patches.csv` digests only, one per table of every
+  case: each new table with its `channel_ids` column removed has the v0.6.2 digest again (`DNA;ACTIN` in every row,
+  the C order of Spec fixtures v07, v08 and v13; the grid tables there have no rows, so only their header changed).
+  `tests/test_patch_geometry.py` expects the column after `channel_id`.
+- **Reading:** `read_patch_table` (and `ExportedPatchTorchDataset`, which checks the same columns) refuses a table
+  without the `channel_ids` column, like any table missing a column CellPatcher writes (nothing is defaulted): a
+  table written by v0.7.1 or earlier must be written again by running CellPatcher again. A `channel_ids` cell is
+  read as a tuple and checked with the normalization brick's `check_channel_ids`.
+
 ## [0.7.1] - 2026-11-16 - Fixes from the external audit of v0.7.0 (CP1, CP2, CP3, F3, F4); preprocessing v0.6.1
 
 The v0.7.1 patch release (16 November 2026), from #121 and its review #123: fixes for the defects an external audit

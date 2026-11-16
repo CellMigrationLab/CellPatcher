@@ -330,12 +330,17 @@ def stamp_channel_ids(
     images: Sequence | None = None,
     image_axes: str | None = None,
 ) -> None:
-    """Set each patch's ``channel_id``: the canonical ID of its channel ``c`` (CP-3).
+    """Set each patch's ``channel_id`` (CP-3) and ``channel_ids`` (issue #125) from its image's channel IDs.
 
     ``image_metadata[i]["channel_ids"]`` is the ID of every C index of image *i*, in C order; a
     file run gives each image's own (``Fov.channel_ids`` through ``RunInputs``, so one ID may be
-    a different C index in another image). A patch without ``c`` (every channel in one patch,
-    or an image without a C axis) gets none. ``patch_id`` is not changed: it keeps ``c``.
+    a different C index in another image). ``channel_id`` is the ID of the patch's ``c``; a patch
+    without ``c`` (every channel in one patch, or an image without a C axis) gets none.
+    ``channel_ids`` is the ID of every channel plane the patch holds, in its C order, whatever the
+    normalization and splitting settings: ``(channel_id,)`` with ``c``, every ID of an image with a
+    C axis, and the one ID of an image without one. A plane without C axis or ``c`` given the IDs of
+    several channels gets none: which of them it is is not known, and nothing is taken by position.
+    An image without IDs gives no patch either. ``patch_id`` is not changed: it keeps ``c``.
 
     Every image's IDs are checked first, whether or not it gave patches or its channels are split:
     distinct canonical IDs (the normalization brick's ``check_channel_ids``) and, when *images* and
@@ -345,13 +350,16 @@ def stamp_channel_ids(
     ------
     ValueError
         If ``channel_ids`` are not distinct canonical IDs, are not one per C index of an image with a
-        C axis, or hold no ID for a patch's ``c``.
+        C axis, or hold no ID for a patch's ``c``; or if an image given them has several channels along
+        C and ``image_metadata["c"]`` too (its patches hold every channel, not the one ``c`` names).
     """
     from morphobricks_normalization.channels import check_channel_ids
 
     per_image = {}
+    has_c_axis = {}
     for index, meta in enumerate(image_metadata or ()):
         ids = (meta or {}).get("channel_ids")
+        count = None
         if ids is not None:
             where = f'image {index}: image_metadata["channel_ids"]'
             ids = check_channel_ids(ids, where)  # e.g. ("DNA", "DNA") refused
@@ -361,11 +369,23 @@ def stamp_channel_ids(
                     f"{where} names {len(ids)} channel(s) ({', '.join(ids)}) for an image with {count} channel(s) "
                     "along C: give exactly one ID per C index, in C order."
                 )
+            if count is not None and count > 1 and plane_index(meta, "c") is not None:
+                # Its patches hold every channel plane: c would name one of them as the patch's channel.
+                raise ValueError(
+                    f'image {index}: image_metadata["c"]={meta["c"]!r} names one channel plane, but the image holds '
+                    f"{count} channels along C ({', '.join(ids)}): give c only for an image that is one channel "
+                    "plane (no C axis), or split its channels with extraction.split_channels."
+                )
         per_image[f"image_{index:04d}"] = ids
+        has_c_axis[f"image_{index:04d}"] = count is not None
     for patch in patches:
         ids = per_image.get(patch.image_id)
-        if ids is None or patch.c is None:
+        if ids is None:
             continue
-        if patch.c >= len(ids):
-            raise ValueError(f'image_metadata["channel_ids"] names {len(ids)} channels, none for c={patch.c}.')
-        patch.channel_id = ids[patch.c]
+        if patch.c is not None:
+            if patch.c >= len(ids):
+                raise ValueError(f'image_metadata["channel_ids"] names {len(ids)} channels, none for c={patch.c}.')
+            patch.channel_id = ids[patch.c]
+            patch.channel_ids = (patch.channel_id,)
+        elif has_c_axis[patch.image_id] or len(ids) == 1:
+            patch.channel_ids = tuple(ids)

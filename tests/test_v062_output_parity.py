@@ -9,6 +9,11 @@ this module::
 
     python tests/test_v062_output_parity.py <spec fixtures/valid> <work folder> > digests.json
 
+Issue #125 (v0.7.2) added the ``channel_ids`` column to ``patches.csv``: the 57 ``patches.csv``
+digests were regenerated with this module, and nothing else changed. Each new table, with its
+``channel_ids`` column removed, has the v0.6.2 digest (``DNA;ACTIN`` in every row, the C order the
+fixtures declare; the grid cases' tables have no rows, so only their header gained the column).
+
 The fixtures' images and masks are made by preprocessing's ``make_described_run``. The cases are
 file runs in every mode: cell mode on each ``instances`` mask (plain, ``apply_mask``, patch-scope
 normalization over the mask), random mode inside each mask, grid (with and without image-scope

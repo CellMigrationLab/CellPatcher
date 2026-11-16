@@ -9,6 +9,7 @@ import numpy as np
 from cellpatcher.positions import POSITION_TABLE_FILENAME, save_position_table_csv
 from cellpatcher.types import (
     _NOT_COLUMNS,
+    CHANNEL_SEPARATOR,
     IMAGE_TABLE_COLUMNS,
     MASK_FRACTION_PREFIX,
     NORMALIZATION_CHANNELS_COLUMN,
@@ -234,7 +235,7 @@ _BOOLEAN_TEXT = {"true": True, "false": False}
 
 
 def _field_kinds() -> dict[str, tuple[type, bool]]:
-    """PatchRegion column -> (int, float, bool or str; whether it may be None)."""
+    """PatchRegion column -> (int, float, bool, str or tuple, the channel IDs; whether it may be None)."""
     import typing
 
     hints = typing.get_type_hints(PatchRegion)
@@ -245,7 +246,7 @@ def _field_kinds() -> dict[str, tuple[type, bool]]:
         arguments = typing.get_args(hints[item.name])
         optional = type(None) in arguments
         base = next((kind for kind in (arguments or (hints[item.name],)) if kind is not type(None)), str)
-        kinds[item.name] = (base, optional)
+        kinds[item.name] = (tuple if typing.get_origin(base) is tuple else base, optional)
     return kinds
 
 
@@ -257,6 +258,10 @@ def _typed(text: str, kind: type, optional: bool, column: str):
         raise ValueError(f"{column} is empty")
     if kind is str:
         return text
+    if kind is tuple:  # channel_ids: canonical channel IDs in C order, ";"-separated (issue #125)
+        from morphobricks_normalization.channels import check_channel_ids
+
+        return check_channel_ids(text.split(CHANNEL_SEPARATOR), column)
     if kind is bool:
         value = _BOOLEAN_TEXT.get(text.lower())
         if value is None:

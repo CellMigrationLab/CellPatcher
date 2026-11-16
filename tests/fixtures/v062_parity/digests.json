@@ -9,7 +9,7 @@
   "CTRL/rep1/CTRL_rep1_single_img3_cells_label1.tif": "28381d5b72b7eec3ad0b992dfcd41cd910193d106d1db4459800fbcfe6d529c2",
   "CTRL/rep1/CTRL_rep1_single_img3_cells_label2.tif": "c4f41eefb5b5fbeb09b71bf4e1ffaace6747e94fbba251eb336cad7a6b474555",
   "CTRL/rep1/images.csv": "23e4e4c43f82fa5fca139455b15a12251bfcd6ae9fd356a0bce31c972400b7ad",
-  "CTRL/rep1/patches.csv": "1d31fe5a6c11b738f965b90f054d940776afcceeb6eb798d5bfe69b3c6924d38",
+  "CTRL/rep1/patches.csv": "7af3fa953ce11c6a205f65608af3c8fb1916e38f1b01be53b3fa451df5bb433a",
   "CTRL/rep1/positions.csv": "0353ca93199cd0cf4454e0a115988e5ed3d08b20b8938e669534bbee987e9ff5"
  },
  "v07/cell_Cells_applymask": {
@@ -22,7 +22,7 @@
   "CTRL/rep1/CTRL_rep1_single_img3_cells_label1.tif": "28381d5b72b7eec3ad0b992dfcd41cd910193d106d1db4459800fbcfe6d529c2",
   "CTRL/rep1/CTRL_rep1_single_img3_cells_label2.tif": "c4f41eefb5b5fbeb09b71bf4e1ffaace6747e94fbba251eb336cad7a6b474555",
   "CTRL/rep1/images.csv": "23e4e4c43f82fa5fca139455b15a12251bfcd6ae9fd356a0bce31c972400b7ad",
-  "CTRL/rep1/patches.csv": "1d31fe5a6c11b738f965b90f054d940776afcceeb6eb798d5bfe69b3c6924d38",
+  "CTRL/rep1/patches.csv": "7af3fa953ce11c6a205f65608af3c8fb1916e38f1b01be53b3fa451df5bb433a",
   "CTRL/rep1/positions.csv": "0353ca93199cd0cf4454e0a115988e5ed3d08b20b8938e669534bbee987e9ff5"
  },
  "v07/cell_Cells_norm_patch_mask": {
@@ -35,7 +35,7 @@
   "CTRL/rep1/CTRL_rep1_single_img3_cells_label1.tif": "a7fbe4d3d44ef057037529de1c49f6064637b6a1f732c6ceeaebb07b0e69e646",
   "CTRL/rep1/CTRL_rep1_single_img3_cells_label2.tif": "a42f457294fb23474b52e40973196abe6e3741fcbafd88c636048d4ec91a2513",
   "CTRL/rep1/images.csv": "23e4e4c43f82fa5fca139455b15a12251bfcd6ae9fd356a0bce31c972400b7ad",
-  "CTRL/rep1/patches.csv": "de1038a71c0b6d8b2df9cf1e9de8da9ce536bbcb16f85e0631b93e33c2308721",
+  "CTRL/rep1/patches.csv": "5c006e711cf322f1c50249054caaa35953d09cf9e726f5ea373dceedf069c12f",
   "CTRL/rep1/positions.csv": "0353ca93199cd0cf4454e0a115988e5ed3d08b20b8938e669534bbee987e9ff5"
  },
  "v07/cell_Nuclei": {
@@ -48,7 +48,7 @@
   "CTRL/rep1/CTRL_rep1_single_img3_nuclei_label1.tif": "28381d5b72b7eec3ad0b992dfcd41cd910193d106d1db4459800fbcfe6d529c2",
   "CTRL/rep1/CTRL_rep1_single_img3_nuclei_label2.tif": "c4f41eefb5b5fbeb09b71bf4e1ffaace6747e94fbba251eb336cad7a6b474555",
   "CTRL/rep1/images.csv": "23e4e4c43f82fa5fca139455b15a12251bfcd6ae9fd356a0bce31c972400b7ad",
-  "CTRL/rep1/patches.csv": "49d866f20be4fa0faf4ce9cc7988fc948bcad431f0550d033c22f8383d63eba7",
+  "CTRL/rep1/patches.csv": "03377d0451a292d1ed77f5ada9d7598e1b9239d25a492bdb5d3a2f45d226181b",
   "CTRL/rep1/positions.csv": "0353ca93199cd0cf4454e0a115988e5ed3d08b20b8938e669534bbee987e9ff5"
  },
  "v07/cell_Nuclei_applymask": {
@@ -61,7 +61,7 @@
   "CTRL/rep1/CTRL_rep1_single_img3_nuclei_label1.tif": "28381d5b72b7eec3ad0b992dfcd41cd910193d106d1db4459800fbcfe6d529c2",
   "CTRL/rep1/CTRL_rep1_single_img3_nuclei_label2.tif": "c4f41eefb5b5fbeb09b71bf4e1ffaace6747e94fbba251eb336cad7a6b474555",
   "CTRL/rep1/images.csv": "23e4e4c43f82fa5fca139455b15a12251bfcd6ae9fd356a0bce31c972400b7ad",
-  "CTRL/rep1/patches.csv": "49d866f20be4fa0faf4ce9cc7988fc948bcad431f0550d033c22f8383d63eba7",
+  "CTRL/rep1/patches.csv": "03377d0451a292d1ed77f5ada9d7598e1b9239d25a492bdb5d3a2f45d226181b",
   "CTRL/rep1/positions.csv": "0353ca93199cd0cf4454e0a115988e5ed3d08b20b8938e669534bbee987e9ff5"
  },
  "v07/cell_Nuclei_norm_patch_mask": {
@@ -74,17 +74,17 @@
   "CTRL/rep1/CTRL_rep1_single_img3_nuclei_label1.tif": "a7fbe4d3d44ef057037529de1c49f6064637b6a1f732c6ceeaebb07b0e69e646",
   "CTRL/rep1/CTRL_rep1_single_img3_nuclei_label2.tif": "a42f457294fb23474b52e40973196abe6e3741fcbafd88c636048d4ec91a2513",
   "CTRL/rep1/images.csv": "23e4e4c43f82fa5fca139455b15a12251bfcd6ae9fd356a0bce31c972400b7ad",
-  "CTRL/rep1/patches.csv": "e508710ba56cde4f1b2e546aeb55b65dbe12b8487dbb85d06e4ae61eec8e55ea",
+  "CTRL/rep1/patches.csv": "54c92cc9cae61818149282ff0028692467268a60d2d29dbd9ffca9577d57cceb",
   "CTRL/rep1/positions.csv": "0353ca93199cd0cf4454e0a115988e5ed3d08b20b8938e669534bbee987e9ff5"
  },
  "v07/grid": {
   "CTRL/rep1/images.csv": "566d1969aa185744af13d7ef27007b5f3203082d9df38c24967eb9acd42b3b4b",
-  "CTRL/rep1/patches.csv": "7e1c5716d51278e9f63f3e1c16d48c1edd049968196db3870fe1db85b14cc5d4",
+  "CTRL/rep1/patches.csv": "437777c7eddff4f909e0b0c42ab8aa7285ddee095ab5a550013c255880bb3579",
   "CTRL/rep1/positions.csv": "0ffff9913a0749b5a0bd9877d2338f260c817207deb9659f086260d3b9d94801"
  },
  "v07/grid_norm_image": {
   "CTRL/rep1/images.csv": "566d1969aa185744af13d7ef27007b5f3203082d9df38c24967eb9acd42b3b4b",
-  "CTRL/rep1/patches.csv": "7e1c5716d51278e9f63f3e1c16d48c1edd049968196db3870fe1db85b14cc5d4",
+  "CTRL/rep1/patches.csv": "437777c7eddff4f909e0b0c42ab8aa7285ddee095ab5a550013c255880bb3579",
   "CTRL/rep1/positions.csv": "0ffff9913a0749b5a0bd9877d2338f260c817207deb9659f086260d3b9d94801"
  },
  "v07/random": {
@@ -109,7 +109,7 @@
   "CTRL/rep1/CTRL_rep1_single_img3_random-y0-x0-h8-w8-n5.tif": "6c8e7b6e732899b47b7319edc132ae11fa1228ca0dcf7561e1d26777d5386810",
   "CTRL/rep1/CTRL_rep1_single_img3_random-y0-x0-h8-w8.tif": "6c8e7b6e732899b47b7319edc132ae11fa1228ca0dcf7561e1d26777d5386810",
   "CTRL/rep1/images.csv": "89f779b4cae657c5e2c37ee766d07dcb5cfca840464658f58e7494533e996ce6",
-  "CTRL/rep1/patches.csv": "c270707e62ba4f3fef3f33b5e9f1ddcc01898c3272ed0d3664b8624d0d6353cf",
+  "CTRL/rep1/patches.csv": "2a779fe1cd944f2e4bc92ecc510c32b1c41e2455345cd76166e923f6c5df08bb",
   "CTRL/rep1/positions.csv": "6fa65b32a04161efa3abd06b3e1d064a5aaf65ac06f87f751a132adc07f678ad"
  },
  "v07/random_in_cells": {
@@ -134,7 +134,7 @@
   "CTRL/rep1/CTRL_rep1_single_img3_random-y0-x0-h8-w8-n5.tif": "6c8e7b6e732899b47b7319edc132ae11fa1228ca0dcf7561e1d26777d5386810",
   "CTRL/rep1/CTRL_rep1_single_img3_random-y0-x0-h8-w8.tif": "6c8e7b6e732899b47b7319edc132ae11fa1228ca0dcf7561e1d26777d5386810",
   "CTRL/rep1/images.csv": "086919727e55bc0bb0dcd4b000ca0b7ca57fd7c4a451a6dbf1ce73541be26bca",
-  "CTRL/rep1/patches.csv": "01e18a28b2386a02fde3abbcb398003fb105580d1ef053c8f99fdafa3e968c07",
+  "CTRL/rep1/patches.csv": "1bda174c9c85b037f91e810b1e63e1df8292bbe4241a41331bcb02eb20e0743b",
   "CTRL/rep1/positions.csv": "6412e5d371400efefc3d8e070f9e2905b576248a66937087d951852317908a9a"
  },
  "v07/random_in_nuclei": {
@@ -159,7 +159,7 @@
   "CTRL/rep1/CTRL_rep1_single_img3_random-y0-x0-h8-w8-n5.tif": "6c8e7b6e732899b47b7319edc132ae11fa1228ca0dcf7561e1d26777d5386810",
   "CTRL/rep1/CTRL_rep1_single_img3_random-y0-x0-h8-w8.tif": "6c8e7b6e732899b47b7319edc132ae11fa1228ca0dcf7561e1d26777d5386810",
   "CTRL/rep1/images.csv": "086919727e55bc0bb0dcd4b000ca0b7ca57fd7c4a451a6dbf1ce73541be26bca",
-  "CTRL/rep1/patches.csv": "01e18a28b2386a02fde3abbcb398003fb105580d1ef053c8f99fdafa3e968c07",
+  "CTRL/rep1/patches.csv": "1bda174c9c85b037f91e810b1e63e1df8292bbe4241a41331bcb02eb20e0743b",
   "CTRL/rep1/positions.csv": "6412e5d371400efefc3d8e070f9e2905b576248a66937087d951852317908a9a"
  },
  "v07/whole_fov": {
@@ -168,7 +168,7 @@
   "CTRL/rep1/CTRL_rep1_single_img2_whole_fov.tif": "88759433ab98aab7f362da9068bc490b06b44fc368d9293708f355d270aef809",
   "CTRL/rep1/CTRL_rep1_single_img3_whole_fov.tif": "6c8e7b6e732899b47b7319edc132ae11fa1228ca0dcf7561e1d26777d5386810",
   "CTRL/rep1/images.csv": "2461decc45df92eef01eaee8e6020d196fa887238a769dffd5587e3de2882661",
-  "CTRL/rep1/patches.csv": "42fa1f3378267851dca0001ab960f413765ea232013f0bd5771252f48db84d30",
+  "CTRL/rep1/patches.csv": "0a6b930bd218a03a92904268058956fb0a9ceaa4a0daf285c65ddb3686080b73",
   "CTRL/rep1/positions.csv": "82ad7e41975c711125c2146f9f9e50dd547919ef5551076c464ec6b84b9ce949"
  },
  "v08/BINARY_cell_TumorRegion_policy": {
@@ -177,7 +177,7 @@
   "CTRL/rep1/CTRL_rep1_single_img2_tumor_region_label1.tif": "73dfa851c5dfd9ef76c3b22ea2d3b6f037d9b4801a97e1157837ba019f5a76e4",
   "CTRL/rep1/CTRL_rep1_single_img3_tumor_region_label1.tif": "28381d5b72b7eec3ad0b992dfcd41cd910193d106d1db4459800fbcfe6d529c2",
   "CTRL/rep1/images.csv": "d01fb3858a16b8e13e25d674c33fe15d4dbb731377f82755b84720d6f480a6b8",
-  "CTRL/rep1/patches.csv": "f351236f857754d856576e79aaabf4e0a5403f51b1a0498f8961b52ddfc27cd3",
+  "CTRL/rep1/patches.csv": "2328e0ecccc853be301741390d6d9596476256b5e16bdee9058bc7a9ab9f90a9",
   "CTRL/rep1/positions.csv": "128e1b4e58cf31167923a17d0bf9a111b12daf1ca6fb628f7c3bb90d29cd2684"
  },
  "v08/cell_Nuclei": {
@@ -190,7 +190,7 @@
   "CTRL/rep1/CTRL_rep1_single_img3_nuclei_label1.tif": "28381d5b72b7eec3ad0b992dfcd41cd910193d106d1db4459800fbcfe6d529c2",
   "CTRL/rep1/CTRL_rep1_single_img3_nuclei_label2.tif": "c4f41eefb5b5fbeb09b71bf4e1ffaace6747e94fbba251eb336cad7a6b474555",
   "CTRL/rep1/images.csv": "23e4e4c43f82fa5fca139455b15a12251bfcd6ae9fd356a0bce31c972400b7ad",
-  "CTRL/rep1/patches.csv": "49d866f20be4fa0faf4ce9cc7988fc948bcad431f0550d033c22f8383d63eba7",
+  "CTRL/rep1/patches.csv": "03377d0451a292d1ed77f5ada9d7598e1b9239d25a492bdb5d3a2f45d226181b",
   "CTRL/rep1/positions.csv": "0353ca93199cd0cf4454e0a115988e5ed3d08b20b8938e669534bbee987e9ff5"
  },
  "v08/cell_Nuclei_applymask": {
@@ -203,17 +203,17 @@
   "CTRL/rep1/CTRL_rep1_single_img3_nuclei_label1.tif": "28381d5b72b7eec3ad0b992dfcd41cd910193d106d1db4459800fbcfe6d529c2",
   "CTRL/rep1/CTRL_rep1_single_img3_nuclei_label2.tif": "c4f41eefb5b5fbeb09b71bf4e1ffaace6747e94fbba251eb336cad7a6b474555",
   "CTRL/rep1/images.csv": "23e4e4c43f82fa5fca139455b15a12251bfcd6ae9fd356a0bce31c972400b7ad",
-  "CTRL/rep1/patches.csv": "49d866f20be4fa0faf4ce9cc7988fc948bcad431f0550d033c22f8383d63eba7",
+  "CTRL/rep1/patches.csv": "03377d0451a292d1ed77f5ada9d7598e1b9239d25a492bdb5d3a2f45d226181b",
   "CTRL/rep1/positions.csv": "0353ca93199cd0cf4454e0a115988e5ed3d08b20b8938e669534bbee987e9ff5"
  },
  "v08/grid": {
   "CTRL/rep1/images.csv": "566d1969aa185744af13d7ef27007b5f3203082d9df38c24967eb9acd42b3b4b",
-  "CTRL/rep1/patches.csv": "7e1c5716d51278e9f63f3e1c16d48c1edd049968196db3870fe1db85b14cc5d4",
+  "CTRL/rep1/patches.csv": "437777c7eddff4f909e0b0c42ab8aa7285ddee095ab5a550013c255880bb3579",
   "CTRL/rep1/positions.csv": "0ffff9913a0749b5a0bd9877d2338f260c817207deb9659f086260d3b9d94801"
  },
  "v08/grid_norm_image": {
   "CTRL/rep1/images.csv": "566d1969aa185744af13d7ef27007b5f3203082d9df38c24967eb9acd42b3b4b",
-  "CTRL/rep1/patches.csv": "7e1c5716d51278e9f63f3e1c16d48c1edd049968196db3870fe1db85b14cc5d4",
+  "CTRL/rep1/patches.csv": "437777c7eddff4f909e0b0c42ab8aa7285ddee095ab5a550013c255880bb3579",
   "CTRL/rep1/positions.csv": "0ffff9913a0749b5a0bd9877d2338f260c817207deb9659f086260d3b9d94801"
  },
  "v08/random": {
@@ -238,7 +238,7 @@
   "CTRL/rep1/CTRL_rep1_single_img3_random-y0-x0-h8-w8-n5.tif": "6c8e7b6e732899b47b7319edc132ae11fa1228ca0dcf7561e1d26777d5386810",
   "CTRL/rep1/CTRL_rep1_single_img3_random-y0-x0-h8-w8.tif": "6c8e7b6e732899b47b7319edc132ae11fa1228ca0dcf7561e1d26777d5386810",
   "CTRL/rep1/images.csv": "89f779b4cae657c5e2c37ee766d07dcb5cfca840464658f58e7494533e996ce6",
-  "CTRL/rep1/patches.csv": "c270707e62ba4f3fef3f33b5e9f1ddcc01898c3272ed0d3664b8624d0d6353cf",
+  "CTRL/rep1/patches.csv": "2a779fe1cd944f2e4bc92ecc510c32b1c41e2455345cd76166e923f6c5df08bb",
   "CTRL/rep1/positions.csv": "6fa65b32a04161efa3abd06b3e1d064a5aaf65ac06f87f751a132adc07f678ad"
  },
  "v08/random_in_nuclei": {
@@ -263,7 +263,7 @@
   "CTRL/rep1/CTRL_rep1_single_img3_random-y0-x0-h8-w8-n5.tif": "6c8e7b6e732899b47b7319edc132ae11fa1228ca0dcf7561e1d26777d5386810",
   "CTRL/rep1/CTRL_rep1_single_img3_random-y0-x0-h8-w8.tif": "6c8e7b6e732899b47b7319edc132ae11fa1228ca0dcf7561e1d26777d5386810",
   "CTRL/rep1/images.csv": "086919727e55bc0bb0dcd4b000ca0b7ca57fd7c4a451a6dbf1ce73541be26bca",
-  "CTRL/rep1/patches.csv": "01e18a28b2386a02fde3abbcb398003fb105580d1ef053c8f99fdafa3e968c07",
+  "CTRL/rep1/patches.csv": "1bda174c9c85b037f91e810b1e63e1df8292bbe4241a41331bcb02eb20e0743b",
   "CTRL/rep1/positions.csv": "6412e5d371400efefc3d8e070f9e2905b576248a66937087d951852317908a9a"
  },
  "v08/random_in_tumor_region": {
@@ -288,7 +288,7 @@
   "CTRL/rep1/CTRL_rep1_single_img3_random-y0-x0-h8-w8-n5.tif": "6c8e7b6e732899b47b7319edc132ae11fa1228ca0dcf7561e1d26777d5386810",
   "CTRL/rep1/CTRL_rep1_single_img3_random-y0-x0-h8-w8.tif": "6c8e7b6e732899b47b7319edc132ae11fa1228ca0dcf7561e1d26777d5386810",
   "CTRL/rep1/images.csv": "086919727e55bc0bb0dcd4b000ca0b7ca57fd7c4a451a6dbf1ce73541be26bca",
-  "CTRL/rep1/patches.csv": "01e18a28b2386a02fde3abbcb398003fb105580d1ef053c8f99fdafa3e968c07",
+  "CTRL/rep1/patches.csv": "1bda174c9c85b037f91e810b1e63e1df8292bbe4241a41331bcb02eb20e0743b",
   "CTRL/rep1/positions.csv": "6412e5d371400efefc3d8e070f9e2905b576248a66937087d951852317908a9a"
  },
  "v08/whole_fov": {
@@ -297,65 +297,65 @@
   "CTRL/rep1/CTRL_rep1_single_img2_whole_fov.tif": "88759433ab98aab7f362da9068bc490b06b44fc368d9293708f355d270aef809",
   "CTRL/rep1/CTRL_rep1_single_img3_whole_fov.tif": "6c8e7b6e732899b47b7319edc132ae11fa1228ca0dcf7561e1d26777d5386810",
   "CTRL/rep1/images.csv": "2461decc45df92eef01eaee8e6020d196fa887238a769dffd5587e3de2882661",
-  "CTRL/rep1/patches.csv": "42fa1f3378267851dca0001ab960f413765ea232013f0bd5771252f48db84d30",
+  "CTRL/rep1/patches.csv": "0a6b930bd218a03a92904268058956fb0a9ceaa4a0daf285c65ddb3686080b73",
   "CTRL/rep1/positions.csv": "82ad7e41975c711125c2146f9f9e50dd547919ef5551076c464ec6b84b9ce949"
  },
  "v13/grid": {
   "CTRL/rep1/images.csv": "4f8795c3cc0f32939b5cb1af1232e143fd59929bbec25c641317489f03340ed5",
-  "CTRL/rep1/patches.csv": "7e1c5716d51278e9f63f3e1c16d48c1edd049968196db3870fe1db85b14cc5d4",
+  "CTRL/rep1/patches.csv": "437777c7eddff4f909e0b0c42ab8aa7285ddee095ab5a550013c255880bb3579",
   "CTRL/rep1/positions.csv": "cd63d222cb36ed978d88dc1ed9c6cf5297118ba9a75c2bd3a0852ff892223b53",
   "CTRL/rep2/images.csv": "7dbf07b189f10c5704deb0547867a972ab92f50bfeaeb25ca53d93aaf8f4503a",
-  "CTRL/rep2/patches.csv": "7e1c5716d51278e9f63f3e1c16d48c1edd049968196db3870fe1db85b14cc5d4",
+  "CTRL/rep2/patches.csv": "437777c7eddff4f909e0b0c42ab8aa7285ddee095ab5a550013c255880bb3579",
   "CTRL/rep2/positions.csv": "b7ede10cb3506ff1a8ca01d12252abb09ac354c42402efb78719c3b90b2385a6",
   "CTRL/rep3/images.csv": "463effe903f2deb2df4e0d9dc8f845962cf376d2369f217bff82993dadc02152",
-  "CTRL/rep3/patches.csv": "7e1c5716d51278e9f63f3e1c16d48c1edd049968196db3870fe1db85b14cc5d4",
+  "CTRL/rep3/patches.csv": "437777c7eddff4f909e0b0c42ab8aa7285ddee095ab5a550013c255880bb3579",
   "CTRL/rep3/positions.csv": "335ae09e148b8348b6b5cac2e12e00cbbea9775ba5328936fbae339ef55f9209",
   "DrugA/rep1/images.csv": "7a247ba747302935feec6c9cb07834bb8b41ff7e2d0d4ed6fd1a69c88f9db9e6",
-  "DrugA/rep1/patches.csv": "7e1c5716d51278e9f63f3e1c16d48c1edd049968196db3870fe1db85b14cc5d4",
+  "DrugA/rep1/patches.csv": "437777c7eddff4f909e0b0c42ab8aa7285ddee095ab5a550013c255880bb3579",
   "DrugA/rep1/positions.csv": "b160a3457cb4df5bdf27bd907ee08a778ad18ba23f7438a498cf4f0cfe8614b5",
   "DrugA/rep2/images.csv": "4ac0949d4e4c41cc090ac7e5c29bce6f847a163f45fcc91ead80605f8d257d56",
-  "DrugA/rep2/patches.csv": "7e1c5716d51278e9f63f3e1c16d48c1edd049968196db3870fe1db85b14cc5d4",
+  "DrugA/rep2/patches.csv": "437777c7eddff4f909e0b0c42ab8aa7285ddee095ab5a550013c255880bb3579",
   "DrugA/rep2/positions.csv": "cc9e1f731b981c9349c21522f6c745b341adc47add40adaf4d0176a244bb48a6",
   "DrugA/rep3/images.csv": "b98d9f52e6abc190eead5267d43ba80da77064738d5631c595f6e2b497aa0a51",
-  "DrugA/rep3/patches.csv": "7e1c5716d51278e9f63f3e1c16d48c1edd049968196db3870fe1db85b14cc5d4",
+  "DrugA/rep3/patches.csv": "437777c7eddff4f909e0b0c42ab8aa7285ddee095ab5a550013c255880bb3579",
   "DrugA/rep3/positions.csv": "ea3aa575c45bf63836b1051f9ccf5464b8353f73339824548752ebcded05af60",
   "DrugB/rep1/images.csv": "6063deead628e29453330f37307cfd6142235fa75f8ef45681933b480cd9394f",
-  "DrugB/rep1/patches.csv": "7e1c5716d51278e9f63f3e1c16d48c1edd049968196db3870fe1db85b14cc5d4",
+  "DrugB/rep1/patches.csv": "437777c7eddff4f909e0b0c42ab8aa7285ddee095ab5a550013c255880bb3579",
   "DrugB/rep1/positions.csv": "dbfaedf95557603e90283ea5a7fe89f58e9dec4e21212ccfef320c7c32784105",
   "DrugB/rep2/images.csv": "fb6db1c877b5dc8848ebb4086d9db3a34d7a6272a646bc5f52f278b998f956c2",
-  "DrugB/rep2/patches.csv": "7e1c5716d51278e9f63f3e1c16d48c1edd049968196db3870fe1db85b14cc5d4",
+  "DrugB/rep2/patches.csv": "437777c7eddff4f909e0b0c42ab8aa7285ddee095ab5a550013c255880bb3579",
   "DrugB/rep2/positions.csv": "606c3319f9c47883b4d7b0b65eeabfe8314a61baa72a89a5d2fd6dd0757bfd78",
   "DrugB/rep3/images.csv": "071e901a1fb38019f5fa8b87cadd181698a373fc998063352df64ace9c76c8e0",
-  "DrugB/rep3/patches.csv": "7e1c5716d51278e9f63f3e1c16d48c1edd049968196db3870fe1db85b14cc5d4",
+  "DrugB/rep3/patches.csv": "437777c7eddff4f909e0b0c42ab8aa7285ddee095ab5a550013c255880bb3579",
   "DrugB/rep3/positions.csv": "769cb0d300651ba24c6473152328b6add8525a12709bdeaf1b8af9bf3fb8122b"
  },
  "v13/grid_norm_image": {
   "CTRL/rep1/images.csv": "4f8795c3cc0f32939b5cb1af1232e143fd59929bbec25c641317489f03340ed5",
-  "CTRL/rep1/patches.csv": "7e1c5716d51278e9f63f3e1c16d48c1edd049968196db3870fe1db85b14cc5d4",
+  "CTRL/rep1/patches.csv": "437777c7eddff4f909e0b0c42ab8aa7285ddee095ab5a550013c255880bb3579",
   "CTRL/rep1/positions.csv": "cd63d222cb36ed978d88dc1ed9c6cf5297118ba9a75c2bd3a0852ff892223b53",
   "CTRL/rep2/images.csv": "7dbf07b189f10c5704deb0547867a972ab92f50bfeaeb25ca53d93aaf8f4503a",
-  "CTRL/rep2/patches.csv": "7e1c5716d51278e9f63f3e1c16d48c1edd049968196db3870fe1db85b14cc5d4",
+  "CTRL/rep2/patches.csv": "437777c7eddff4f909e0b0c42ab8aa7285ddee095ab5a550013c255880bb3579",
   "CTRL/rep2/positions.csv": "b7ede10cb3506ff1a8ca01d12252abb09ac354c42402efb78719c3b90b2385a6",
   "CTRL/rep3/images.csv": "463effe903f2deb2df4e0d9dc8f845962cf376d2369f217bff82993dadc02152",
-  "CTRL/rep3/patches.csv": "7e1c5716d51278e9f63f3e1c16d48c1edd049968196db3870fe1db85b14cc5d4",
+  "CTRL/rep3/patches.csv": "437777c7eddff4f909e0b0c42ab8aa7285ddee095ab5a550013c255880bb3579",
   "CTRL/rep3/positions.csv": "335ae09e148b8348b6b5cac2e12e00cbbea9775ba5328936fbae339ef55f9209",
   "DrugA/rep1/images.csv": "7a247ba747302935feec6c9cb07834bb8b41ff7e2d0d4ed6fd1a69c88f9db9e6",
-  "DrugA/rep1/patches.csv": "7e1c5716d51278e9f63f3e1c16d48c1edd049968196db3870fe1db85b14cc5d4",
+  "DrugA/rep1/patches.csv": "437777c7eddff4f909e0b0c42ab8aa7285ddee095ab5a550013c255880bb3579",
   "DrugA/rep1/positions.csv": "b160a3457cb4df5bdf27bd907ee08a778ad18ba23f7438a498cf4f0cfe8614b5",
   "DrugA/rep2/images.csv": "4ac0949d4e4c41cc090ac7e5c29bce6f847a163f45fcc91ead80605f8d257d56",
-  "DrugA/rep2/patches.csv": "7e1c5716d51278e9f63f3e1c16d48c1edd049968196db3870fe1db85b14cc5d4",
+  "DrugA/rep2/patches.csv": "437777c7eddff4f909e0b0c42ab8aa7285ddee095ab5a550013c255880bb3579",
   "DrugA/rep2/positions.csv": "cc9e1f731b981c9349c21522f6c745b341adc47add40adaf4d0176a244bb48a6",
   "DrugA/rep3/images.csv": "b98d9f52e6abc190eead5267d43ba80da77064738d5631c595f6e2b497aa0a51",
-  "DrugA/rep3/patches.csv": "7e1c5716d51278e9f63f3e1c16d48c1edd049968196db3870fe1db85b14cc5d4",
+  "DrugA/rep3/patches.csv": "437777c7eddff4f909e0b0c42ab8aa7285ddee095ab5a550013c255880bb3579",
   "DrugA/rep3/positions.csv": "ea3aa575c45bf63836b1051f9ccf5464b8353f73339824548752ebcded05af60",
   "DrugB/rep1/images.csv": "6063deead628e29453330f37307cfd6142235fa75f8ef45681933b480cd9394f",
-  "DrugB/rep1/patches.csv": "7e1c5716d51278e9f63f3e1c16d48c1edd049968196db3870fe1db85b14cc5d4",
+  "DrugB/rep1/patches.csv": "437777c7eddff4f909e0b0c42ab8aa7285ddee095ab5a550013c255880bb3579",
   "DrugB/rep1/positions.csv": "dbfaedf95557603e90283ea5a7fe89f58e9dec4e21212ccfef320c7c32784105",
   "DrugB/rep2/images.csv": "fb6db1c877b5dc8848ebb4086d9db3a34d7a6272a646bc5f52f278b998f956c2",
-  "DrugB/rep2/patches.csv": "7e1c5716d51278e9f63f3e1c16d48c1edd049968196db3870fe1db85b14cc5d4",
+  "DrugB/rep2/patches.csv": "437777c7eddff4f909e0b0c42ab8aa7285ddee095ab5a550013c255880bb3579",
   "DrugB/rep2/positions.csv": "606c3319f9c47883b4d7b0b65eeabfe8314a61baa72a89a5d2fd6dd0757bfd78",
   "DrugB/rep3/images.csv": "071e901a1fb38019f5fa8b87cadd181698a373fc998063352df64ace9c76c8e0",
-  "DrugB/rep3/patches.csv": "7e1c5716d51278e9f63f3e1c16d48c1edd049968196db3870fe1db85b14cc5d4",
+  "DrugB/rep3/patches.csv": "437777c7eddff4f909e0b0c42ab8aa7285ddee095ab5a550013c255880bb3579",
   "DrugB/rep3/positions.csv": "769cb0d300651ba24c6473152328b6add8525a12709bdeaf1b8af9bf3fb8122b"
  },
  "v13/random": {
@@ -410,7 +410,7 @@
   "CTRL/rep1/CTRL_rep1_single_img9_random-y0-x0-h8-w8-n5.tif": "4b5a4610a4261e326148b88c5edcfc955bf4dd038348bde0ba45bd970e0eaae2",
   "CTRL/rep1/CTRL_rep1_single_img9_random-y0-x0-h8-w8.tif": "4b5a4610a4261e326148b88c5edcfc955bf4dd038348bde0ba45bd970e0eaae2",
   "CTRL/rep1/images.csv": "fc2f39b7d2cc76a2586870c569f4203e2f2251653e9ea5ef0f2dc13f88b593a6",
-  "CTRL/rep1/patches.csv": "0770f2b530666f92bf4d129c0e64da0d5f02d9f08cedfe0536108e57cfa3ab20",
+  "CTRL/rep1/patches.csv": "f4dc316223ab44b15c5e9cab36dcc501cef013a698963de910d3f36cb35d3c7a",
   "CTRL/rep1/positions.csv": "776de2fdb4397d218c6cdbcd206793be9d41e1cb09fc049ccac8850aa010786a",
   "CTRL/rep2/CTRL_rep2_single_img0_random-y0-x0-h8-w8-n2.tif": "21223922f2294ccad025c73bcd9040057128df03358e4f9d29b9c602c5ab785b",
   "CTRL/rep2/CTRL_rep2_single_img0_random-y0-x0-h8-w8-n3.tif": "21223922f2294ccad025c73bcd9040057128df03358e4f9d29b9c602c5ab785b",
@@ -463,7 +463,7 @@
   "CTRL/rep2/CTRL_rep2_single_img9_random-y0-x0-h8-w8-n5.tif": "0e1bd9acd078dd8732d75c4274159197deadffc8d94de9cd7ae3b70b566c8362",
   "CTRL/rep2/CTRL_rep2_single_img9_random-y0-x0-h8-w8.tif": "0e1bd9acd078dd8732d75c4274159197deadffc8d94de9cd7ae3b70b566c8362",
   "CTRL/rep2/images.csv": "24d0f2d5a4b27564f93fc7af70bf6b8570b0fc06027c774cbdc5621e6dd55a11",
-  "CTRL/rep2/patches.csv": "3db7f0c54dc3d7a8d2b84823a7ec536d446233e291f95e8e3d7dcea281ee7526",
+  "CTRL/rep2/patches.csv": "63b02157b28972f508728b690238916ddb34a8c5ee9395fbb3e91d8b62c12736",
   "CTRL/rep2/positions.csv": "d05dee280e0db4b187ea5d1b785dd895e769c2b91388888241181bc31e353afd",
   "CTRL/rep3/CTRL_rep3_single_img0_random-y0-x0-h8-w8-n2.tif": "8a4c0d32df41eb22ea8bc6563e0e9f52294c1e599908ae0fe8e16ac40896ab6c",
   "CTRL/rep3/CTRL_rep3_single_img0_random-y0-x0-h8-w8-n3.tif": "8a4c0d32df41eb22ea8bc6563e0e9f52294c1e599908ae0fe8e16ac40896ab6c",
@@ -516,7 +516,7 @@
   "CTRL/rep3/CTRL_rep3_single_img9_random-y0-x0-h8-w8-n5.tif": "5bf300ebf0473e5abbe533cbf0dc4a4e05dd2b5d114625512404c57ef21a62d8",
   "CTRL/rep3/CTRL_rep3_single_img9_random-y0-x0-h8-w8.tif": "5bf300ebf0473e5abbe533cbf0dc4a4e05dd2b5d114625512404c57ef21a62d8",
   "CTRL/rep3/images.csv": "01458c799120d3cb984e58e62bd0359731a98804cbd5f7b02fcf5c1950b131cd",
-  "CTRL/rep3/patches.csv": "56d02f0dfb3e51f344f97c2c594a2dcaba073e7dd5d0494f2d53281a2952777a",
+  "CTRL/rep3/patches.csv": "6d6262066a6f0ae975048b3f4ab51006978b192dd3bf2c8c06d9b3fa534bdff0",
   "CTRL/rep3/positions.csv": "2670ed8fa4774748f50b9d6874690179aeee70f1b7b406ec541a31d1be49adbd",
   "DrugA/rep1/DrugA_rep1_single_img0_random-y0-x0-h8-w8-n2.tif": "b8f406953efc3f5b8cf4759813d0dab2a410271486ff2b5b7141432894e975c0",
   "DrugA/rep1/DrugA_rep1_single_img0_random-y0-x0-h8-w8-n3.tif": "b8f406953efc3f5b8cf4759813d0dab2a410271486ff2b5b7141432894e975c0",
@@ -569,7 +569,7 @@
   "DrugA/rep1/DrugA_rep1_single_img9_random-y0-x0-h8-w8-n5.tif": "45a7b6140b5fdfc1d7d904357648d2f3b0085f6d6333df32624c2af0ae996fcd",
   "DrugA/rep1/DrugA_rep1_single_img9_random-y0-x0-h8-w8.tif": "45a7b6140b5fdfc1d7d904357648d2f3b0085f6d6333df32624c2af0ae996fcd",
   "DrugA/rep1/images.csv": "c14dd82e8158077305cd2bcb32b274a4d67e37d92150e5f328743bf4350fa365",
-  "DrugA/rep1/patches.csv": "3099bffdff63d58858d72b98b5f3ada85663cf136c5481a6a9eba1d4c17ba977",
+  "DrugA/rep1/patches.csv": "eca9805bf178931bdc26c3391e21f9a5360f8dcc2e8559523008be4f7e8fded0",
   "DrugA/rep1/positions.csv": "d208993cb572310418dcdffd156889c6a0d8bf1ffb31a2e7972e004c59cbb41c",
   "DrugA/rep2/DrugA_rep2_single_img0_random-y0-x0-h8-w8-n2.tif": "0516661c617eb54f46d8f7046179da3adfd0505ce9c53987170dc83d7344ffff",
   "DrugA/rep2/DrugA_rep2_single_img0_random-y0-x0-h8-w8-n3.tif": "0516661c617eb54f46d8f7046179da3adfd0505ce9c53987170dc83d7344ffff",
@@ -622,7 +622,7 @@
   "DrugA/rep2/DrugA_rep2_single_img9_random-y0-x0-h8-w8-n5.tif": "58452e4dc709e6c5c4145f6ef583bfc8a14366385e114a03d82e72354dbecebf",
   "DrugA/rep2/DrugA_rep2_single_img9_random-y0-x0-h8-w8.tif": "58452e4dc709e6c5c4145f6ef583bfc8a14366385e114a03d82e72354dbecebf",
   "DrugA/rep2/images.csv": "fc1036d5337c34d2d21e9843fb229573efdc5c042edfcff97c3b2a014b5d7252",
-  "DrugA/rep2/patches.csv": "3a3f4a7318f78977906232d8c5a9a9b3774d3012236c3d1f6e1d1bea75b68a67",
+  "DrugA/rep2/patches.csv": "15d7772c59f939a1df82ebc272c966a5f9f2d8a0d641bc3d9ebb722c323423e4",
   "DrugA/rep2/positions.csv": "f346085ff1d0d8f6ae8083c121bde20e731002663bb661c06027f80fd8a59e64",
   "DrugA/rep3/DrugA_rep3_single_img0_random-y0-x0-h8-w8-n2.tif": "42cddf26e7ad9e74b99b7f2941d8609d242965689daac7810b309f0273037e8e",
   "DrugA/rep3/DrugA_rep3_single_img0_random-y0-x0-h8-w8-n3.tif": "42cddf26e7ad9e74b99b7f2941d8609d242965689daac7810b309f0273037e8e",
@@ -675,7 +675,7 @@
   "DrugA/rep3/DrugA_rep3_single_img9_random-y0-x0-h8-w8-n5.tif": "5094f0f1bdae1c984ec71e19e1906c8176aa5f63799313e2315da98d3bf6a6e0",
   "DrugA/rep3/DrugA_rep3_single_img9_random-y0-x0-h8-w8.tif": "5094f0f1bdae1c984ec71e19e1906c8176aa5f63799313e2315da98d3bf6a6e0",
   "DrugA/rep3/images.csv": "5a703982e60fe560de9b5e392faa5896c55b989340b99e2acbf9a4cde4185519",
-  "DrugA/rep3/patches.csv": "9e5ab1a9c9f72f15d45093e369de8bc81db2f38a126b2310178a8e0766d02ab6",
+  "DrugA/rep3/patches.csv": "8585707b12bb0d925b3002d96d8ba5a8db9633c5220bca1651d9bd8186547408",
   "DrugA/rep3/positions.csv": "8a113627eec1fbc2813004c277e6ad744f28ae2fb22a23d916c853e60b22ca14",
   "DrugB/rep1/DrugB_rep1_single_img0_random-y0-x0-h8-w8-n2.tif": "81e145c6577893db8b53aa35e9ea1fbf64f5ca1e12bb02d0d1142280415e8ef1",
   "DrugB/rep1/DrugB_rep1_single_img0_random-y0-x0-h8-w8-n3.tif": "81e145c6577893db8b53aa35e9ea1fbf64f5ca1e12bb02d0d1142280415e8ef1",
@@ -728,7 +728,7 @@
   "DrugB/rep1/DrugB_rep1_single_img9_random-y0-x0-h8-w8-n5.tif": "2487c4f09500f60e19e9fa22107c4881b128cf520edf729ec187ca8e125f5c56",
   "DrugB/rep1/DrugB_rep1_single_img9_random-y0-x0-h8-w8.tif": "2487c4f09500f60e19e9fa22107c4881b128cf520edf729ec187ca8e125f5c56",
   "DrugB/rep1/images.csv": "e9a20541f659fb1e51eef2ca9f747b8799d5621834c607bc8b27303762615193",
-  "DrugB/rep1/patches.csv": "2812305e00da8436a4dafb8b14a11a8b704a73f3b4a3613fba9a87e64b28b7ab",
+  "DrugB/rep1/patches.csv": "4ccc5c4dc9c09436ef1ba723f61c96705d53aafd5c05274b9ea855a99897f28b",
   "DrugB/rep1/positions.csv": "f5d58c5b24d152e4cc574c611a75ac7834ff0063901fc44258b002a6a4d21cdd",
   "DrugB/rep2/DrugB_rep2_single_img0_random-y0-x0-h8-w8-n2.tif": "4c9a12e12389a7a7e5733aaa02ed89533355a6d7edd9d7ed08d3d566bda48c43",
   "DrugB/rep2/DrugB_rep2_single_img0_random-y0-x0-h8-w8-n3.tif": "4c9a12e12389a7a7e5733aaa02ed89533355a6d7edd9d7ed08d3d566bda48c43",
@@ -781,7 +781,7 @@
   "DrugB/rep2/DrugB_rep2_single_img9_random-y0-x0-h8-w8-n5.tif": "2cc3ed8c97ceab5339bbd8045df59b85299a4ebbbe57b7a1aef59637c7f6c373",
   "DrugB/rep2/DrugB_rep2_single_img9_random-y0-x0-h8-w8.tif": "2cc3ed8c97ceab5339bbd8045df59b85299a4ebbbe57b7a1aef59637c7f6c373",
   "DrugB/rep2/images.csv": "b8ba6b2ec32ce5bc490b63ca5d680628fa2e2e0e6c9cb004f65c9d5faf0844e4",
-  "DrugB/rep2/patches.csv": "be828467eaea4ecb4c2650525e7dc9322d19449fbee4d8f9fd3936feb7d32627",
+  "DrugB/rep2/patches.csv": "3481af5bafc91a651aef1916aec076ae9beba1aeae1605458629916dc4e426f2",
   "DrugB/rep2/positions.csv": "7f2c0f16f6c3ef966e3d7b0df6df66fcae24a136581b2222c83725a2629a8c3a",
   "DrugB/rep3/DrugB_rep3_single_img0_random-y0-x0-h8-w8-n2.tif": "8a78bc745bc18929e4bcfcd618caf5f4010a4fa201c2dbf149bcef8af65bbd5c",
   "DrugB/rep3/DrugB_rep3_single_img0_random-y0-x0-h8-w8-n3.tif": "8a78bc745bc18929e4bcfcd618caf5f4010a4fa201c2dbf149bcef8af65bbd5c",
@@ -834,7 +834,7 @@
   "DrugB/rep3/DrugB_rep3_single_img9_random-y0-x0-h8-w8-n5.tif": "a3519d8852d7c35ac5e5c9594e919823b292c962d1f3ceb770bfb5860c2796a3",
   "DrugB/rep3/DrugB_rep3_single_img9_random-y0-x0-h8-w8.tif": "a3519d8852d7c35ac5e5c9594e919823b292c962d1f3ceb770bfb5860c2796a3",
   "DrugB/rep3/images.csv": "962cd6ffed8cb68cb285517396808ef44d596c369708a3fcbcd2bbb909bf7531",
-  "DrugB/rep3/patches.csv": "45c4d3db0938b4f0db7f986d147a2cb5b2504529b0067c3c17edbbc17b90e6ac",
+  "DrugB/rep3/patches.csv": "b6ab383972b36fd822d00b7225a7ed62195b65e48262288e21c353ff63220d7f",
   "DrugB/rep3/positions.csv": "0e5eb2ca82e536479b8b4663f7929a9bc2879f74ec1562887c37b1db9dc38264"
  },
  "v13/whole_fov": {
@@ -849,7 +849,7 @@
   "CTRL/rep1/CTRL_rep1_single_img8_whole_fov.tif": "287cf5fc3f42e761639fe104a9ea2b95f48d4d4bc154998c229b983f2d854231",
   "CTRL/rep1/CTRL_rep1_single_img9_whole_fov.tif": "4b5a4610a4261e326148b88c5edcfc955bf4dd038348bde0ba45bd970e0eaae2",
   "CTRL/rep1/images.csv": "8e8b5e4437bc0d42831161ac6cbcf5c3a5c10d11441c9a96614d307e47b3438e",
-  "CTRL/rep1/patches.csv": "919ab97693553fee716a20ea275930bda660dbae6c5783ba53db942c783095e8",
+  "CTRL/rep1/patches.csv": "1562f64bc6a963c17887d213498500f43806aea7cab5d3531cc7c3fcba687488",
   "CTRL/rep1/positions.csv": "669308b486b14eedeac34f142239f8372b5cfd1b451b43523dbe0c3e0a3797ba",
   "CTRL/rep2/CTRL_rep2_single_img0_whole_fov.tif": "21223922f2294ccad025c73bcd9040057128df03358e4f9d29b9c602c5ab785b",
   "CTRL/rep2/CTRL_rep2_single_img1_whole_fov.tif": "be4d8a755e7a913440e8713aeeca799c30dee09738b109f3452c8116cb22a10d",
@@ -862,7 +862,7 @@
   "CTRL/rep2/CTRL_rep2_single_img8_whole_fov.tif": "822dc89c94c82dbab2c083c8e1997b4530e1643d5608da30ef5b6b1ceb9f9ccc",
   "CTRL/rep2/CTRL_rep2_single_img9_whole_fov.tif": "0e1bd9acd078dd8732d75c4274159197deadffc8d94de9cd7ae3b70b566c8362",
   "CTRL/rep2/images.csv": "97f579d0d318eedc926dd4cd17de294e80093b0763ddd94c69130dacf29247a8",
-  "CTRL/rep2/patches.csv": "d462df5d4eca759ac9260a5263a6a0a9a4139939fbb38cbcc533e2397f064ee3",
+  "CTRL/rep2/patches.csv": "526ba4bf5553148411d1f2a4418c37c4fe56bf97598b4f4c89e8ef77a586e576",
   "CTRL/rep2/positions.csv": "14b4e78a2355f7d978f88c8fce154a347c7d1309082fc8886217b8c5aa32ecb3",
   "CTRL/rep3/CTRL_rep3_single_img0_whole_fov.tif": "8a4c0d32df41eb22ea8bc6563e0e9f52294c1e599908ae0fe8e16ac40896ab6c",
   "CTRL/rep3/CTRL_rep3_single_img1_whole_fov.tif": "f0bda3a90e980fa4562220014f80c68fcbe50ce0920761cd8e4136dd21f5ae50",
@@ -875,7 +875,7 @@
   "CTRL/rep3/CTRL_rep3_single_img8_whole_fov.tif": "bc5dee0ca6724c94437a04a9b57e4b1881133acc3aabb0555bd43d51488db2a0",
   "CTRL/rep3/CTRL_rep3_single_img9_whole_fov.tif": "5bf300ebf0473e5abbe533cbf0dc4a4e05dd2b5d114625512404c57ef21a62d8",
   "CTRL/rep3/images.csv": "55dba5b464024c0e2a6525f9e03d62dc1b5ce6ff36b7da3cf03688de61bdc003",
-  "CTRL/rep3/patches.csv": "fdf0c55390b843329150d36403f20f908b34e47b1b0462d2bd01ae56276dda84",
+  "CTRL/rep3/patches.csv": "1bd0f7c650f7be6367d1a6f1645af6737d8ac4acdc47cbf76b54b8035175071a",
   "CTRL/rep3/positions.csv": "72a14e9b24ee2119cc05dfb3c8f97409b04244f1b6ff58940231add411fe3eb0",
   "DrugA/rep1/DrugA_rep1_single_img0_whole_fov.tif": "b8f406953efc3f5b8cf4759813d0dab2a410271486ff2b5b7141432894e975c0",
   "DrugA/rep1/DrugA_rep1_single_img1_whole_fov.tif": "6d1111510615d6ed56c79bf22dc4fdcd87669fc0117571b799bbb2999580c88f",
@@ -888,7 +888,7 @@
   "DrugA/rep1/DrugA_rep1_single_img8_whole_fov.tif": "52684d404c96b86a00af99ae59c0a641b88b9bb669641e2634b53ecd9d8358fb",
   "DrugA/rep1/DrugA_rep1_single_img9_whole_fov.tif": "45a7b6140b5fdfc1d7d904357648d2f3b0085f6d6333df32624c2af0ae996fcd",
   "DrugA/rep1/images.csv": "6833847c767fea9f616b3794bfca8756f9aa873e697d03746c87bed1a38394c7",
-  "DrugA/rep1/patches.csv": "bee838519c58c388be1950540bf6277b80c739303db9cff4bfb470d339fd3edf",
+  "DrugA/rep1/patches.csv": "7c1ff36ff17ae8d39e364f17eca127dd177d754cd978d8e8a73d2614be3c86a4",
   "DrugA/rep1/positions.csv": "bb85bebee9acb69c90ade379cada5fcd71f44cd52197f95d55a4072a2eaad7e0",
   "DrugA/rep2/DrugA_rep2_single_img0_whole_fov.tif": "0516661c617eb54f46d8f7046179da3adfd0505ce9c53987170dc83d7344ffff",
   "DrugA/rep2/DrugA_rep2_single_img1_whole_fov.tif": "ffeb38e3549eb76f90975ac86f8e39c0e52c3ad1dee3897808732cd30a181d94",
@@ -901,7 +901,7 @@
   "DrugA/rep2/DrugA_rep2_single_img8_whole_fov.tif": "31d65b94336052f794c181c290af98a83ff022c2d9935b4d4960862792f3fd86",
   "DrugA/rep2/DrugA_rep2_single_img9_whole_fov.tif": "58452e4dc709e6c5c4145f6ef583bfc8a14366385e114a03d82e72354dbecebf",
   "DrugA/rep2/images.csv": "58e1d90aa6eaba0c8db4d62fa068b4e387beeb1ef3cd208c5636645541ac11c6",
-  "DrugA/rep2/patches.csv": "4edecf7f5a5d29a1837950c3aed17b59e389df5d4ed62035be5e0741b2c846af",
+  "DrugA/rep2/patches.csv": "a66d7bddacaf780377b24a672b7e3c9ca3e9c562a477952566851476c215c54e",
   "DrugA/rep2/positions.csv": "cdcfbfdcc61535d1d97c242f4364b92859715ebfc40faeeee6be20c30b46adb2",
   "DrugA/rep3/DrugA_rep3_single_img0_whole_fov.tif": "42cddf26e7ad9e74b99b7f2941d8609d242965689daac7810b309f0273037e8e",
   "DrugA/rep3/DrugA_rep3_single_img1_whole_fov.tif": "bda61ebbcaa120d21e40796fd1fe0e92d2db345016cbfd00964a94239659d433",
@@ -914,7 +914,7 @@
   "DrugA/rep3/DrugA_rep3_single_img8_whole_fov.tif": "f04f15d22d8a092b3c8b1ee39760014fa97508912fd3acd1dae7077d6f107e17",
   "DrugA/rep3/DrugA_rep3_single_img9_whole_fov.tif": "5094f0f1bdae1c984ec71e19e1906c8176aa5f63799313e2315da98d3bf6a6e0",
   "DrugA/rep3/images.csv": "a51ffeb1e05d98d3b9ca761ce6baa4a7f2438b91c740e9fc08771d814216f37f",
-  "DrugA/rep3/patches.csv": "9cb2394dac3c449347ee378d999ff87bfbcd2139c28199d5ab64fb61da4f6fa0",
+  "DrugA/rep3/patches.csv": "30b3f1b8143be1104e3c8815ce7c8c84d3b96c6ea45b899c2c91d0fcd1bf2683",
   "DrugA/rep3/positions.csv": "ca70ebb035c7dd73887687aaf8060edd0384cb11f2223e1adf6ceb17e2be251b",
   "DrugB/rep1/DrugB_rep1_single_img0_whole_fov.tif": "81e145c6577893db8b53aa35e9ea1fbf64f5ca1e12bb02d0d1142280415e8ef1",
   "DrugB/rep1/DrugB_rep1_single_img1_whole_fov.tif": "07fbdc9d00f6ce41bef87f7bc5820fda2a059498caa7566bd001f2b6c820405d",
@@ -927,7 +927,7 @@
   "DrugB/rep1/DrugB_rep1_single_img8_whole_fov.tif": "9859ce4e8cf8bf0f0fb71e8899319f313b60d3d75ac58ede2e7f9a689a775ab2",
   "DrugB/rep1/DrugB_rep1_single_img9_whole_fov.tif": "2487c4f09500f60e19e9fa22107c4881b128cf520edf729ec187ca8e125f5c56",
   "DrugB/rep1/images.csv": "2ef1f20d98b55c42477b433f9e1ccf52f09d5cfc0602dfd67874cbf0694c8f69",
-  "DrugB/rep1/patches.csv": "a3a930f1f485272088148026ad8b3cda2ac6a4333a8364d0c0d1b37e50f8393d",
+  "DrugB/rep1/patches.csv": "5dd4f563a9b464a6589c47221960de13d860d2563bcd64716f139f6bf83a2816",
   "DrugB/rep1/positions.csv": "4efe995c82e595d3bd7ce9f8ad8073b3e6deb0fa93ead83c4486740322b03af0",
   "DrugB/rep2/DrugB_rep2_single_img0_whole_fov.tif": "4c9a12e12389a7a7e5733aaa02ed89533355a6d7edd9d7ed08d3d566bda48c43",
   "DrugB/rep2/DrugB_rep2_single_img1_whole_fov.tif": "e180575855b3888e774aa46cbab0f7578dabeb7fa6f0f5666ed8cae765dd0621",
@@ -940,7 +940,7 @@
   "DrugB/rep2/DrugB_rep2_single_img8_whole_fov.tif": "4f05b1d50f4165eb248c5955120b5b3770b9a72e6f28eba5eeacf2a0b48d53ac",
   "DrugB/rep2/DrugB_rep2_single_img9_whole_fov.tif": "2cc3ed8c97ceab5339bbd8045df59b85299a4ebbbe57b7a1aef59637c7f6c373",
   "DrugB/rep2/images.csv": "40187cb18404625c11a49fab8631a99ab110570daea2f36c83634d7fe50ae57a",
-  "DrugB/rep2/patches.csv": "e83ad1084874c9afa1ee977a207ee1b48f6cd61d89f55395efc5c6ca5c36b38a",
+  "DrugB/rep2/patches.csv": "4c01d5ac834e889dfab0a833481681c95c6a9d4337bdfa18eec4a943b7f2e8c7",
   "DrugB/rep2/positions.csv": "34a9322bb2aa974b4e1c26c4b1eb89e0dc1b22584da6f42fd16276ec6112cd68",
   "DrugB/rep3/DrugB_rep3_single_img0_whole_fov.tif": "8a78bc745bc18929e4bcfcd618caf5f4010a4fa201c2dbf149bcef8af65bbd5c",
   "DrugB/rep3/DrugB_rep3_single_img1_whole_fov.tif": "6e25063fbea32a684f83750cb475a225a58553310e0e961e93aa70dca8bed8a8",
@@ -953,7 +953,7 @@
   "DrugB/rep3/DrugB_rep3_single_img8_whole_fov.tif": "36b3c57b7b51f7ef2e5ea61420b85e0fe3ccfdfe3b3190abb4eaafe173c2f205",
   "DrugB/rep3/DrugB_rep3_single_img9_whole_fov.tif": "a3519d8852d7c35ac5e5c9594e919823b292c962d1f3ceb770bfb5860c2796a3",
   "DrugB/rep3/images.csv": "cdfc7dad1c0d3cac5c9793974f62f520bd05bd23f98c9561c76c2982e360a12a",
-  "DrugB/rep3/patches.csv": "47d4faa17cdc3f8c55e3edb734b4909200c8e1506018d87788f503c3fa84de5c",
+  "DrugB/rep3/patches.csv": "7d8919369f15773bcd54c00d004e6ad261fc95c710c4818458ecf39f55970287",
   "DrugB/rep3/positions.csv": "2fbc9908a884e8f4716493939053c98820cfb0c9df25b6738e05feba06adae69"
  }
 }
