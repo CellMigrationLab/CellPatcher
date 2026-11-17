@@ -470,7 +470,7 @@ def test_exported_patch_torch_dataset_ambiguous_and_prefer_format(tmp_path):
     np.save(tmp_path / "p1.npy", arr)
     from cellpatcher.io import write_array
 
-    write_array(tmp_path / "p1.tif", arr)
+    write_array(tmp_path / "p1.tif", arr, axes="YX")
 
     csv_path = tmp_path / "patches.csv"
     _write_csv(csv_path, ["patch_id"], [{"patch_id": "p1"}])

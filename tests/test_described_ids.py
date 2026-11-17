@@ -331,8 +331,8 @@ def _two_blob_folders(tmp_path):
 
     mask = np.zeros((16, 16), np.uint8)
     mask[2:5, 2:5] = mask[10:13, 10:13] = 1
-    write_array(tmp_path / "images" / "a.tif", np.ones((16, 16), np.uint16))
-    write_array(tmp_path / "masks" / "a_mask.tif", mask)
+    write_array(tmp_path / "images" / "a.tif", np.ones((16, 16), np.uint16), axes="YX")
+    write_array(tmp_path / "masks" / "a_mask.tif", mask, axes="YX")
     return tmp_path / "images", tmp_path / "masks"
 
 

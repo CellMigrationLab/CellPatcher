@@ -74,6 +74,38 @@ Release v0.3.0
 Pin preprocessing v0.4.0rc4; prepare v0.2.0rc2
 
 ---
+## [Unreleased] - write_array writes a TIFF as planes, laid out from the axes it is given (#131)
+
+For v0.7.2. Follows #129/#130.
+
+### Fixed
+- **#131: `cellpatcher.io.write_array` writes a TIFF with an explicit photometric, never tifffile's guess from its
+  shape.** It called `tifffile.imwrite` without `photometric`, so an array with 3 or 4 along its first or last axis
+  (`CYX` or `YXC` channels) was written as an RGB(A) image, with tifffile's `DeprecationWarning`. As for exported
+  patches (#130), a TIFF is now written as planes (`photometric="minisblack"`, one page per Y/X image; one axis
+  after X, as in `YXC`, is the samples of each page, `planarconfig="contig"`), and as RGB only when the caller
+  declares it with `photometric="rgb"` for three channels as C just before Y and X (`CYX`, separate planes) or
+  last (`YXC`, contiguous). The layout is chosen from the new keyword `axes` (one letter of `T`, `C`, `Z`, `Y`,
+  `X` per dimension), never from the shape. Pixels, shape and dtype read back by `read_array` are byte-identical.
+  `tests/test_write_array_tiff.py` (3 and 4 channels in `CYX` and `YXC`, `ZCYX`, RGB declared as `CYX`/`YXC`,
+  the refusals, warnings as errors).
+
+### Breaking (no backward compatibility, ADR 0002 AR10)
+- **`write_array(path, array)` to a `.tif`/`.tiff` without `axes` is refused** (`ValueError` naming the fix:
+  pass `axes=`, for example `axes="YX"`, and `photometric="rgb"` for an RGB image), as are axes that do not
+  match the array, Y and X not last or followed by more than one axis, and `photometric="rgb"` on an array
+  without three channels just before Y and X or last; nothing is written then. `.npy` and the other formats
+  take no axes and are unchanged (`axes`/`photometric` are used for a TIFF only).
+
+### Migration
+- Pass the array's axes: `write_array(path, image, axes="YX")` for one image, `axes="CYX"`/`"YXC"` for channels,
+  plus `photometric="rgb"` for an RGB image.
+
+### Changed
+- Every caller passes what it knows: the 70 TIFF `write_array` calls in `tests/` (all of 2-D images and masks)
+  pass `axes="YX"`; no code under `src/`, `app/` or `notebooks/` calls it.
+- `tools/code_rules_baseline.json` shrinks (the typed, documented `write_array`).
+
 ## [Unreleased] - TIFF patches written as planes, RGB only for an rgb unit (#129)
 
 For v0.7.2. Found by the G4 adversarial suite (MorphoFeature draft PR #240, row A09) on `aca2c6c`.

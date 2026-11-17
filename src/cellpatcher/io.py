@@ -6,6 +6,8 @@ from pathlib import Path
 import numpy as np
 from morphobricks_normalization.records import SINGLE
 
+from cellpatcher.axes import normalize_axes
+
 # ".zarr" is an OME-Zarr image: a folder, read with the preprocessing brick's
 # reader and the ``zarr`` extra (docs/normalization_contract.md §2); every other
 # extension is a file.
@@ -212,34 +214,92 @@ def read_array(file_path):
     raise ValueError(f"Unsupported file extension: {suffix}")
 
 
-def write_array(file_path, array):
+TIFF_ARRAY_PHOTOMETRICS = ("minisblack", "rgb")
+"""The photometric interpretations :func:`write_array` writes a TIFF with: planes, or RGB colour (issue #131)."""
+
+
+def write_array(file_path, array, *, axes: str | None = None, photometric: str = "minisblack") -> None:
+    """Write *array* to *file_path*: ``.npy``, ``.tif``/``.tiff``, or an image format imageio writes.
+
+    A TIFF is written with an explicit *photometric* (issue #131), never tifffile's guess from the
+    shape, which made any array with 3 or 4 along its first or last axis an RGB(A) image: ``"minisblack"``
+    (the default; one page per Y/X image, the array's other axes its planes, or with one axis after X
+    the samples of each page, ``planarconfig="contig"``) or ``"rgb"``, which the caller declares, for
+    an array holding its three R, G and B channels as C just before Y and X (``"separate"``) or last
+    (``"contig"``). The layout is chosen from *axes*, one letter of ``T``, ``C``, ``Z``, ``Y``, ``X``
+    per dimension (``"YX"``, ``"CYX"``, ``"YXC"``, ...), never from the shape, so *axes* is required
+    for a TIFF. The pixels read back with :func:`read_array` are the array's, in its shape and dtype.
+    *axes* and *photometric* are used for a TIFF only.
+
+    Raises
+    ------
+    ValueError
+        For a TIFF without *axes* (the call of before issue #131: pass ``axes=``), with axes that do not
+        match the array, Y and X not last (or followed by more than one axis), or an RGB declaration on
+        an array without three channels just before Y and X or last; for an unsupported extension or
+        an OME-Zarr path.
+    """
     path = Path(file_path).expanduser()
     if is_ome_zarr(path):
         raise ValueError(f"Writing OME-Zarr images is not supported: {path}")
-    path.parent.mkdir(parents=True, exist_ok=True)
     suffix = path.suffix.lower()
-
-    if suffix == ".npy":
-        np.save(path, np.asarray(array))
-        return
+    if suffix not in ARRAY_EXTENSIONS:
+        raise ValueError(f"Unsupported file extension: {suffix}")
+    data = np.asarray(array)
 
     if suffix in {".tif", ".tiff"}:
+        planarconfig = _tiff_planarconfig(path, data.shape, axes, photometric)
         try:
             import tifffile
         except ImportError as exc:
             raise ImportError("Writing TIFF requires tifffile.") from exc
-        tifffile.imwrite(str(path), np.asarray(array))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tifffile.imwrite(str(path), data, photometric=photometric, planarconfig=planarconfig)
         return
 
-    if suffix in ARRAY_EXTENSIONS:
-        try:
-            import imageio.v3 as iio
-        except ImportError as exc:
-            raise ImportError("Writing image files requires imageio.") from exc
-        iio.imwrite(path, np.asarray(array))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if suffix == ".npy":
+        np.save(path, data)
         return
+    try:
+        import imageio.v3 as iio
+    except ImportError as exc:
+        raise ImportError("Writing image files requires imageio.") from exc
+    iio.imwrite(path, data)
 
-    raise ValueError(f"Unsupported file extension: {suffix}")
+
+def _tiff_planarconfig(path: Path, shape: tuple[int, ...], axes: str | None, photometric: str) -> str | None:
+    """Return the ``planarconfig`` a TIFF of an array of *shape* with *axes* is written with (issue #131).
+
+    One page per Y/X image: an array ending in ``YX`` is paged as is (None), one with one axis after
+    X is ``"contig"``, its last axis the samples of each page; RGB needs its three channels as C just
+    before Y and X (``"separate"``) or last (``"contig"``). Anything else is refused, naming the fix.
+    """
+    if photometric not in TIFF_ARRAY_PHOTOMETRICS:
+        raise ValueError(f"photometric must be one of {TIFF_ARRAY_PHOTOMETRICS}, got {photometric!r}.")
+    if axes is None:
+        raise ValueError(
+            f"write_array needs the axes of an array written as a TIFF ({path.name}, shape {shape}; issue #131): "
+            "pass axes=, one letter of T, C, Z, Y, X per dimension, for example write_array(path, array, axes='YX') "
+            "for one image or axes='CYX' for channel planes, and photometric='rgb' for an RGB image. The TIFF's layout "
+            "is chosen from them, never guessed from the shape."
+        )
+    axes = normalize_axes(axes, len(shape))
+    if photometric == "rgb":
+        if "C" not in axes or shape[axes.index("C")] != 3 or not axes.endswith(("CYX", "YXC")):
+            raise ValueError(
+                f"An RGB TIFF needs three channels as C just before Y and X or last; {path.name} has axes {axes!r} "
+                f"and shape {shape}."
+            )
+        return "separate" if axes.endswith("CYX") else "contig"
+    if axes.endswith("YX"):
+        return None
+    if axes[-3:-1] == "YX":
+        return "contig"
+    raise ValueError(
+        f"A TIFF is written one page per Y/X image: Y and X must be the last two axes, or followed by one axis; "
+        f"{path.name} has axes {axes!r}."
+    )
 
 
 def channel_names(path) -> tuple[str | None, ...]:

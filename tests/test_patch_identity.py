@@ -39,8 +39,8 @@ def _labels(seed):
 
 
 def _write_pair(folder, mask_folder, name, seed):
-    write_array(folder / f"{name}.tif", _image(seed))
-    write_array(mask_folder / f"{name}_cells.tif", _labels(seed))
+    write_array(folder / f"{name}.tif", _image(seed), axes="YX")
+    write_array(mask_folder / f"{name}_cells.tif", _labels(seed), axes="YX")
 
 
 def _cell_config(out=None):
@@ -90,10 +90,10 @@ def test_same_file_alone_in_ten_files_and_after_an_earlier_file_has_the_same_pat
 
 def test_grid_ids_do_not_depend_on_the_other_files(tmp_path):
     config = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=16))
-    write_array(tmp_path / "one" / "img.tif", _image(1))
+    write_array(tmp_path / "one" / "img.tif", _image(1), axes="YX")
     alone = _folder(tmp_path / "one", config=config)
     for name, seed in (("aaa.tif", 2), ("img.tif", 1), ("zzz.tif", 3)):
-        write_array(tmp_path / "three" / name, _image(seed))
+        write_array(tmp_path / "three" / name, _image(seed), axes="YX")
     three = _folder(tmp_path / "three", config=config)
     assert _ids_of(three, "img.tif") == _ids_of(alone, "img.tif") == [
         f"single/single/single/img/grid-y{y}-x{x}-h16-w16" for y in (0, 16) for x in (0, 16)
@@ -194,7 +194,7 @@ def test_whole_fov_and_supplied_position_id():
 
 def test_folder_runs_fill_position_id_without_split_channels(tmp_path):
     # Since CP-2a the labels and position_id are those the preprocessing run recorded.
-    write_array(tmp_path / "exp" / "treated" / "r1" / "img.ome.tif", _image(0))
+    write_array(tmp_path / "exp" / "treated" / "r1" / "img.ome.tif", _image(0), axes="YX")
     result = _folder(tmp_path / "exp", config=CellPatcherConfig(mode="whole_fov"))
     # D85: the image name without its whole extension (preprocessing's rule: .ome.tif -> img).
     assert [patch.position_id for patch in result.patches] == ["img"]
@@ -228,16 +228,16 @@ def _rectangles(result, image_file):
 
 
 def test_random_rectangles_do_not_depend_on_the_place_in_the_run(tmp_path):
-    write_array(tmp_path / "alone" / "m_target.tif", _image(7))
+    write_array(tmp_path / "alone" / "m_target.tif", _image(7), axes="YX")
     alone = _rectangles(_folder(tmp_path / "alone", config=_random_config()), "m_target.tif")
     assert len(alone) == 5
 
     ten = tmp_path / "ten"
     for index in range(9):
-        write_array(ten / f"n{index}.tif", _image(index))
-    write_array(ten / "m_target.tif", _image(7))
+        write_array(ten / f"n{index}.tif", _image(index), axes="YX")
+    write_array(ten / "m_target.tif", _image(7), axes="YX")
     assert _rectangles(_folder(ten, config=_random_config()), "m_target.tif") == alone
-    write_array(ten / "a_first.tif", _image(11))
+    write_array(ten / "a_first.tif", _image(11), axes="YX")
     assert _rectangles(_folder(ten, config=_random_config()), "m_target.tif") == alone
 
     # Another seed draws other rectangles; so does another position.
@@ -276,9 +276,9 @@ def test_the_unused_mask_file_name_rule_is_gone():
 
 def test_object_set_precedence(tmp_path):
     images, masks = tmp_path / "images", tmp_path / "masks"
-    write_array(images / "img.tif", _image(0))
+    write_array(images / "img.tif", _image(0), axes="YX")
     # Every paired mask has a type (issue #45: the preprocessing pairing), and it is the object set.
-    write_array(masks / "img_cells.tif", _labels(0))
+    write_array(masks / "img_cells.tif", _labels(0), axes="YX")
     result = _folder(images, mask_folder_path=masks, config=_cell_config())
     assert {patch.object_set for patch in result.patches} == {"cells"}
 
@@ -387,8 +387,8 @@ def test_a_duplicate_position_is_refused_whatever_tokens_its_patches_get():
 def test_a_duplicate_position_never_reaches_a_file_run(tmp_path):
     """File runs take each FOV key from a clean preprocessing run (CP-2a), whose discovery
     refuses Img.tif and img.tiff before CellPatcher reads anything (D85)."""
-    write_array(tmp_path / "images" / "Img.tif", _image(0))
-    write_array(tmp_path / "images" / "img.tiff", _image(1))
+    write_array(tmp_path / "images" / "Img.tif", _image(0), axes="YX")
+    write_array(tmp_path / "images" / "img.tiff", _image(1), axes="YX")
     with pytest.raises(AssertionError, match=r"same name apart from the file extension or upper/lower case"):
         preprocess(tmp_path / "images")
 
@@ -555,8 +555,8 @@ def test_a_mask_type_object_set_is_refused_before_any_read(tmp_path, monkeypatch
         raise AssertionError("a file was read before the object_set refusal")
 
     images, masks = tmp_path / "images", tmp_path / "masks"
-    write_array(images / "img.tif", _image(0))
-    write_array(masks / "img_cells.tif", _labels(0))
+    write_array(images / "img.tif", _image(0), axes="YX")
+    write_array(masks / "img_cells.tif", _labels(0), axes="YX")
     monkeypatch.setattr(file_runs, "object_set_from_mask_type", lambda mask_type: "bad/name")
     monkeypatch.setattr(run_reading, "read_fov", no_read)
     monkeypatch.setattr(file_runs, "read_fov_mask", no_read)

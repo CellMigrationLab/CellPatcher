@@ -28,7 +28,7 @@ _EARLIER_HEADER = [
 
 
 def _write_image(path, value=1.0, shape=(16, 16)):
-    write_array(path, np.full(shape, value, dtype=np.float32))
+    write_array(path, np.full(shape, value, dtype=np.float32), axes="YX")
 
 
 def _grid_config(output_dir=None):

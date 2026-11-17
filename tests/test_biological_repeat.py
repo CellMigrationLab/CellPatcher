@@ -34,7 +34,7 @@ def _run(config):
 
 
 def _write_image(path, shape=(16, 16)):
-    write_array(path, np.ones(shape, dtype=np.float32))
+    write_array(path, np.ones(shape, dtype=np.float32), axes="YX")
 
 
 def _read_csv(path):

@@ -17,7 +17,7 @@ from tests.helpers import preprocessed_tree as _tree
 
 
 def _write_image(path, shape=(16, 16)):
-    write_array(path, np.ones(shape, dtype=np.float32))
+    write_array(path, np.ones(shape, dtype=np.float32), axes="YX")
 
 
 # ---------------------------------------------------------------------------
@@ -77,10 +77,10 @@ def test_tree_cell_mode_explicit_and_single_repeat_with_mirrored_masks(tmp_path)
     image_root = tmp_path / "raw_data"
     mask_root = tmp_path / "masks"
 
-    write_array(image_root / "treated" / "2026_01_01" / "img.tif", image)
-    write_array(mask_root / "treated" / "2026_01_01" / "img_mask.tif", labels)
-    write_array(image_root / "control" / "img.tif", image)
-    write_array(mask_root / "control" / "img_mask.tif", labels)
+    write_array(image_root / "treated" / "2026_01_01" / "img.tif", image, axes="YX")
+    write_array(mask_root / "treated" / "2026_01_01" / "img_mask.tif", labels, axes="YX")
+    write_array(image_root / "control" / "img.tif", image, axes="YX")
+    write_array(mask_root / "control" / "img_mask.tif", labels, axes="YX")
 
     cfg = CellPatcherConfig(mode="cell")
     cfg.cell.patch_size = 24
@@ -105,9 +105,9 @@ def test_tree_cell_mode_mask_folder_with_several_masks_per_image(tmp_path):
     image_root = tmp_path / "raw_data"
     mask_root = tmp_path / "masks"
     for leaf in ("treated/2026_01_01", "control/2026_01_01"):
-        write_array(image_root / leaf / "img.tif", image)
+        write_array(image_root / leaf / "img.tif", image, axes="YX")
         for suffix in ("_cells", "_nuclei", "_mito", "_nucleoli"):
-            write_array(mask_root / leaf / f"img{suffix}.tif", labels)
+            write_array(mask_root / leaf / f"img{suffix}.tif", labels, axes="YX")
 
     cfg = CellPatcherConfig(mode="cell")
     cfg.cell.patch_size = 24
@@ -131,7 +131,7 @@ def test_tree_cell_mode_missing_mask_folder_raises_per_leaf(tmp_path):
     image_root = tmp_path / "raw_data"
     mask_root = tmp_path / "masks"
 
-    write_array(image_root / "treated" / "img.tif", image)
+    write_array(image_root / "treated" / "img.tif", image, axes="YX")
     # no matching mask folder written under mask_root for "treated"
     mask_root.mkdir(parents=True)
 
@@ -159,11 +159,11 @@ def test_tree_random_mode_mask_root_needs_a_mask_for_every_image(tmp_path):
     # without one; random mode without a mask root still samples everywhere.
     image_root = tmp_path / "raw_data"
     mask_root = tmp_path / "masks"
-    write_array(image_root / "treated" / "img.tif", np.arange(64 * 64, dtype=np.float32).reshape(64, 64))
+    write_array(image_root / "treated" / "img.tif", np.arange(64 * 64, dtype=np.float32).reshape(64, 64), axes="YX")
     sampling_mask = np.zeros((64, 64), dtype=np.uint8)
     sampling_mask[16:48, 16:48] = 1  # a sampling region: a binary mask, and described so
-    write_array(mask_root / "treated" / "img_mask.tif", sampling_mask)
-    write_array(image_root / "control" / "img.tif", np.arange(64 * 64, dtype=np.float32).reshape(64, 64))
+    write_array(mask_root / "treated" / "img_mask.tif", sampling_mask, axes="YX")
+    write_array(image_root / "control" / "img.tif", np.arange(64 * 64, dtype=np.float32).reshape(64, 64), axes="YX")
 
     cfg = CellPatcherConfig(mode="random")
     cfg.random.n_patches = 3
@@ -171,7 +171,7 @@ def test_tree_random_mode_mask_root_needs_a_mask_for_every_image(tmp_path):
     with pytest.raises(ValueError, match=r"(?s)present in 1 of 2 acquisitions.*control/img.tif.*A_SCOPE_INCOMPLETE"):
         _tree(image_root, config=cfg, mask_root_path=mask_root, representations={"mask": "binary"})
 
-    write_array(mask_root / "control" / "img_mask.tif", np.ones((64, 64), dtype=np.uint8))
+    write_array(mask_root / "control" / "img_mask.tif", np.ones((64, 64), dtype=np.uint8), axes="YX")
     results = _tree(image_root, config=cfg, mask_root_path=mask_root, representations={"mask": "binary"})
     assert {r.condition: len(r.result.patches) for r in results} == {"control": 3, "treated": 3}
 
@@ -343,8 +343,8 @@ def test_tree_cell_mode_finds_masks_in_mirrored_technical_repeat_folders(tmp_pat
     image, labels, _ = make_synthetic_cell_image_and_labels(seed=5)
     image_root, mask_root = tmp_path / "raw_data", tmp_path / "masks"
     for well in ("B02", "B03"):
-        write_array(image_root / "treated" / "2026_01_01" / well / "img.tif", image)
-        write_array(mask_root / "treated" / "2026_01_01" / well / "img_mask.tif", labels)
+        write_array(image_root / "treated" / "2026_01_01" / well / "img.tif", image, axes="YX")
+        write_array(mask_root / "treated" / "2026_01_01" / well / "img_mask.tif", labels, axes="YX")
 
     cfg = CellPatcherConfig(mode="cell")
     cfg.cell.patch_size = 16
