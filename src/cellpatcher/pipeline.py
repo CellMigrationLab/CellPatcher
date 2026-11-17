@@ -804,8 +804,8 @@ def run_patching(images=None, masks=None, config=None, image_metadata=None, frac
         A single label array or a list/tuple of label arrays, one per image.
 
         * ``mode='cell'`` — **required**.  Integer label map where each unique
-          non-zero value is a separate cell, used as given (decision D47: a 0/1
-          integer mask is one object), a plain NumPy array; labels above int32 are refused.
+          non-zero value is a separate cell, used as given (decision D47: a 0/1 integer mask, a region
+          too, is one object; pass instance labels), a plain NumPy array; labels above int32 are refused.
           Nothing is converted in memory (Spec ADR 0005 BM4): any other mask is refused with
           ``A_MASK_NOT_INSTANCES``, and ``cell.binary_mask_policy`` too (:mod:`cellpatcher.mask_policy`).
         * ``mode='random'`` — **optional**.  When provided, patches are
