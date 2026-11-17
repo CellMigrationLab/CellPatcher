@@ -74,9 +74,24 @@ Release v0.3.0
 Pin preprocessing v0.4.0rc4; prepare v0.2.0rc2
 
 ---
-## [Unreleased] - Preprocessing v0.7.0, normalization v0.7.1
+## [Unreleased] - Preprocessing v0.7.0, normalization v0.7.1; a stopped preprocessing run's refusal passed on (#126)
 
 For v0.7.2 or v0.8.0.
+
+### Fixed
+- **#126: a run preprocessing stopped on purpose is refused with preprocessing's own refusal, unchanged, and no
+  advice of CellPatcher's.** On an output folder where preprocessing stopped without writing a run (Spec `v29`: RGB
+  units beside fluorescence units, `R_HETEROGENEOUS_LAYOUT_NOT_ENABLED`), v0.7.1 refused with
+  `preprocessing_run_refused` ("holds no run_manifest.json") and advised running preprocessing again, which stops
+  the same way. Preprocessing v0.7.0's `RunInputs.open` raises `RunStoppedError` there; CellPatcher's
+  `PreprocessingCheckError` (chained `from` it) now holds first an issue with its code `RUN_FOLDER_STOPPED` and
+  its message, exactly, with an empty suggested action, then its `issues` (the stopped run's errors), unchanged and
+  in order (Spec ADR 0005, construction and propagation: no rewording, no code of CellPatcher's around it). A run
+  report preprocessing cannot read (`RunReportUnreadableError`) gives one issue with its code
+  `RUN_FOLDER_REPORT_UNREADABLE` and message, naming the report. CellPatcher reads no `discovery_report.json`. A
+  folder with neither a run nor a stopped run's report says to give a written run or run preprocessing first (no
+  "again"); a written run that is stale (an image changed since, an older manifest) keeps the advice to run
+  preprocessing again, which fixes it. `tests/test_stopped_run.py`. Reworked from draft PR #128.
 
 ### Changed
 - **Dependencies:** pins preprocessing `v0.7.0` (`8865b72`; core and `zarr` extra; was `v0.6.1`) and
