@@ -170,7 +170,7 @@ def test_an_undeclared_mask_id_is_present_in_0_of_n(v08, monkeypatch):
     with pytest.raises(PreprocessingCheckError) as raised:
         _tree(v08, _cell_config(v08.output, mask_id="Cells"))
     assert _codes(raised) == ["A_SCOPE_INCOMPLETE"]
-    assert "'Cells' is present in 0 of 4 acquisitions" in str(raised.value)
+    assert "'Cells' is present in 0 of 4 images" in str(raised.value)
 
 
 def test_p28_a_mask_the_mask_step_has_not_checked_is_refused_by_the_resolver(tmp_path, monkeypatch):

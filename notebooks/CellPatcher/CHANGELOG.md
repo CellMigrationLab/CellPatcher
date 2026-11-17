@@ -74,6 +74,26 @@ Release v0.3.0
 Pin preprocessing v0.4.0rc4; prepare v0.2.0rc2
 
 ---
+## [Unreleased] - Preprocessing v0.7.0, normalization v0.7.1
+
+For v0.7.2 or v0.8.0.
+
+### Changed
+- **Dependencies:** pins preprocessing `v0.7.0` (`8865b72`; core and `zarr` extra; was `v0.6.1`) and
+  normalization `v0.7.1` (`fcfaeac`; was `v0.7.0`), the tag preprocessing `v0.7.0` pins (owner decision D-h).
+  Preprocessing v0.7.0 adds `RunStoppedError` and `RunReportUnreadableError` (#322), reports Spec `v29`
+  (`R_HETEROGENEOUS_LAYOUT_NOT_ENABLED`) as the run's single refusal, caps an `unreadable_planes` message at 20
+  planes per image (the report keeps them all) and words its coverage messages by the unit they count: the
+  resolver's `A_SCOPE_INCOMPLETE` says "present in k of n images" (was "acquisitions"), the run's
+  `partial_channel_coverage` warning says "imaging units". Normalization v0.7.1 writes a signed zero `-0.0` as
+  `0.0` (its written text only; no API, schema or message change). No run format changes: runs of preprocessing
+  v0.6.1 are read as they are.
+- CellPatcher's code does not change for them. Four tests that quoted the resolver's old word now quote
+  "images" (`test_cell_mask_request.py`, `test_channel_ids.py`, `test_condition_repeat_tree.py`,
+  `test_ngff_labels.py`), and `docs/configuration_reference.md` quotes the new text. No golden changes: the parity
+  golden `tests/fixtures/v062_parity/digests.json` and `tests/fixtures/shared_labeller/golden.json` pass unchanged
+  (no golden case writes a `-0.0`).
+
 ## [Unreleased] - write_array writes a TIFF as planes, laid out from the axes it is given (#131)
 
 For v0.7.2. Follows #129/#130.

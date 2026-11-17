@@ -71,13 +71,13 @@ def test_a_multichannel_patch_has_no_channel_id(tmp_path):
 
 @pytest.mark.parametrize("ids", [["NUCLEUS"], ["DNA", "NUCLEUS"]])
 def test_an_unknown_channel_id_is_refused_by_the_resolver_before_anything_is_written(tmp_path, ids):
-    # Resolver contract v1: an ID no image has is present in 0 of n acquisitions (A_SCOPE_INCOMPLETE);
+    # Resolver contract v1: an ID no image has is present in 0 of n images (A_SCOPE_INCOMPLETE);
     # nothing is selected, not even the known ID.
     run = _described_run(tmp_path, "v13")
     with pytest.raises(PreprocessingCheckError) as raised:
         _tree(run, tmp_path / "out", ids)
     assert [issue.code for issue in raised.value.issues] == ["A_SCOPE_INCOMPLETE"]
-    assert "'NUCLEUS' is present in 0 of 90 acquisitions" in str(raised.value)
+    assert "'NUCLEUS' is present in 0 of 90 images" in str(raised.value)
     assert not (tmp_path / "out").exists()
 
 
