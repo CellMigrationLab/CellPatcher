@@ -74,11 +74,11 @@ def test_exported_grid_patches_record_axes_padding_and_no_resize(tmp_path):
 
 
 def test_earlier_columns_keep_their_order():
-    # mask_fractions, normalization_channels and normalization_parameters, the last three fields, are
-    # written as columns of their own, not as themselves.
+    # mask_fractions, normalization_channels and normalization_parameters are written as columns of their
+    # own, not as themselves; image_type (issue #129), the last field, is not written.
     names = [f.name for f in fields(PatchRegion)]
-    assert names[-3:] == ["mask_fractions", "normalization_channels", "normalization_parameters"]
-    header = names[:-3]
+    assert names[-4:] == ["mask_fractions", "normalization_channels", "normalization_parameters", "image_type"]
+    header = names[:-4]
     assert header.index("normalization_exact") + 1 == header.index("image_height")
     first = header.index("requested_y0")
     assert header[first - len(GEOMETRY_COLUMNS) - 1:first] == [*GEOMETRY_COLUMNS, "object_set"]

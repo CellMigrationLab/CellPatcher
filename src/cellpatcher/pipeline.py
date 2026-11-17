@@ -29,13 +29,10 @@ from cellpatcher.io import SINGLE_BIOLOGICAL_REPEAT_LABEL, SINGLE_CONDITION_LABE
 from cellpatcher.mask_policy import check_in_memory_objects
 from cellpatcher.masking import apply_label_masks_to_patches
 from cellpatcher.delivery import raw_export_array
-from cellpatcher.normalization import (
-    Normalizer,
-    finish_patch_groups,
-    validate_normalization,
-)
+from cellpatcher.normalization import Normalizer, finish_patch_groups, validate_normalization
 from cellpatcher.patch_normalization import split_channel_normalization
 from cellpatcher.run_config_file import run_config_data
+from cellpatcher.run_open import image_type_of
 from cellpatcher.run_session import one_session
 from cellpatcher.statistics import _preprocessing
 from cellpatcher.planes import iter_image_planes, plane_choices, splits_planes
@@ -137,6 +134,7 @@ def _stamp_image_metadata(image_list, image_metadata, patches: list[PatchRegion]
             patch.source_relative_path = str(meta["source_relative_path"])
         if meta.get("object_set") is not None and patch.mode == "cell":
             patch.object_set = meta["object_set"]  # text, checked by resolve_object_set
+        patch.image_type = meta.get("image_type")  # "channels", "rgb" or None: run_open.image_type_of (#129)
 
 
 def _image_labels(config: CellPatcherConfig, meta) -> tuple[str, str, str]:
@@ -194,6 +192,7 @@ def _identity_metadata(config: CellPatcherConfig, image_list, image_metadata) ->
         _check_channel_identity(config, meta, index)
         if config.mode == "cell":
             meta["object_set"] = resolve_object_set(meta, config.common)
+        meta["image_type"] = image_type_of(meta.get("image_type"), config.normalization, index)
         filled.append(meta)
     check_run_identity_case(seen)
     return filled
@@ -828,7 +827,8 @@ def run_patching(images=None, masks=None, config=None, image_metadata=None, frac
         exactly which C/Z/T plane each patch came from. The provenance
         keys ``"technical_repeat"``, ``"image_file"``, ``"mask_file"`` and
         ``"source_relative_path"`` are stamped onto the ``PatchRegion``
-        fields of the same name.
+        fields of the same name; ``"image_type"`` (``"channels"``/``"rgb"``)
+        how a TIFF patch is written (:func:`~cellpatcher.run_open.image_type_of`).
     fraction_masks:
         Optional list, one entry per image, of ``{name: 2-D mask}`` with the image's Y/X shape, a mask
         being an array or a :class:`~cellpatcher.WindowedMask` (read by patch windows, never whole, with

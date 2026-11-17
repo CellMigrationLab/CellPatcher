@@ -89,6 +89,12 @@ class PatchRegion:
       whatever the normalization and splitting settings; ``None`` without IDs,
       or for a plane without ``c`` given the IDs of several channels. Written
       as the ``;``-separated column ``channel_ids``.
+    - ``image_type``: the image type of the patch's unit, ``"channels"`` or
+      ``"rgb"`` (issue #129): a described run's ``Fov.image_type``; in memory
+      ``image_metadata["image_type"]``, or ``"rgb"`` with
+      ``normalization.image_type="rgb"``; ``None`` when nothing declares one.
+      Not a column: it only decides how :func:`~cellpatcher.export.export_patches`
+      writes a TIFF patch (RGB for an ``rgb`` unit, planes otherwise).
     - ``image_height``, ``image_width``: the Y/X size of the source image
       (plane) the rectangle ``y0/y1/x0/x1`` lies in; set by ``run_patching``
       for every patch, whether or not arrays are extracted.
@@ -101,7 +107,8 @@ class PatchRegion:
       had that size and resizing left it unchanged).
     - ``output_axes``: the axes of the delivered/exported array, in order
       (e.g. ``"CYX"``; ``"YX"`` for a split channel; a kept Z or T axis stays).
-      Exported TIFF/NPY files carry no axes of their own.
+      Exported TIFF/NPY files carry no axes of their own (a TIFF patch records
+      its ``channel_ids`` in its description, :func:`~cellpatcher.export.save_patch_array`).
     The padding, ``resized`` and ``output_axes`` fields, like
     ``output_height``/``output_width``, are ``None`` unless arrays were
     extracted (``common.extract_arrays=True`` or ``export.enabled=True``).
@@ -207,6 +214,11 @@ class PatchRegion:
     # right after normalization_exact. Last, so the fields before it are
     # still exactly the CSV's columns in order.
     normalization_parameters: object | None = field(default=None, repr=False)
+    # The image type the patch's unit declares (issue #129): "channels" or "rgb", a described run's
+    # Fov.image_type, in memory image_metadata["image_type"] (or "rgb" under normalization.image_type="rgb").
+    # None when nothing declares one. Not a column: it only chooses how export_patches writes a TIFF (RGB
+    # only for an rgb unit's patch, every other patch as planes), so patches.csv keeps its columns.
+    image_type: str | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         # y0/x0 are always required (defaulted to 0), so their ranges are
@@ -253,8 +265,8 @@ class PatchRegion:
 CHANNEL_SEPARATOR = ";"
 """The separator of the channel IDs of one ``patches.csv`` cell (``channel_ids``, ``normalization_channels``)."""
 
-# PatchRegion fields written as several columns of their own, not as one.
-_NOT_COLUMNS = ("normalization_parameters", "normalization_channels", "mask_fractions")
+# PatchRegion fields written as several columns of their own, not as one, or (image_type) not written.
+_NOT_COLUMNS = ("normalization_parameters", "normalization_channels", "mask_fractions", "image_type")
 MASK_FRACTION_PREFIX = "mask_fraction_"
 
 

@@ -248,13 +248,14 @@ def test_a_file_runs_fov_metadata_carries_the_ids_of_its_description():
     key = ("treated", "r1", "single", "P1")
     described = SimpleNamespace(
         key=key, relative_path="treated/r1/P1.tif", repeat_group="rg1", condition_id="c1", technical_repeat_id="tr1",
-        channel_ids=("C0",),
+        channel_ids=("C0",), image_type="channels",
     )
     config = CellPatcherConfig(mode="grid")
     run = SimpleNamespace(mask_type=None)
 
     meta = fov_metadata(run, described, config)
     assert (meta["repeat_group"], meta["condition_id"], meta["technical_repeat_id"]) == ("rg1", "c1", "tr1")
+    assert meta["image_type"] == "channels"  # how its TIFF patches are written (issue #129)
     # A FOV without an ID is refused, never left empty (every run is described; tests/test_described_ids.py).
     with pytest.raises(ValueError, match="has no repeat_group"):
         fov_metadata(run, SimpleNamespace(**{**vars(described), "repeat_group": None}), config)

@@ -506,6 +506,8 @@ def fov_metadata(run: FileRun, fov: Fov, config: CellPatcherConfig) -> dict:
         meta[name] = value
     if fov.channel_ids is not None:
         meta["channel_ids"] = fov.channel_ids  # each patch's channel_id is the ID of its c (CP-3)
+    if fov.image_type is not None:
+        meta["image_type"] = fov.image_type  # "channels" or "rgb": how a TIFF patch is written (issue #129)
     if run.mask_type is not None:
         meta["mask_file"] = mask_file_name(_record(run.inputs, fov, run.mask_type))
         if config.mode == "cell" and config.common.object_set is None:

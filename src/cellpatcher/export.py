@@ -1,6 +1,7 @@
 import csv
 import re
 from collections import Counter
+from collections.abc import Sequence
 from dataclasses import fields
 from pathlib import Path
 
@@ -139,24 +140,86 @@ def image_records_from_patches(patches) -> list[ImageRecord]:
     return list(records.values())
 
 
-def save_patch_array(array, path):
+TIFF_PHOTOMETRICS = ("minisblack", "rgb")
+"""The photometric interpretations :func:`save_patch_array` writes: channels as planes, or RGB colour."""
+
+
+def save_patch_array(
+    array: np.ndarray,
+    path: str | Path,
+    *,
+    photometric: str = "minisblack",
+    planarconfig: str | None = None,
+    channel_ids: Sequence[str] | None = None,
+) -> None:
+    """Write one patch array as ``.npy`` or ``.tif``/``.tiff`` (issue #129).
+
+    A TIFF patch is written with an explicit *photometric*: ``"minisblack"`` (the default: every
+    channel is a plane of its own) or ``"rgb"`` (the three channels are R, G and B samples, with
+    *planarconfig* ``"separate"`` for a ``...CYX`` array or ``"contig"`` for a ``...YXC`` one), never
+    tifffile's guess from the shape, which made any array with 3 or 4 along its first or last axis an
+    RGB image. *channel_ids* (the patch's ``channel_ids``, in its C order) are recorded in the TIFF's
+    JSON image description as ``"channel_ids"``, beside the ``"shape"`` tifffile writes there
+    (``tifffile.TiffFile(path).shaped_metadata[0]``); a ``.npy`` file holds the pixels only. The pixels
+    read back with ``read_array`` are the array's, in its shape and dtype, whatever the photometric.
+    """
     out = Path(path)
-    out.parent.mkdir(parents=True, exist_ok=True)
     suffix = out.suffix.lower()
+    if suffix not in {".npy", ".tif", ".tiff"}:
+        raise ValueError(f"Unsupported export file extension: {out.suffix}")
+    if photometric not in TIFF_PHOTOMETRICS:
+        raise ValueError(f"photometric must be one of {TIFF_PHOTOMETRICS}, got {photometric!r}.")
+    out.parent.mkdir(parents=True, exist_ok=True)
 
     if suffix == ".npy":
         np.save(out, np.asarray(array))
         return
 
-    if suffix in {".tif", ".tiff"}:
-        try:
-            import tifffile
-        except ImportError as exc:
-            raise ImportError("tifffile is required for TIFF export.") from exc
-        tifffile.imwrite(str(out), np.asarray(array))
-        return
+    try:
+        import tifffile
+    except ImportError as exc:
+        raise ImportError("tifffile is required for TIFF export.") from exc
+    metadata = {} if channel_ids is None else {"channel_ids": list(channel_ids)}
+    tifffile.imwrite(str(out), np.asarray(array), photometric=photometric, planarconfig=planarconfig, metadata=metadata)
 
-    raise ValueError(f"Unsupported export file extension: {out.suffix}")
+
+def tiff_layout(patch: PatchRegion, array: np.ndarray) -> tuple[str, str | None]:
+    """Return the ``(photometric, planarconfig)`` a TIFF of *patch*'s *array* is written with (issue #129).
+
+    RGB only for a patch of an ``rgb`` unit (``patch.image_type``, the type the run declares; never
+    judged from the array's shape) that holds its three channels (``"C"`` in ``patch.output_axes``),
+    ``"separate"`` when C comes just before Y and X, ``"contig"`` when it is last; every other patch,
+    and one channel plane of an ``rgb`` unit, as planes (``"minisblack"``).
+
+    Raises
+    ------
+    ValueError
+        For a patch of an ``rgb`` unit whose array has no axes recorded, another number of channels
+        than 3, or its C axis elsewhere: it is not written as anything else.
+    """
+    if patch.image_type != "rgb":
+        return "minisblack", None
+    axes = patch.output_axes
+    shape = np.shape(array)
+    if axes is None or len(axes) != len(shape):
+        raise ValueError(
+            f"Patch {patch.patch_id} is of an rgb unit, but its array of shape {shape} has no axes recorded "
+            f"(output_axes={axes!r}), so its R, G and B channels cannot be told apart."
+        )
+    if "C" not in axes:
+        return "minisblack", None
+    if shape[axes.index("C")] != 3:
+        raise ValueError(
+            f"Patch {patch.patch_id} is of an rgb unit, but holds {shape[axes.index('C')]} channels, not 3."
+        )
+    if axes.endswith("CYX"):
+        return "rgb", "separate"
+    if axes.endswith("YXC"):
+        return "rgb", "contig"
+    raise ValueError(
+        f"Patch {patch.patch_id} is of an rgb unit with axes {axes!r}: an RGB TIFF needs C just before Y "
+        "and X or last."
+    )
 
 
 def export_patches(
@@ -171,6 +234,9 @@ def export_patches(
     image_table_filename=IMAGE_TABLE_FILENAME,
 ) -> list[str]:
     """Save every patch array as a file named by its ``patch_id`` and, optionally, the metadata.
+
+    A TIFF patch is written as planes (``minisblack``), or as RGB for a patch of an ``rgb`` unit
+    (:func:`tiff_layout`), with its ``channel_ids`` in its description (:func:`save_patch_array`).
 
     With *save_metadata*, ``patches.csv`` (*metadata_filename*) and the
     per-image table ``images.csv`` (*image_table_filename*,
@@ -202,11 +268,14 @@ def export_patches(
         preview = ", ".join(duplicate_filenames[:5])
         raise ValueError(f"Duplicate export filenames detected after sanitization: {preview}")
 
+    # Every TIFF's layout first, so a patch that cannot be written stops the export before any file.
+    layouts = [tiff_layout(patch, array) if fmt != "npy" else ("minisblack", None)
+               for patch, array in zip(patches, patch_arrays, strict=True)]
     saved_files: list[str] = []
-    for patch, array in zip(patches, patch_arrays):
+    for patch, array, (photometric, planarconfig) in zip(patches, patch_arrays, layouts, strict=True):
         filename = f"{sanitize_filename(patch.patch_id)}.{fmt}"
         path = out_dir / filename
-        save_patch_array(array, path)
+        save_patch_array(array, path, photometric=photometric, planarconfig=planarconfig, channel_ids=patch.channel_ids)
         saved_files.append(str(path))
         # Stamp patch_file before the metadata CSV is written below, so
         # that CSV records the exact filename each patch was saved as.
