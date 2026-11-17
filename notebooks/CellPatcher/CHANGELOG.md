@@ -74,11 +74,26 @@ Release v0.3.0
 Pin preprocessing v0.4.0rc4; prepare v0.2.0rc2
 
 ---
-## [Unreleased] - Preprocessing v0.7.0, normalization v0.7.1; a stopped preprocessing run's refusal passed on (#126); D47 documented (#124)
+## [0.8.0] - 2026-11-17 - Preprocessing v0.7.0, normalization v0.7.1; a stopped run's refusal passed on (#126); TIFFs written as planes (#129, #131); channel IDs on every patch (#125); D47 documented (#124)
 
-For v0.7.2 or v0.8.0.
+The v0.8.0 release (17 November 2026), from #127, #130, #132 and #133. A minor release because public API and
+behaviour change: `write_array` to a TIFF without `axes` is refused (#131, **Breaking** below), `patches.csv` gains
+the `channel_ids` column and `read_patch_table` refuses a table without it (#125), a stopped preprocessing run is
+refused with preprocessing's own codes (`RUN_FOLDER_STOPPED`, `RUN_FOLDER_REPORT_UNREADABLE`) instead of
+`preprocessing_run_refused` (#126), and the preprocessing pin moves to a new minor. It pins preprocessing `v0.7.0`
+(`8865b72`; core and `zarr` extra; was `v0.6.1`) and normalization `v0.7.1` (`fcfaeac`; was `v0.7.0`), the tag
+preprocessing `v0.7.0` pins (owner decision D-h). `__version__`, `setup.py` and every notebook (`RELEASE_TAG`,
+`current_version`, `notebook_latest_versions.yaml`) are `0.8.0`. Pixels of every patch are unchanged; what changes
+in the written files is listed under each **Changed** below. Bricks that pin CellPatcher pin `v0.8.0` together with
+preprocessing `v0.7.0` and normalization `v0.7.1` (pip refuses two URLs for one package).
 
-### Fixed
+Reviewer's note on #126 (independent review of #133): for a folder that holds neither a `run_manifest.json` nor a
+stopped run's report (no report, a `check` report or a provisional one), the refusal stays `preprocessing_run_refused`
+but its suggested action now says to **give a written run or run preprocessing first** ("Give CellPatcher the output
+folder of a preprocessing run that was written (it holds run_manifest.json), or run preprocessing on the experiment
+first."); v0.7.1 said to run preprocessing again. A written run that is stale keeps the advice to run it again.
+
+### Fixed (#126)
 - **#126: a run preprocessing stopped on purpose is refused with preprocessing's own refusal, unchanged, and no
   advice of CellPatcher's.** On an output folder where preprocessing stopped without writing a run (Spec `v29`: RGB
   units beside fluorescence units, `R_HETEROGENEOUS_LAYOUT_NOT_ENABLED`), v0.7.1 refused with
@@ -93,7 +108,7 @@ For v0.7.2 or v0.8.0.
   "again"); a written run that is stale (an image changed since, an older manifest) keeps the advice to run
   preprocessing again, which fixes it. `tests/test_stopped_run.py`. Reworked from draft PR #128.
 
-### Documented
+### Documented (#124)
 - **#124: decision D47 is kept and documented** (owner decision of 17 November 2026). In memory (`run_patching`,
   the object scan, `CellSegmentationStrategy`) an integer cell-mode mask is instance labels used as stored, so a
   0/1 integer region is one object, however many separate regions it has: an in-memory array carries no
@@ -102,7 +117,7 @@ For v0.7.2 or v0.8.0.
   that a region passed to cell mode gives one large patch and to pass instance labels instead. No behaviour change;
   `tests/test_cell_strategy.py` pins it through `run_patching`.
 
-### Changed
+### Changed (dependencies)
 - **Dependencies:** pins preprocessing `v0.7.0` (`8865b72`; core and `zarr` extra; was `v0.6.1`) and
   normalization `v0.7.1` (`fcfaeac`; was `v0.7.0`), the tag preprocessing `v0.7.0` pins (owner decision D-h).
   Preprocessing v0.7.0 adds `RunStoppedError` and `RunReportUnreadableError` (#322), reports Spec `v29`
@@ -118,11 +133,9 @@ For v0.7.2 or v0.8.0.
   golden `tests/fixtures/v062_parity/digests.json` and `tests/fixtures/shared_labeller/golden.json` pass unchanged
   (no golden case writes a `-0.0`).
 
-## [Unreleased] - write_array writes a TIFF as planes, laid out from the axes it is given (#131)
+*#131 follows #129/#130 (PR #132).*
 
-For v0.7.2. Follows #129/#130.
-
-### Fixed
+### Fixed (#131)
 - **#131: `cellpatcher.io.write_array` writes a TIFF with an explicit photometric, never tifffile's guess from its
   shape.** It called `tifffile.imwrite` without `photometric`, so an array with 3 or 4 along its first or last axis
   (`CYX` or `YXC` channels) was written as an RGB(A) image, with tifffile's `DeprecationWarning`. As for exported
@@ -134,27 +147,25 @@ For v0.7.2. Follows #129/#130.
   `tests/test_write_array_tiff.py` (3 and 4 channels in `CYX` and `YXC`, `ZCYX`, RGB declared as `CYX`/`YXC`,
   the refusals, warnings as errors).
 
-### Breaking (no backward compatibility, ADR 0002 AR10)
+### Breaking: #131 (no backward compatibility, ADR 0002 AR10)
 - **`write_array(path, array)` to a `.tif`/`.tiff` without `axes` is refused** (`ValueError` naming the fix:
   pass `axes=`, for example `axes="YX"`, and `photometric="rgb"` for an RGB image), as are axes that do not
   match the array, Y and X not last or followed by more than one axis, and `photometric="rgb"` on an array
   without three channels just before Y and X or last; nothing is written then. `.npy` and the other formats
   take no axes and are unchanged (`axes`/`photometric` are used for a TIFF only).
 
-### Migration
+### Migration (#131)
 - Pass the array's axes: `write_array(path, image, axes="YX")` for one image, `axes="CYX"`/`"YXC"` for channels,
   plus `photometric="rgb"` for an RGB image.
 
-### Changed
+### Changed (#131)
 - Every caller passes what it knows: the 70 TIFF `write_array` calls in `tests/` (all of 2-D images and masks)
   pass `axes="YX"`; no code under `src/`, `app/` or `notebooks/` calls it.
 - `tools/code_rules_baseline.json` shrinks (the typed, documented `write_array`).
 
-## [Unreleased] - TIFF patches written as planes, RGB only for an rgb unit (#129)
+*#129 (PR #130) was found by the G4 adversarial suite (MorphoFeature draft PR #240, row A09) on `aca2c6c`.*
 
-For v0.7.2. Found by the G4 adversarial suite (MorphoFeature draft PR #240, row A09) on `aca2c6c`.
-
-### Fixed
+### Fixed (#129)
 - **#129: a TIFF patch is written with an explicit photometric, never tifffile's guess from its shape.**
   `save_patch_array` called `tifffile.imwrite` without `photometric`, so a 3-channel fluorescence patch (`CYX`,
   DNA/ACTIN/PHASE) was written as an RGB image (axes `SYX`), a 4-channel one as RGBA, and any patch 3 or 4 pixels
@@ -175,7 +186,7 @@ For v0.7.2. Found by the G4 adversarial suite (MorphoFeature draft PR #240, row 
   C strips; it is now written `planarconfig="contig"` (one Y/X page, the channels its samples), chosen from the
   patch's `output_axes`, never its shape. Pixels, shape and dtype read back are unchanged.
 
-### Changed
+### Changed (#129)
 - **Outputs:** a TIFF patch records its `channel_ids` (its C order) in its JSON image description as
   `"channel_ids"`, beside the `"shape"` tifffile already wrote there (`TiffFile.shaped_metadata`); a patch without
   channel IDs has none. A patch of 3 or 4 channels that is not of an `rgb` unit, and a patch 3 or 4 pixels wide
@@ -191,11 +202,9 @@ For v0.7.2. Found by the G4 adversarial suite (MorphoFeature draft PR #240, row 
 - `tests/test_patch_geometry.py` expects `image_type` as the last `PatchRegion` field; `tests/test_position_table.py`'s
   stand-in `Fov` has an `image_type`. `tools/code_rules_baseline.json` shrinks (the typed `save_patch_array`).
 
-## [Unreleased] - Channel IDs on every patch (#125)
+*#125 (PR #127) was found by the S3.4 adversarial suite (MorphoFeature draft PR #240, gate G3).*
 
-For v0.7.2. Found by the S3.4 adversarial suite (MorphoFeature draft PR #240, gate G3).
-
-### Fixed
+### Fixed (#125)
 - **#125: every patch of a described run records its channel IDs, in its C order.** Without normalization and
   without channel splitting, v0.7.1 recorded no channel ID at all (`c`, `channel_id` and `normalization_channels`
   empty, on the patch and in `patches.csv`), so the patches of two units storing DNA, ACTIN and ACTIN, DNA could
@@ -214,7 +223,7 @@ For v0.7.2. Found by the S3.4 adversarial suite (MorphoFeature draft PR #240, ga
   (without splitting) is refused: its patches hold every channel, so `c` would have labelled them with one ID
   (review of #127).
 
-### Changed
+### Changed (#125)
 - **Outputs:** `patches.csv` has one new last field column, `channel_ids` (before the dynamic `mask_fraction_*`
   columns); every other column, value, patch file, `images.csv` and `positions.csv` is unchanged. The parity golden
   `tests/fixtures/v062_parity/digests.json` changes in its 57 `patches.csv` digests only, one per table of every
