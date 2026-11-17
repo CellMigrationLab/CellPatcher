@@ -146,8 +146,8 @@ def test_e2e_folder_matching_to_cell_pipeline(tmp_path):
 
     img_path = img_dir / "image001.tif"
     mask_path = mask_dir / "image001_mask.tif"
-    write_array(img_path, image)
-    write_array(mask_path, labels)
+    write_array(img_path, image, axes="YX")
+    write_array(mask_path, labels, axes="YX")
 
     run = preprocess(img_dir, masks=mask_dir)
     matched = validate_image_and_mask_folders(img_dir, mask_dir, preprocessing_run=run)

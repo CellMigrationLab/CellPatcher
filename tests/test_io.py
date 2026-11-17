@@ -79,7 +79,7 @@ def test_write_read_tiff_roundtrip(tmp_path):
     arr = np.arange(9).reshape(3, 3).astype(np.uint16)
     p = tmp_path / "img.tif"
     try:
-        write_array(p, arr)
+        write_array(p, arr, axes="YX")
         loaded = read_array(p)
         assert np.array_equal(loaded, arr)
     except ImportError:
@@ -107,8 +107,8 @@ def test_run_patching_pipeline_folder_cell_mode(tmp_path):
     labels = np.zeros((16, 16), dtype=np.int32)
     labels[4:12, 5:13] = 1
 
-    write_array(img_dir / "sample.tif", image)
-    write_array(mask_dir / "sample_mask.tif", labels)
+    write_array(img_dir / "sample.tif", image, axes="YX")
+    write_array(mask_dir / "sample_mask.tif", labels, axes="YX")
 
     config = file_run_config(CellPatcherConfig(mode="cell"), img_dir, masks=mask_dir)
     config.cell.patch_size = 8
@@ -120,7 +120,7 @@ def test_run_patching_pipeline_folder_cell_mode(tmp_path):
 def test_run_patching_pipeline_folder_cell_requires_masks(tmp_path):
     img_dir = tmp_path / "images"
     img_dir.mkdir()
-    write_array(img_dir / "a.tif", np.zeros((8, 8), dtype=np.float32))
+    write_array(img_dir / "a.tif", np.zeros((8, 8), dtype=np.float32), axes="YX")
 
     config = file_run_config(CellPatcherConfig(mode="cell"), img_dir)  # a run without masks
     with pytest.raises(ValueError, match="mode='cell' reads masks, but the preprocessing run .* recorded none"):
@@ -137,7 +137,7 @@ from cellpatcher.orchestration import (
 def test_run_patching_pipeline_folder_grid_mode(tmp_path):
     img_dir = tmp_path / "images"
     img_dir.mkdir()
-    write_array(img_dir / "a.tif", np.arange(64).reshape(8, 8))
+    write_array(img_dir / "a.tif", np.arange(64).reshape(8, 8), axes="YX")
 
     config = file_run_config(CellPatcherConfig(mode="grid"), img_dir)
     config.grid.tile_size = 4
@@ -154,8 +154,8 @@ def test_grid_and_whole_fov_folder_runs_take_a_moved_masks_folder(tmp_path, mode
     from cellpatcher.statistics import PreprocessingCheckError
 
     img_dir, mask_dir = tmp_path / "images", tmp_path / "masks"
-    write_array(img_dir / "a.tif", np.zeros((8, 8), dtype=np.uint16))
-    write_array(mask_dir / "a_mask.tif", np.ones((8, 8), dtype=np.uint16))
+    write_array(img_dir / "a.tif", np.zeros((8, 8), dtype=np.uint16), axes="YX")
+    write_array(mask_dir / "a_mask.tif", np.ones((8, 8), dtype=np.uint16), axes="YX")
     config = file_run_config(CellPatcherConfig(mode=mode), img_dir, masks=mask_dir)
     config.grid.tile_size = 4
     shutil.move(mask_dir, tmp_path / "moved")
@@ -175,8 +175,8 @@ def test_run_patching_pipeline_random_mode_with_optional_mask(tmp_path):
     # mask restricts sampling to top half
     mask = np.zeros((32, 32), dtype=np.int32)
     mask[:16, :] = 1
-    write_array(img_dir / "a.tif", img)
-    write_array(mask_dir / "a_mask.tif", mask)
+    write_array(img_dir / "a.tif", img, axes="YX")
+    write_array(mask_dir / "a_mask.tif", mask, axes="YX")
 
     binary = {"mask": "binary"}  # a sampling region is a binary mask, and the description says so
     config = file_run_config(CellPatcherConfig(mode="random"), img_dir, masks=mask_dir, representations=binary)
@@ -191,7 +191,7 @@ def test_run_patching_pipeline_random_mode_without_mask(tmp_path):
     """random mode works without a mask folder."""
     img_dir = tmp_path / "images"
     img_dir.mkdir()
-    write_array(img_dir / "a.tif", np.zeros((32, 32), dtype=np.float32))
+    write_array(img_dir / "a.tif", np.zeros((32, 32), dtype=np.float32), axes="YX")
 
     config = file_run_config(CellPatcherConfig(mode="random"), img_dir)
     config.random.patch_size = 4
@@ -225,7 +225,7 @@ def test_load_config_is_usable_for_patching(tmp_path):
     """A config saved and loaded must work end-to-end with run_patching_pipeline."""
     img_dir = tmp_path / "images"
     img_dir.mkdir()
-    write_array(img_dir / "a.tif", np.arange(64).reshape(8, 8))
+    write_array(img_dir / "a.tif", np.arange(64).reshape(8, 8), axes="YX")
 
     config_path = tmp_path / "cfg.json"
     save_default_config(config_path)
@@ -257,10 +257,10 @@ def _folders(tmp_path, images, masks):
     img_dir.mkdir()
     mask_dir.mkdir()
     for name in images:
-        write_array(img_dir / name, np.zeros((4, 4), np.uint8))
+        write_array(img_dir / name, np.zeros((4, 4), np.uint8), axes="YX")
     for name in masks:
         (mask_dir / name).parent.mkdir(parents=True, exist_ok=True)
-        write_array(mask_dir / name, np.ones((4, 4), np.uint16))
+        write_array(mask_dir / name, np.ones((4, 4), np.uint16), axes="YX")
     return img_dir, mask_dir
 
 
@@ -312,7 +312,7 @@ def test_validate_reads_a_moved_experiment_where_it_is_now_and_refuses_a_changed
         shutil.rmtree(folder)
     out = validate_image_and_mask_folders(moved / "images", moved / "masks", preprocessing_run=run)
     assert out == {(moved / "images").resolve() / "a.tif": (moved / "masks").resolve() / "a_cells.tif"}
-    write_array(moved / "masks" / "a_cells.tif", np.full((4, 4), 2, np.uint16))
+    write_array(moved / "masks" / "a_cells.tif", np.full((4, 4), 2, np.uint16), axes="YX")
     with pytest.raises(PreprocessingCheckError, match=r"cannot be used: 1 mask changed or missing since the run: a_cells.tif"):
         validate_image_and_mask_folders(moved / "images", moved / "masks", preprocessing_run=run)
 

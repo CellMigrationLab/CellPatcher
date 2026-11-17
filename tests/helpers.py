@@ -364,8 +364,9 @@ def cell_folders(tmp_path, *, empty=("b",)):
     """An image folder with images a, b, c and their masks; the masks of *empty* hold no cell."""
     image, labels, _ = make_synthetic_cell_image_and_labels()
     for name in ("a", "b", "c"):
-        write_array(tmp_path / "images" / f"{name}.tif", image)
-        write_array(tmp_path / "masks" / f"{name}_mask.tif", np.zeros_like(labels) if name in empty else labels)
+        write_array(tmp_path / "images" / f"{name}.tif", image, axes="YX")
+        mask = np.zeros_like(labels) if name in empty else labels
+        write_array(tmp_path / "masks" / f"{name}_mask.tif", mask, axes="YX")
     return tmp_path / "images", tmp_path / "masks"
 
 
@@ -379,7 +380,7 @@ def cell_tree(tmp_path):
         "control/2026_01_01/B03/c.tif": empty,
     }
     for relative, mask in layout.items():
-        write_array(tmp_path / "raw" / relative, image)
+        write_array(tmp_path / "raw" / relative, image, axes="YX")
         mask_path = (tmp_path / "masks" / relative).with_name(f"{relative.rsplit('/', 1)[1][:-4]}_mask.tif")
-        write_array(mask_path, mask)
+        write_array(mask_path, mask, axes="YX")
     return tmp_path / "raw", tmp_path / "masks"

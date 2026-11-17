@@ -48,7 +48,7 @@ def _fake_store(path):
 
 def test_zarr_folders_are_listed_as_images(tmp_path):
     _fake_store(tmp_path / "b.ome.zarr")
-    write_array(tmp_path / "a.tif", np.zeros((4, 4), dtype=np.uint8))
+    write_array(tmp_path / "a.tif", np.zeros((4, 4), dtype=np.uint8), axes="YX")
     (tmp_path / "notes").mkdir()
     assert [p.name for p in list_supported_files(tmp_path)] == ["a.tif", "b.ome.zarr"]
 
@@ -57,7 +57,7 @@ def test_zarr_folders_are_listed_as_images(tmp_path):
 def test_store_stems_match_tiff_masks(tmp_path):
     # A real store pairs with a TIFF mask named after its stem, as the preprocessing run paired it.
     write_ngff(tmp_path / "images" / "a.ome.zarr", np.zeros((4, 4), dtype=np.uint16), "yx")
-    write_array(tmp_path / "masks" / "a_mask.tif", np.zeros((4, 4), dtype=np.uint8))
+    write_array(tmp_path / "masks" / "a_mask.tif", np.zeros((4, 4), dtype=np.uint8), axes="YX")
     run = preprocess(tmp_path / "images", masks=tmp_path / "masks")
     selected = validate_image_and_mask_folders(tmp_path / "images", tmp_path / "masks", preprocessing_run=run)
     assert {k.name: v.name for k, v in selected.items()} == {"a.ome.zarr": "a_mask.tif"}
@@ -111,7 +111,7 @@ def test_tree_run_patches_ome_zarr_and_tiff_images_alike(tmp_path):
     data = np.arange(16 * 16, dtype=np.uint16).reshape(1, 16, 16)
     write_ngff(root / "control" / "a.ome.zarr", data, "zyx")  # Z of length 1 is dropped for "YX"
     # One acquisition has one layout in a described run (preprocessing v0.5.0), so the TIFF is in another.
-    write_array(root / "treated" / "b.tif", data[0])
+    write_array(root / "treated" / "b.tif", data[0], axes="YX")
     config = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=8))
     config.common.extract_arrays = True
 
@@ -133,7 +133,7 @@ def test_cell_mode_matches_tiff_masks_to_stores(tmp_path):
     labels = np.zeros((16, 16), dtype=np.uint16)
     labels[4:9, 4:9] = 1
     write_ngff(images / "control" / "a.ome.zarr", image, "yx")
-    write_array(masks / "control" / "a_mask.tif", labels)
+    write_array(masks / "control" / "a_mask.tif", labels, axes="YX")
     config = CellPatcherConfig(mode="cell")
     config.cell.patch_size = 8
 
@@ -160,7 +160,7 @@ def test_tiff_masks_are_paired_beside_the_stores_own_label_images(tmp_path, labe
     labels[4:9, 4:9] = 1
     store = write_ngff(images / "control" / "a.ome.zarr", np.ones((16, 16), dtype=np.uint16), "yx")
     write_ngff_labels(store, {label_name: labels}, "yx")
-    write_array(masks / "control" / "a_mask.tif", labels)
+    write_array(masks / "control" / "a_mask.tif", labels, axes="YX")
     config = CellPatcherConfig(mode="cell")
     config.cell.patch_size = 8
     config.matching.mask_type = mask_type

@@ -201,8 +201,8 @@ def _mask_run(tmp_path, representation, mask):
     from cellpatcher.io import write_array
 
     images, masks = tmp_path / "images", tmp_path / "masks"
-    write_array(images / "a.tif", (np.arange(mask.size, dtype=np.uint16) + 1).reshape(mask.shape))
-    write_array(masks / "a_mask.tif", mask)
+    write_array(images / "a.tif", (np.arange(mask.size, dtype=np.uint16) + 1).reshape(mask.shape), axes="YX")
+    write_array(masks / "a_mask.tif", mask, axes="YX")
     output = tmp_path / representation
     output.mkdir()
     mapping = mbp.AxisMapping("YX", "YX")

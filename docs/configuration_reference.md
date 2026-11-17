@@ -172,6 +172,8 @@ Controls whether and how patch arrays are written to disk.
 
 `image_metadata["image_type"]` takes the experiment description's values, `"channels"` or `"rgb"`; another value, or one that contradicts `normalization.image_type` when normalizing, is refused. The patch's channel IDs (`channel_ids`, in its C order) are recorded in the TIFF's JSON image description as `"channel_ids"`, beside the `"shape"` tifffile writes there (`tifffile.TiffFile(path).shaped_metadata[0]["channel_ids"]`); `patches.csv` stays the reference. A `.npy` patch holds the pixels only. `read_array`, `iter_exported_patches` and `ExportedPatchTorchDataset` read the same pixels, shape and dtype whatever the photometric.
 
+The public helper `cellpatcher.io.write_array` follows the same rule (issue #131): a TIFF is written as planes (`minisblack`, one page per Y/X image) unless the caller passes `photometric="rgb"`, laid out from the `axes` it is given (required for a TIFF, for example `axes="YX"` or `"CYX"`), never from the shape.
+
 ---
 
 ## Finding images

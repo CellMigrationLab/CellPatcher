@@ -159,8 +159,8 @@ def test_run_patching_pipeline_stamps_image_and_mask_file_before_export(tmp_path
     mask_dir = tmp_path / "masks"
     img_dir.mkdir()
     mask_dir.mkdir()
-    write_array(img_dir / "sample001.tif", image)
-    write_array(mask_dir / "sample001_mask.tif", labels)
+    write_array(img_dir / "sample001.tif", image, axes="YX")
+    write_array(mask_dir / "sample001_mask.tif", labels, axes="YX")
 
     cfg = CellPatcherConfig(mode="cell")
     cfg.cell.patch_size = 24
@@ -187,7 +187,7 @@ def test_run_patching_pipeline_stamps_image_and_mask_file_before_export(tmp_path
 def test_run_patching_pipeline_grid_mode_stamps_image_file_only(tmp_path):
     img_dir = tmp_path / "images"
     img_dir.mkdir()
-    write_array(img_dir / "tile_source.tif", np.ones((16, 16), dtype=np.float32))
+    write_array(img_dir / "tile_source.tif", np.ones((16, 16), dtype=np.float32), axes="YX")
 
     cfg = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=8))
     result = preprocessed_folder(str(img_dir), config=cfg)

@@ -63,7 +63,7 @@ def test_an_exported_run_reads_back_as_its_patches(tmp_path):
 def test_labels_stay_text_in_a_tree_run(tmp_path):
     root = tmp_path / "experiment"
     for relative in ("control/001/wellA/img.tif", "control/001/wellB/img.tif"):
-        write_array(root / relative, np.arange(256, dtype=np.uint16).reshape(16, 16))
+        write_array(root / relative, np.arange(256, dtype=np.uint16).reshape(16, 16), axes="YX")
     config = CellPatcherConfig(mode="grid", grid=GridConfig(tile_size=8), export=ExportConfig(enabled=True))
     config.common.output_dir = str(tmp_path / "out")
     leaves = preprocessed_tree(root, config=config, combine_metadata=True)
