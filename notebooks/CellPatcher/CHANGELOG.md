@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.8.0] - 2026-11-17
+
+### Changed
+- Version updated from 0.7.1 to 0.8.0
+
+**Commit Details:**
+- Hash: [`fe559db0`](https://github.com/CellMigrationLab/CellPatcher/commit/fe559db0b9bdef96621e1a712ca70bc744009f58)
+- Author: guijacquemet
+- Date: 2026-11-17 15:47:45 +0200
+- Message: Merge pull request #134 from CellMigrationLab/claude/release-0.8.0
+
+Release v0.8.0: preprocessing v0.7.0, normalization v0.7.1; #126, #129/#131, #125, #124
+
+---
 ## [0.7.0] - 2026-11-16
 
 ### Changed
