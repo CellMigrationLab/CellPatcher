@@ -17,16 +17,18 @@ setup(
         # checks). Pinned to its tag and raised deliberately; the ``zarr`` extra
         # below adds its OME-Zarr reader at the same tag. v0.6.0 is Spec ADR 0005
         # steps 2 and 2b (resolver contract v3, RunInputs.read_objects, the
-        # conversion helpers); v0.6.1 fixes the checked-fingerprint race.
+        # conversion helpers); v0.6.1 fixes the checked-fingerprint race; v0.7.0
+        # adds RunStoppedError / RunReportUnreadableError for a stopped run (#322).
         "morphobricks-preprocessing @ git+https://github.com/CellMigrationLab/"
-        "morphobricks-preprocessing@v0.6.1",
+        "morphobricks-preprocessing@v0.7.0",
         # CellPatcher imports the normalization brick directly (plane histograms,
         # the plane table, pooling, normalization parameters, SINGLE), so it
         # declares it, at the tag the preprocessing tag above pins (owner
-        # decision D-h; tests/test_dependency_pins.py checks that they agree). v0.7.0 adds
-        # regions.check_region and contracts.refuse_resolver_version (Spec ADR 0005).
+        # decision D-h; tests/test_dependency_pins.py checks that they agree). v0.7.0 added
+        # regions.check_region and contracts.refuse_resolver_version (Spec ADR 0005);
+        # v0.7.1 writes a signed zero as 0.0 (no API or message change).
         "morphobricks-normalization @ git+https://github.com/CellMigrationLab/"
-        "morphobricks-normalization.git@v0.7.0",
+        "morphobricks-normalization.git@v0.7.1",
     ],
     extras_require={
         "test": [
@@ -63,7 +65,7 @@ setup(
         # is a core dependency.
         "zarr": [
             "morphobricks-preprocessing[zarr] @ git+https://github.com/CellMigrationLab/"
-            "morphobricks-preprocessing@v0.6.1",
+            "morphobricks-preprocessing@v0.7.0",
         ],
     },
 )

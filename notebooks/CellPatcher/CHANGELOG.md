@@ -74,6 +74,50 @@ Release v0.3.0
 Pin preprocessing v0.4.0rc4; prepare v0.2.0rc2
 
 ---
+## [Unreleased] - Preprocessing v0.7.0, normalization v0.7.1; a stopped preprocessing run's refusal passed on (#126); D47 documented (#124)
+
+For v0.7.2 or v0.8.0.
+
+### Fixed
+- **#126: a run preprocessing stopped on purpose is refused with preprocessing's own refusal, unchanged, and no
+  advice of CellPatcher's.** On an output folder where preprocessing stopped without writing a run (Spec `v29`: RGB
+  units beside fluorescence units, `R_HETEROGENEOUS_LAYOUT_NOT_ENABLED`), v0.7.1 refused with
+  `preprocessing_run_refused` ("holds no run_manifest.json") and advised running preprocessing again, which stops
+  the same way. Preprocessing v0.7.0's `RunInputs.open` raises `RunStoppedError` there; CellPatcher's
+  `PreprocessingCheckError` (chained `from` it) now holds first an issue with its code `RUN_FOLDER_STOPPED` and
+  its message, exactly, with an empty suggested action, then its `issues` (the stopped run's errors), unchanged and
+  in order (Spec ADR 0005, construction and propagation: no rewording, no code of CellPatcher's around it). A run
+  report preprocessing cannot read (`RunReportUnreadableError`) gives one issue with its code
+  `RUN_FOLDER_REPORT_UNREADABLE` and message, naming the report. CellPatcher reads no `discovery_report.json`. A
+  folder with neither a run nor a stopped run's report says to give a written run or run preprocessing first (no
+  "again"); a written run that is stale (an image changed since, an older manifest) keeps the advice to run
+  preprocessing again, which fixes it. `tests/test_stopped_run.py`. Reworked from draft PR #128.
+
+### Documented
+- **#124: decision D47 is kept and documented** (owner decision of 17 November 2026). In memory (`run_patching`,
+  the object scan, `CellSegmentationStrategy`) an integer cell-mode mask is instance labels used as stored, so a
+  0/1 integer region is one object, however many separate regions it has: an in-memory array carries no
+  representation and its values cannot tell a region from labels, and CellPatcher labels no mask (Spec ADR 0005).
+  `docs/plan.md` §13 records D47 with its reason; `docs/patching_modes.md` and `run_patching`'s docstring warn
+  that a region passed to cell mode gives one large patch and to pass instance labels instead. No behaviour change;
+  `tests/test_cell_strategy.py` pins it through `run_patching`.
+
+### Changed
+- **Dependencies:** pins preprocessing `v0.7.0` (`8865b72`; core and `zarr` extra; was `v0.6.1`) and
+  normalization `v0.7.1` (`fcfaeac`; was `v0.7.0`), the tag preprocessing `v0.7.0` pins (owner decision D-h).
+  Preprocessing v0.7.0 adds `RunStoppedError` and `RunReportUnreadableError` (#322), reports Spec `v29`
+  (`R_HETEROGENEOUS_LAYOUT_NOT_ENABLED`) as the run's single refusal, caps an `unreadable_planes` message at 20
+  planes per image (the report keeps them all) and words its coverage messages by the unit they count: the
+  resolver's `A_SCOPE_INCOMPLETE` says "present in k of n images" (was "acquisitions"), the run's
+  `partial_channel_coverage` warning says "imaging units". Normalization v0.7.1 writes a signed zero `-0.0` as
+  `0.0` (its written text only; no API, schema or message change). No run format changes: runs of preprocessing
+  v0.6.1 are read as they are.
+- CellPatcher's code does not change for them. Four tests that quoted the resolver's old word now quote
+  "images" (`test_cell_mask_request.py`, `test_channel_ids.py`, `test_condition_repeat_tree.py`,
+  `test_ngff_labels.py`), and `docs/configuration_reference.md` quotes the new text. No golden changes: the parity
+  golden `tests/fixtures/v062_parity/digests.json` and `tests/fixtures/shared_labeller/golden.json` pass unchanged
+  (no golden case writes a `-0.0`).
+
 ## [Unreleased] - write_array writes a TIFF as planes, laid out from the axes it is given (#131)
 
 For v0.7.2. Follows #129/#130.

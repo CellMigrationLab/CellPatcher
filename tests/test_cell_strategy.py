@@ -348,3 +348,22 @@ def test_cell_strategy_4d_labels_produces_non_2d_selected_raises():
     s = CellSegmentationStrategy(CellConfig(), mask_axes="TCYX")
     with pytest.raises(ValueError, match="have T planes.*Set common.t_policy"):
         s.generate_regions(image_shape=(5, 5), labels=labels)
+
+
+def test_d47_an_in_memory_region_is_one_object_through_run_patching():
+    # Decision D47, kept by the owner on 17 November 2026 (issue #124; docs/plan.md §13): an in-memory
+    # array carries no representation, so a 0/1 integer region of two separate blobs is instance label 1,
+    # one object, through the public run_patching too: never labelled, never refused.
+    from cellpatcher.config import CellPatcherConfig
+    from cellpatcher.pipeline import run_patching
+
+    region = np.zeros((32, 32), dtype=np.uint8)
+    region[2:8, 2:8] = 1
+    region[20:30, 18:28] = 1
+    config = CellPatcherConfig(mode="cell")
+    config.cell.patch_size = 8
+    config.cell.exclude_border = False
+    result = run_patching(images=np.zeros((32, 32), np.uint16), masks=region, config=config,
+                          image_metadata=[{"position_id": "P"}])
+    assert [patch.label_id for patch in result.patches] == [1]
+    assert result.patches[0].area_px == 36 + 100

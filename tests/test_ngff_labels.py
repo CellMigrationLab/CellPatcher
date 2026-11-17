@@ -110,7 +110,7 @@ def test_every_image_needs_a_label_image_of_the_type(tmp_path):
     _image(tmp_path, labels={"cells": _labels((16, 16), [(1, 2, 2)])})
     write_array(tmp_path / "control" / "b.tif", np.ones((16, 16), dtype=np.uint16), axes="YX")
     # The TIFF has no label image: in cell mode the run's resolver refuses the object set (CP-2).
-    with pytest.raises(PreprocessingCheckError, match="'cells' is present in 1 of 2 acquisitions") as raised:
+    with pytest.raises(PreprocessingCheckError, match="'cells' is present in 1 of 2 images") as raised:
         _tree(tmp_path, _cell_config())
     assert [issue.code for issue in raised.value.issues] == ["A_SCOPE_INCOMPLETE"]
 

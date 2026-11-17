@@ -169,7 +169,11 @@ def open_run(
         ``unrecorded_files`` (images or masks the run did not record),
         ``zarr_extra_missing`` or ``preprocessing_run_refused``, with the brick's
         reason, when ``RunInputs`` refuses the run, or
-        ``unreadable_plane_histograms`` when its table cannot be read.
+        ``unreadable_plane_histograms`` when its table cannot be read. A folder where
+        preprocessing stopped without writing a run (``RunStoppedError``) gives
+        ``RUN_FOLDER_STOPPED`` with preprocessing's message, then the stopped run's own
+        error issues, all unchanged; a report preprocessing cannot read there gives
+        ``RUN_FOLDER_REPORT_UNREADABLE`` (:func:`_refusal_issues`, issue #126).
     """
     from morphobricks_normalization.csv_io import CsvFormatError
     from morphobricks_preprocessing.manifest import ManifestFormatError
@@ -190,7 +194,7 @@ def open_run(
     except (RunInputsError, ManifestFormatError) as exc:
         # ManifestFormatError: a manifest of another version (preprocessing v0.5.1 reads version 4 only,
         # older runs are refused, never converted) or not a manifest at all.
-        raise PreprocessingCheckError([_refusal_issue(exc, folder)]) from exc
+        raise PreprocessingCheckError(_refusal_issues(exc, folder)) from exc
     except CsvFormatError as exc:
         raise PreprocessingCheckError([
             error(
@@ -206,6 +210,37 @@ def open_run(
 
 DESCRIPTION_REQUIRED = "A_DESCRIPTION_REQUIRED"
 """The code of a run without a published experiment description (Spec ADR 0002 AR10, AR11 (1))."""
+
+
+def _refusal_issues(exc: Exception, folder: Path) -> list[ValidationIssue]:
+    """Return the issues for ``RunInputs.open`` refusing the run in *folder*.
+
+    Where preprocessing stopped on purpose without writing a run (Spec ``v29``:
+    ``R_HETEROGENEOUS_LAYOUT_NOT_ENABLED``), ``RunInputs.open`` raises ``RunStoppedError``
+    (``RUN_FOLDER_STOPPED``, preprocessing contract §9.1) with the stopped run's error issues; a
+    report it cannot read is ``RunReportUnreadableError`` (``RUN_FOLDER_REPORT_UNREADABLE``).
+    Both are passed on unchanged (Spec ADR 0005, construction and propagation): the first issue
+    has the error's ``code`` and ``str()`` as its code and message, with no prefix, suffix or
+    advice of CellPatcher's (an empty action), followed for a stopped run by its ``issues``,
+    unchanged and in order. CellPatcher's own advice to run preprocessing again would loop there
+    (issue #126), so it adds none, and it never reads the run report itself.
+    """
+    from morphobricks_preprocessing import MANIFEST_FILENAME, RunReportUnreadableError, RunStoppedError
+    from morphobricks_preprocessing.validation import error
+
+    if isinstance(exc, RunStoppedError):
+        return [error(exc.code, str(exc), [str(folder)]), *exc.issues]
+    if isinstance(exc, RunReportUnreadableError):
+        return [error(exc.code, str(exc), [str(exc.path)])]
+    if not (folder / MANIFEST_FILENAME).exists():  # no run written there, and no stopped run's report
+        return [error(
+            "preprocessing_run_refused",
+            f"The preprocessing run in {folder} cannot be used: {exc}",
+            [str(folder)],
+            "Give CellPatcher the output folder of a preprocessing run that was written (it holds "
+            "run_manifest.json), or run preprocessing on the experiment first.",
+        )]
+    return [_refusal_issue(exc, folder)]  # a written run: stale, older or changed since
 
 
 def _refusal_issue(exc: Exception, folder: Path) -> ValidationIssue:

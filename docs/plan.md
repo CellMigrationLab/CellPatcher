@@ -661,3 +661,22 @@ Reviewed in October 2026.
     `Normalization_Scale_C<i>` pair per channel; earlier tables are still read on load (N47).
 15. **[D15] Filters.** *Decided:* keep filters on raw values.
 16. **[D16] Changed images.** *Decided:* block the run.
+
+Decision recorded later, kept here with its reason:
+
+- **[D47] An in-memory integer mask is instance labels, used as stored** (owner decision of
+  2026-10-26; *kept* by the owner on 17 November 2026, issue #124). In memory (`run_patching`,
+  the object scan, `CellSegmentationStrategy`) a cell-mode mask is a plain integer NumPy array
+  whose every non-zero value is one object, so a 0/1 or 0/255 integer mask is **one** object
+  (label 1 or 255), however many separate regions it has. *Why it is kept:* an in-memory array
+  carries no representation, and its pixels cannot prove instance semantics (Spec ADR 0005, P05:
+  a 0/1 `instances` mask is valid), so CellPatcher has nothing to tell a region from a one-object
+  label image by; guessing from the values would label some masks silently, which ADR 0005 BM2/BM4
+  forbid (CellPatcher labels no mask). The representation is declared where it exists: in a
+  described file run, a mask declared `binary` is refused as objects (`A_MASK_NOT_INSTANCES`)
+  unless the request sets `binary_mask_policy` explicitly. A boolean or float array is still
+  refused in memory (`A_MASK_NOT_INSTANCES`). *Consequence, documented for users:* a region (for
+  example a tissue mask) passed in memory to cell mode becomes one large "cell"; pass instance
+  labels instead (preprocessing's `label_binary` in memory, or its recorded
+  `binary_to_instances` conversion). The rejected alternative was a `representation=` argument on every in-memory call (a breaking API
+  change). `tests/test_cell_strategy.py` pins the behaviour through `run_patching`.

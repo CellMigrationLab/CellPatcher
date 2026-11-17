@@ -39,6 +39,14 @@ In memory (`run_patching`, the object scan and `CellSegmentationStrategy` called
 integer NumPy array, used as stored: a boolean, float or other array, a list or None is `A_MASK_NOT_INSTANCES`, and
 `binary_mask_policy` is refused. Labels above the int32 maximum are refused.
 
+> **An in-memory 0/1 mask is one object (decision D47, kept on 17 November 2026, issue #124).** An array in
+> memory carries no representation, and its values cannot tell a region from instance labels, so CellPatcher
+> takes every integer array as instance labels and never labels it: a 0/1 or 0/255 integer mask is **one**
+> object, however many separate regions it has. A region such as a tissue mask passed to cell mode therefore
+> gives one large patch, without a refusal. Pass instance labels (preprocessing's `label_binary` in memory, or its recorded
+> `binary_to_instances` conversion), or use a described file run, where a mask declared `binary` is refused as
+> objects unless `binary_mask_policy` is set. See `docs/plan.md` §13, D47.
+
 Key parameters to know:
 
 - `patch_size`
@@ -64,7 +72,7 @@ Notes:
 Common pitfalls:
 
 - Wrong `image_axes` / `mask_axes`.
-- Passing a binary mask: give instance labels in memory; in a file run declare it `binary` and set `binary_mask_policy="connected_components"` (whose computed labels are not the mask's values).
+- Passing a binary mask: give instance labels in memory (a 0/1 integer array is one object, D47); in a file run declare it `binary` and set `binary_mask_policy="connected_components"` (whose computed labels are not the mask's values).
 - Picking a global patch size without scanning first.
 - Expecting border-touching objects when `exclude_border=True` (default): it skips objects whose *bounding boxes* touch the image border, not patches.
 
