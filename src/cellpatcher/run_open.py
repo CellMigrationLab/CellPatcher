@@ -359,6 +359,37 @@ IMAGE_TYPES = {"channels": "fluorescence", "rgb": "rgb"}
 channel image (``channels``) is normalized per channel (``fluorescence``), an ``rgb`` unit as RGB."""
 
 
+def image_type_of(declared: str | None, settings: NormalizationConfig, index: int) -> str | None:
+    """Return the image type of in-memory image *index*: ``"channels"``, ``"rgb"`` or None (issue #129).
+
+    *declared* is its ``image_metadata["image_type"]`` (a file run passes its ``Fov.image_type``, the
+    description's); with normalization, *settings*' ``image_type`` declares it too (``"rgb"``, or
+    ``"fluorescence"`` for ``"channels"``). Never guessed from the image's shape: it only decides how
+    an exported TIFF patch is written, RGB for ``"rgb"`` and planes otherwise
+    (:func:`cellpatcher.export.tiff_layout`).
+
+    Raises
+    ------
+    ValueError
+        For another value than ``"channels"``/``"rgb"``, or one that contradicts ``normalization.image_type``.
+    """
+    if declared is not None and declared not in IMAGE_TYPES:
+        raise ValueError(
+            f"image_metadata gives image_type={declared!r} for image {index}; it is one of "
+            f"{sorted(IMAGE_TYPES)} (the image types of the experiment description), or not given."
+        )
+    if not settings.enabled:
+        return declared
+    setting = "rgb" if settings.image_type == "rgb" else "channels"
+    if declared is not None and declared != setting:
+        raise ValueError(
+            f"image_metadata gives image_type={declared!r} for image {index}, but "
+            f"normalization.image_type={settings.image_type!r} normalizes it as {IMAGE_TYPES[setting]!r}; "
+            "give the image type the image is, in both."
+        )
+    return setting
+
+
 def declared_image_type(fov: Fov) -> str:
     """Return the ``normalization.image_type`` of *fov*'s declared image type (``Fov.image_type``).
 

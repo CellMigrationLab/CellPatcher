@@ -74,6 +74,47 @@ Release v0.3.0
 Pin preprocessing v0.4.0rc4; prepare v0.2.0rc2
 
 ---
+## [Unreleased] - TIFF patches written as planes, RGB only for an rgb unit (#129)
+
+For v0.7.2. Found by the G4 adversarial suite (MorphoFeature draft PR #240, row A09) on `aca2c6c`.
+
+### Fixed
+- **#129: a TIFF patch is written with an explicit photometric, never tifffile's guess from its shape.**
+  `save_patch_array` called `tifffile.imwrite` without `photometric`, so a 3-channel fluorescence patch (`CYX`,
+  DNA/ACTIN/PHASE) was written as an RGB image (axes `SYX`), a 4-channel one as RGBA, and any patch 3 or 4 pixels
+  wide along its last axis as RGB; tifffile also warned (`DeprecationWarning`) that this default will change. A
+  reader that trusts the TIFF tags took the channels for colour samples. Every patch is now written as planes
+  (`photometric="minisblack"`), and as RGB only a patch of an `rgb` unit holding its three channels (`CYX` with
+  separate planes, `YXC` contiguous), judged by the image type the run declares: a file run's `Fov.image_type`
+  (the experiment description, through `RunInputs`), in memory `image_metadata["image_type"]` (`"channels"` or
+  `"rgb"`, the description's values) or `normalization.image_type="rgb"`. An `rgb` patch with another number of
+  channels or its C axis elsewhere is refused before any file is written; another `image_type` value, or one that
+  contradicts `normalization.image_type`, is refused. The new non-column field `PatchRegion.image_type` carries it
+  to the export (`patches.csv` is unchanged). `save_patch_array` takes `photometric`, `planarconfig` and
+  `channel_ids` (keyword-only; the default writes planes), and `cellpatcher.export.tiff_layout` gives a patch's.
+  `tests/test_tiff_photometric.py` (1 to 4 fluorescence channels, RGB `CYX`/`YXC`, the refusals, Spec v07 and v28
+  file runs, no `DeprecationWarning`).
+- **Review of #129: a planes patch with an axis after X (`YXC`, `ZYXC`) is one page per Y/X image.** tifffile pages
+  an array by its last two axes, so a `YXC` fluorescence patch written as plain `minisblack` became Y pages of X by
+  C strips; it is now written `planarconfig="contig"` (one Y/X page, the channels its samples), chosen from the
+  patch's `output_axes`, never its shape. Pixels, shape and dtype read back are unchanged.
+
+### Changed
+- **Outputs:** a TIFF patch records its `channel_ids` (its C order) in its JSON image description as
+  `"channel_ids"`, beside the `"shape"` tifffile already wrote there (`TiffFile.shaped_metadata`); a patch without
+  channel IDs has none. A patch of 3 or 4 channels that is not of an `rgb` unit, and a patch 3 or 4 pixels wide
+  along its last axis, change from one RGB(A) page to one page per plane: photometric, samples per pixel, planar
+  configuration and page count change with it, not the pixels. Every other TIFF patch (1 or 2 channels, `rgb`
+  units) changes in its image description only. Pixels, shape and dtype read back by `read_array`,
+  `iter_exported_patches` and `ExportedPatchTorchDataset` are byte-identical; `patches.csv`, `images.csv`,
+  `positions.csv` and `.npy` patches are unchanged. The parity golden `tests/fixtures/v062_parity/digests.json`
+  is unchanged (it digests pixels, dtype and shape, and its cases have 2-channel patches only). Compared with
+  `aca2c6c` on its 25 cases (736 TIFF patches) plus Spec v28 grid, whole-FOV and random runs (192 RGB patches,
+  which `aca2c6c` wrote as RGB by the guess): every CSV identical, every pixel identical, and the image description
+  the only tag that changed.
+- `tests/test_patch_geometry.py` expects `image_type` as the last `PatchRegion` field; `tests/test_position_table.py`'s
+  stand-in `Fov` has an `image_type`. `tools/code_rules_baseline.json` shrinks (the typed `save_patch_array`).
+
 ## [Unreleased] - Channel IDs on every patch (#125)
 
 For v0.7.2. Found by the S3.4 adversarial suite (MorphoFeature draft PR #240, gate G3).

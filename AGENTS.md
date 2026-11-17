@@ -420,7 +420,13 @@ Two ways to point CellPatcher at input data:
   shape) and `output_axes` (the array's axes; the files carry none).
   Documented in `docs/configuration_reference.md`.
 - Optionally, exported patch arrays as `.npy` or `.tif`/`.tiff` files
-  (`save_patch_array`), named by each row's `patch_file` column. With
+  (`save_patch_array`), named by each row's `patch_file` column. A TIFF
+  patch is written with an explicit photometric (issue #129): planes
+  (`minisblack`, one page per channel) for every patch, RGB only for a patch
+  of an `rgb` unit (the image type the run declares, `Fov.image_type`, or in
+  memory `image_metadata["image_type"]`/`normalization.image_type="rgb"`;
+  never guessed from the shape), and its `channel_ids` in the JSON image
+  description (`"channel_ids"`, beside tifffile's `"shape"`). With
   normalization they are float32 normalized values, or with
   `normalization.export_values="raw"` the raw values (source dtype, float32
   when resized or masked) to be normalized on load with the row's
