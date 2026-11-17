@@ -70,13 +70,29 @@ def test_a_patch_of_no_declared_type_is_written_as_planes_whatever_its_shape(tmp
     # tifffile's guess took a last axis of 3 or 4 as colour samples, so a 2-channel patch 3 pixels wide
     # became an RGB image of 2 pages; a YX patch has no channel IDs to record.
     for name, array, axes in (("narrow", np.arange(48, dtype=np.uint16).reshape(2, 8, 3), "CYX"),
-                              ("yxc", np.arange(192, dtype=np.uint8).reshape(8, 8, 3), "YXC"),
                               ("plane", np.arange(64, dtype=np.float32).reshape(8, 8), "YX")):
         path = _export_one(tmp_path, _patch(name, axes), array)
         photometric, _, samples, shape, metadata = _tags(path)
         assert (photometric, samples, shape) == ("MINISBLACK", 1, array.shape), name
         assert "channel_ids" not in metadata
         assert read_array(path).tobytes() == array.tobytes()
+
+
+@pytest.mark.parametrize(("axes", "shape", "image_type"), [
+    ("YXC", (8, 8, 3), None), ("YXC", (8, 8, 4), "channels"), ("ZYXC", (2, 8, 8, 3), None),
+    ("YXZ", (8, 8, 5), "rgb"),  # a split channel of an rgb unit, its Z axis kept last
+])
+def test_a_patch_with_an_axis_after_x_is_one_page_per_yx_image(tmp_path, axes, shape, image_type):
+    # Review of #129: tifffile pages an array by its last two axes, so a YXC fluorescence patch written as
+    # plain minisblack became Y pages of X-by-C strips; each page is now one Y/X image, the last axis its samples.
+    array = np.arange(int(np.prod(shape)), dtype=np.uint16).reshape(shape)
+    path = _export_one(tmp_path, _patch("p", axes, None, image_type), array)
+    photometric, pages, samples, series, _ = _tags(path)
+    assert (photometric, pages, samples, series) == ("MINISBLACK", int(np.prod(shape[:-3])), shape[-1], shape)
+    with tifffile.TiffFile(path) as tif:
+        assert tif.pages[0].shape == shape[-3:]  # Y, X, samples
+    back = read_array(path)
+    assert back.dtype == array.dtype and back.shape == array.shape and back.tobytes() == array.tobytes()
 
 
 @pytest.mark.parametrize(("axes", "planarconfig"), [("CYX", "SEPARATE"), ("YXC", "CONTIG")])

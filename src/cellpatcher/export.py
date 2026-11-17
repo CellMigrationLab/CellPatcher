@@ -155,7 +155,8 @@ def save_patch_array(
     """Write one patch array as ``.npy`` or ``.tif``/``.tiff`` (issue #129).
 
     A TIFF patch is written with an explicit *photometric*: ``"minisblack"`` (the default: every
-    channel is a plane of its own) or ``"rgb"`` (the three channels are R, G and B samples, with
+    channel is a plane of its own, or with *planarconfig* ``"contig"`` a sample of one Y/X page)
+    or ``"rgb"`` (the three channels are R, G and B samples, with
     *planarconfig* ``"separate"`` for a ``...CYX`` array or ``"contig"`` for a ``...YXC`` one), never
     tifffile's guess from the shape, which made any array with 3 or 4 along its first or last axis an
     RGB image. *channel_ids* (the patch's ``channel_ids``, in its C order) are recorded in the TIFF's
@@ -183,13 +184,27 @@ def save_patch_array(
     tifffile.imwrite(str(out), np.asarray(array), photometric=photometric, planarconfig=planarconfig, metadata=metadata)
 
 
+def _planes_layout(axes: str | None, ndim: int) -> tuple[str, str | None]:
+    """Return the planes layout of an array with *axes*: one page per Y/X image (review of #129).
+
+    tifffile makes a page of the array's last two axes, so a ``...YX`` array is written as is
+    (``planarconfig`` None), while an array with one axis after X (``YXC``, ``ZYXC``) is written
+    ``"contig"``: each page is one Y/X image and that last axis its samples, not Y pages of X by C
+    strips. Without axes recorded, as tifffile's last two axes.
+    """
+    if axes is not None and len(axes) == ndim and axes[-3:-1] == "YX":
+        return "minisblack", "contig"
+    return "minisblack", None
+
+
 def tiff_layout(patch: PatchRegion, array: np.ndarray) -> tuple[str, str | None]:
     """Return the ``(photometric, planarconfig)`` a TIFF of *patch*'s *array* is written with (issue #129).
 
     RGB only for a patch of an ``rgb`` unit (``patch.image_type``, the type the run declares; never
     judged from the array's shape) that holds its three channels (``"C"`` in ``patch.output_axes``),
     ``"separate"`` when C comes just before Y and X, ``"contig"`` when it is last; every other patch,
-    and one channel plane of an ``rgb`` unit, as planes (``"minisblack"``).
+    and one channel plane of an ``rgb`` unit, as planes (``"minisblack"``, one page per Y/X image:
+    :func:`_planes_layout`).
 
     Raises
     ------
@@ -197,17 +212,17 @@ def tiff_layout(patch: PatchRegion, array: np.ndarray) -> tuple[str, str | None]
         For a patch of an ``rgb`` unit whose array has no axes recorded, another number of channels
         than 3, or its C axis elsewhere: it is not written as anything else.
     """
-    if patch.image_type != "rgb":
-        return "minisblack", None
     axes = patch.output_axes
     shape = np.shape(array)
+    if patch.image_type != "rgb":
+        return _planes_layout(axes, len(shape))
     if axes is None or len(axes) != len(shape):
         raise ValueError(
             f"Patch {patch.patch_id} is of an rgb unit, but its array of shape {shape} has no axes recorded "
             f"(output_axes={axes!r}), so its R, G and B channels cannot be told apart."
         )
     if "C" not in axes:
-        return "minisblack", None
+        return _planes_layout(axes, len(shape))
     if shape[axes.index("C")] != 3:
         raise ValueError(
             f"Patch {patch.patch_id} is of an rgb unit, but holds {shape[axes.index('C')]} channels, not 3."

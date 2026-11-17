@@ -94,6 +94,10 @@ For v0.7.2. Found by the G4 adversarial suite (MorphoFeature draft PR #240, row 
   `channel_ids` (keyword-only; the default writes planes), and `cellpatcher.export.tiff_layout` gives a patch's.
   `tests/test_tiff_photometric.py` (1 to 4 fluorescence channels, RGB `CYX`/`YXC`, the refusals, Spec v07 and v28
   file runs, no `DeprecationWarning`).
+- **Review of #129: a planes patch with an axis after X (`YXC`, `ZYXC`) is one page per Y/X image.** tifffile pages
+  an array by its last two axes, so a `YXC` fluorescence patch written as plain `minisblack` became Y pages of X by
+  C strips; it is now written `planarconfig="contig"` (one Y/X page, the channels its samples), chosen from the
+  patch's `output_axes`, never its shape. Pixels, shape and dtype read back are unchanged.
 
 ### Changed
 - **Outputs:** a TIFF patch records its `channel_ids` (its C order) in its JSON image description as
