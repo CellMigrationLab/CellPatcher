@@ -4,6 +4,31 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.8.1] - 2026-11-19
+
+### Changed
+- Version updated from 0.8.0 to 0.8.1
+- Dependencies: `morphobricks-preprocessing` moves from `v0.7.0` to `v0.8.0` (core dependency and
+  the `zarr` extra); `morphobricks-normalization` stays at `v0.7.1`, the tag preprocessing `v0.8.0`
+  pins. Pin-only release: no CellPatcher code change, and the run folders, `patches.csv` and
+  `run_config.json` keep their formats (preprocessing `v0.8.0` has no format change). Which planes
+  can be read changes through preprocessing (below).
+- What preprocessing `v0.8.0` changes for CellPatcher users: `imagecodecs` becomes a required
+  dependency and is installed with CellPatcher. CellPatcher reads every image through
+  `RunInputs.read_plane`, which now checks the memory of reading all of a plane's channels before
+  any pixel is read (preprocessing #344) and refuses with `PlaneMemoryError` over preprocessing's memory limit
+  (default 1 GiB): the largest **compressed** plane accepted drops to about two thirds (RGB `uint8`
+  deflate tiles), so a plane that read under v0.7.0 can now be refused; the largest
+  **uncompressed** contiguous plane grows (RGB `uint8` about 146 to 170 MiB per channel). The
+  bounded readers decode only TIFF codecs with a measured memory bound (uncompressed, deflate, LZMA,
+  and now also LZW and 8-bit JPEG in the measured form, which v0.7.0 could not read this way); at
+  any plane size, a TIFF stored with another codec or predictor
+  (for example PackBits, Zstandard, WebP, JPEG 2000, the floating-point predictor) is refused from
+  its header with `compression_not_bounded`, naming the fix (save it again uncompressed, deflate,
+  LZW or LZMA, or as OME-Zarr). Nothing falls back to another decoder.
+- Reason: the MorphoBricks bricks must all pin the same core tags (pip refuses two URLs for one package).
+
+---
 ## [0.8.0] - 2026-11-17
 
 ### Changed
