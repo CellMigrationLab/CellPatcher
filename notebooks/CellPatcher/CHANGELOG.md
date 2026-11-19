@@ -16,7 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - What preprocessing `v0.8.0` changes for CellPatcher users: `imagecodecs` becomes a required
   dependency and is installed with CellPatcher. CellPatcher reads every image through
   `RunInputs.read_plane`, which now checks the memory of reading all of a plane's channels before
-  any pixel is read (preprocessing #344) and refuses with `PlaneMemoryError` over the run's limit
+  any pixel is read (preprocessing #344) and refuses with `PlaneMemoryError` over preprocessing's memory limit
   (default 1 GiB): the largest **compressed** plane accepted drops to about two thirds (RGB `uint8`
   deflate tiles), so a plane that read under v0.7.0 can now be refused; the largest
   **uncompressed** contiguous plane grows (RGB `uint8` about 146 to 170 MiB per channel). The
