@@ -2,7 +2,7 @@ from setuptools import find_packages, setup
 
 setup(
     name="cellpatcher",
-    version="0.8.0",
+    version="0.8.1",
     package_dir={"": "src"},
     packages=find_packages(where="src"),
     python_requires=">=3.11",
@@ -18,9 +18,11 @@ setup(
         # below adds its OME-Zarr reader at the same tag. v0.6.0 is Spec ADR 0005
         # steps 2 and 2b (resolver contract v3, RunInputs.read_objects, the
         # conversion helpers); v0.6.1 fixes the checked-fingerprint race; v0.7.0
-        # adds RunStoppedError / RunReportUnreadableError for a stopped run (#322).
+        # adds RunStoppedError / RunReportUnreadableError for a stopped run (#322); v0.8.0
+        # reads large tiled images by window, makes imagecodecs a required dependency (installed
+        # with it) and refuses TIFF codecs without a measured memory bound (no format change).
         "morphobricks-preprocessing @ git+https://github.com/CellMigrationLab/"
-        "morphobricks-preprocessing@v0.7.0",
+        "morphobricks-preprocessing@v0.8.0",
         # CellPatcher imports the normalization brick directly (plane histograms,
         # the plane table, pooling, normalization parameters, SINGLE), so it
         # declares it, at the tag the preprocessing tag above pins (owner
@@ -65,7 +67,7 @@ setup(
         # is a core dependency.
         "zarr": [
             "morphobricks-preprocessing[zarr] @ git+https://github.com/CellMigrationLab/"
-            "morphobricks-preprocessing@v0.7.0",
+            "morphobricks-preprocessing@v0.8.0",
         ],
     },
 )

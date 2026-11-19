@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.8.1] - 2026-11-19
+
+### Changed
+- Version updated from 0.8.0 to 0.8.1
+- Dependencies: `morphobricks-preprocessing` moves from `v0.7.0` to `v0.8.0` (core dependency and
+  the `zarr` extra); `morphobricks-normalization` stays at `v0.7.1`, the tag preprocessing `v0.8.0`
+  pins. Pin-only release: no CellPatcher code, behaviour or output changes, and the run folders,
+  `patches.csv` and `run_config.json` keep their formats (preprocessing `v0.8.0` has no format change).
+- What preprocessing `v0.8.0` changes for CellPatcher users: `imagecodecs` becomes a required
+  dependency and is installed with CellPatcher. Large tiled images are read by exact windows, and
+  the bounded readers decode only TIFF codecs with a measured memory bound (uncompressed, deflate,
+  LZMA, LZW, and 8-bit JPEG in the measured form); a TIFF stored with another codec or predictor
+  (for example PackBits, Zstandard, WebP, JPEG 2000, the floating-point predictor) is refused from
+  its header with `compression_not_bounded`, naming the fix (save it again uncompressed, deflate,
+  LZW or LZMA, or as OME-Zarr). Nothing falls back to another decoder.
+- Reason: the MorphoBricks bricks must all pin the same core tags (pip refuses two URLs for one package).
+
+---
 ## [0.8.0] - 2026-11-17
 
 ### Changed
