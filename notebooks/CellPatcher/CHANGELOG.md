@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased]
+
+### Changed
+- Dependencies: `morphobricks-normalization` moves from `v0.7.1` to `v0.8.0` (additive:
+  `time_series` and an underflow fix). The preprocessing pin follows the next preprocessing
+  release tag, the one that requires normalization `v0.8.0`.
+
+---
 ## [0.8.1] - 2026-11-19
 
 ### Changed

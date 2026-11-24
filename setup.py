@@ -21,6 +21,10 @@ setup(
         # adds RunStoppedError / RunReportUnreadableError for a stopped run (#322); v0.8.0
         # reads large tiled images by window, makes imagecodecs a required dependency (installed
         # with it) and refuses TIFF codecs without a measured memory bound (no format change).
+        # TODO: preprocessing v0.8.0 still requires normalization v0.7.1, so a full install cannot
+        # resolve against the normalization pin below. Move this pin (and the zarr extra's) to the
+        # next preprocessing release tag, the one that requires normalization v0.8.0, in this PR
+        # before merge.
         "morphobricks-preprocessing @ git+https://github.com/CellMigrationLab/"
         "morphobricks-preprocessing@v0.8.0",
         # CellPatcher imports the normalization brick directly (plane histograms,
@@ -28,9 +32,10 @@ setup(
         # declares it, at the tag the preprocessing tag above pins (owner
         # decision D-h; tests/test_dependency_pins.py checks that they agree). v0.7.0 added
         # regions.check_region and contracts.refuse_resolver_version (Spec ADR 0005);
-        # v0.7.1 writes a signed zero as 0.0 (no API or message change).
+        # v0.7.1 writes a signed zero as 0.0 (no API or message change); v0.8.0 is additive:
+        # time_series, plus an underflow fix.
         "morphobricks-normalization @ git+https://github.com/CellMigrationLab/"
-        "morphobricks-normalization.git@v0.7.1",
+        "morphobricks-normalization.git@v0.8.0",
     ],
     extras_require={
         "test": [
