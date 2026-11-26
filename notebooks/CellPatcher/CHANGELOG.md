@@ -9,8 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Changed
 - Dependencies: `morphobricks-normalization` moves from `v0.7.1` to `v0.8.0` (additive:
   `time_series` and an underflow fix), and `morphobricks-preprocessing` from `v0.8.0` to `v0.9.0`,
-  the release that requires normalization `v0.8.0` (pinned to its release commit `3a1b073` until
-  the tag exists; swapped for `v0.9.0` before merge).
+  the release that requires normalization `v0.8.0`.
 
 ---
 ## [0.8.1] - 2026-11-19

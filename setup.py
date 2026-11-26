@@ -21,13 +21,9 @@ setup(
         # adds RunStoppedError / RunReportUnreadableError for a stopped run (#322); v0.8.0
         # reads large tiled images by window, makes imagecodecs a required dependency (installed
         # with it) and refuses TIFF codecs without a measured memory bound (no format change).
-        # TODO(before merge): swap preprocessing @3a1b073f85ce0fb40180575f996af07329ecae76 for
-        # @v0.9.0 once tagged, here and in the zarr extra below. 3a1b073 is the v0.9.0 release
-        # commit (preprocessing PR #509), which requires normalization v0.8.0; the tag v0.8.0
-        # still requires v0.7.1. tests/test_dependency_pins.py
-        # ::test_preprocessing_is_pinned_to_a_release_tag_not_a_commit fails until the swap.
+        # v0.9.0 requires normalization v0.8.0 (the tag v0.8.0 of preprocessing still requires v0.7.1).
         "morphobricks-preprocessing @ git+https://github.com/CellMigrationLab/"
-        "morphobricks-preprocessing@3a1b073f85ce0fb40180575f996af07329ecae76",
+        "morphobricks-preprocessing@v0.9.0",
         # CellPatcher imports the normalization brick directly (plane histograms,
         # the plane table, pooling, normalization parameters, SINGLE), so it
         # declares it, at the tag the preprocessing tag above pins (owner
@@ -72,9 +68,8 @@ setup(
         # name of this extra, ``preprocessing``, is gone: the preprocessing brick
         # is a core dependency.
         "zarr": [
-            # TODO(before merge): @v0.9.0 once tagged (see the core pin above).
             "morphobricks-preprocessing[zarr] @ git+https://github.com/CellMigrationLab/"
-            "morphobricks-preprocessing@3a1b073f85ce0fb40180575f996af07329ecae76",
+            "morphobricks-preprocessing@v0.9.0",
         ],
     },
 )
