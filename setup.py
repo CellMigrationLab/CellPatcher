@@ -2,7 +2,7 @@ from setuptools import find_packages, setup
 
 setup(
     name="cellpatcher",
-    version="0.9.0",
+    version="0.9.1",
     package_dir={"": "src"},
     packages=find_packages(where="src"),
     python_requires=">=3.11",
@@ -22,8 +22,10 @@ setup(
         # reads large tiled images by window, makes imagecodecs a required dependency (installed
         # with it) and refuses TIFF codecs without a measured memory bound (no format change).
         # v0.9.0 requires normalization v0.8.0 (the tag v0.8.0 of preprocessing still requires v0.7.1).
+        # v0.9.1 is a patch release (Cellpose and Register fixes in its notebooks, no format change);
+        # it pins normalization v0.8.0, as v0.9.0 does.
         "morphobricks-preprocessing @ git+https://github.com/CellMigrationLab/"
-        "morphobricks-preprocessing@v0.9.0",
+        "morphobricks-preprocessing@v0.9.1",
         # CellPatcher imports the normalization brick directly (plane histograms,
         # the plane table, pooling, normalization parameters, SINGLE), so it
         # declares it, at the tag the preprocessing tag above pins (owner
@@ -69,7 +71,7 @@ setup(
         # is a core dependency.
         "zarr": [
             "morphobricks-preprocessing[zarr] @ git+https://github.com/CellMigrationLab/"
-            "morphobricks-preprocessing@v0.9.0",
+            "morphobricks-preprocessing@v0.9.1",
         ],
     },
 )
