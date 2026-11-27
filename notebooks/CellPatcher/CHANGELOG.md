@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.9.1] - 2026-11-27
+
+### Changed
+- Version updated from 0.9.0 to 0.9.1
+- Dependencies: `morphobricks-preprocessing` moves from `v0.9.0` to `v0.9.1`, a patch release. Only the
+  pin moves: `morphobricks-normalization` stays at `v0.8.0` (the tag preprocessing `v0.9.1` pins), and
+  no CellPatcher code changes.
+- What preprocessing `v0.9.1` changes for CellPatcher users: nothing in the run folder or in how
+  CellPatcher reads it. The manifest, the CSV schema and the description are unchanged, and
+  `RunInputs.open` (and so `read_plane`, `read_mask` and `read_objects`) keeps its signature,
+  checks and results; it now only reports its progress to the preprocessing notebooks and can reuse
+  a content SHA-256 within one notebook press. In preprocessing's own mask scan, `piece_counts`
+  is faster with byte-identical results, and a mask plane with no pixels is now refused
+  (`mask_without_pixels`) when a run is made; both affect the run you create with the preprocessing
+  notebook, not what CellPatcher reads from it. The rest of the release (Cellpose weights on first
+  use, Register the masks, folder reads on a button press) concerns the preprocessing notebooks only.
+
+---
 ## [0.9.0] - 2026-11-26
 
 ### Changed
