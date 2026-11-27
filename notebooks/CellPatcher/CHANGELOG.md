@@ -8,6 +8,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 - Version updated from 0.9.0 to 0.9.1
+
+**Commit Details:**
+- Hash: [`fa79a550`](https://github.com/CellMigrationLab/CellPatcher/commit/fa79a550047a9530929abf3c8c695b8d5c3f5d09)
+- Author: guijacquemet
+- Date: 2026-11-28 00:43:08 +0200
+- Message: Merge pull request #138 from CellMigrationLab/claude/pin-preprocessing-0.9.1
+
+Release v0.9.1: preprocessing v0.9.1 (pin only)
+
+---
+## [0.9.1] - 2026-11-27
+
+### Changed
+- Version updated from 0.9.0 to 0.9.1
 - Dependencies: `morphobricks-preprocessing` moves from `v0.9.0` to `v0.9.1`, a patch release. Only the
   pin moves: `morphobricks-normalization` stays at `v0.8.0` (the tag preprocessing `v0.9.1` pins), and
   no CellPatcher code changes.
